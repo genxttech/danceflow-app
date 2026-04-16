@@ -1,0 +1,64 @@
+@import "tailwindcss";
+
+:root {
+  --brand-primary: #5b145e;
+  --brand-primary-dark: #431046;
+  --brand-primary-soft: #f6edf7;
+
+  --brand-accent: #d88a2d;
+  --brand-accent-dark: #b86f18;
+  --brand-accent-soft: #f7e2c4;
+
+  --brand-surface: #fff9f3;
+  --brand-border: #ead9cb;
+  --brand-text: #2b1b2a;
+  --brand-muted: #6f5b6b;
+}
+
+html {
+  background: var(--brand-surface);
+}
+
+body {
+  background: var(--brand-surface);
+  color: var(--brand-text);
+}
+
+::selection {
+  background: rgba(91, 20, 94, 0.18);
+  color: var(--brand-text);
+}
+
+.brand-page-bg {
+  background: var(--brand-surface);
+}
+
+.brand-sidebar {
+  background: linear-gradient(180deg, #5b145e 0%, #431046 100%);
+  color: white;
+}
+
+.brand-button-primary {
+  background: linear-gradient(135deg, #5b145e 0%, #431046 100%);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.brand-button-primary:hover {
+  filter: brightness(1.04);
+}
+
+.brand-nav-active {
+  background: rgba(255, 255, 255, 0.14);
+  color: white;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.brand-nav-idle {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.brand-nav-idle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: white;
+}
