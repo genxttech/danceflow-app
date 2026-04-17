@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import {
-  startEventRegistrationSignInAction,
-} from "./actions";
+import { createEventRegistrationAction } from "./actions";
 import RegistrationForm from "./RegistrationForm";
 
 type Params = Promise<{

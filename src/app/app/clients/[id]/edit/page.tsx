@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import EditClientForm from "./EditClientForm";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 
 type Params = Promise<{
   id: string;
@@ -45,7 +46,7 @@ export default async function EditClientPage({
     redirect("/login");
   }
 
-  import { getCurrentStudioContext } from "@/lib/auth/studio";
+  
 
 const context = await getCurrentStudioContext();
 const studioId = context.studioId;
