@@ -1,6 +1,11 @@
 import { loginAction } from "../actions";
 
 export default function LoginPage() {
+  async function submitLogin(formData: FormData) {
+    "use server";
+    await loginAction(formData);
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-12">
       <div className="mx-auto max-w-md rounded-2xl bg-white p-8 shadow-sm">
@@ -9,7 +14,7 @@ export default function LoginPage() {
           Access your studio dashboard.
         </p>
 
-        <form action={loginAction} className="mt-6 space-y-4">
+        <form action={submitLogin} className="mt-6 space-y-4">
           <div>
             <label htmlFor="email" className="mb-1 block text-sm font-medium">
               Email

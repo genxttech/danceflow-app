@@ -2,6 +2,7 @@ import AppointmentCreateForm from "./AppointmentCreateForm";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 
+
 type SearchParams = Promise<{
   clientId?: string;
 }>;
@@ -192,13 +193,12 @@ export default async function NewAppointmentPage({
       </div>
 
       <AppointmentCreateForm
-        clients={availableClients}
-        instructors={availableInstructors}
-        rooms={availableRooms}
-        clientPackages={(clientPackages ?? []) as any}
-        clientMemberships={hydratedClientMemberships as any}
-        initialClientId={validInitialClientId}
-      />
+  clients={(clients ?? []) as any}
+  instructors={(instructors ?? []) as any}
+  rooms={(rooms ?? []) as any}
+  clientPackages={(clientPackages ?? []) as any}
+  clientMemberships={hydratedClientMemberships as any}
+/>
     </div>
   );
 }

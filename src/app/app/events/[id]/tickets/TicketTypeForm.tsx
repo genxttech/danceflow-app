@@ -1,6 +1,5 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
 import {
   createTicketTypeAction,
   updateTicketTypeAction,
@@ -18,16 +17,6 @@ type TicketTypeRow = {
   active: boolean;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
-};
-
-type ActionState = {
-  error: string;
-  success: string;
-};
-
-const initialState: ActionState = {
-  error: "",
-  success: "",
 };
 
 function toDatetimeLocal(value: string | null) {
@@ -50,17 +39,14 @@ export default function TicketTypeForm({
   initialValues?: TicketTypeRow;
   mode: "create" | "edit";
 }) {
-  const action = mode === "edit" ? updateTicketTypeAction : createTicketTypeAction;
-  const [state, formAction, pending] = useActionState(action, initialState);
-
-  useEffect(() => {
-    if (state.success) {
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-  }, [state.success]);
+  const formAction =
+    mode === "edit" ? updateTicketTypeAction : createTicketTypeAction;
 
   return (
-    <form action={formAction} className="space-y-4 rounded-2xl border bg-slate-50 p-5">
+    <form
+      action={formAction}
+      className="space-y-4 rounded-2xl border bg-slate-50 p-5"
+    >
       <input type="hidden" name="eventId" value={eventId} />
       {mode === "edit" && initialValues ? (
         <input type="hidden" name="ticketTypeId" value={initialValues.id} />
@@ -191,31 +177,12 @@ export default function TicketTypeForm({
         </div>
       </label>
 
-      {state.error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {state.error}
-        </div>
-      ) : null}
-
-      {state.success ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {state.success}
-        </div>
-      ) : null}
-
       <div className="flex flex-wrap gap-3">
         <button
           type="submit"
-          disabled={pending}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800 disabled:opacity-60"
+          className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
         >
-          {pending
-            ? mode === "edit"
-              ? "Saving..."
-              : "Creating..."
-            : mode === "edit"
-              ? "Save Ticket Type"
-              : "Create Ticket Type"}
+          {mode === "edit" ? "Save Ticket Type" : "Create Ticket Type"}
         </button>
       </div>
     </form>

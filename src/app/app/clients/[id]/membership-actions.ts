@@ -135,7 +135,7 @@ export async function assignClientMembershipAction(formData: FormData) {
       ends_on: null,
       current_period_start: startsOn,
       current_period_end: currentPeriodEnd,
-      auto_renew,
+      auto_renew: autoRenew,
       cancel_at_period_end: false,
       name_snapshot: plan.name,
       description_snapshot: plan.description,

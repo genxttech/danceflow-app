@@ -789,10 +789,11 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
       }
     );
 
+    const primaryItem = updatedSubscription.items?.data?.[0] ?? null;
+
     const currentPeriodEndUnix =
-      typeof (updatedSubscription as { current_period_end?: unknown }).current_period_end ===
-      "number"
-        ? (updatedSubscription as { current_period_end: number }).current_period_end
+      typeof primaryItem?.current_period_end === "number"
+        ? primaryItem.current_period_end
         : null;
 
     const { error: updateStripeSubscriptionError } = await supabase
@@ -898,10 +899,11 @@ export async function reactivateMembershipAutoRenewAction(formData: FormData) {
       }
     );
 
+    const primaryItem = updatedSubscription.items?.data?.[0] ?? null;
+
     const currentPeriodEndUnix =
-      typeof (updatedSubscription as { current_period_end?: unknown }).current_period_end ===
-      "number"
-        ? (updatedSubscription as { current_period_end: number }).current_period_end
+      typeof primaryItem?.current_period_end === "number"
+        ? primaryItem.current_period_end
         : null;
 
     const { error: updateStripeSubscriptionError } = await supabase

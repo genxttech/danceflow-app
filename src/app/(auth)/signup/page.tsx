@@ -1,6 +1,11 @@
 import { signupAction } from "../actions";
 
 export default function SignupPage() {
+  async function submitSignup(formData: FormData) {
+    "use server";
+    await signupAction(formData);
+  }
+
   return (
     <main className="min-h-screen bg-slate-50 px-6 py-12">
       <div className="mx-auto max-w-md rounded-2xl bg-white p-8 shadow-sm">
@@ -9,7 +14,7 @@ export default function SignupPage() {
           Set up your dance studio workspace.
         </p>
 
-        <form action={signupAction} className="mt-6 space-y-4">
+        <form action={submitSignup} className="mt-6 space-y-4">
           <div>
             <label htmlFor="fullName" className="mb-1 block text-sm font-medium">
               Full Name

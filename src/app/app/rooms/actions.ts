@@ -10,7 +10,7 @@ function getString(formData: FormData, key: string) {
 
 export async function createRoomAction(
   prevState: { error: string },
-  formData: FormData
+  formData: FormData,
 ) {
   try {
     const { supabase, studioId, user } = await requireRoomManageAccess();
@@ -26,7 +26,10 @@ export async function createRoomAction(
     const capacity =
       capacityRaw === "" ? null : Number.parseInt(capacityRaw, 10);
 
-    if (capacityRaw !== "" && (Number.isNaN(capacity) || capacity < 0)) {
+    if (
+      capacityRaw !== "" &&
+      (capacity === null || Number.isNaN(capacity) || capacity < 0)
+    ) {
       return { error: "Capacity must be 0 or greater." };
     }
 
@@ -53,7 +56,7 @@ export async function createRoomAction(
 
 export async function updateRoomAction(
   prevState: { error: string },
-  formData: FormData
+  formData: FormData,
 ) {
   try {
     const { supabase, studioId } = await requireRoomManageAccess();
@@ -75,7 +78,10 @@ export async function updateRoomAction(
     const capacity =
       capacityRaw === "" ? null : Number.parseInt(capacityRaw, 10);
 
-    if (capacityRaw !== "" && (Number.isNaN(capacity) || capacity < 0)) {
+    if (
+      capacityRaw !== "" &&
+      (capacity === null || Number.isNaN(capacity) || capacity < 0)
+    ) {
       return { error: "Capacity must be 0 or greater." };
     }
 

@@ -265,7 +265,6 @@ async function validateAppointmentConflicts(params: {
     roomId: params.roomId,
     clientId: params.clientId,
     excludeAppointmentId: params.excludeAppointmentId,
-    overrideRoomConflict: params.overrideRoomConflict,
   });
 }
 
@@ -638,7 +637,7 @@ async function deleteLessonRecapVideoByPath(params: {
 }
 
 export async function createAppointmentAction(
-  _prevState: ActionState,
+  _: ActionState,
   formData: FormData
 ): Promise<ActionState> {
   try {
@@ -855,9 +854,8 @@ export async function createAppointmentAction(
 
     const occurrenceDates = generateWeeklyOccurrenceDates({
       startDate,
-      interval: recurrenceInterval,
-      endMode: recurrenceEndsMode === "date" ? "date" : "count",
-      endDate: recurrenceEndDate || undefined,
+      endDate:
+        recurrenceEndsMode === "date" ? recurrenceEndDate || undefined : undefined,
       occurrenceCount:
         recurrenceEndsMode === "count" ? recurrenceOccurrenceCount : undefined,
     });
@@ -953,7 +951,7 @@ export async function createAppointmentAction(
 }
 
 export async function updateAppointmentAction(
-  _prevState: ActionState,
+  _: ActionState,
   formData: FormData
 ): Promise<ActionState> {
   try {
@@ -1473,7 +1471,7 @@ export async function markFloorRentalWaivedAction(formData: FormData) {
 }
 
 export async function upsertLessonRecapAction(
-  _prevState: ActionState,
+  _: ActionState,
   formData: FormData
 ): Promise<ActionState> {
   try {

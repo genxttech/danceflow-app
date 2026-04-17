@@ -61,9 +61,10 @@ export function featureLabel(feature: BillingFeature) {
   if (feature === "check_in") return "Check-In";
   if (feature === "waitlist") return "Waitlist";
   if (feature === "advanced_reporting") return "Advanced Reporting";
-  return feature.replaceAll("_", " ");
+ 
+  const _exhaustiveCheck: never = feature;
+return _exhaustiveCheck;
 }
-
 export function requiredPlanForFeature(feature: BillingFeature): PlanCode {
   if (feature === "packages") return "growth";
   if (feature === "memberships") return "growth";

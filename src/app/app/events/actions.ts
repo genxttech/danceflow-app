@@ -56,12 +56,10 @@ function getString(formData: FormData, key: string) {
 
 function getBoolean(formData: FormData, key: string) {
   const value = formData.get(key);
-  if (typeof value === "string") {
-    return value === "true" || value === "on";
-  }
-  return value === "on";
+  if (typeof value !== "string") return false;
+  return value === "true" || value === "on";
 }
-
+ 
 function getFile(formData: FormData, key: string) {
   const value = formData.get(key);
   return value instanceof File && value.size > 0 ? value : null;

@@ -154,7 +154,7 @@ type ActiveMembership = {
   name_snapshot: string;
   price_snapshot: number;
   billing_interval_snapshot: string;
-  benefits?: MembershipBenefit[];
+  benefits: MembershipBenefit[];
 };
 
 type EventRegistrationRow = {
@@ -1073,7 +1073,12 @@ export default async function ClientDetailPage({
   const typedLeadActivities = (leadActivities ?? []) as LeadActivityRow[];
   const typedPackageTemplates = (packageTemplates ?? []) as PackageTemplateRow[];
   const typedMembershipPlans = (membershipPlans ?? []) as MembershipPlanOption[];
-  const typedActiveMembershipBase = (activeMembership ?? null) as ActiveMembership | null;
+  const typedActiveMembershipBase: ActiveMembership | null = activeMembership
+    ? {
+        ...(activeMembership as Omit<ActiveMembership, 'benefits'>),
+        benefits: ((activeMembership as { benefits?: MembershipBenefit[] | null }).benefits ?? []) as MembershipBenefit[],
+      }
+    : null;
   const typedEventRegistrations = (eventRegistrations ?? []) as EventRegistrationRow[];
 
   let typedActiveMembership: ActiveMembership | null = typedActiveMembershipBase;

@@ -10,10 +10,8 @@ function getString(formData: FormData, key: string) {
 
 function getBoolean(formData: FormData, key: string) {
   const value = formData.get(key);
-  if (typeof value === "string") {
-    return value === "true" || value === "on";
-  }
-  return value === "on";
+  if (typeof value !== "string") return false;
+  return value === "true" || value === "on";
 }
 
 function parseOptionalInteger(value: string) {

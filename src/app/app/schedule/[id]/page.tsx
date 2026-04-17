@@ -1,3 +1,4 @@
+import LessonRecapForm from "@/components/LessonRecapForm";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -9,7 +10,6 @@ import {
   markAppointmentNoShowAction,
   markFloorRentalWaivedAction,
   recordFloorRentalPaymentAction,
-  upsertLessonRecapAction,
   uploadLessonRecapVideoAction,
 } from "../actions";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
@@ -209,7 +209,7 @@ function getClientName(
         last_name: string;
         referral_source?: string | null;
       }[]
-    | null
+    | null,
 ) {
   const client = Array.isArray(value) ? value[0] : value;
   return client ? `${client.first_name} ${client.last_name}` : "Unknown Client";
@@ -229,7 +229,7 @@ function getClientId(
         last_name: string;
         referral_source?: string | null;
       }[]
-    | null
+    | null,
 ) {
   const client = Array.isArray(value) ? value[0] : value;
   return client?.id ?? null;
@@ -249,7 +249,7 @@ function getClientReferralSource(
         last_name: string;
         referral_source?: string | null;
       }[]
-    | null
+    | null,
 ) {
   const client = Array.isArray(value) ? value[0] : value;
   return client?.referral_source ?? null;
@@ -259,14 +259,14 @@ function getInstructorName(
   value:
     | { id?: string; first_name: string; last_name: string }
     | { id?: string; first_name: string; last_name: string }[]
-    | null
+    | null,
 ) {
   const instructor = Array.isArray(value) ? value[0] : value;
   return instructor ? `${instructor.first_name} ${instructor.last_name}` : "Unassigned";
 }
 
 function getRoomName(
-  value: { id?: string; name: string } | { id?: string; name: string }[] | null
+  value: { id?: string; name: string } | { id?: string; name: string }[] | null,
 ) {
   const room = Array.isArray(value) ? value[0] : value;
   return room?.name ?? "No room";
@@ -274,7 +274,7 @@ function getRoomName(
 
 function getLowestRemainingValue(items: ClientPackageItem[]) {
   const finiteItems = items.filter(
-    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number"
+    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number",
   );
 
   if (finiteItems.length === 0) return null;
@@ -286,7 +286,7 @@ function getPackageHealth(
   pkg: {
     active?: boolean | null;
     client_package_items?: ClientPackageItem[] | null;
-  } | null
+  } | null,
 ): PackageHealth {
   if (!pkg) return "unknown";
   if (pkg.active === false) return "inactive";
@@ -348,7 +348,11 @@ export default async function AppointmentDetailPage({
   const role = roleRow.role as string;
   const studioId = roleRow.studio_id;
 
-  const [{ data: appointment, error }, { data: lessonRecap }, { data: floorRentalPayments }] = await Promise.all([
+  const [
+    { data: appointment, error },
+    { data: lessonRecap },
+    { data: floorRentalPayments },
+  ] = await Promise.all([
     supabase
       .from("appointments")
       .select(`
@@ -439,10 +443,10 @@ export default async function AppointmentDetailPage({
     (rentalAmount <= 0
       ? "unpaid"
       : totalPaid <= 0
-      ? "unpaid"
-      : totalPaid < rentalAmount
-      ? "partial"
-      : "paid");
+        ? "unpaid"
+        : totalPaid < rentalAmount
+          ? "partial"
+          : "paid");
 
   const isPublicIntro =
     typedAppointment.appointment_type === "intro_lesson" &&
@@ -485,7 +489,7 @@ export default async function AppointmentDetailPage({
 
             <span
               className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                typedAppointment.status
+                typedAppointment.status,
               )}`}
             >
               {typedAppointment.status.replaceAll("_", " ")}
@@ -493,7 +497,7 @@ export default async function AppointmentDetailPage({
 
             <span
               className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${appointmentTypeBadgeClass(
-                typedAppointment.appointment_type
+                typedAppointment.appointment_type,
               )}`}
             >
               {isFloorRental
@@ -516,7 +520,7 @@ export default async function AppointmentDetailPage({
             {!isFloorRental && pkg && packageHealth ? (
               <span
                 className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${packageHealthClass(
-                  packageHealth
+                  packageHealth,
                 )}`}
               >
                 {packageHealthLabel(packageHealth)}
@@ -526,7 +530,7 @@ export default async function AppointmentDetailPage({
             {isFloorRental ? (
               <span
                 className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${paymentStatusBadgeClass(
-                  effectivePaymentStatus
+                  effectivePaymentStatus,
                 )}`}
               >
                 {paymentStatusLabel(effectivePaymentStatus)}
@@ -726,89 +730,13 @@ export default async function AppointmentDetailPage({
 
               {canEditLessonRecap ? (
                 <div className="mt-5 space-y-4">
-                  <form action={upsertLessonRecapAction} className="space-y-4">
-                    <input
-                      type="hidden"
-                      name="appointmentId"
-                      value={typedAppointment.id}
-                    />
-                    <input type="hidden" name="returnTo" value={returnTo} />
-
-                    <div>
-                      <label
-                        htmlFor="summary"
-                        className="text-sm font-medium text-slate-900"
-                      >
-                        Lesson summary
-                      </label>
-                      <textarea
-                        id="summary"
-                        name="summary"
-                        defaultValue={typedLessonRecap?.summary ?? ""}
-                        rows={4}
-                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-0 placeholder:text-slate-400 focus:border-slate-300"
-                        placeholder="What did you work on in this lesson?"
-                      />
-                    </div>
-
-                    <div>
-                      <label
-                        htmlFor="homework"
-                        className="text-sm font-medium text-slate-900"
-                      >
-                        Practice before next lesson
-                      </label>
-                      <textarea
-                        id="homework"
-                        name="homework"
-                        defaultValue={typedLessonRecap?.homework ?? ""}
-                        rows={3}
-                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-0 placeholder:text-slate-400 focus:border-slate-300"
-                        placeholder="What should the client practice on their own?"
-                      />
-                    </div>
-
-                    <div>
-                      <label
-                        htmlFor="nextFocus"
-                        className="text-sm font-medium text-slate-900"
-                      >
-                        Next lesson focus
-                      </label>
-                      <textarea
-                        id="nextFocus"
-                        name="nextFocus"
-                        defaultValue={typedLessonRecap?.next_focus ?? ""}
-                        rows={3}
-                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none ring-0 placeholder:text-slate-400 focus:border-slate-300"
-                        placeholder="What should be the focus next time?"
-                      />
-                    </div>
-
-                    <label className="flex items-start gap-3 rounded-xl border border-slate-200 px-4 py-3">
-                      <input
-                        type="checkbox"
-                        name="visibleToClient"
-                        defaultChecked={typedLessonRecap?.visible_to_client ?? true}
-                        className="mt-1"
-                      />
-                      <div>
-                        <p className="text-sm font-medium text-slate-900">
-                          Visible to client
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          When enabled, this recap will appear in the client portal.
-                        </p>
-                      </div>
-                    </label>
-
-                    <button
-                      type="submit"
-                      className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                    >
-                      {hasLessonRecap ? "Save Recap" : "Add Recap"}
-                    </button>
-                  </form>
+                  <LessonRecapForm
+                    appointmentId={typedAppointment.id}
+                    defaultSummary={typedLessonRecap?.summary ?? ""}
+                    defaultHomework={typedLessonRecap?.homework ?? ""}
+                    defaultNextFocus={typedLessonRecap?.next_focus ?? ""}
+                    defaultVisibleToClient={typedLessonRecap?.visible_to_client ?? true}
+                  />
 
                   <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -943,21 +871,26 @@ export default async function AppointmentDetailPage({
                     This booking is an independent instructor floor space rental.
                   </p>
                   <p>
-                    It does not deduct from lesson packages and does not use the standard lesson attendance workflow.
+                    It does not deduct from lesson packages and does not use the
+                    standard lesson attendance workflow.
                   </p>
                   <p>
-                    Instructor and room may still appear here when used for schedule visibility and internal tracking.
+                    Instructor and room may still appear here when used for schedule
+                    visibility and internal tracking.
                   </p>
                 </>
               ) : (
                 <>
                   <p>
-                    Standard lesson actions are available while the appointment is still active.
+                    Standard lesson actions are available while the appointment is
+                    still active.
                   </p>
 
                   {typedAppointment.is_recurring ? (
                     <p>
-                      This is part of a recurring series. Attendance applies per lesson, and cancellation or edit workflows may support single-lesson or series behavior depending on the action used.
+                      This is part of a recurring series. Attendance applies per lesson,
+                      and cancellation or edit workflows may support single-lesson or
+                      series behavior depending on the action used.
                     </p>
                   ) : null}
 
@@ -969,7 +902,8 @@ export default async function AppointmentDetailPage({
 
                   {isPrivateLesson ? (
                     <p>
-                      Private lessons can include a lesson recap once the lesson has been marked attended.
+                      Private lessons can include a lesson recap once the lesson has
+                      been marked attended.
                     </p>
                   ) : null}
                 </>
@@ -987,7 +921,8 @@ export default async function AppointmentDetailPage({
             <div className="mt-5">
               {isFloorRental ? (
                 <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-4 text-sm text-indigo-800">
-                  Floor space rentals do not use lesson packages and do not deduct any balance.
+                  Floor space rentals do not use lesson packages and do not deduct any
+                  balance.
                 </div>
               ) : pkg ? (
                 <>
@@ -1003,7 +938,7 @@ export default async function AppointmentDetailPage({
                     <div className="mt-3">
                       <span
                         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${packageHealthClass(
-                          packageHealth
+                          packageHealth,
                         )}`}
                       >
                         {packageHealthLabel(packageHealth)}
@@ -1016,10 +951,10 @@ export default async function AppointmentDetailPage({
                       {packageHealth === "low_balance"
                         ? "Linked package is running low."
                         : packageHealth === "depleted"
-                        ? "Linked package has no remaining balance."
-                        : packageHealth === "inactive"
-                        ? "Linked package is inactive."
-                        : ""}
+                          ? "Linked package has no remaining balance."
+                          : packageHealth === "inactive"
+                            ? "Linked package is inactive."
+                            : ""}
                     </p>
                   ) : null}
                 </>
@@ -1041,7 +976,7 @@ export default async function AppointmentDetailPage({
 
                 <span
                   className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${paymentStatusBadgeClass(
-                    effectivePaymentStatus
+                    effectivePaymentStatus,
                   )}`}
                 >
                   {paymentStatusLabel(effectivePaymentStatus)}
@@ -1077,7 +1012,10 @@ export default async function AppointmentDetailPage({
                 </div>
               </div>
 
-              <form action={recordFloorRentalPaymentAction} className="mt-5 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <form
+                action={recordFloorRentalPaymentAction}
+                className="mt-5 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5"
+              >
                 <input type="hidden" name="appointmentId" value={typedAppointment.id} />
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
@@ -1097,7 +1035,10 @@ export default async function AppointmentDetailPage({
                   </div>
 
                   <div>
-                    <label htmlFor="paymentMethod" className="text-sm font-medium text-slate-900">
+                    <label
+                      htmlFor="paymentMethod"
+                      className="text-sm font-medium text-slate-900"
+                    >
                       Payment method
                     </label>
                     <select
@@ -1116,7 +1057,10 @@ export default async function AppointmentDetailPage({
                 </div>
 
                 <div>
-                  <label htmlFor="paymentNotes" className="text-sm font-medium text-slate-900">
+                  <label
+                    htmlFor="paymentNotes"
+                    className="text-sm font-medium text-slate-900"
+                  >
                     Payment notes
                   </label>
                   <textarea
@@ -1165,7 +1109,9 @@ export default async function AppointmentDetailPage({
                               {formatCurrency(Number(payment.amount ?? 0))}
                             </p>
                             <p className="text-xs text-slate-500">
-                              {payment.paid_at ? formatDateTime(payment.paid_at) : "Date unavailable"}
+                              {payment.paid_at
+                                ? formatDateTime(payment.paid_at)
+                                : "Date unavailable"}
                             </p>
                           </div>
 
@@ -1250,7 +1196,8 @@ export default async function AppointmentDetailPage({
 
             {isFloorRental && !isFinalStatus ? (
               <p className="mt-4 border-t pt-4 text-xs text-slate-500">
-                Attendance actions are hidden because floor space rentals do not use the standard lesson attendance workflow.
+                Attendance actions are hidden because floor space rentals do not use the
+                standard lesson attendance workflow.
               </p>
             ) : null}
           </div>

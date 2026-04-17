@@ -454,24 +454,38 @@ async function findPossibleDuplicateClient(params: {
 
   if (firstName && lastName) {
     checks.push(
-      supabase
-        .from("clients")
-        .select("id")
-        .eq("studio_id", studioId)
-        .ilike("first_name", firstName)
-        .ilike("last_name", lastName)
-        .limit(1)
+      (async () => {
+        const { data, error } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("studio_id", studioId)
+          .ilike("first_name", firstName)
+          .ilike("last_name", lastName)
+          .limit(1);
+
+        return {
+          data: (data ?? []) as DuplicateLookupRow[],
+          error: error ? { message: error.message } : null,
+        };
+      })()
     );
   }
 
   if (phone) {
     checks.push(
-      supabase
-        .from("clients")
-        .select("id")
-        .eq("studio_id", studioId)
-        .eq("phone", phone)
-        .limit(1)
+      (async () => {
+        const { data, error } = await supabase
+          .from("clients")
+          .select("id")
+          .eq("studio_id", studioId)
+          .eq("phone", phone)
+          .limit(1);
+
+        return {
+          data: (data ?? []) as DuplicateLookupRow[],
+          error: error ? { message: error.message } : null,
+        };
+      })()
     );
   }
 

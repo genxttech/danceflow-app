@@ -111,11 +111,15 @@ function getClientName(
   value:
     | { first_name: string | null; last_name: string | null }
     | { first_name: string | null; last_name: string | null }[]
-    | null
+    | null,
 ) {
   const client = Array.isArray(value) ? value[0] : value;
   if (!client) return "Unknown Client";
-  return [client.first_name ?? "", client.last_name ?? ""].join(" ").trim() || "Unknown Client";
+
+  return (
+    [client.first_name ?? "", client.last_name ?? ""].join(" ").trim() ||
+    "Unknown Client"
+  );
 }
 
 function labelize(value: string | null | undefined) {
@@ -147,8 +151,12 @@ function sourceLabel(value: string | null) {
   return labelize(value);
 }
 
-function sortEntriesDesc<T extends string>(record: Record<T, number>) {
-  return Object.entries(record).sort((a, b) => b[1] - a[1]);
+function sortEntriesDesc<T extends string>(
+  record: Record<T, number>,
+): Array<[T, number]> {
+  return (Object.entries(record) as Array<[T, number]>).sort(
+    (a, b) => b[1] - a[1],
+  );
 }
 
 function percentage(part: number, total: number) {
@@ -197,7 +205,7 @@ export default async function ReportsPage({
             first_name,
             last_name
           )
-        `
+        `,
       )
       .eq("studio_id", studioId)
       .gte("created_at", rangeStart)
@@ -222,12 +230,12 @@ export default async function ReportsPage({
       .limit(1000),
 
     supabase
-  .from("client_packages")
-  .select("id, active, created_at, name_snapshot, price_snapshot")
-  .eq("studio_id", studioId)
-  .gte("created_at", rangeStart)
-  .order("created_at", { ascending: false })
-  .limit(500),
+      .from("client_packages")
+      .select("id, active, created_at, name_snapshot, price_snapshot")
+      .eq("studio_id", studioId)
+      .gte("created_at", rangeStart)
+      .order("created_at", { ascending: false })
+      .limit(500),
 
     supabase
       .from("clients")
@@ -237,19 +245,27 @@ export default async function ReportsPage({
   ]);
 
   if (paymentsError) {
-    throw new Error(`Failed to load payments report data: ${paymentsError.message}`);
+    throw new Error(
+      `Failed to load payments report data: ${paymentsError.message}`,
+    );
   }
   if (leadsError) {
     throw new Error(`Failed to load lead report data: ${leadsError.message}`);
   }
   if (appointmentsError) {
-    throw new Error(`Failed to load appointment report data: ${appointmentsError.message}`);
+    throw new Error(
+      `Failed to load appointment report data: ${appointmentsError.message}`,
+    );
   }
   if (packagesError) {
-    throw new Error(`Failed to load package report data: ${packagesError.message}`);
+    throw new Error(
+      `Failed to load package report data: ${packagesError.message}`,
+    );
   }
   if (activeStudentsError) {
-    throw new Error(`Failed to load active students count: ${activeStudentsError.message}`);
+    throw new Error(
+      `Failed to load active students count: ${activeStudentsError.message}`,
+    );
   }
 
   const typedPayments = (payments ?? []) as PaymentRow[];
@@ -258,20 +274,36 @@ export default async function ReportsPage({
   const typedPackages = (packages ?? []) as ClientPackageRow[];
 
   const paidPayments = typedPayments.filter((item) => item.status === "paid");
-  const pendingPayments = typedPayments.filter((item) => item.status === "pending");
-  const refundedPayments = typedPayments.filter((item) => item.status === "refunded");
+  const pendingPayments = typedPayments.filter(
+    (item) => item.status === "pending",
+  );
+  const refundedPayments = typedPayments.filter(
+    (item) => item.status === "refunded",
+  );
 
-  const revenueTotal = paidPayments.reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
-  const averagePaidPayment = paidPayments.length > 0 ? revenueTotal / paidPayments.length : 0;
+  const revenueTotal = paidPayments.reduce(
+    (sum, item) => sum + Number(item.amount ?? 0),
+    0,
+  );
+  const averagePaidPayment =
+    paidPayments.length > 0 ? revenueTotal / paidPayments.length : 0;
 
   const leadsOnly = typedLeads.filter((item) => item.status === "lead");
   const convertedLeads = typedLeads.filter((item) => item.status === "active");
-  const archivedLeads = typedLeads.filter((item) => item.status === "archived");
+  const archivedLeads = typedLeads.filter(
+    (item) => item.status === "archived",
+  );
 
-  const attendedAppointments = typedAppointments.filter((item) => item.status === "attended");
-  const cancelledAppointments = typedAppointments.filter((item) => item.status === "cancelled");
+  const attendedAppointments = typedAppointments.filter(
+    (item) => item.status === "attended",
+  );
+  const cancelledAppointments = typedAppointments.filter(
+    (item) => item.status === "cancelled",
+  );
   const noShows = typedAppointments.filter((item) => item.status === "no_show");
-  const scheduledAppointments = typedAppointments.filter((item) => item.status === "scheduled");
+  const scheduledAppointments = typedAppointments.filter(
+    (item) => item.status === "scheduled",
+  );
 
   const paymentMethodCounts: Record<string, number> = {};
   const paymentTypeCounts: Record<string, number> = {};
@@ -294,7 +326,8 @@ export default async function ReportsPage({
 
   for (const appointment of typedAppointments) {
     const typeKey = appointment.appointment_type ?? "other";
-    appointmentTypeCounts[typeKey] = (appointmentTypeCounts[typeKey] ?? 0) + 1;
+    appointmentTypeCounts[typeKey] =
+      (appointmentTypeCounts[typeKey] ?? 0) + 1;
   }
 
   for (const pkg of typedPackages) {
@@ -305,13 +338,21 @@ export default async function ReportsPage({
   const topPaymentMethods = sortEntriesDesc(paymentMethodCounts).slice(0, 5);
   const topPaymentTypes = sortEntriesDesc(paymentTypeCounts).slice(0, 5);
   const topLeadSources = sortEntriesDesc(leadSourceCounts).slice(0, 5);
-  const topAppointmentTypes = sortEntriesDesc(appointmentTypeCounts).slice(0, 5);
+  const topAppointmentTypes = sortEntriesDesc(appointmentTypeCounts).slice(
+    0,
+    5,
+  );
   const topPackages = sortEntriesDesc(packageCounts).slice(0, 5);
 
-  const conversionRate = percentage(convertedLeads.length, leadsOnly.length + convertedLeads.length);
+  const conversionRate = percentage(
+    convertedLeads.length,
+    leadsOnly.length + convertedLeads.length,
+  );
   const attendanceRate = percentage(
     attendedAppointments.length,
-    attendedAppointments.length + cancelledAppointments.length + noShows.length
+    attendedAppointments.length +
+      cancelledAppointments.length +
+      noShows.length,
   );
 
   return (
@@ -324,8 +365,8 @@ export default async function ReportsPage({
               Studio performance dashboard
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              A clean owner view of revenue, leads, attendance, and package activity for{" "}
-              {rangeLabel(range).toLowerCase()}.
+              A clean owner view of revenue, leads, attendance, and package
+              activity for {rangeLabel(range).toLowerCase()}.
             </p>
           </div>
 
@@ -391,7 +432,8 @@ export default async function ReportsPage({
             {fmtCurrency(revenueTotal)}
           </p>
           <p className="mt-2 text-sm text-slate-600">
-            {fmtNumber(paidPayments.length)} paid payments in {rangeLabel(range).toLowerCase()}.
+            {fmtNumber(paidPayments.length)} paid payments in{" "}
+            {rangeLabel(range).toLowerCase()}.
           </p>
         </div>
 
@@ -411,7 +453,8 @@ export default async function ReportsPage({
             {attendanceRate}
           </p>
           <p className="mt-2 text-sm text-slate-600">
-            {fmtNumber(attendedAppointments.length)} attended, {fmtNumber(noShows.length)} no-shows.
+            {fmtNumber(attendedAppointments.length)} attended,{" "}
+            {fmtNumber(noShows.length)} no-shows.
           </p>
         </div>
 
@@ -430,7 +473,9 @@ export default async function ReportsPage({
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold tracking-tight text-slate-950">Revenue snapshot</h2>
+              <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                Revenue snapshot
+              </h2>
               <p className="mt-1 text-sm text-slate-600">
                 Payments by status, method, and sale type.
               </p>
@@ -446,29 +491,46 @@ export default async function ReportsPage({
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Paid</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(paidPayments.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(paidPayments.length)}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Pending</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(pendingPayments.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(pendingPayments.length)}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Refunded</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(refundedPayments.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(refundedPayments.length)}
+              </p>
             </div>
           </div>
 
           <div className="mt-6 grid gap-6 md:grid-cols-2">
             <div>
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Payment Methods</h3>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Payment Methods
+              </h3>
               <div className="mt-3 space-y-3">
                 {topPaymentMethods.length === 0 ? (
-                  <p className="text-sm text-slate-500">No payment activity in this range.</p>
+                  <p className="text-sm text-slate-500">
+                    No payment activity in this range.
+                  </p>
                 ) : (
                   topPaymentMethods.map(([method, count]) => (
-                    <div key={method} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-                      <span className="text-sm font-medium text-slate-700">{labelize(method)}</span>
-                      <span className="text-sm font-semibold text-slate-950">{fmtNumber(count)}</span>
+                    <div
+                      key={method}
+                      className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                    >
+                      <span className="text-sm font-medium text-slate-700">
+                        {labelize(method)}
+                      </span>
+                      <span className="text-sm font-semibold text-slate-950">
+                        {fmtNumber(count)}
+                      </span>
                     </div>
                   ))
                 )}
@@ -476,15 +538,26 @@ export default async function ReportsPage({
             </div>
 
             <div>
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Payment Types</h3>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Payment Types
+              </h3>
               <div className="mt-3 space-y-3">
                 {topPaymentTypes.length === 0 ? (
-                  <p className="text-sm text-slate-500">No payment type data in this range.</p>
+                  <p className="text-sm text-slate-500">
+                    No payment type data in this range.
+                  </p>
                 ) : (
                   topPaymentTypes.map(([type, count]) => (
-                    <div key={type} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-                      <span className="text-sm font-medium text-slate-700">{labelize(type)}</span>
-                      <span className="text-sm font-semibold text-slate-950">{fmtNumber(count)}</span>
+                    <div
+                      key={type}
+                      className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                    >
+                      <span className="text-sm font-medium text-slate-700">
+                        {labelize(type)}
+                      </span>
+                      <span className="text-sm font-semibold text-slate-950">
+                        {fmtNumber(count)}
+                      </span>
                     </div>
                   ))
                 )}
@@ -503,7 +576,9 @@ export default async function ReportsPage({
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold tracking-tight text-slate-950">Growth snapshot</h2>
+              <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                Growth snapshot
+              </h2>
               <p className="mt-1 text-sm text-slate-600">
                 Lead intake and where interest is coming from.
               </p>
@@ -519,28 +594,45 @@ export default async function ReportsPage({
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">New Leads</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(leadsOnly.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(leadsOnly.length)}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Converted</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(convertedLeads.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(convertedLeads.length)}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Archived</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(archivedLeads.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(archivedLeads.length)}
+              </p>
             </div>
           </div>
 
           <div className="mt-6">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Top Lead Sources</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Top Lead Sources
+            </h3>
             <div className="mt-3 space-y-3">
               {topLeadSources.length === 0 ? (
-                <p className="text-sm text-slate-500">No lead sources recorded in this range.</p>
+                <p className="text-sm text-slate-500">
+                  No lead sources recorded in this range.
+                </p>
               ) : (
                 topLeadSources.map(([source, count]) => (
-                  <div key={source} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-                    <span className="text-sm font-medium text-slate-700">{sourceLabel(source)}</span>
-                    <span className="text-sm font-semibold text-slate-950">{fmtNumber(count)}</span>
+                  <div
+                    key={source}
+                    className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      {sourceLabel(source)}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-950">
+                      {fmtNumber(count)}
+                    </span>
                   </div>
                 ))
               )}
@@ -549,14 +641,18 @@ export default async function ReportsPage({
 
           <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm text-slate-500">Lead Conversion Rate</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">{conversionRate}</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {conversionRate}
+            </p>
           </div>
         </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold tracking-tight text-slate-950">Attendance snapshot</h2>
+          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+            Attendance snapshot
+          </h2>
           <p className="mt-1 text-sm text-slate-600">
             Appointment outcomes for the selected date range.
           </p>
@@ -564,32 +660,51 @@ export default async function ReportsPage({
           <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Scheduled</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(scheduledAppointments.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(scheduledAppointments.length)}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Attended</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(attendedAppointments.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(attendedAppointments.length)}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Cancelled</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(cancelledAppointments.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(cancelledAppointments.length)}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">No-Shows</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(noShows.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(noShows.length)}
+              </p>
             </div>
           </div>
 
           <div className="mt-6">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Appointment Types</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Appointment Types
+            </h3>
             <div className="mt-3 space-y-3">
               {topAppointmentTypes.length === 0 ? (
-                <p className="text-sm text-slate-500">No appointment activity in this range.</p>
+                <p className="text-sm text-slate-500">
+                  No appointment activity in this range.
+                </p>
               ) : (
                 topAppointmentTypes.map(([type, count]) => (
-                  <div key={type} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-                    <span className="text-sm font-medium text-slate-700">{labelize(type)}</span>
-                    <span className="text-sm font-semibold text-slate-950">{fmtNumber(count)}</span>
+                  <div
+                    key={type}
+                    className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      {labelize(type)}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-950">
+                      {fmtNumber(count)}
+                    </span>
                   </div>
                 ))
               )}
@@ -598,7 +713,9 @@ export default async function ReportsPage({
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold tracking-tight text-slate-950">Packages snapshot</h2>
+          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+            Packages snapshot
+          </h2>
           <p className="mt-1 text-sm text-slate-600">
             Package activity and top-selling package names.
           </p>
@@ -606,24 +723,39 @@ export default async function ReportsPage({
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Packages Sold</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(typedPackages.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(typedPackages.length)}
+              </p>
             </div>
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Distinct Package Names</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(topPackages.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(topPackages.length)}
+              </p>
             </div>
           </div>
 
           <div className="mt-6">
-            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Top Packages</h3>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Top Packages
+            </h3>
             <div className="mt-3 space-y-3">
               {topPackages.length === 0 ? (
-                <p className="text-sm text-slate-500">No package sales in this range.</p>
+                <p className="text-sm text-slate-500">
+                  No package sales in this range.
+                </p>
               ) : (
                 topPackages.map(([name, count]) => (
-                  <div key={name} className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3">
-                    <span className="text-sm font-medium text-slate-700">{name}</span>
-                    <span className="text-sm font-semibold text-slate-950">{fmtNumber(count)}</span>
+                  <div
+                    key={name}
+                    className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      {name}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-950">
+                      {fmtNumber(count)}
+                    </span>
                   </div>
                 ))
               )}
@@ -636,7 +768,9 @@ export default async function ReportsPage({
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold tracking-tight text-slate-950">Recent payments</h2>
+              <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                Recent payments
+              </h2>
               <p className="mt-1 text-sm text-slate-600">
                 Latest payment activity in the selected range.
               </p>
@@ -656,14 +790,17 @@ export default async function ReportsPage({
               </div>
             ) : (
               typedPayments.slice(0, 8).map((payment) => (
-                <div key={payment.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div
+                  key={payment.id}
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                >
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-slate-900">
                       {fmtCurrency(Number(payment.amount ?? 0))}
                     </p>
                     <span
                       className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${paymentStatusBadgeClass(
-                        payment.status
+                        payment.status,
                       )}`}
                     >
                       {labelize(payment.status)}
@@ -673,9 +810,13 @@ export default async function ReportsPage({
                     </span>
                   </div>
 
-                  <p className="mt-2 text-sm text-slate-700">{getClientName(payment.clients)}</p>
+                  <p className="mt-2 text-sm text-slate-700">
+                    {getClientName(payment.clients)}
+                  </p>
                   <p className="mt-1 text-xs text-slate-500">
-                    {labelize(payment.payment_type)} • {labelize(payment.source)} • {fmtDateTime(payment.created_at)}
+                    {labelize(payment.payment_type)} •{" "}
+                    {labelize(payment.source)} •{" "}
+                    {fmtDateTime(payment.created_at)}
                   </p>
                 </div>
               ))
@@ -686,7 +827,9 @@ export default async function ReportsPage({
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <h2 className="text-xl font-semibold tracking-tight text-slate-950">Export data</h2>
+              <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                Export data
+              </h2>
               <p className="mt-1 text-sm text-slate-600">
                 Download studio data for deeper analysis or bookkeeping.
               </p>

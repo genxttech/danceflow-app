@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentStudioContext } from "@/lib/studio-context";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 
 export type StudioConnectStatus = {
   studioId: string;

@@ -246,7 +246,13 @@ export default async function PublicEventRegisterPage({
             This event requires an account before registration can be completed.
           </p>
 
-          <form action={startEventRegistrationSignInAction} className="mt-5">
+          <form
+  action={async (formData: FormData) => {
+    "use server";
+    await createEventRegistrationAction(undefined, formData);
+  }}
+  className="mt-5"
+>
             <input type="hidden" name="eventSlug" value={typedEvent.slug} />
             <button
               type="submit"
@@ -324,10 +330,12 @@ export default async function PublicEventRegisterPage({
               </p>
             ) : (
               <RegistrationForm
-                eventSlug={typedEvent.slug}
-                ticketTypes={availableFreeTickets}
-                currentUserEmail={user?.email ?? ""}
-              />
+  eventSlug={typedEvent.slug}
+  ticketTypes={availableFreeTickets}
+  currentUserEmail={user?.email ?? ""}
+  isSoldOut={Boolean((typedEvent as any).is_sold_out)}
+  waitlistEnabled={Boolean((typedEvent as any).waitlist_enabled)}
+/>
             )}
           </div>
         </div>

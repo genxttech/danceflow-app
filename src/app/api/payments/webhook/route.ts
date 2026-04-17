@@ -3,7 +3,7 @@ import { createHash } from "crypto";
 import Stripe from "stripe";
 import {
   createClient as createSupabaseClient,
-  type SupabaseClient,
+  SupabaseClient,
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 
@@ -58,21 +58,67 @@ function mapStudioSubscriptionStatus(
   return "inactive";
 }
 
-type EventRegistrationLookupRow = {
-  id: string;
-  status: string | null;
-  payment_status: string | null;
-};
+function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
+  const rawSubscription = (
+    invoice as Stripe.Invoice & {
+      subscription?: string | Stripe.Subscription | null;
+    }
+  ).subscription;
 
-type EventPaymentLookupRow = {
-  id: string;
-  registration_id: string;
-  amount: number | null;
-  refund_amount: number | null;
-  stripe_payment_intent_id: string | null;
-  stripe_checkout_session_id: string | null;
-  status: string | null;
-};
+  return typeof rawSubscription === "string"
+    ? rawSubscription
+    : rawSubscription?.id ?? null;
+}
+
+function getInvoicePaymentIntentId(invoice: Stripe.Invoice): string | null {
+  const rawPayments = (
+    invoice as Stripe.Invoice & {
+      payments?: {
+        data?: Array<{
+          payment?: {
+            type?: string | null;
+            payment_intent?: string | Stripe.PaymentIntent | null;
+          } | null;
+        }> | null;
+      } | null;
+    }
+  ).payments;
+
+  const payment = rawPayments?.data?.[0]?.payment;
+
+  if (!payment || payment.type !== "payment_intent") {
+    return null;
+  }
+
+  return typeof payment.payment_intent === "string"
+    ? payment.payment_intent
+    : payment.payment_intent?.id ?? null;
+}
+
+function getInvoiceChargeId(invoice: Stripe.Invoice): string | null {
+  const rawPayments = (
+    invoice as Stripe.Invoice & {
+      payments?: {
+        data?: Array<{
+          payment?: {
+            type?: string | null;
+            charge?: string | Stripe.Charge | null;
+          } | null;
+        }> | null;
+      } | null;
+    }
+  ).payments;
+
+  const payment = rawPayments?.data?.[0]?.payment;
+
+  if (!payment || payment.type !== "charge") {
+    return null;
+  }
+
+  return typeof payment.charge === "string"
+    ? payment.charge
+    : payment.charge?.id ?? null;
+}
 
 async function upsertStripePaymentMethodRecord(
   supabase: SupabaseClient,
@@ -218,12 +264,11 @@ async function upsertStripeSubscriptionRecord(
     updated_at: new Date().toISOString(),
   };
 
-  const { data: existingSubscription, error: existingSubscriptionError } =
-    await supabase
-      .from("stripe_subscriptions")
-      .select("id")
-      .eq("stripe_subscription_id", stripeSubscriptionId)
-      .maybeSingle();
+  const { data: existingSubscription, error: existingSubscriptionError } = await supabase
+    .from("stripe_subscriptions")
+    .select("id")
+    .eq("stripe_subscription_id", stripeSubscriptionId)
+    .maybeSingle();
 
   if (existingSubscriptionError) {
     throw new Error(existingSubscriptionError.message);
@@ -372,12 +417,11 @@ async function upsertStudioSubscription(params: {
 
   const mappedStatus = mapStudioSubscriptionStatus(subscription.status);
 
-  const { data: existingSubscription, error: existingSubscriptionError } =
-    await supabase
-      .from("studio_subscriptions")
-      .select("id")
-      .eq("studio_id", studioId)
-      .maybeSingle();
+  const { data: existingSubscription, error: existingSubscriptionError } = await supabase
+    .from("studio_subscriptions")
+    .select("id")
+    .eq("studio_id", studioId)
+    .maybeSingle();
 
   if (existingSubscriptionError) {
     throw new Error(existingSubscriptionError.message);
@@ -469,17 +513,16 @@ async function upsertStudioInvoice(params: {
 
   const studioId = billingCustomer.studio_id as string;
 
-  const stripeSubscriptionId = getString(invoice.subscription);
+  const stripeSubscriptionId = getInvoiceSubscriptionId(invoice);
   let studioSubscriptionId: string | null = null;
 
   if (stripeSubscriptionId) {
-    const { data: studioSubscription, error: studioSubscriptionError } =
-      await supabase
-        .from("studio_subscriptions")
-        .select("id")
-        .eq("studio_id", studioId)
-        .eq("stripe_subscription_id", stripeSubscriptionId)
-        .maybeSingle();
+    const { data: studioSubscription, error: studioSubscriptionError } = await supabase
+      .from("studio_subscriptions")
+      .select("id")
+      .eq("studio_id", studioId)
+      .eq("stripe_subscription_id", stripeSubscriptionId)
+      .maybeSingle();
 
     if (studioSubscriptionError) {
       throw new Error(studioSubscriptionError.message);
@@ -538,137 +581,6 @@ async function upsertStudioInvoice(params: {
   return true;
 }
 
-async function getEventRegistrationRow(
-  supabase: SupabaseClient,
-  registrationId: string
-) {
-  const { data, error } = await supabase
-    .from("event_registrations")
-    .select("id, status, payment_status")
-    .eq("id", registrationId)
-    .maybeSingle<EventRegistrationLookupRow>();
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  return data;
-}
-
-function getNextPaidRegistrationStatus(currentStatus: string | null) {
-  if (currentStatus === "attended") return "attended";
-  if (currentStatus === "checked_in") return "checked_in";
-  if (currentStatus === "cancelled") return "cancelled";
-  if (currentStatus === "refunded") return "refunded";
-  return "confirmed";
-}
-
-async function upsertEventPaymentFromCheckout(params: {
-  supabase: SupabaseClient;
-  registrationId: string;
-  sessionId: string;
-  paymentIntentId: string | null;
-  amountTotal: number;
-  currency: string;
-}) {
-  const { supabase, registrationId, sessionId, paymentIntentId, amountTotal, currency } =
-    params;
-
-  let query = supabase
-    .from("event_payments")
-    .select("id")
-    .eq("registration_id", registrationId)
-    .eq("stripe_checkout_session_id", sessionId)
-    .limit(1);
-
-  const { data: existingBySession, error: existingBySessionError } = await query.maybeSingle();
-
-  if (existingBySessionError) {
-    throw new Error(existingBySessionError.message);
-  }
-
-  if (existingBySession) {
-    const { error: updatePaymentError } = await supabase
-      .from("event_payments")
-      .update({
-        status: "paid",
-        amount: amountTotal,
-        currency,
-        payment_method: "stripe_checkout",
-        source: "stripe",
-        stripe_payment_intent_id: paymentIntentId,
-        external_reference: sessionId,
-        refund_amount: null,
-        refunded_at: null,
-        notes: "Completed by Stripe checkout webhook.",
-      })
-      .eq("id", existingBySession.id);
-
-    if (updatePaymentError) {
-      throw new Error(updatePaymentError.message);
-    }
-
-    return;
-  }
-
-  if (paymentIntentId) {
-    const { data: existingByIntent, error: existingByIntentError } = await supabase
-      .from("event_payments")
-      .select("id")
-      .eq("registration_id", registrationId)
-      .eq("stripe_payment_intent_id", paymentIntentId)
-      .limit(1)
-      .maybeSingle();
-
-    if (existingByIntentError) {
-      throw new Error(existingByIntentError.message);
-    }
-
-    if (existingByIntent) {
-      const { error: updatePaymentError } = await supabase
-        .from("event_payments")
-        .update({
-          status: "paid",
-          amount: amountTotal,
-          currency,
-          payment_method: "stripe_checkout",
-          source: "stripe",
-          stripe_checkout_session_id: sessionId,
-          external_reference: sessionId,
-          refund_amount: null,
-          refunded_at: null,
-          notes: "Completed by Stripe checkout webhook.",
-        })
-        .eq("id", existingByIntent.id);
-
-      if (updatePaymentError) {
-        throw new Error(updatePaymentError.message);
-      }
-
-      return;
-    }
-  }
-
-  const { error: insertPaymentError } = await supabase
-    .from("event_payments")
-    .insert({
-      registration_id: registrationId,
-      amount: amountTotal,
-      currency,
-      payment_method: "stripe_checkout",
-      status: "paid",
-      source: "stripe",
-      stripe_checkout_session_id: sessionId,
-      stripe_payment_intent_id: paymentIntentId,
-      external_reference: sessionId,
-      notes: "Created by Stripe checkout webhook.",
-    });
-
-  if (insertPaymentError) {
-    throw new Error(insertPaymentError.message);
-  }
-}
-
 async function handleStudioCheckoutCompleted(
   supabase: SupabaseClient,
   stripe: Stripe,
@@ -725,11 +637,6 @@ async function handleEventRegistrationCheckoutCompleted(
     return true;
   }
 
-  const registration = await getEventRegistrationRow(supabase, registrationId);
-  if (!registration) {
-    throw new Error("Event registration not found for checkout completion.");
-  }
-
   const paymentIntentId = getString(session.payment_intent);
   const sessionId = session.id;
   const amountTotal = Number(session.amount_total ?? 0) / 100;
@@ -739,7 +646,7 @@ async function handleEventRegistrationCheckoutCompleted(
     .from("event_registrations")
     .update({
       payment_status: "paid",
-      status: getNextPaidRegistrationStatus(registration.status),
+      status: "confirmed",
       stripe_payment_intent_id: paymentIntentId,
     })
     .eq("id", registrationId);
@@ -748,14 +655,53 @@ async function handleEventRegistrationCheckoutCompleted(
     throw new Error(registrationUpdateError.message);
   }
 
-  await upsertEventPaymentFromCheckout({
-    supabase,
-    registrationId,
-    sessionId,
-    paymentIntentId,
-    amountTotal,
-    currency,
-  });
+  const { data: existingPayment, error: existingPaymentError } = await supabase
+    .from("event_payments")
+    .select("id")
+    .eq("registration_id", registrationId)
+    .eq("stripe_checkout_session_id", sessionId)
+    .maybeSingle();
+
+  if (existingPaymentError) {
+    throw new Error(existingPaymentError.message);
+  }
+
+  if (existingPayment) {
+    const { error: updatePaymentError } = await supabase
+      .from("event_payments")
+      .update({
+        status: "paid",
+        amount: amountTotal,
+        currency,
+        stripe_payment_intent_id: paymentIntentId,
+        external_reference: sessionId,
+        notes: "Completed by Stripe checkout.session.completed webhook.",
+      })
+      .eq("id", existingPayment.id);
+
+    if (updatePaymentError) {
+      throw new Error(updatePaymentError.message);
+    }
+  } else {
+    const { error: insertPaymentError } = await supabase
+      .from("event_payments")
+      .insert({
+        registration_id: registrationId,
+        amount: amountTotal,
+        currency,
+        payment_method: "stripe_checkout",
+        status: "paid",
+        source: "stripe",
+        stripe_checkout_session_id: sessionId,
+        stripe_payment_intent_id: paymentIntentId,
+        external_reference: sessionId,
+        notes: "Created by Stripe checkout.session.completed webhook.",
+      });
+
+    if (insertPaymentError) {
+      throw new Error(insertPaymentError.message);
+    }
+  }
 
   return true;
 }
@@ -771,19 +717,17 @@ async function handleEventRegistrationRefundUpdated(
 
   const { data: eventPayment, error: paymentLookupError } = await supabase
     .from("event_payments")
-    .select(`
+    .select(
+      `
       id,
       registration_id,
       amount,
       refund_amount,
-      stripe_payment_intent_id,
-      stripe_checkout_session_id,
-      status
-    `)
+      stripe_payment_intent_id
+    `
+    )
     .eq("stripe_payment_intent_id", paymentIntentId)
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle<EventPaymentLookupRow>();
+    .maybeSingle();
 
   if (paymentLookupError) {
     throw new Error(paymentLookupError.message);
@@ -813,7 +757,7 @@ async function handleEventRegistrationRefundUpdated(
   }
 
   const registrationPayload: {
-    payment_status: "paid" | "partial" | "refunded";
+    payment_status: string;
     status?: string;
   } = {
     payment_status: fullyRefunded ? "refunded" : "partial",
@@ -945,24 +889,21 @@ async function handleInvoicePaid(
     invoice,
   });
 
-  if (studioInvoiceHandled) {
-    const stripeSubscriptionId = getString(invoice.subscription);
-    if (stripeSubscriptionId) {
-      const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
-      await upsertStudioSubscription({
-        supabase,
-        stripe,
-        subscription,
-      });
-    }
+  const stripeSubscriptionId = getInvoiceSubscriptionId(invoice);
+
+  if (studioInvoiceHandled && stripeSubscriptionId) {
+    const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+    await upsertStudioSubscription({
+      supabase,
+      stripe,
+      subscription,
+    });
   }
 
   const stripeInvoiceId = invoice.id;
   const stripeCustomerId = getString(invoice.customer);
-  const stripeSubscriptionId = getString(invoice.subscription);
-  const paymentIntentId = getString(invoice.payment_intent);
-  const chargeId =
-    typeof invoice.charge === "string" ? invoice.charge : invoice.charge?.id ?? null;
+  const paymentIntentId = getInvoicePaymentIntentId(invoice);
+  const chargeId = getInvoiceChargeId(invoice);
 
   if (!stripeCustomerId) {
     throw new Error("Invoice missing customer id.");
@@ -1167,7 +1108,7 @@ async function handleInvoicePaymentFailed(
     invoice,
   });
 
-  const stripeSubscriptionId = getString(invoice.subscription);
+  const stripeSubscriptionId = getInvoiceSubscriptionId(invoice);
 
   if (studioInvoiceHandled && stripeSubscriptionId) {
     const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
@@ -1205,39 +1146,6 @@ async function handleInvoicePaymentFailed(
   if (membershipUpdateError) {
     throw new Error(membershipUpdateError.message);
   }
-}
-
-async function markProviderEventProcessed(
-  supabase: SupabaseClient,
-  eventId: string
-) {
-  const { error } = await supabase
-    .from("payment_provider_events")
-    .update({
-      status: "processed",
-      processed_at: new Date().toISOString(),
-    })
-    .eq("provider", "stripe")
-    .eq("provider_event_id", eventId);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-}
-
-async function markProviderEventFailed(
-  supabase: SupabaseClient,
-  eventId: string,
-  errorMessage: string
-) {
-  await supabase
-    .from("payment_provider_events")
-    .update({
-      status: "failed",
-      error_message: errorMessage,
-    })
-    .eq("provider", "stripe")
-    .eq("provider_event_id", eventId);
 }
 
 export async function POST(request: Request) {
@@ -1301,8 +1209,7 @@ export async function POST(request: Request) {
 
   try {
     switch (event.type) {
-      case "checkout.session.completed":
-      case "checkout.session.async_payment_succeeded": {
+      case "checkout.session.completed": {
         await handleCheckoutSessionCompleted(
           supabase,
           stripe,
@@ -1322,17 +1229,15 @@ export async function POST(request: Request) {
 
       case "charge.refunded": {
         const charge = event.data.object as Stripe.Charge;
-        const paymentIntentId =
-          typeof charge.payment_intent === "string"
-            ? charge.payment_intent
-            : charge.payment_intent?.id ?? null;
-
-        if (paymentIntentId) {
+        if (charge.payment_intent) {
           await handleEventRegistrationRefundUpdated(supabase, {
             id: charge.id,
             object: "refund",
             amount: charge.amount_refunded,
-            payment_intent: paymentIntentId,
+            payment_intent:
+              typeof charge.payment_intent === "string"
+                ? charge.payment_intent
+                : charge.payment_intent.id,
           } as Stripe.Refund);
         }
         break;
@@ -1375,13 +1280,34 @@ export async function POST(request: Request) {
         break;
     }
 
-    await markProviderEventProcessed(supabase, event.id);
+    const { error: processedError } = await supabase
+      .from("payment_provider_events")
+      .update({
+        status: "processed",
+        processed_at: new Date().toISOString(),
+      })
+      .eq("provider", "stripe")
+      .eq("provider_event_id", event.id);
+
+    if (processedError) {
+      return new Response(`Event finalization failed: ${processedError.message}`, {
+        status: 500,
+      });
+    }
+
     return new Response(`Webhook processed: ${event.type}`, { status: 200 });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown webhook error";
 
-    await markProviderEventFailed(supabase, event.id, errorMessage);
+    await supabase
+      .from("payment_provider_events")
+      .update({
+        status: "failed",
+        error_message: errorMessage,
+      })
+      .eq("provider", "stripe")
+      .eq("provider_event_id", event.id);
 
     return new Response(`Webhook processing failed: ${errorMessage}`, {
       status: 500,

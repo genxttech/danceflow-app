@@ -19,14 +19,13 @@ type TicketTypeRow = {
 };
 
 function canManageTickets(params: {
-  role: string | null;
-  isPlatformAdmin: boolean;
+    isPlatformAdmin: boolean;
   organizerUserRole: string | null;
 }) {
-  const { role, isPlatformAdmin, organizerUserRole } = params;
+  const {  isPlatformAdmin, organizerUserRole } = params;
 
   if (isPlatformAdmin) return true;
-  if (role === "studio_owner" || role === "studio_admin") return true;
+
   if (organizerUserRole === "organizer_admin" || organizerUserRole === "organizer_staff") {
     return true;
   }
@@ -56,7 +55,7 @@ export default async function EventTicketsPage({
     notFound();
   }
 
-  const { studioId, role, isPlatformAdmin } = context;
+  const { studioId, isPlatformAdmin } = context;
 
   const { data: event, error: eventError } = await supabase
     .from("events")
@@ -98,7 +97,7 @@ export default async function EventTicketsPage({
   }
 
   const canManage = canManageTickets({
-    role: role ?? null,
+
     isPlatformAdmin: Boolean(isPlatformAdmin),
     organizerUserRole,
   });
