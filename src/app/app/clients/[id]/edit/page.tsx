@@ -52,9 +52,7 @@ const context = await getCurrentStudioContext();
 const studioId = context.studioId;
 const role = context.studioRole ?? "";
 
-  const studioId = roleRow.studio_id as string;
-
-  const [
+   const [
     { data: client, error: clientError },
     { data: instructors, error: instructorsError },
   ] = await Promise.all([
