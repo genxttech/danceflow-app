@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useOptimistic, useTransition } from "react";
-import { toggleFavoriteAction } from "@/app/actions/public-favorites";
+import { toggleFavoriteAction } from "../../app/actions/public-favorites";
 
 type FavoriteTargetType = "studio" | "event";
 
