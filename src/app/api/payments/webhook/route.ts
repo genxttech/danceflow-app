@@ -6,6 +6,11 @@ import {
   SupabaseClient,
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
+import { queueOutboundDelivery } from "@/lib/notifications/outbound";
+import {
+  buildEventConfirmedEmailTemplate,
+  buildEventConfirmedSmsTemplate,
+} from "@/lib/notifications/templates";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -384,6 +389,7 @@ async function upsertStudioSubscription(params: {
 
   const metadata = subscription.metadata ?? {};
   const studioId = getString(metadata.studioId);
+  const metadataPlanCode = getString(metadata.planCode);
 
   if (!studioId) {
     return false;
@@ -397,60 +403,91 @@ async function upsertStudioSubscription(params: {
     (subscription as unknown as { current_period_end?: number }).current_period_end
   );
 
-  const { data: planRow, error: planError } = stripePriceId
-    ? await supabase
-        .from("subscription_plans")
-        .select("id, code, stripe_price_id_monthly, stripe_price_id_yearly")
-        .or(
-          `stripe_price_id_monthly.eq.${stripePriceId},stripe_price_id_yearly.eq.${stripePriceId}`
-        )
-        .limit(1)
-        .maybeSingle()
-    : { data: null, error: null as { message?: string } | null };
+  let planRow:
+    | {
+        id: string;
+        code: string;
+        stripe_price_id_monthly: string | null;
+        stripe_price_id_yearly: string | null;
+      }
+    | null = null;
 
-  if (planError) {
-    throw new Error(planError.message);
+  if (stripePriceId) {
+    const { data, error } = await supabase
+      .from("subscription_plans")
+      .select("id, code, stripe_price_id_monthly, stripe_price_id_yearly")
+      .or(
+        `stripe_price_id_monthly.eq.${stripePriceId},stripe_price_id_yearly.eq.${stripePriceId}`
+      )
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    planRow = data;
+  }
+
+  if (!planRow && metadataPlanCode) {
+    const { data, error } = await supabase
+      .from("subscription_plans")
+      .select("id, code, stripe_price_id_monthly, stripe_price_id_yearly")
+      .eq("code", metadataPlanCode)
+      .eq("active", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    planRow = data;
+  }
+
+  if (!planRow) {
+    throw new Error(
+      `Could not resolve subscription plan for studio subscription ${subscription.id}. ` +
+        `stripePriceId=${stripePriceId || "null"} metadata.planCode=${metadataPlanCode || "null"}`
+    );
   }
 
   const billingInterval =
-    planRow?.stripe_price_id_yearly === stripePriceId ? "year" : "month";
+    stripePriceId && planRow.stripe_price_id_yearly === stripePriceId ? "year" : "month";
 
   const mappedStatus = mapStudioSubscriptionStatus(subscription.status);
 
-  const { data: existingSubscription, error: existingSubscriptionError } = await supabase
+  const payload = {
+    studio_id: studioId,
+    subscription_plan_id: planRow.id,
+    status: mappedStatus,
+    billing_interval: billingInterval,
+    stripe_customer_id: stripeCustomerId,
+    stripe_subscription_id: subscription.id,
+    stripe_price_id: stripePriceId || null,
+    current_period_start: toIsoOrNull(currentPeriodStartUnix),
+    current_period_end: toIsoOrNull(currentPeriodEndUnix),
+    cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
+    cancelled_at: toIsoOrNull(getNumber(subscription.canceled_at)),
+    ended_at: toIsoOrNull(getNumber(subscription.ended_at)),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: existingByStudio, error: existingByStudioError } = await supabase
     .from("studio_subscriptions")
     .select("id")
     .eq("studio_id", studioId)
     .maybeSingle();
 
-  if (existingSubscriptionError) {
-    throw new Error(existingSubscriptionError.message);
+  if (existingByStudioError) {
+    throw new Error(existingByStudioError.message);
   }
 
-  const payload = {
-    studio_id: studioId,
-    subscription_plan_id: planRow?.id ?? null,
-    status: mappedStatus,
-    billing_interval: billingInterval,
-    stripe_subscription_id: subscription.id,
-    stripe_price_id: stripePriceId,
-    trial_ends_at: toIsoOrNull(getNumber(subscription.trial_end)),
-    current_period_start: toIsoOrNull(currentPeriodStartUnix),
-    current_period_end: toIsoOrNull(currentPeriodEndUnix),
-    cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
-    cancelled_at: subscription.canceled_at ? toIsoOrNull(subscription.canceled_at) : null,
-    ended_at:
-      mappedStatus === "cancelled"
-        ? toIsoOrNull(getNumber(subscription.ended_at) ?? getNumber(subscription.canceled_at))
-        : null,
-    updated_at: new Date().toISOString(),
-  };
-
-  if (existingSubscription) {
+  if (existingByStudio) {
     const { error: updateError } = await supabase
       .from("studio_subscriptions")
       .update(payload)
-      .eq("id", existingSubscription.id);
+      .eq("id", existingByStudio.id);
 
     if (updateError) {
       throw new Error(updateError.message);
@@ -458,29 +495,52 @@ async function upsertStudioSubscription(params: {
   } else {
     const { error: insertError } = await supabase
       .from("studio_subscriptions")
-      .insert(payload);
+      .insert({
+        ...payload,
+        created_at: new Date().toISOString(),
+      });
 
     if (insertError) {
       throw new Error(insertError.message);
     }
   }
 
-  const { data: billingCustomer, error: billingCustomerError } = await supabase
+  const { data: existingCustomer, error: existingCustomerError } = await supabase
     .from("studio_billing_customers")
     .select("id")
     .eq("studio_id", studioId)
     .maybeSingle();
 
-  if (billingCustomerError) {
-    throw new Error(billingCustomerError.message);
+  if (existingCustomerError) {
+    throw new Error(existingCustomerError.message);
   }
 
-  if (!billingCustomer) {
-    await upsertStudioBillingCustomer({
-      supabase,
-      stripeCustomerId,
-      studioId,
-    });
+  const customerPayload = {
+    studio_id: studioId,
+    stripe_customer_id: stripeCustomerId,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (existingCustomer) {
+    const { error: updateCustomerError } = await supabase
+      .from("studio_billing_customers")
+      .update(customerPayload)
+      .eq("id", existingCustomer.id);
+
+    if (updateCustomerError) {
+      throw new Error(updateCustomerError.message);
+    }
+  } else {
+    const { error: insertCustomerError } = await supabase
+      .from("studio_billing_customers")
+      .insert({
+        ...customerPayload,
+        created_at: new Date().toISOString(),
+      });
+
+    if (insertCustomerError) {
+      throw new Error(insertCustomerError.message);
+    }
   }
 
   return true;
@@ -621,6 +681,117 @@ async function handleStudioCheckoutCompleted(
   return true;
 }
 
+function getAppUrl() {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "http://localhost:3000"
+  );
+}
+
+async function safeQueuePaidEventRegistrationConfirmation(params: {
+  supabase: SupabaseClient;
+  registrationId: string;
+}) {
+  try {
+    const { data: registration, error } = await params.supabase
+      .from("event_registrations")
+      .select(
+        `
+        id,
+        studio_id,
+        attendee_first_name,
+        attendee_last_name,
+        attendee_email,
+        attendee_phone,
+        quantity,
+        total_price,
+        currency,
+        events (
+          slug,
+          name
+        ),
+        event_ticket_types (
+          name
+        )
+      `
+      )
+      .eq("id", params.registrationId)
+      .single();
+
+    if (error || !registration) {
+      console.error(
+        "paid event confirmation lookup failed:",
+        error?.message ?? "Registration not found"
+      );
+      return;
+    }
+
+    const eventValue = Array.isArray(registration.events)
+      ? registration.events[0]
+      : registration.events;
+
+    const ticketTypeValue = Array.isArray(registration.event_ticket_types)
+      ? registration.event_ticket_types[0]
+      : registration.event_ticket_types;
+
+    if (!eventValue) {
+      console.error("paid event confirmation lookup missing event");
+      return;
+    }
+
+    const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(eventValue.slug)}`;
+
+    const emailTemplate = buildEventConfirmedEmailTemplate({
+      eventName: eventValue.name,
+      attendeeFirstName: registration.attendee_first_name,
+      attendeeLastName: registration.attendee_last_name,
+      ticketTypeName: ticketTypeValue?.name ?? "Event ticket",
+      quantity: registration.quantity ?? 1,
+      totalPrice: Number(registration.total_price ?? 0),
+      currency: registration.currency || "USD",
+      eventUrl,
+    });
+
+    const smsBody = buildEventConfirmedSmsTemplate({
+      eventName: eventValue.name,
+      attendeeFirstName: registration.attendee_first_name,
+      attendeeLastName: registration.attendee_last_name,
+      ticketTypeName: ticketTypeValue?.name ?? "Event ticket",
+      quantity: registration.quantity ?? 1,
+      totalPrice: Number(registration.total_price ?? 0),
+      currency: registration.currency || "USD",
+      eventUrl,
+    });
+
+    await Promise.allSettled([
+      queueOutboundDelivery({
+        studioId: registration.studio_id,
+        channel: "email",
+        templateKey: "event_registration_confirmed",
+        recipientEmail: registration.attendee_email,
+        subject: emailTemplate.subject,
+        bodyText: emailTemplate.bodyText,
+        relatedTable: "event_registrations",
+        relatedId: registration.id,
+        dedupeKey: `event_registration_confirmed:email:${registration.id}`,
+      }),
+      queueOutboundDelivery({
+        studioId: registration.studio_id,
+        channel: "sms",
+        templateKey: "event_registration_confirmed",
+        recipientPhone: registration.attendee_phone,
+        bodyText: smsBody,
+        relatedTable: "event_registrations",
+        relatedId: registration.id,
+        dedupeKey: `event_registration_confirmed:sms:${registration.id}`,
+      }),
+    ]);
+  } catch (error) {
+    console.error("queue paid event confirmation failed:", error);
+  }
+}
+
 async function handleEventRegistrationCheckoutCompleted(
   supabase: SupabaseClient,
   session: Stripe.Checkout.Session
@@ -702,6 +873,11 @@ async function handleEventRegistrationCheckoutCompleted(
       throw new Error(insertPaymentError.message);
     }
   }
+
+  await safeQueuePaidEventRegistrationConfirmation({
+    supabase,
+    registrationId,
+  });
 
   return true;
 }
@@ -1153,23 +1329,39 @@ export async function POST(request: Request) {
   const body = await request.text();
   const headerList = await headers();
   const signature = headerList.get("stripe-signature");
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const webhookSecrets = [
+    process.env.STRIPE_WEBHOOK_SECRET,
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
+  ].filter((value): value is string => Boolean(value && value.trim().length > 0));
 
-  if (!webhookSecret) {
-    return new Response("Missing STRIPE_WEBHOOK_SECRET", { status: 400 });
+  if (webhookSecrets.length === 0) {
+    return new Response(
+      "Missing STRIPE_WEBHOOK_SECRET or STRIPE_CONNECT_WEBHOOK_SECRET",
+      { status: 400 }
+    );
   }
 
   if (!signature) {
     return new Response("Missing stripe-signature header", { status: 400 });
   }
 
-  let event: Stripe.Event;
+  let event: Stripe.Event | null = null;
+  let lastSignatureError: unknown = null;
 
-  try {
-    event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
-  } catch (error) {
+  for (const webhookSecret of webhookSecrets) {
+    try {
+      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+      break;
+    } catch (error) {
+      lastSignatureError = error;
+    }
+  }
+
+  if (!event) {
     const message =
-      error instanceof Error ? error.message : "Unknown signature error";
+      lastSignatureError instanceof Error
+        ? lastSignatureError.message
+        : "Unknown signature error";
     return new Response(`Invalid signature: ${message}`, { status: 400 });
   }
 

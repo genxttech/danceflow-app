@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   planHasFeature,
   requiredPlanForFeature,
@@ -44,33 +45,30 @@ export async function getCurrentStudioPlanForUser() {
     return null;
   }
 
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
+  const context = await getCurrentStudioContext();
+  const studioId = context?.studioId ?? null;
 
-  if (roleError || !roleRow) {
+  if (!studioId) {
     return null;
   }
 
   const { data: subscription, error: subscriptionError } = await supabase
     .from("studio_subscriptions")
-    .select(`
+    .select(
+      `
       status,
       subscription_plans (
         code,
         name
       )
-    `)
-    .eq("studio_id", roleRow.studio_id)
+    `
+    )
+    .eq("studio_id", studioId)
     .maybeSingle();
 
   if (subscriptionError || !subscription) {
     return {
-      studioId: roleRow.studio_id as string,
+      studioId,
       status: "inactive",
       planCode: null,
       planName: null,
@@ -81,7 +79,7 @@ export async function getCurrentStudioPlanForUser() {
   const plan = getPlan(typedSubscription.subscription_plans);
 
   return {
-    studioId: roleRow.studio_id as string,
+    studioId,
     status: typedSubscription.status,
     planCode: plan?.code ?? null,
     planName: plan?.name ?? null,

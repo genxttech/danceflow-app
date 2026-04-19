@@ -426,7 +426,7 @@ export default async function AppDashboardPage() {
         title,
         status,
         starts_at,
-        clients (
+        clients:clients!appointments_client_id_fkey (
           first_name,
           last_name
         ),
@@ -487,7 +487,7 @@ export default async function AppDashboardPage() {
         appointment_type,
         title,
         client_id,
-        clients (
+        clients:clients!appointments_client_id_fkey (
           first_name,
           last_name,
           referral_source

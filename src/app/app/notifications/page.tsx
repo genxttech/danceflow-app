@@ -25,6 +25,19 @@ type NotificationRow = {
   client_package_id: string | null;
 };
 
+type NotificationTypeOption = {
+  value: string;
+  label: string;
+};
+
+const notificationTypeOptions: NotificationTypeOption[] = [
+  { value: "public_intro_booking", label: "Public Intro" },
+  { value: "floor_rental_upcoming", label: "Floor Rental" },
+  { value: "follow_up_overdue", label: "Follow-Up Overdue" },
+  { value: "package_low_balance", label: "Package Low Balance" },
+  { value: "package_depleted", label: "Package Depleted" },
+];
+
 function fmtDateTime(value: string) {
   return new Date(value).toLocaleString([], {
     month: "short",
@@ -45,11 +58,8 @@ function notificationBadgeClass(type: string) {
 }
 
 function notificationTypeLabel(type: string) {
-  if (type === "public_intro_booking") return "Public Intro";
-  if (type === "follow_up_overdue") return "Follow-Up Overdue";
-  if (type === "package_low_balance") return "Package Low Balance";
-  if (type === "package_depleted") return "Package Depleted";
-  if (type === "floor_rental_upcoming") return "Floor Rental";
+  const match = notificationTypeOptions.find((option) => option.value === type);
+  if (match) return match.label;
   return type.replaceAll("_", " ");
 }
 
@@ -59,11 +69,13 @@ function getNotificationHref(notification: NotificationRow) {
       notification.id
     )}`;
   }
+
   if (notification.client_id) {
     return `/app/clients/${notification.client_id}?notificationId=${encodeURIComponent(
       notification.id
     )}`;
   }
+
   return "/app";
 }
 
@@ -170,7 +182,7 @@ export default async function NotificationsPage({
             Notifications
           </h2>
           <p className="mt-2 text-slate-600">
-            Review internal alerts for public bookings, floor rentals, and studio operations.
+            Review internal alerts for leads, packages, intro bookings, floor rentals, and studio operations.
           </p>
         </div>
 
@@ -223,11 +235,11 @@ export default async function NotificationsPage({
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
             >
               <option value="all">All Types</option>
-              <option value="public_intro_booking">Public Intro</option>
-              <option value="floor_rental_upcoming">Floor Rental</option>
-              <option value="follow_up_overdue">Follow-Up Overdue</option>
-              <option value="package_low_balance">Package Low Balance</option>
-              <option value="package_depleted">Package Depleted</option>
+              {notificationTypeOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -250,37 +262,66 @@ export default async function NotificationsPage({
           </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-3">
-          <Link
-            href={buildFilterHref("all", typeFilter)}
-            className={`rounded-full px-4 py-2 text-sm ${
-              statusFilter === "all"
-                ? "bg-slate-900 text-white"
-                : "border bg-white text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            All
-          </Link>
-          <Link
-            href={buildFilterHref("unread", typeFilter)}
-            className={`rounded-full px-4 py-2 text-sm ${
-              statusFilter === "unread"
-                ? "bg-slate-900 text-white"
-                : "border bg-white text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            Unread
-          </Link>
-          <Link
-            href={buildFilterHref("read", typeFilter)}
-            className={`rounded-full px-4 py-2 text-sm ${
-              statusFilter === "read"
-                ? "bg-slate-900 text-white"
-                : "border bg-white text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            Read
-          </Link>
+        <div className="mt-5 space-y-4">
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href={buildFilterHref("all", typeFilter)}
+              className={`rounded-full px-4 py-2 text-sm ${
+                statusFilter === "all"
+                  ? "bg-slate-900 text-white"
+                  : "border bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              All
+            </Link>
+            <Link
+              href={buildFilterHref("unread", typeFilter)}
+              className={`rounded-full px-4 py-2 text-sm ${
+                statusFilter === "unread"
+                  ? "bg-slate-900 text-white"
+                  : "border bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Unread
+            </Link>
+            <Link
+              href={buildFilterHref("read", typeFilter)}
+              className={`rounded-full px-4 py-2 text-sm ${
+                statusFilter === "read"
+                  ? "bg-slate-900 text-white"
+                  : "border bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              Read
+            </Link>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href={buildFilterHref(statusFilter, "all")}
+              className={`rounded-full px-4 py-2 text-sm ${
+                typeFilter === "all"
+                  ? "bg-slate-900 text-white"
+                  : "border bg-white text-slate-700 hover:bg-slate-50"
+              }`}
+            >
+              All Types
+            </Link>
+
+            {notificationTypeOptions.map((option) => (
+              <Link
+                key={option.value}
+                href={buildFilterHref(statusFilter, option.value)}
+                className={`rounded-full px-4 py-2 text-sm ${
+                  typeFilter === option.value
+                    ? "bg-slate-900 text-white"
+                    : "border bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {option.label}
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
 

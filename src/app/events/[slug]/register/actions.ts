@@ -1,9 +1,24 @@
- "use server";
+"use server";
 
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/payments/stripe";
+import { queueOutboundDelivery } from "@/lib/notifications/outbound";
+import {
+  buildEventConfirmedEmailTemplate,
+  buildEventConfirmedSmsTemplate,
+  buildEventWaitlistEmailTemplate,
+  buildEventWaitlistSmsTemplate,
+} from "@/lib/notifications/templates";
+
+type StudioSubscriptionPlanRow = {
+  status: string | null;
+  subscription_plans:
+    | { code: string | null; name?: string | null }
+    | { code: string | null; name?: string | null }[]
+    | null;
+};
 
 type ActionState = {
   error: string;
@@ -14,6 +29,15 @@ const initialState: ActionState = {
   error: "",
   success: "",
 };
+
+function getSubscriptionPlan(
+  value:
+    | { code: string | null; name?: string | null }
+    | { code: string | null; name?: string | null }[]
+    | null
+) {
+  return Array.isArray(value) ? value[0] ?? null : value;
+}
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -29,6 +53,47 @@ function getInt(formData: FormData, key: string, fallback = 1) {
 function appendQueryParam(url: string, key: string, value: string) {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
+}
+
+function getAppUrl() {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "http://localhost:3000"
+  );
+}
+
+async function getOrganizerPlatformFeePercent(studioId: string) {
+  const supabase = await createClient();
+
+  const { data: subscription, error } = await supabase
+    .from("studio_subscriptions")
+    .select(
+      `
+      status,
+      subscription_plans (
+        code,
+        name
+      )
+    `
+    )
+    .eq("studio_id", studioId)
+    .maybeSingle();
+
+  if (error || !subscription) {
+    return 0;
+  }
+
+  const typedSubscription = subscription as StudioSubscriptionPlanRow;
+  const plan = getSubscriptionPlan(typedSubscription.subscription_plans);
+  const status = typedSubscription.status ?? "inactive";
+  const planCode = plan?.code ?? null;
+
+  if (!["active", "trialing"].includes(status)) {
+    return 0;
+  }
+
+  return planCode === "organizer" ? 0.035 : 0;
 }
 
 async function getStudioConnectStatus(studioId: string) {
@@ -53,13 +118,40 @@ async function getStudioConnectStatus(studioId: string) {
     throw new Error("Could not load the studio payment profile.");
   }
 
-  return {
+  const baseStatus = {
     connectedAccountId: studio.stripe_connected_account_id ?? null,
     detailsSubmitted: studio.stripe_connect_details_submitted ?? false,
     chargesEnabled: studio.stripe_connect_charges_enabled ?? false,
     payoutsEnabled: studio.stripe_connect_payouts_enabled ?? false,
     onboardingComplete: studio.stripe_connect_onboarding_complete ?? false,
+    cardPaymentsEnabled: false,
+    transfersEnabled: false,
   };
+
+  if (!baseStatus.connectedAccountId) {
+    return baseStatus;
+  }
+
+  try {
+    const stripe = getStripe();
+    const account = await stripe.accounts.retrieve(baseStatus.connectedAccountId);
+
+    return {
+      ...baseStatus,
+      detailsSubmitted: account.details_submitted ?? baseStatus.detailsSubmitted,
+      chargesEnabled: account.charges_enabled ?? baseStatus.chargesEnabled,
+      payoutsEnabled: account.payouts_enabled ?? baseStatus.payoutsEnabled,
+      onboardingComplete:
+        (account.details_submitted ?? false) &&
+        (account.charges_enabled ?? false) &&
+        (account.payouts_enabled ?? false),
+      cardPaymentsEnabled: account.capabilities?.card_payments === "active",
+      transfersEnabled: account.capabilities?.transfers === "active",
+    };
+  } catch (error) {
+    console.error("Could not retrieve Stripe connected account capabilities:", error);
+    return baseStatus;
+  }
 }
 
 async function requireStudioConnectReadyForCheckout(studioId: string) {
@@ -77,7 +169,24 @@ async function requireStudioConnectReadyForCheckout(studioId: string) {
     );
   }
 
+  if (!status.cardPaymentsEnabled || !status.transfersEnabled || !status.chargesEnabled) {
+    throw new Error(
+      "This studio Stripe account is not ready for direct-charge ticket sales yet. The connected account still needs card payments and transfers enabled."
+    );
+  }
+
   return status;
+}
+
+function calculateOrganizerApplicationFeeAmount(params: {
+  unitPrice: number;
+  quantity: number;
+  feePercent: number;
+}) {
+  const grossAmount =
+    Math.max(0, Math.round(params.unitPrice * 100)) * Math.max(1, params.quantity);
+
+  return Math.round(grossAmount * Math.max(0, params.feePercent));
 }
 
 async function createStripeCheckoutSession(params: {
@@ -97,36 +206,53 @@ async function createStripeCheckoutSession(params: {
   const stripe = getStripe();
   const connectStatus = await requireStudioConnectReadyForCheckout(params.studioId);
 
-  const appUrl =
-    process.env.NEXT_PUBLIC_APP_URL ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    "http://localhost:3000";
+  const appUrl = getAppUrl();
 
-  return stripe.checkout.sessions.create({
-    mode: "payment",
-    customer_email: params.attendeeEmail,
-    success_url: `${appUrl}/events/${encodeURIComponent(
-      params.eventSlug
-    )}?success=paid&registration=${encodeURIComponent(params.registrationId)}`,
-    cancel_url: `${appUrl}/events/${encodeURIComponent(
-      params.eventSlug
-    )}?error=checkout_cancelled&registration=${encodeURIComponent(params.registrationId)}`,
-    line_items: [
-      {
-        quantity: params.quantity,
-        price_data: {
-          currency: (params.currency || "USD").toLowerCase(),
-          unit_amount: Math.round(params.unitPrice * 100),
-          product_data: {
-            name: `${params.eventName} — ${params.ticketTypeName}`,
-            description: params.ticketKind || "Event ticket",
+  const organizerPlatformFeePercent = await getOrganizerPlatformFeePercent(
+    params.studioId
+  );
+
+  const applicationFeeAmount = calculateOrganizerApplicationFeeAmount({
+    unitPrice: params.unitPrice,
+    quantity: params.quantity,
+    feePercent: organizerPlatformFeePercent,
+  });
+
+  return stripe.checkout.sessions.create(
+    {
+      mode: "payment",
+      customer_email: params.attendeeEmail,
+      success_url: `${appUrl}/events/${encodeURIComponent(
+        params.eventSlug
+      )}?success=paid&registration=${encodeURIComponent(params.registrationId)}`,
+      cancel_url: `${appUrl}/events/${encodeURIComponent(
+        params.eventSlug
+      )}?error=checkout_cancelled&registration=${encodeURIComponent(params.registrationId)}`,
+      line_items: [
+        {
+          quantity: params.quantity,
+          price_data: {
+            currency: (params.currency || "USD").toLowerCase(),
+            unit_amount: Math.round(params.unitPrice * 100),
+            product_data: {
+              name: `${params.eventName} — ${params.ticketTypeName}`,
+              description: params.ticketKind || "Event ticket",
+            },
           },
         },
-      },
-    ],
-    payment_intent_data: {
-      transfer_data: {
-        destination: connectStatus.connectedAccountId!,
+      ],
+      payment_intent_data: {
+        ...(applicationFeeAmount > 0
+          ? { application_fee_amount: applicationFeeAmount }
+          : {}),
+        metadata: {
+          source: "event_registration",
+          studio_id: params.studioId,
+          event_id: params.eventId,
+          event_slug: params.eventSlug,
+          registration_id: params.registrationId,
+          ticket_type_id: params.ticketTypeId,
+        },
       },
       metadata: {
         source: "event_registration",
@@ -137,15 +263,144 @@ async function createStripeCheckoutSession(params: {
         ticket_type_id: params.ticketTypeId,
       },
     },
-    metadata: {
-      source: "event_registration",
-      studio_id: params.studioId,
-      event_id: params.eventId,
-      event_slug: params.eventSlug,
-      registration_id: params.registrationId,
-      ticket_type_id: params.ticketTypeId,
-    },
-  });
+    {
+      stripeAccount: connectStatus.connectedAccountId!,
+    }
+  );
+}
+
+async function safeQueueEventWaitlistOutbound(params: {
+  studioId: string;
+  registrationId: string;
+  eventSlug: string;
+  eventName: string;
+  attendeeFirstName: string;
+  attendeeLastName: string;
+  attendeeEmail: string;
+  attendeePhone: string | null;
+  ticketTypeName: string;
+  quantity: number;
+  totalPrice: number;
+  currency: string;
+}) {
+  try {
+    const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(params.eventSlug)}`;
+
+    const emailTemplate = buildEventWaitlistEmailTemplate({
+      eventName: params.eventName,
+      attendeeFirstName: params.attendeeFirstName,
+      attendeeLastName: params.attendeeLastName,
+      ticketTypeName: params.ticketTypeName,
+      quantity: params.quantity,
+      totalPrice: params.totalPrice,
+      currency: params.currency,
+      eventUrl,
+    });
+
+    const smsBody = buildEventWaitlistSmsTemplate({
+      eventName: params.eventName,
+      attendeeFirstName: params.attendeeFirstName,
+      attendeeLastName: params.attendeeLastName,
+      ticketTypeName: params.ticketTypeName,
+      quantity: params.quantity,
+      totalPrice: params.totalPrice,
+      currency: params.currency,
+      eventUrl,
+    });
+
+    await Promise.allSettled([
+      queueOutboundDelivery({
+        studioId: params.studioId,
+        channel: "email",
+        templateKey: "event_waitlist_confirmation",
+        recipientEmail: params.attendeeEmail,
+        subject: emailTemplate.subject,
+        bodyText: emailTemplate.bodyText,
+        relatedTable: "event_registrations",
+        relatedId: params.registrationId,
+        dedupeKey: `event_waitlist_confirmation:email:${params.registrationId}`,
+      }),
+      queueOutboundDelivery({
+        studioId: params.studioId,
+        channel: "sms",
+        templateKey: "event_waitlist_confirmation",
+        recipientPhone: params.attendeePhone,
+        bodyText: smsBody,
+        relatedTable: "event_registrations",
+        relatedId: params.registrationId,
+        dedupeKey: `event_waitlist_confirmation:sms:${params.registrationId}`,
+      }),
+    ]);
+  } catch (error) {
+    console.error("queue waitlist outbound failed:", error);
+  }
+}
+
+async function safeQueueEventConfirmedOutbound(params: {
+  studioId: string;
+  registrationId: string;
+  eventSlug: string;
+  eventName: string;
+  attendeeFirstName: string;
+  attendeeLastName: string;
+  attendeeEmail: string;
+  attendeePhone: string | null;
+  ticketTypeName: string;
+  quantity: number;
+  totalPrice: number;
+  currency: string;
+}) {
+  try {
+    const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(params.eventSlug)}`;
+
+    const emailTemplate = buildEventConfirmedEmailTemplate({
+      eventName: params.eventName,
+      attendeeFirstName: params.attendeeFirstName,
+      attendeeLastName: params.attendeeLastName,
+      ticketTypeName: params.ticketTypeName,
+      quantity: params.quantity,
+      totalPrice: params.totalPrice,
+      currency: params.currency,
+      eventUrl,
+    });
+
+    const smsBody = buildEventConfirmedSmsTemplate({
+      eventName: params.eventName,
+      attendeeFirstName: params.attendeeFirstName,
+      attendeeLastName: params.attendeeLastName,
+      ticketTypeName: params.ticketTypeName,
+      quantity: params.quantity,
+      totalPrice: params.totalPrice,
+      currency: params.currency,
+      eventUrl,
+    });
+
+    await Promise.allSettled([
+      queueOutboundDelivery({
+        studioId: params.studioId,
+        channel: "email",
+        templateKey: "event_registration_confirmed",
+        recipientEmail: params.attendeeEmail,
+        subject: emailTemplate.subject,
+        bodyText: emailTemplate.bodyText,
+        relatedTable: "event_registrations",
+        relatedId: params.registrationId,
+        dedupeKey: `event_registration_confirmed:email:${params.registrationId}`,
+      }),
+      queueOutboundDelivery({
+        studioId: params.studioId,
+        channel: "sms",
+        templateKey: "event_registration_confirmed",
+        recipientPhone: params.attendeePhone,
+        bodyText: smsBody,
+        relatedTable: "event_registrations",
+        relatedId: params.registrationId,
+        dedupeKey: `event_registration_confirmed:sms:${params.registrationId}`,
+      }),
+    ]);
+  } catch (error) {
+    console.error("queue confirmed outbound failed:", error);
+  }
 }
 
 export async function createEventRegistrationAction(
@@ -210,8 +465,15 @@ export async function createEventRegistrationAction(
       return { error: "Event not found.", success: "" };
     }
 
+    if (!event.registration_required) {
+      return { error: "Registration is not enabled for this event.", success: "" };
+    }
+
     if (event.account_required_for_registration && !user) {
-      redirect(`/login?next=/events/${encodeURIComponent(eventSlug)}`);
+      return {
+        error: "You need a free account and must be logged in to register for this event.",
+        success: "",
+      };
     }
 
     if (
@@ -280,7 +542,7 @@ export async function createEventRegistrationAction(
       .from("event_registrations")
       .select("*", { count: "exact", head: true })
       .eq("event_id", event.id)
-      .neq("status", "cancelled");
+      .not("status", "in", "(cancelled,waitlisted)");
 
     if (countError) {
       return { error: "Could not validate event capacity.", success: "" };
@@ -291,7 +553,7 @@ export async function createEventRegistrationAction(
       .select("*", { count: "exact", head: true })
       .eq("event_id", event.id)
       .eq("ticket_type_id", ticketType.id)
-      .neq("status", "cancelled");
+      .not("status", "in", "(cancelled,waitlisted)");
 
     if (ticketCountError) {
       return { error: "Could not validate ticket capacity.", success: "" };
@@ -401,6 +663,21 @@ export async function createEventRegistrationAction(
         };
       }
 
+      await safeQueueEventWaitlistOutbound({
+        studioId: event.studio_id,
+        registrationId: waitlistRegistration.id,
+        eventSlug: event.slug,
+        eventName: event.name,
+        attendeeFirstName,
+        attendeeLastName,
+        attendeeEmail,
+        attendeePhone: attendeePhone || null,
+        ticketTypeName: ticketType.name,
+        quantity,
+        totalPrice,
+        currency,
+      });
+
       redirect(
         appendQueryParam(
           `/events/${encodeURIComponent(event.slug)}`,
@@ -430,47 +707,57 @@ export async function createEventRegistrationAction(
       .maybeSingle();
 
     if (existingRegistration) {
-  if (existingRegistration.status === "waitlisted") {
-    redirect(
-      appendQueryParam(
-        `/events/${encodeURIComponent(event.slug)}`,
-        "success",
-        "waitlisted"
-      )
-    );
-  }
+      if (existingRegistration.status === "waitlisted") {
+        redirect(
+          appendQueryParam(
+            `/events/${encodeURIComponent(event.slug)}`,
+            "success",
+            "waitlisted"
+          )
+        );
+      }
 
-  const session = await createStripeCheckoutSession({
-    studioId: event.studio_id,
-    eventId: event.id,
-    eventSlug: event.slug,
-    eventName: event.name,
-    registrationId: existingRegistration.id,
-    ticketTypeId: ticketType.id,
-    ticketTypeName: ticketType.name,
-    ticketKind: ticketType.ticket_kind,
-    attendeeEmail,
-    quantity,
-    unitPrice,
-    currency,
-  });
+      if (existingRegistration.status === "confirmed") {
+        redirect(
+          appendQueryParam(
+            `/events/${encodeURIComponent(event.slug)}`,
+            totalPrice > 0 ? "success" : "success",
+            totalPrice > 0 ? "paid" : "registered"
+          )
+        );
+      }
 
-  await supabase
-    .from("event_registrations")
-    .update({
-      stripe_checkout_session_id: session.id,
-    })
-    .eq("id", existingRegistration.id);
+      const session = await createStripeCheckoutSession({
+        studioId: event.studio_id,
+        eventId: event.id,
+        eventSlug: event.slug,
+        eventName: event.name,
+        registrationId: existingRegistration.id,
+        ticketTypeId: ticketType.id,
+        ticketTypeName: ticketType.name,
+        ticketKind: ticketType.ticket_kind,
+        attendeeEmail,
+        quantity,
+        unitPrice,
+        currency,
+      });
 
-  redirect(
-    session.url ||
-      appendQueryParam(
-        `/events/${encodeURIComponent(event.slug)}`,
-        "error",
-        "checkout_session_failed"
-      )
-  );
-}
+      await supabase
+        .from("event_registrations")
+        .update({
+          stripe_checkout_session_id: session.id,
+        })
+        .eq("id", existingRegistration.id);
+
+      redirect(
+        session.url ||
+          appendQueryParam(
+            `/events/${encodeURIComponent(event.slug)}`,
+            "error",
+            "checkout_session_failed"
+          )
+      );
+    }
 
     const { data: registration, error: registrationError } = await supabase
       .from("event_registrations")
@@ -541,6 +828,21 @@ export async function createEventRegistrationAction(
     }
 
     if (totalPrice === 0) {
+      await safeQueueEventConfirmedOutbound({
+        studioId: event.studio_id,
+        registrationId: registration.id,
+        eventSlug: event.slug,
+        eventName: event.name,
+        attendeeFirstName,
+        attendeeLastName,
+        attendeeEmail,
+        attendeePhone: attendeePhone || null,
+        ticketTypeName: ticketType.name,
+        quantity,
+        totalPrice,
+        currency,
+      });
+
       redirect(
         appendQueryParam(
           `/events/${encodeURIComponent(event.slug)}`,
@@ -660,6 +962,10 @@ export async function retryEventRegistrationCheckoutAction(formData: FormData) {
 
   if (registration.status === "waitlisted") {
     redirect(`/events/${encodeURIComponent(eventValue.slug)}?success=waitlisted`);
+  }
+
+  if (registration.status === "confirmed") {
+    redirect(`/events/${encodeURIComponent(eventValue.slug)}?success=paid`);
   }
 
   const session = await createStripeCheckoutSession({

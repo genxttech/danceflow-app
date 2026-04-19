@@ -13,6 +13,7 @@ type StudioNotificationSettingsRow = {
   follow_up_overdue_enabled: boolean;
   package_low_balance_enabled: boolean;
   package_depleted_enabled: boolean;
+  floor_rental_upcoming_enabled: boolean;
 };
 
 function notificationTypesToDisable(
@@ -37,6 +38,10 @@ function notificationTypesToDisable(
     disabledTypes.push("package_depleted");
   }
 
+  if (previous.floor_rental_upcoming_enabled && !next.floor_rental_upcoming_enabled) {
+    disabledTypes.push("floor_rental_upcoming");
+  }
+
   return disabledTypes;
 }
 
@@ -56,7 +61,7 @@ export async function updateStudioNotificationSettingsAction(
 
   const { data: roleRow, error: roleError } = await supabase
     .from("user_studio_roles")
-    .select("studio_id")
+    .select("studio_id, role")
     .eq("user_id", user.id)
     .eq("active", true)
     .limit(1)
@@ -64,6 +69,11 @@ export async function updateStudioNotificationSettingsAction(
 
   if (roleError || !roleRow) {
     return { error: "Studio access not found.", success: "" };
+  }
+
+  const allowedRoles = new Set(["platform_admin", "studio_owner", "studio_admin"]);
+  if (!allowedRoles.has(roleRow.role)) {
+    return { error: "You do not have permission to update notification settings.", success: "" };
   }
 
   const studioId = roleRow.studio_id;
@@ -74,7 +84,8 @@ export async function updateStudioNotificationSettingsAction(
       public_intro_booking_enabled,
       follow_up_overdue_enabled,
       package_low_balance_enabled,
-      package_depleted_enabled
+      package_depleted_enabled,
+      floor_rental_upcoming_enabled
     `)
     .eq("studio_id", studioId)
     .maybeSingle();
@@ -91,6 +102,7 @@ export async function updateStudioNotificationSettingsAction(
     follow_up_overdue_enabled: true,
     package_low_balance_enabled: true,
     package_depleted_enabled: true,
+    floor_rental_upcoming_enabled: true,
   };
 
   const nextSettings: StudioNotificationSettingsRow = {
@@ -102,6 +114,8 @@ export async function updateStudioNotificationSettingsAction(
       formData.get("package_low_balance_enabled") === "on",
     package_depleted_enabled:
       formData.get("package_depleted_enabled") === "on",
+    floor_rental_upcoming_enabled:
+      formData.get("floor_rental_upcoming_enabled") === "on",
   };
 
   const { error: saveError } = await supabase

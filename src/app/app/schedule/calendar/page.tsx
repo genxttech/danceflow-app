@@ -28,6 +28,10 @@ type AppointmentRow = {
     | { first_name: string; last_name: string }
     | { first_name: string; last_name: string }[]
     | null;
+  partner_client:
+    | { first_name: string; last_name: string }
+    | { first_name: string; last_name: string }[]
+    | null;
   instructors:
     | { first_name: string; last_name: string }
     | { first_name: string; last_name: string }[]
@@ -297,7 +301,8 @@ export default async function ScheduleCalendarPage({
             ends_at,
             is_recurring,
             recurrence_series_id,
-            clients ( first_name, last_name ),
+            clients:clients!appointments_client_id_fkey ( first_name, last_name ),
+            partner_client:clients!appointments_partner_client_id_fkey ( first_name, last_name ),
             instructors ( first_name, last_name ),
             rooms ( name )
           `)

@@ -12,7 +12,11 @@ import { completeLeadFollowUpAction } from "@/app/app/leads/activity-actions";
 import QuickActionPanel from "@/components/ui/QuickActionPanel";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
 import QuickPaymentPanel from "./QuickPaymentPanel";
-import { updateIndependentInstructorSettingsAction } from "./actions";
+import {
+  linkPartnerAction,
+  unlinkPartnerAction,
+  updateIndependentInstructorSettingsAction,
+} from "./actions";
 import ClientMembershipCard from "./ClientMembershipCard";
 import {
   cancelMembershipAtPeriodEndAction,
@@ -48,6 +52,19 @@ type InstructorOption = {
   first_name: string;
   last_name: string;
   active: boolean;
+};
+
+type LinkedRelationshipRow = {
+  client_id: string;
+  related_client_id: string;
+  relationship_type: string;
+};
+
+type LinkedPartnerRecord = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  status: string;
 };
 
 type ClientPackageItemRow = {
@@ -571,6 +588,48 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.success === "partner_linked") {
+    return {
+      kind: "success" as const,
+      message: "Partner linked successfully.",
+    };
+  }
+
+  if (search.success === "partner_unlinked") {
+    return {
+      kind: "success" as const,
+      message: "Partner link removed successfully.",
+    };
+  }
+
+  if (search.error === "partner_same_as_client") {
+    return {
+      kind: "error" as const,
+      message: "A client cannot be linked as their own partner.",
+    };
+  }
+
+  if (search.error === "partner_client_not_found") {
+    return {
+      kind: "error" as const,
+      message: "The selected partner could not be found in this studio.",
+    };
+  }
+
+  if (search.error === "partner_link_failed") {
+    return {
+      kind: "error" as const,
+      message: "We could not save the partner link.",
+    };
+  }
+
+  if (search.error === "partner_unlink_failed") {
+    return {
+      kind: "error" as const,
+      message: "We could not remove the partner link.",
+    };
+  }
+
   if (search.success === "membership_auto_renew_restored") {
     return {
       kind: "success" as const,
@@ -1081,6 +1140,59 @@ export default async function ClientDetailPage({
     : null;
   const typedEventRegistrations = (eventRegistrations ?? []) as EventRegistrationRow[];
 
+  const { data: linkedRelationship, error: linkedRelationshipError } = await supabase
+    .from("client_relationships")
+    .select("client_id, related_client_id, relationship_type")
+    .eq("studio_id", studioId)
+    .or(`client_id.eq.${id},related_client_id.eq.${id}`)
+    .in("relationship_type", ["partner", "spouse"])
+    .limit(1)
+    .maybeSingle();
+
+  if (linkedRelationshipError) {
+    throw new Error(`Failed to load linked partner: ${linkedRelationshipError.message}`);
+  }
+
+  let linkedPartner: LinkedPartnerRecord | null = null;
+  let linkedPartnerRelationshipType: string | null = null;
+
+  if (linkedRelationship) {
+    const relationship = linkedRelationship as LinkedRelationshipRow;
+    const linkedPartnerId =
+      relationship.client_id === id
+        ? relationship.related_client_id
+        : relationship.client_id;
+
+    linkedPartnerRelationshipType = relationship.relationship_type;
+
+    const { data: linkedPartnerRow, error: linkedPartnerError } = await supabase
+      .from("clients")
+      .select("id, first_name, last_name, status")
+      .eq("studio_id", studioId)
+      .eq("id", linkedPartnerId)
+      .maybeSingle();
+
+    if (linkedPartnerError) {
+      throw new Error(`Failed to load linked partner client: ${linkedPartnerError.message}`);
+    }
+
+    linkedPartner = (linkedPartnerRow as LinkedPartnerRecord | null) ?? null;
+  }
+
+  const { data: partnerCandidatesRows, error: partnerCandidatesError } = await supabase
+    .from("clients")
+    .select("id, first_name, last_name, status")
+    .eq("studio_id", studioId)
+    .neq("id", id)
+    .in("status", ["active", "lead"])
+    .order("first_name", { ascending: true });
+
+  if (partnerCandidatesError) {
+    throw new Error(`Failed to load partner candidates: ${partnerCandidatesError.message}`);
+  }
+
+  const partnerCandidates = (partnerCandidatesRows as LinkedPartnerRecord[] | null) ?? [];
+
   let typedActiveMembership: ActiveMembership | null = typedActiveMembershipBase;
 
   if (typedActiveMembershipBase?.membership_plan_id) {
@@ -1241,6 +1353,103 @@ export default async function ClientDetailPage({
               <p className="mt-3 text-sm text-slate-600">
                 Client profile, balances, memberships, appointments, payments, and instructor access settings.
               </p>
+
+              <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white/80 px-4 py-3 shadow-sm">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      {linkedPartnerRelationshipType === "spouse"
+                        ? "Linked Spouse"
+                        : "Linked Partner"}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {linkedPartner
+                        ? `${linkedPartner.first_name} ${linkedPartner.last_name}`
+                        : "No partner linked yet."}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    {linkedPartner ? (
+                      <>
+                        <Link
+                          href={`/app/clients/${linkedPartner.id}`}
+                          className="rounded-2xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm hover:bg-[var(--brand-primary-soft)]"
+                        >
+                          View Profile
+                        </Link>
+
+                        <Link
+                          href={`/app/schedule/new?clientId=${typedClient.id}`}
+                          className="rounded-2xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm hover:bg-[var(--brand-primary-soft)]"
+                        >
+                          Book Couple Lesson
+                        </Link>
+
+                        <form action={unlinkPartnerAction}>
+                          <input type="hidden" name="clientId" value={typedClient.id} />
+                          <input type="hidden" name="partnerClientId" value={linkedPartner.id} />
+                          <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}`} />
+                          <button
+                            type="submit"
+                            className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 hover:bg-rose-100"
+                          >
+                            Unlink Partner
+                          </button>
+                        </form>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+
+                {!linkedPartner ? (
+                  <form action={linkPartnerAction} className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
+                    <input type="hidden" name="clientId" value={typedClient.id} />
+                    <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}`} />
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">
+                        Select partner
+                      </label>
+                      <select
+                        name="partnerClientId"
+                        className="w-full rounded-2xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm"
+                        defaultValue=""
+                      >
+                        <option value="">Choose a client…</option>
+                        {partnerCandidates.map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.first_name} {candidate.last_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-sm font-medium text-slate-700">
+                        Relationship
+                      </label>
+                      <select
+                        name="relationshipType"
+                        className="w-full rounded-2xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm"
+                        defaultValue="partner"
+                      >
+                        <option value="partner">Partner</option>
+                        <option value="spouse">Spouse</option>
+                      </select>
+                    </div>
+
+                    <div className="flex items-end">
+                      <button
+                        type="submit"
+                        className="w-full rounded-2xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-medium text-white hover:brightness-105"
+                      >
+                        Link Partner
+                      </button>
+                    </div>
+                  </form>
+                ) : null}
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-3 xl:max-w-xl xl:justify-end">

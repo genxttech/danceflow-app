@@ -257,8 +257,6 @@ export default async function EventDetailPage({
 }: {
   params: Params;
 }) {
-  await requireStudioFeature("organizer_tools");
-
   const { id } = await params;
   const supabase = await createClient();
 
@@ -272,6 +270,10 @@ export default async function EventDetailPage({
 
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
+
+  if (!context.isPlatformAdmin) {
+    await requireStudioFeature("organizer_tools");
+  }
 
   const [
     { data: event, error: eventError },

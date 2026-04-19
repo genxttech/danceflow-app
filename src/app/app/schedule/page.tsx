@@ -429,7 +429,7 @@ export default async function SchedulePage({
       client_package_id,
       is_recurring,
       recurrence_series_id,
-      clients ( first_name, last_name, referral_source ),
+      clients:clients!appointments_client_id_fkey ( first_name, last_name, referral_source ),
       instructors ( id, first_name, last_name ),
       rooms ( id, name ),
       client_packages (

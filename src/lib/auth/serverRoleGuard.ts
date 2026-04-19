@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   canAdjustBalances,
   canCreateAppointments,
@@ -14,7 +15,18 @@ import {
   canViewReports,
 } from "@/lib/auth/permissions";
 
-export async function getCurrentUserStudioContext() {
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+type AuthUser = Awaited<ReturnType<SupabaseServerClient["auth"]["getUser"]>>["data"]["user"];
+
+type StudioGuardContext = {
+  supabase: SupabaseServerClient;
+  user: NonNullable<AuthUser>;
+  studioId: string;
+  studioRole: string | null;
+  isPlatformAdmin: boolean;
+};
+
+export async function getCurrentUserStudioContext(): Promise<StudioGuardContext> {
   const supabase = await createClient();
 
   const {
@@ -26,118 +38,143 @@ export async function getCurrentUserStudioContext() {
     throw new Error("You must be logged in.");
   }
 
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id, role")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
+  const context = await getCurrentStudioContext();
 
-  if (roleError || !roleRow) {
-    throw new Error("No active studio membership found.");
+  if (!context?.studioId) {
+    throw new Error("No active studio context found.");
   }
 
   return {
     supabase,
     user,
-    studioId: roleRow.studio_id as string,
-    role: roleRow.role as string,
+    studioId: context.studioId,
+    studioRole: context.studioRole ?? null,
+    isPlatformAdmin: Boolean(context.isPlatformAdmin),
   };
+}
+
+function requirePermission(params: {
+  ctx: StudioGuardContext;
+  allowed: (role: string) => boolean;
+  message: string;
+}) {
+  const { ctx, allowed, message } = params;
+
+  if (ctx.isPlatformAdmin) {
+    return ctx;
+  }
+
+  if (!allowed(ctx.studioRole ?? "")) {
+    throw new Error(message);
+  }
+
+  return ctx;
 }
 
 export async function requireClientEditAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canEditClients(ctx.role)) {
-    throw new Error("You do not have permission to manage clients.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canEditClients,
+    message: "You do not have permission to manage clients.",
+  });
 }
 
 export async function requireInstructorManageAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canManageInstructors(ctx.role)) {
-    throw new Error("You do not have permission to manage instructors.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canManageInstructors,
+    message: "You do not have permission to manage instructors.",
+  });
 }
 
 export async function requireRoomManageAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canManageRooms(ctx.role)) {
-    throw new Error("You do not have permission to manage rooms.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canManageRooms,
+    message: "You do not have permission to manage rooms.",
+  });
 }
 
 export async function requirePackageManageAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canManagePackages(ctx.role)) {
-    throw new Error("You do not have permission to manage package templates.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canManagePackages,
+    message: "You do not have permission to manage package templates.",
+  });
 }
 
 export async function requirePackageSellAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canSellPackages(ctx.role)) {
-    throw new Error("You do not have permission to sell packages.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canSellPackages,
+    message: "You do not have permission to sell packages.",
+  });
 }
 
 export async function requireSettingsManageAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canManageSettings(ctx.role)) {
-    throw new Error("You do not have permission to manage studio settings.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canManageSettings,
+    message: "You do not have permission to manage studio settings.",
+  });
 }
 
 export async function requireAppointmentCreateAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canCreateAppointments(ctx.role)) {
-    throw new Error("You do not have permission to create appointments.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canCreateAppointments,
+    message: "You do not have permission to create appointments.",
+  });
 }
 
 export async function requireAppointmentEditAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canEditAppointments(ctx.role)) {
-    throw new Error("You do not have permission to edit appointments.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canEditAppointments,
+    message: "You do not have permission to edit appointments.",
+  });
 }
 
 export async function requireAttendanceAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canMarkAttendance(ctx.role)) {
-    throw new Error("You do not have permission to mark attendance.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canMarkAttendance,
+    message: "You do not have permission to mark attendance.",
+  });
 }
 
 export async function requireBalanceAdjustmentAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canAdjustBalances(ctx.role)) {
-    throw new Error("You do not have permission to adjust package balances.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canAdjustBalances,
+    message: "You do not have permission to adjust package balances.",
+  });
 }
 
 export async function requirePaymentsViewAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canViewPayments(ctx.role)) {
-    throw new Error("You do not have permission to access payments.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canViewPayments,
+    message: "You do not have permission to access payments.",
+  });
 }
 
 export async function requireReportsAccess() {
   const ctx = await getCurrentUserStudioContext();
-  if (!canViewReports(ctx.role)) {
-    throw new Error("You do not have permission to access reports.");
-  }
-  return ctx;
+  return requirePermission({
+    ctx,
+    allowed: canViewReports,
+    message: "You do not have permission to access reports.",
+  });
 }

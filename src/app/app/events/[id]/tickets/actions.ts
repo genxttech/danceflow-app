@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -43,22 +44,17 @@ async function getStudioContext() {
     redirect("/login");
   }
 
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id, role")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
+  const context = await getCurrentStudioContext();
 
-  if (roleError || !roleRow?.studio_id) {
-    throw new Error("No active studio role found for this user.");
+  if (!context?.studioId) {
+    throw new Error("No active studio context found for this user.");
   }
 
   return {
     supabase,
-    studioId: roleRow.studio_id as string,
-    role: roleRow.role as string | null,
+    studioId: context.studioId as string,
+    role: (context.role ?? null) as string | null,
+    isPlatformAdmin: Boolean(context.isPlatformAdmin),
     userId: user.id,
   };
 }
@@ -103,10 +99,15 @@ async function ensureEventAccess(params: {
 }
 
 function canManageTickets(params: {
+  isPlatformAdmin: boolean;
   studioRole: string | null;
   organizerUserRole: string | null;
 }) {
-  const { studioRole, organizerUserRole } = params;
+  const { isPlatformAdmin, studioRole, organizerUserRole } = params;
+
+  if (isPlatformAdmin) {
+    return true;
+  }
 
   if (studioRole === "studio_owner" || studioRole === "studio_admin") {
     return true;
@@ -123,7 +124,8 @@ function canManageTickets(params: {
 }
 
 export async function createTicketTypeAction(formData: FormData) {
-  const { supabase, studioId, role, userId } = await getStudioContext();
+  const { supabase, studioId, role, isPlatformAdmin, userId } =
+    await getStudioContext();
 
   const eventId = getString(formData, "eventId");
   const name = getString(formData, "name");
@@ -133,8 +135,12 @@ export async function createTicketTypeAction(formData: FormData) {
   const currency = (getString(formData, "currency") || "USD").toUpperCase();
   const capacity = parseOptionalInteger(getString(formData, "capacity"));
   const sortOrder = parseOptionalInteger(getString(formData, "sortOrder")) ?? 0;
-  const saleStartsAt = parseOptionalDateTimeLocal(getString(formData, "saleStartsAt"));
-  const saleEndsAt = parseOptionalDateTimeLocal(getString(formData, "saleEndsAt"));
+  const saleStartsAt = parseOptionalDateTimeLocal(
+    getString(formData, "saleStartsAt")
+  );
+  const saleEndsAt = parseOptionalDateTimeLocal(
+    getString(formData, "saleEndsAt")
+  );
   const active = getBoolean(formData, "active");
 
   if (!eventId) {
@@ -152,7 +158,13 @@ export async function createTicketTypeAction(formData: FormData) {
     userId,
   });
 
-  if (!canManageTickets({ studioRole: role, organizerUserRole })) {
+  if (
+    !canManageTickets({
+      isPlatformAdmin,
+      studioRole: role,
+      organizerUserRole,
+    })
+  ) {
     throw new Error("You do not have permission to manage tickets.");
   }
 
@@ -178,7 +190,8 @@ export async function createTicketTypeAction(formData: FormData) {
 }
 
 export async function updateTicketTypeAction(formData: FormData) {
-  const { supabase, studioId, role, userId } = await getStudioContext();
+  const { supabase, studioId, role, isPlatformAdmin, userId } =
+    await getStudioContext();
 
   const ticketId = getString(formData, "ticketId");
   const eventId = getString(formData, "eventId");
@@ -189,8 +202,12 @@ export async function updateTicketTypeAction(formData: FormData) {
   const currency = (getString(formData, "currency") || "USD").toUpperCase();
   const capacity = parseOptionalInteger(getString(formData, "capacity"));
   const sortOrder = parseOptionalInteger(getString(formData, "sortOrder")) ?? 0;
-  const saleStartsAt = parseOptionalDateTimeLocal(getString(formData, "saleStartsAt"));
-  const saleEndsAt = parseOptionalDateTimeLocal(getString(formData, "saleEndsAt"));
+  const saleStartsAt = parseOptionalDateTimeLocal(
+    getString(formData, "saleStartsAt")
+  );
+  const saleEndsAt = parseOptionalDateTimeLocal(
+    getString(formData, "saleEndsAt")
+  );
   const active = getBoolean(formData, "active");
 
   if (!ticketId) {
@@ -212,7 +229,13 @@ export async function updateTicketTypeAction(formData: FormData) {
     userId,
   });
 
-  if (!canManageTickets({ studioRole: role, organizerUserRole })) {
+  if (
+    !canManageTickets({
+      isPlatformAdmin,
+      studioRole: role,
+      organizerUserRole,
+    })
+  ) {
     throw new Error("You do not have permission to manage tickets.");
   }
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createTicketTypeAction, updateTicketTypeAction } from "./actions";
@@ -18,11 +18,21 @@ type TicketTypeRow = {
   sale_ends_at: string | null;
 };
 
+type EventRow = {
+  id: string;
+  studio_id: string;
+  organizer_id: string | null;
+  name: string;
+  slug: string;
+  status: string;
+  visibility: string;
+};
+
 function canManageTickets(params: {
-    isPlatformAdmin: boolean;
+  isPlatformAdmin: boolean;
   organizerUserRole: string | null;
 }) {
-  const {  isPlatformAdmin, organizerUserRole } = params;
+  const { isPlatformAdmin, organizerUserRole } = params;
 
   if (isPlatformAdmin) return true;
 
@@ -41,6 +51,36 @@ function formatPrice(value: number | string, currency: string) {
   }).format(Number.isFinite(amount) ? amount : 0);
 }
 
+function ticketStatusLabel(ticket: TicketTypeRow) {
+  const now = Date.now();
+
+  if (!ticket.active) {
+    return {
+      label: "Inactive",
+      className: "bg-slate-100 text-slate-700",
+    };
+  }
+
+  if (ticket.sale_starts_at && new Date(ticket.sale_starts_at).getTime() > now) {
+    return {
+      label: "Scheduled",
+      className: "bg-blue-50 text-blue-700",
+    };
+  }
+
+  if (ticket.sale_ends_at && new Date(ticket.sale_ends_at).getTime() < now) {
+    return {
+      label: "Ended",
+      className: "bg-slate-100 text-slate-700",
+    };
+  }
+
+  return {
+    label: "On Sale",
+    className: "bg-green-50 text-green-700",
+  };
+}
+
 export default async function EventTicketsPage({
   params,
 }: {
@@ -49,6 +89,15 @@ export default async function EventTicketsPage({
   const { id } = await params;
 
   const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
   const context = await getCurrentStudioContext();
 
   if (!context) {
@@ -76,28 +125,23 @@ export default async function EventTicketsPage({
     notFound();
   }
 
+  const typedEvent = event as EventRow;
+
   let organizerUserRole: string | null = null;
 
-  if (event.organizer_id) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+  if (typedEvent.organizer_id) {
+    const { data: organizerUser } = await supabase
+      .from("organizer_users")
+      .select("role")
+      .eq("organizer_id", typedEvent.organizer_id)
+      .eq("user_id", user.id)
+      .eq("active", true)
+      .maybeSingle();
 
-    if (user) {
-      const { data: organizerUser } = await supabase
-        .from("organizer_users")
-        .select("role")
-        .eq("organizer_id", event.organizer_id)
-        .eq("user_id", user.id)
-        .eq("active", true)
-        .maybeSingle();
-
-      organizerUserRole = organizerUser?.role ?? null;
-    }
+    organizerUserRole = organizerUser?.role ?? null;
   }
 
   const canManage = canManageTickets({
-
     isPlatformAdmin: Boolean(isPlatformAdmin),
     organizerUserRole,
   });
@@ -117,7 +161,7 @@ export default async function EventTicketsPage({
       sale_starts_at,
       sale_ends_at
     `)
-    .eq("event_id", event.id)
+    .eq("event_id", typedEvent.id)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
 
@@ -135,7 +179,7 @@ export default async function EventTicketsPage({
             Event Tickets
           </p>
           <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-900">
-            {event.name}
+            {typedEvent.name}
           </h1>
           <p className="mt-2 text-sm text-slate-600">
             Manage ticket types for this event.
@@ -144,13 +188,14 @@ export default async function EventTicketsPage({
 
         <div className="flex flex-wrap gap-2">
           <Link
-            href={`/app/events/${event.id}`}
+            href={`/app/events/${typedEvent.id}`}
             className="inline-flex items-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           >
             Back to event
           </Link>
+
           <Link
-            href={`/events/${event.slug}`}
+            href={`/events/${typedEvent.slug}`}
             className="inline-flex items-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
           >
             View public page
@@ -180,150 +225,167 @@ export default async function EventTicketsPage({
           </div>
         ) : (
           <div className="mt-6 space-y-4">
-            {ticketRows.map((ticket) => (
-              <form
-                key={ticket.id}
-                action={updateTicketTypeAction}
-                className="rounded-2xl border border-slate-200 p-4"
-              >
-                <input type="hidden" name="ticketId" value={ticket.id} />
-                <input type="hidden" name="eventId" value={event.id} />
+            {ticketRows.map((ticket) => {
+              const status = ticketStatusLabel(ticket);
 
-                <div className="grid gap-4 md:grid-cols-2">
-                  <label className="space-y-2 text-sm">
-                    <span className="font-medium text-slate-700">Ticket name</span>
-                    <input
-                      name="name"
-                      defaultValue={ticket.name}
-                      disabled={!canManage}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
-                    />
-                  </label>
+              return (
+                <form
+                  key={ticket.id}
+                  action={updateTicketTypeAction}
+                  className="rounded-2xl border border-slate-200 p-4"
+                >
+                  <input type="hidden" name="ticketId" value={ticket.id} />
+                  <input type="hidden" name="eventId" value={typedEvent.id} />
 
-                  <label className="space-y-2 text-sm">
-                    <span className="font-medium text-slate-700">Ticket kind</span>
-                    <select
-                      name="ticketKind"
-                      defaultValue={ticket.ticket_kind}
-                      disabled={!canManage}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
-                    >
-                      <option value="general_admission">General admission</option>
-                      <option value="vip">VIP</option>
-                      <option value="package">Package</option>
-                      <option value="pass">Pass</option>
-                      <option value="other">Other</option>
-                    </select>
-                  </label>
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                        {ticket.ticket_kind.replaceAll("_", " ")}
+                      </span>
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${status.className}`}
+                      >
+                        {status.label}
+                      </span>
+                    </div>
 
-                  <label className="space-y-2 text-sm md:col-span-2">
-                    <span className="font-medium text-slate-700">Description</span>
-                    <textarea
-                      name="description"
-                      defaultValue={ticket.description ?? ""}
-                      disabled={!canManage}
-                      rows={3}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
-                    />
-                  </label>
+                    <p className="text-sm text-slate-500">
+                      Current price: {formatPrice(ticket.price, ticket.currency)}
+                    </p>
+                  </div>
 
-                  <label className="space-y-2 text-sm">
-                    <span className="font-medium text-slate-700">Price</span>
-                    <input
-                      name="price"
-                      type="number"
-                      min="0"
-                      step="0.01"
-                      defaultValue={ticket.price}
-                      disabled={!canManage}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
-                    />
-                  </label>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="space-y-2 text-sm">
+                      <span className="font-medium text-slate-700">Ticket name</span>
+                      <input
+                        name="name"
+                        defaultValue={ticket.name}
+                        disabled={!canManage}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                      />
+                    </label>
 
-                  <label className="space-y-2 text-sm">
-                    <span className="font-medium text-slate-700">Currency</span>
-                    <input
-                      name="currency"
-                      defaultValue={ticket.currency}
-                      disabled={!canManage}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
-                    />
-                  </label>
+                    <label className="space-y-2 text-sm">
+                      <span className="font-medium text-slate-700">Ticket kind</span>
+                      <select
+                        name="ticketKind"
+                        defaultValue={ticket.ticket_kind}
+                        disabled={!canManage}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                      >
+                        <option value="general_admission">General admission</option>
+                        <option value="vip">VIP</option>
+                        <option value="package">Package</option>
+                        <option value="pass">Pass</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </label>
 
-                  <label className="space-y-2 text-sm">
-                    <span className="font-medium text-slate-700">Capacity</span>
-                    <input
-                      name="capacity"
-                      type="number"
-                      min="0"
-                      defaultValue={ticket.capacity ?? ""}
-                      disabled={!canManage}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
-                    />
-                  </label>
+                    <label className="space-y-2 text-sm md:col-span-2">
+                      <span className="font-medium text-slate-700">Description</span>
+                      <textarea
+                        name="description"
+                        defaultValue={ticket.description ?? ""}
+                        disabled={!canManage}
+                        rows={3}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                      />
+                    </label>
 
-                  <label className="space-y-2 text-sm">
-                    <span className="font-medium text-slate-700">Sort order</span>
-                    <input
-                      name="sortOrder"
-                      type="number"
-                      min="0"
-                      defaultValue={ticket.sort_order}
-                      disabled={!canManage}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
-                    />
-                  </label>
+                    <label className="space-y-2 text-sm">
+                      <span className="font-medium text-slate-700">Price</span>
+                      <input
+                        name="price"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        defaultValue={ticket.price}
+                        disabled={!canManage}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                      />
+                    </label>
 
-                  <label className="space-y-2 text-sm">
-                    <span className="font-medium text-slate-700">Sale starts</span>
-                    <input
-                      name="saleStartsAt"
-                      type="datetime-local"
-                      defaultValue={ticket.sale_starts_at?.slice(0, 16) ?? ""}
-                      disabled={!canManage}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
-                    />
-                  </label>
+                    <label className="space-y-2 text-sm">
+                      <span className="font-medium text-slate-700">Currency</span>
+                      <input
+                        name="currency"
+                        defaultValue={ticket.currency}
+                        disabled={!canManage}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                      />
+                    </label>
 
-                  <label className="space-y-2 text-sm">
-                    <span className="font-medium text-slate-700">Sale ends</span>
-                    <input
-                      name="saleEndsAt"
-                      type="datetime-local"
-                      defaultValue={ticket.sale_ends_at?.slice(0, 16) ?? ""}
-                      disabled={!canManage}
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
-                    />
-                  </label>
+                    <label className="space-y-2 text-sm">
+                      <span className="font-medium text-slate-700">Capacity</span>
+                      <input
+                        name="capacity"
+                        type="number"
+                        min="0"
+                        defaultValue={ticket.capacity ?? ""}
+                        disabled={!canManage}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                      />
+                    </label>
 
-                  <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-                    <input
-                      name="active"
-                      type="checkbox"
-                      defaultChecked={ticket.active}
-                      disabled={!canManage}
-                      className="h-4 w-4 rounded border-slate-300"
-                    />
-                    Active
-                  </label>
-                </div>
+                    <label className="space-y-2 text-sm">
+                      <span className="font-medium text-slate-700">Sort order</span>
+                      <input
+                        name="sortOrder"
+                        type="number"
+                        min="0"
+                        defaultValue={ticket.sort_order}
+                        disabled={!canManage}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                      />
+                    </label>
 
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                  <p className="text-sm text-slate-500">
-                    Current price: {formatPrice(ticket.price, ticket.currency)}
-                  </p>
+                    <label className="space-y-2 text-sm">
+                      <span className="font-medium text-slate-700">Sale starts</span>
+                      <input
+                        name="saleStartsAt"
+                        type="datetime-local"
+                        defaultValue={ticket.sale_starts_at?.slice(0, 16) ?? ""}
+                        disabled={!canManage}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                      />
+                    </label>
 
-                  {canManage ? (
-                    <button
-                      type="submit"
-                      className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
-                    >
-                      Save changes
-                    </button>
-                  ) : null}
-                </div>
-              </form>
-            ))}
+                    <label className="space-y-2 text-sm">
+                      <span className="font-medium text-slate-700">Sale ends</span>
+                      <input
+                        name="saleEndsAt"
+                        type="datetime-local"
+                        defaultValue={ticket.sale_ends_at?.slice(0, 16) ?? ""}
+                        disabled={!canManage}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                      />
+                    </label>
+
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        name="active"
+                        type="checkbox"
+                        defaultChecked={ticket.active}
+                        disabled={!canManage}
+                        className="h-4 w-4 rounded border-slate-300"
+                      />
+                      Active
+                    </label>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+                    {canManage ? (
+                      <button
+                        type="submit"
+                        className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+                      >
+                        Save changes
+                      </button>
+                    ) : null}
+                  </div>
+                </form>
+              );
+            })}
           </div>
         )}
       </section>
@@ -338,7 +400,7 @@ export default async function EventTicketsPage({
           </div>
 
           <form action={createTicketTypeAction} className="mt-6 grid gap-4 md:grid-cols-2">
-            <input type="hidden" name="eventId" value={event.id} />
+            <input type="hidden" name="eventId" value={typedEvent.id} />
 
             <label className="space-y-2 text-sm">
               <span className="font-medium text-slate-700">Ticket name</span>

@@ -8,10 +8,39 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-export async function updateStudioSettingsAction(
-  prevState: { error: string },
-  formData: FormData
+function getFirstString(formData: FormData, keys: string[]) {
+  for (const key of keys) {
+    const value = getString(formData, key);
+    if (value) return value;
+  }
+  return "";
+}
+
+function parseBooleanString(
+  raw: string,
+  fallback: boolean,
+  trueValues = ["true", "1", "on", "yes"]
 ) {
+  if (!raw) return fallback;
+  return trueValues.includes(raw.toLowerCase());
+}
+
+type ActionState = {
+  error: string;
+};
+
+type ExistingNotificationSettingsRow = {
+  public_intro_booking_enabled: boolean | null;
+  follow_up_overdue_enabled: boolean | null;
+  package_low_balance_enabled: boolean | null;
+  package_depleted_enabled: boolean | null;
+  floor_rental_upcoming_enabled: boolean | null;
+};
+
+export async function updateStudioSettingsAction(
+  _prevState: ActionState,
+  formData: FormData
+): Promise<ActionState> {
   try {
     const { supabase, studioId } = await requireSettingsManageAccess();
 
@@ -82,6 +111,88 @@ export async function updateStudioSettingsAction(
       return { error: "Intro booking setting must be enabled or disabled." };
     }
 
+    const { data: existingNotificationSettings, error: existingNotificationSettingsError } =
+      await supabase
+        .from("studio_notification_settings")
+        .select(`
+          public_intro_booking_enabled,
+          follow_up_overdue_enabled,
+          package_low_balance_enabled,
+          package_depleted_enabled,
+          floor_rental_upcoming_enabled
+        `)
+        .eq("studio_id", studioId)
+        .maybeSingle();
+
+    if (existingNotificationSettingsError) {
+      return {
+        error: `Notification settings lookup failed: ${existingNotificationSettingsError.message}`,
+      };
+    }
+
+    const existing =
+      (existingNotificationSettings as ExistingNotificationSettingsRow | null) ?? {
+        public_intro_booking_enabled: true,
+        follow_up_overdue_enabled: true,
+        package_low_balance_enabled: true,
+        package_depleted_enabled: true,
+        floor_rental_upcoming_enabled: true,
+      };
+
+    const notificationPublicIntroBookingEnabledRaw = getFirstString(formData, [
+      "notificationPublicIntroBookingEnabled",
+      "notification_public_intro_booking_enabled",
+      "publicIntroBookingNotificationEnabled",
+    ]);
+
+    const notificationFollowUpOverdueEnabledRaw = getFirstString(formData, [
+      "notificationFollowUpOverdueEnabled",
+      "notification_follow_up_overdue_enabled",
+      "followUpOverdueNotificationEnabled",
+    ]);
+
+    const notificationPackageLowBalanceEnabledRaw = getFirstString(formData, [
+      "notificationPackageLowBalanceEnabled",
+      "notification_package_low_balance_enabled",
+      "packageLowBalanceNotificationEnabled",
+    ]);
+
+    const notificationPackageDepletedEnabledRaw = getFirstString(formData, [
+      "notificationPackageDepletedEnabled",
+      "notification_package_depleted_enabled",
+      "packageDepletedNotificationEnabled",
+    ]);
+
+    const notificationFloorRentalUpcomingEnabledRaw = getFirstString(formData, [
+      "notificationFloorRentalUpcomingEnabled",
+      "notification_floor_rental_upcoming_enabled",
+      "floorRentalUpcomingNotificationEnabled",
+    ]);
+
+    const notificationSettingsPayload = {
+      studio_id: studioId,
+      public_intro_booking_enabled: parseBooleanString(
+        notificationPublicIntroBookingEnabledRaw,
+        existing.public_intro_booking_enabled ?? true
+      ),
+      follow_up_overdue_enabled: parseBooleanString(
+        notificationFollowUpOverdueEnabledRaw,
+        existing.follow_up_overdue_enabled ?? true
+      ),
+      package_low_balance_enabled: parseBooleanString(
+        notificationPackageLowBalanceEnabledRaw,
+        existing.package_low_balance_enabled ?? true
+      ),
+      package_depleted_enabled: parseBooleanString(
+        notificationPackageDepletedEnabledRaw,
+        existing.package_depleted_enabled ?? true
+      ),
+      floor_rental_upcoming_enabled: parseBooleanString(
+        notificationFloorRentalUpcomingEnabledRaw,
+        existing.floor_rental_upcoming_enabled ?? true
+      ),
+    };
+
     const { error: studioError } = await supabase
       .from("studios")
       .update({
@@ -120,6 +231,18 @@ export async function updateStudioSettingsAction(
 
     if (settingsError) {
       return { error: `Settings update failed: ${settingsError.message}` };
+    }
+
+    const { error: notificationSettingsError } = await supabase
+      .from("studio_notification_settings")
+      .upsert(notificationSettingsPayload, {
+        onConflict: "studio_id",
+      });
+
+    if (notificationSettingsError) {
+      return {
+        error: `Notification settings update failed: ${notificationSettingsError.message}`,
+      };
     }
   } catch (error) {
     return {

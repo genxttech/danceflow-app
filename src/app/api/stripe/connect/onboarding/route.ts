@@ -49,6 +49,10 @@ async function handleOnboarding() {
   if (!connectedAccountId) {
     const account = await stripe.accounts.create({
       type: "express",
+      capabilities: {
+        card_payments: { requested: true },
+        transfers: { requested: true },
+      },
       metadata: {
         studioId,
       },
@@ -72,6 +76,13 @@ async function handleOnboarding() {
       );
     }
   }
+
+  await stripe.accounts.update(connectedAccountId, {
+    capabilities: {
+      card_payments: { requested: true },
+      transfers: { requested: true },
+    },
+  });
 
   const accountLink = await stripe.accountLinks.create({
     account: connectedAccountId,

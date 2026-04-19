@@ -137,6 +137,256 @@ function normalizeAppointmentRelations(params: {
   };
 }
 
+function firstRelationRow<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+function appointmentTypeLabel(value: string) {
+  if (value === "private_lesson") return "Private Lesson";
+  if (value === "group_class") return "Group Class";
+  if (value === "intro_lesson") return "Intro Lesson";
+  if (value === "practice_party") return "Practice Party";
+  if (value === "coaching") return "Coaching";
+  if (value === "floor_space_rental") return "Floor Space Rental";
+  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function normalizePhoneForDelivery(value: string | null | undefined) {
+  if (!value) return null;
+  const digits = value.replace(/\D/g, "");
+  return digits || null;
+}
+
+function rethrowIfRedirect(error: unknown): void {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "digest" in error &&
+    typeof (error as { digest?: unknown }).digest === "string" &&
+    (error as { digest: string }).digest.startsWith("NEXT_REDIRECT")
+  ) {
+    throw error;
+  }
+}
+
+async function queueAppointmentOutboundDelivery(params: {
+  supabase: Awaited<ReturnType<typeof requireAppointmentEditAccess>>["supabase"];
+  studioId: string;
+  appointmentId: string;
+  reason: "confirmed" | "rescheduled" | "cancelled";
+}) {
+  const { supabase, studioId, appointmentId, reason } = params;
+
+  try {
+    const { data: appointment, error } = await supabase
+      .from("appointments")
+      .select(
+        `
+        id,
+        studio_id,
+        client_id,
+        partner_client_id,
+        instructor_id,
+        room_id,
+        title,
+        appointment_type,
+        status,
+        starts_at,
+        ends_at,
+        notes
+      `
+      )
+      .eq("id", appointmentId)
+      .eq("studio_id", studioId)
+      .single();
+
+    if (error || !appointment) {
+      console.error("Could not load appointment for outbound delivery:", error?.message);
+      return;
+    }
+
+    const startsAt = new Date(String(appointment.starts_at));
+    if (Number.isNaN(startsAt.getTime())) return;
+    if (startsAt.getTime() < Date.now()) return;
+
+    const clientId =
+      typeof appointment.client_id === "string" ? appointment.client_id : null;
+    const partnerClientId =
+      typeof appointment.partner_client_id === "string"
+        ? appointment.partner_client_id
+        : null;
+    const instructorId =
+      typeof appointment.instructor_id === "string" ? appointment.instructor_id : null;
+    const roomId =
+      typeof appointment.room_id === "string" ? appointment.room_id : null;
+
+    type NotificationClient = {
+      first_name?: string | null;
+      last_name?: string | null;
+      email?: string | null;
+      phone?: string | null;
+    };
+
+    let client: NotificationClient | null = null;
+    let partnerClient: NotificationClient | null = null;
+    let instructor:
+      | {
+          first_name?: string | null;
+          last_name?: string | null;
+        }
+      | null = null;
+    let room:
+      | {
+          name?: string | null;
+        }
+      | null = null;
+
+    if (clientId) {
+      const { data } = await supabase
+        .from("clients")
+        .select("first_name, last_name, email, phone")
+        .eq("id", clientId)
+        .maybeSingle();
+
+      client = data ?? null;
+    }
+
+    if (partnerClientId) {
+      const { data } = await supabase
+        .from("clients")
+        .select("first_name, last_name, email, phone")
+        .eq("id", partnerClientId)
+        .maybeSingle();
+
+      partnerClient = data ?? null;
+    }
+
+    if (instructorId) {
+      const { data } = await supabase
+        .from("staff")
+        .select("first_name, last_name")
+        .eq("id", instructorId)
+        .maybeSingle();
+
+      instructor = data ?? null;
+    }
+
+    if (roomId) {
+      const { data } = await supabase
+        .from("rooms")
+        .select("name")
+        .eq("id", roomId)
+        .maybeSingle();
+
+      room = data ?? null;
+    }
+
+    const templateKey =
+      reason === "cancelled"
+        ? "appointment_cancelled"
+        : reason === "rescheduled"
+          ? "appointment_rescheduled"
+          : "appointment_confirmed";
+
+    const appointmentLabel =
+      (typeof appointment.title === "string" && appointment.title.trim().length > 0
+        ? appointment.title.trim()
+        : appointmentTypeLabel(String(appointment.appointment_type))) || "Appointment";
+
+    const basePayload = {
+      appointmentId: String(appointment.id),
+      appointmentType: String(appointment.appointment_type),
+      appointmentLabel,
+      status: String(appointment.status),
+      startsAt: String(appointment.starts_at),
+      endsAt: String(appointment.ends_at),
+      notes: appointment.notes ?? null,
+      clientFirstName: client?.first_name ?? null,
+      clientLastName: client?.last_name ?? null,
+      partnerFirstName: partnerClient?.first_name ?? null,
+      partnerLastName: partnerClient?.last_name ?? null,
+      instructorFirstName: instructor?.first_name ?? null,
+      instructorLastName: instructor?.last_name ?? null,
+      roomName: room?.name ?? null,
+      reason,
+    };
+
+    const rows: Array<Record<string, unknown>> = [];
+    const seenEmails = new Set<string>();
+    const seenPhones = new Set<string>();
+
+    function queueRecipient(
+      recipient: NotificationClient | null,
+      recipientRole: "primary" | "partner"
+    ) {
+      const recipientEmail =
+        typeof recipient?.email === "string" && recipient.email.trim().length > 0
+          ? recipient.email.trim()
+          : null;
+
+      const recipientPhone = normalizePhoneForDelivery(recipient?.phone ?? null);
+
+      const payload = {
+        ...basePayload,
+        recipientRole,
+      };
+
+      if (recipientEmail && !seenEmails.has(recipientEmail)) {
+        seenEmails.add(recipientEmail);
+        rows.push({
+          studio_id: studioId,
+          channel: "email",
+          template_key: templateKey,
+          recipient_email: recipientEmail,
+          recipient_phone: null,
+          status: "queued",
+          related_table: "appointments",
+          related_id: appointmentId,
+          payload,
+        });
+      }
+
+      if (recipientPhone && !seenPhones.has(recipientPhone)) {
+        seenPhones.add(recipientPhone);
+        rows.push({
+          studio_id: studioId,
+          channel: "sms",
+          template_key: templateKey,
+          recipient_email: null,
+          recipient_phone: recipientPhone,
+          status: "queued",
+          related_table: "appointments",
+          related_id: appointmentId,
+          payload,
+        });
+      }
+    }
+
+    queueRecipient(client, "primary");
+
+    if (
+      String(appointment.appointment_type) === "private_lesson" &&
+      partnerClientId
+    ) {
+      queueRecipient(partnerClient, "partner");
+    }
+
+    if (rows.length === 0) return;
+
+    const { error: insertError } = await supabase
+      .from("outbound_deliveries")
+      .insert(rows);
+
+    if (insertError) {
+      console.error("Could not queue appointment outbound delivery:", insertError.message);
+    }
+  } catch (error) {
+    rethrowIfRedirect(error);
+    console.error("Unexpected error queuing appointment outbound delivery:", error);
+  }
+}
+
 async function validateClientPackageForBooking(params: {
   supabase: Awaited<ReturnType<typeof requireAppointmentCreateAccess>>["supabase"];
   studioId: string;
@@ -644,6 +894,7 @@ export async function createAppointmentAction(
     const { supabase, studioId, user } = await requireAppointmentCreateAccess();
 
     const clientId = getString(formData, "clientId");
+    const partnerClientId = getNullableString(formData, "partnerClientId");
     const appointmentType = getString(formData, "appointmentType");
     const title = getString(formData, "title");
     const notes = getString(formData, "notes");
@@ -657,6 +908,10 @@ export async function createAppointmentAction(
 
     if (!clientId || !appointmentType) {
       return { error: "Client and appointment type are required." };
+    }
+
+    if (partnerClientId && partnerClientId === clientId) {
+      return { error: "Partner must be different from the primary client." };
     }
 
     const relations = normalizeAppointmentRelations({
@@ -709,6 +964,7 @@ export async function createAppointmentAction(
         rows.push({
           studio_id: studioId,
           client_id: clientId,
+          partner_client_id: null,
           title: title || "Floor Space Rental",
           appointment_type: appointmentType,
           starts_at: startsAt,
@@ -745,6 +1001,13 @@ export async function createAppointmentAction(
           startsAtIso: String(row.starts_at),
           appointmentId: String(row.id),
           status,
+        });
+
+        await queueAppointmentOutboundDelivery({
+          supabase,
+          studioId,
+          appointmentId: String(row.id),
+          reason: "confirmed",
         });
       }
 
@@ -812,6 +1075,8 @@ export async function createAppointmentAction(
         .insert({
           studio_id: studioId,
           client_id: clientId,
+          partner_client_id:
+            appointmentType === "private_lesson" ? partnerClientId : null,
           title,
           appointment_type: appointmentType,
           starts_at: startsAt,
@@ -839,6 +1104,13 @@ export async function createAppointmentAction(
         startsAtIso: startsAt,
         appointmentId: appointment.id,
         status,
+      });
+
+      await queueAppointmentOutboundDelivery({
+        supabase,
+        studioId,
+        appointmentId: appointment.id,
+        reason: "confirmed",
       });
 
       revalidatePath("/app/schedule");
@@ -894,6 +1166,8 @@ export async function createAppointmentAction(
       rows.push({
         studio_id: studioId,
         client_id: clientId,
+        partner_client_id:
+          appointmentType === "private_lesson" ? partnerClientId : null,
         title,
         appointment_type: appointmentType,
         starts_at: occurrenceStart,
@@ -943,6 +1217,7 @@ export async function createAppointmentAction(
     revalidatePath(`/app/clients/${clientId}`);
     redirect(`/app/schedule/${insertedRows[0].id}`);
   } catch (error) {
+    rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
@@ -959,6 +1234,7 @@ export async function updateAppointmentAction(
 
     const appointmentId = getString(formData, "appointmentId");
     const clientId = getString(formData, "clientId");
+    const partnerClientId = getNullableString(formData, "partnerClientId");
     const appointmentType = getString(formData, "appointmentType");
     const title = getString(formData, "title");
     const notes = getString(formData, "notes");
@@ -974,6 +1250,10 @@ export async function updateAppointmentAction(
 
     if (!appointmentId || !clientId || !appointmentType) {
       return { error: "Missing required appointment fields." };
+    }
+
+    if (partnerClientId && partnerClientId === clientId) {
+      return { error: "Partner must be different from the primary client." };
     }
 
     const relations = normalizeAppointmentRelations({
@@ -1032,6 +1312,21 @@ export async function updateAppointmentAction(
       return { error: "Appointment not found." };
     }
 
+    const timeChanged =
+      String(existingAppointment.starts_at) !== startsAt ||
+      String(existingAppointment.ends_at) !== endsAt;
+
+    const status =
+      existingAppointment.status === "attended" ||
+      existingAppointment.status === "no_show" ||
+      existingAppointment.status === "cancelled"
+        ? existingAppointment.status
+        : timeChanged
+          ? "rescheduled"
+          : existingAppointment.status === "rescheduled"
+            ? "rescheduled"
+            : "scheduled";
+
     const conflict = await validateAppointmentConflicts({
       studioId,
       startsAt,
@@ -1049,6 +1344,8 @@ export async function updateAppointmentAction(
 
     const updatePayload = {
       client_id: clientId,
+      partner_client_id:
+        appointmentType === "private_lesson" ? partnerClientId : null,
       title,
       appointment_type: appointmentType,
       starts_at: startsAt,
@@ -1145,12 +1442,22 @@ export async function updateAppointmentAction(
         appointmentId,
         status,
       });
+
+      if (timeChanged) {
+        await queueAppointmentOutboundDelivery({
+          supabase,
+          studioId,
+          appointmentId,
+          reason: "rescheduled",
+        });
+      }
     }
 
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
     revalidatePath(`/app/clients/${clientId}`);
   } catch (error) {
+    rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
@@ -1233,6 +1540,13 @@ export async function cancelAppointmentAction(formData: FormData) {
         studioId,
         appointmentId,
       });
+
+      await queueAppointmentOutboundDelivery({
+        supabase,
+        studioId,
+        appointmentId,
+        reason: "cancelled",
+      });
     }
 
     revalidatePath("/app/schedule");
@@ -1240,6 +1554,7 @@ export async function cancelAppointmentAction(formData: FormData) {
     revalidatePath(`/app/clients/${appointment.client_id}`);
     redirect(getSuccessRedirect(formData, fallback, "appointment_cancelled"));
   } catch (error) {
+    rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     redirect(getErrorRedirect(formData, fallback, "cancel_failed"));
   }
@@ -1295,6 +1610,7 @@ export async function markAppointmentAttendedAction(formData: FormData) {
     revalidatePath(`/app/clients/${appointment.client_id}`);
     redirect(getSuccessRedirect(formData, fallback, "appointment_attended"));
   } catch (error) {
+    rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     redirect(getErrorRedirect(formData, fallback, "attendance_failed"));
   }
@@ -1346,6 +1662,7 @@ export async function markAppointmentNoShowAction(formData: FormData) {
     revalidatePath(`/app/clients/${appointment.client_id}`);
     redirect(getSuccessRedirect(formData, fallback, "appointment_no_show"));
   } catch (error) {
+    rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     redirect(getErrorRedirect(formData, fallback, "no_show_failed"));
   }
@@ -1415,6 +1732,7 @@ export async function recordFloorRentalPaymentAction(formData: FormData) {
     revalidatePath(`/app/clients/${clientId}`);
     redirect(getSuccessRedirect(formData, fallback, "payment_recorded"));
   } catch (error) {
+    rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
   }
@@ -1465,6 +1783,7 @@ export async function markFloorRentalWaivedAction(formData: FormData) {
     revalidatePath(`/app/clients/${appointment.client_id}`);
     redirect(getSuccessRedirect(formData, fallback, "rental_waived"));
   } catch (error) {
+    rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     redirect(getErrorRedirect(formData, fallback, "waive_failed"));
   }
@@ -1529,6 +1848,7 @@ export async function upsertLessonRecapAction(
 
     return { error: "" };
   } catch (error) {
+    rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
@@ -1633,6 +1953,7 @@ export async function uploadLessonRecapVideoAction(formData: FormData) {
 
     redirect(getSuccessRedirect(formData, fallback, "video_uploaded"));
   } catch (error) {
+    rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     redirect(getErrorRedirect(formData, fallback, "video_upload_failed"));
   }
@@ -1699,6 +2020,7 @@ export async function deleteLessonRecapVideoAction(formData: FormData) {
 
     redirect(getSuccessRedirect(formData, fallback, "video_deleted"));
   } catch (error) {
+    rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     redirect(getErrorRedirect(formData, fallback, "delete_video_failed"));
   }
@@ -1760,6 +2082,7 @@ export async function deleteLessonRecapAction(formData: FormData) {
 
     redirect(getSuccessRedirect(formData, fallback, "lesson_recap_deleted"));
   } catch (error) {
+    rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
     redirect(getErrorRedirect(formData, fallback, "delete_recap_failed"));
   }

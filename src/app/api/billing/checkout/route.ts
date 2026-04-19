@@ -3,6 +3,7 @@ import { createClient as createSupabaseAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
+import { getBillingPlan } from "@/lib/billing/plans";
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -31,14 +32,20 @@ function billingRedirect(request: NextRequest, path: string) {
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
-  const planCode =
-    typeof formData.get("planCode") === "string"
+
+  const planCodeRaw =
+    typeof formData.get("planKey") === "string"
+      ? String(formData.get("planKey")).trim()
+      : typeof formData.get("planCode") === "string"
       ? String(formData.get("planCode")).trim()
       : "";
+
   const billingInterval =
     typeof formData.get("billingInterval") === "string"
       ? String(formData.get("billingInterval")).trim()
       : "month";
+
+  const planCode = planCodeRaw.toLowerCase();
 
   if (!planCode) {
     return billingRedirect(request, "/app/settings/billing?error=plan_not_found");
@@ -46,6 +53,12 @@ export async function POST(request: NextRequest) {
 
   if (!["month", "year"].includes(billingInterval)) {
     return billingRedirect(request, "/app/settings/billing?error=checkout_failed");
+  }
+
+  const sharedPlan = getBillingPlan(planCode);
+
+  if (!sharedPlan) {
+    return billingRedirect(request, "/app/settings/billing?error=plan_not_found");
   }
 
   try {
@@ -60,52 +73,64 @@ export async function POST(request: NextRequest) {
     }
 
     const context = await getCurrentStudioContext();
-    const studioId = context.studioId;
 
+    if (!context?.studioId) {
+      return billingRedirect(request, "/app/settings/billing?error=no_studio_context");
+    }
+
+    const studioId = context.studioId;
     const supabaseAdmin = getSupabaseAdmin();
 
-    const [{ data: studio, error: studioError }, { data: plan, error: planError }] =
-      await Promise.all([
-        supabaseAdmin
-          .from("studios")
-          .select("id, name")
-          .eq("id", studioId)
-          .single(),
-        supabaseAdmin
-          .from("subscription_plans")
-          .select(`
+    const [
+      { data: studio, error: studioError },
+      { data: planRow, error: planError },
+      { data: existingCustomer, error: customerLookupError },
+    ] = await Promise.all([
+      supabaseAdmin
+        .from("studios")
+        .select("id, name, subscription_status, stripe_subscription_id")
+        .eq("id", studioId)
+        .single(),
+      supabaseAdmin
+        .from("subscription_plans")
+        .select(
+          `
             id,
             code,
             name,
             stripe_price_id_monthly,
             stripe_price_id_yearly
-          `)
-          .eq("code", planCode)
-          .eq("active", true)
-          .single(),
-      ]);
+          `
+        )
+        .eq("code", planCode)
+        .eq("active", true)
+        .single(),
+      supabaseAdmin
+        .from("studio_billing_customers")
+        .select("id, stripe_customer_id")
+        .eq("studio_id", studioId)
+        .maybeSingle(),
+    ]);
 
-    if (studioError || !studio || planError || !plan) {
+    if (studioError || !studio) {
+      return billingRedirect(request, "/app/settings/billing?error=studio_not_found");
+    }
+
+    if (planError || !planRow) {
       return billingRedirect(request, "/app/settings/billing?error=plan_not_found");
+    }
+
+    if (customerLookupError) {
+      throw new Error(customerLookupError.message);
     }
 
     const stripePriceId =
       billingInterval === "year"
-        ? plan.stripe_price_id_yearly
-        : plan.stripe_price_id_monthly;
+        ? planRow.stripe_price_id_yearly
+        : planRow.stripe_price_id_monthly;
 
     if (!stripePriceId) {
       return billingRedirect(request, "/app/settings/billing?error=missing_price_id");
-    }
-
-    const { data: existingCustomer, error: customerLookupError } = await supabaseAdmin
-      .from("studio_billing_customers")
-      .select("id, stripe_customer_id")
-      .eq("studio_id", studioId)
-      .maybeSingle();
-
-    if (customerLookupError) {
-      throw new Error(customerLookupError.message);
     }
 
     const stripe = getStripe();
@@ -117,7 +142,7 @@ export async function POST(request: NextRequest) {
         name: studio.name,
         metadata: {
           studioId,
-          source: "studio_saas_billing",
+          source: "danceflow_billing",
         },
       });
 
@@ -139,9 +164,25 @@ export async function POST(request: NextRequest) {
 
     const appUrl = buildAppUrl(request);
 
+    const hasManagedSubscription =
+      Boolean(studio.stripe_subscription_id) &&
+      ["active", "trialing", "past_due", "unpaid"].includes(
+        studio.subscription_status ?? ""
+      );
+
+    if (stripeCustomerId && hasManagedSubscription) {
+      const portalSession = await stripe.billingPortal.sessions.create({
+        customer: stripeCustomerId,
+        return_url: `${appUrl}/app/settings/billing?success=manage_subscription`,
+      });
+
+      return NextResponse.redirect(portalSession.url, { status: 303 });
+    }
+
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: stripeCustomerId,
+      payment_method_collection: "always",
       line_items: [
         {
           price: stripePriceId,
@@ -152,18 +193,29 @@ export async function POST(request: NextRequest) {
       cancel_url: `${appUrl}/app/settings/billing?error=checkout_cancelled`,
       allow_promotion_codes: true,
       metadata: {
-        source: "studio_subscription",
+        source:
+          sharedPlan.audience === "organizer"
+            ? "organizer_subscription"
+            : "studio_subscription",
         studioId,
-        planCode: plan.code,
+        planCode: planRow.code,
         billingInterval,
+        audience: sharedPlan.audience,
       },
       subscription_data: {
         metadata: {
-          source: "studio_subscription",
+          source:
+            sharedPlan.audience === "organizer"
+              ? "organizer_subscription"
+              : "studio_subscription",
           studioId,
-          planCode: plan.code,
+          planCode: planRow.code,
           billingInterval,
+          audience: sharedPlan.audience,
         },
+        ...(sharedPlan.trialDays > 0
+          ? { trial_period_days: sharedPlan.trialDays }
+          : {}),
       },
     });
 

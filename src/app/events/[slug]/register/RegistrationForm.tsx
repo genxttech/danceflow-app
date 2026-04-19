@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
 import { createEventRegistrationAction } from "./actions";
 
@@ -126,12 +127,16 @@ export default function RegistrationForm({
   currentUserEmail,
   isSoldOut,
   waitlistEnabled,
+  accountRequiredForRegistration,
+  isAuthenticated,
 }: {
   eventSlug: string;
   ticketTypes: TicketTypeRow[];
   currentUserEmail: string;
   isSoldOut: boolean;
   waitlistEnabled: boolean;
+  accountRequiredForRegistration: boolean;
+  isAuthenticated: boolean;
 }) {
   const [state, formAction, pending] = useActionState(
     createEventRegistrationAction,
@@ -146,7 +151,10 @@ export default function RegistrationForm({
   }, [ticketTypes, waitlistEnabled]);
 
   const selectableTicketTypes = ticketOptions.filter((ticket) => ticket.meta.selectable);
-  const allowSubmission = selectableTicketTypes.length > 0 || (isSoldOut && waitlistEnabled);
+
+  const blockedForAuth = accountRequiredForRegistration && !isAuthenticated;
+  const allowSubmission =
+    !blockedForAuth && (selectableTicketTypes.length > 0 || (isSoldOut && waitlistEnabled));
 
   const [selectedTicketTypeId, setSelectedTicketTypeId] = useState<string>("");
 
@@ -155,7 +163,9 @@ export default function RegistrationForm({
     [ticketOptions, selectedTicketTypeId]
   );
 
-  const topNotice = isSoldOut
+  const topNotice = blockedForAuth
+    ? "This event requires a free account before registration can continue."
+    : isSoldOut
     ? waitlistEnabled
       ? "This event is currently full. Select a ticket below to join the waitlist. You will not be charged unless a spot opens."
       : "This event is currently sold out."
@@ -164,10 +174,14 @@ export default function RegistrationForm({
   const buttonLabel = pending
     ? isSoldOut && waitlistEnabled
       ? "Joining Waitlist..."
-      : "Continuing to Checkout..."
+      : "Continuing..."
+    : blockedForAuth
+    ? "Account Required"
     : isSoldOut && waitlistEnabled
-      ? "Join Waitlist"
-      : "Continue to Registration";
+    ? "Join Waitlist"
+    : selectedTicket && Number(selectedTicket.price) <= 0
+    ? "Complete Registration"
+    : "Continue to Checkout";
 
   return (
     <form action={formAction} className="mt-4 space-y-4">
@@ -175,7 +189,9 @@ export default function RegistrationForm({
 
       <div
         className={`rounded-xl border px-4 py-3 text-sm ${
-          isSoldOut
+          blockedForAuth
+            ? "border-amber-200 bg-amber-50 text-amber-900"
+            : isSoldOut
             ? waitlistEnabled
               ? "border-purple-200 bg-purple-50 text-purple-800"
               : "border-red-200 bg-red-50 text-red-700"
@@ -184,6 +200,32 @@ export default function RegistrationForm({
       >
         {topNotice}
       </div>
+
+      {blockedForAuth ? (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-medium text-slate-900">
+            Create a free account or log in to register
+          </p>
+          <p className="mt-1 text-sm text-slate-600">
+            You can still review the event details and ticket options below, but registration is locked until you sign in.
+          </p>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link
+              href="/signup"
+              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+            >
+              Create Free Account
+            </Link>
+            <Link
+              href="/login"
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Log In
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       <div>
         <label htmlFor="ticketTypeId" className="mb-1 block text-sm font-medium">

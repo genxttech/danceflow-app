@@ -208,6 +208,20 @@ function getInstructorShortName(
   return lastInitial ? `${instructor.first_name} ${lastInitial}.` : instructor.first_name;
 }
 
+function getPartnerClientName(item: CalendarItem) {
+  const partnerClient = (
+    item as CalendarItem & {
+      partner_client?:
+        | { first_name: string; last_name: string }
+        | { first_name: string; last_name: string }[]
+        | null;
+    }
+  ).partner_client;
+
+  if (!partnerClient) return "";
+  return getClientShortName(partnerClient as any);
+}
+
 function getRoomName(value: { name: string } | { name: string }[] | null | undefined) {
   const room = Array.isArray(value) ? value[0] : value;
   return room?.name ?? "No room";
@@ -278,6 +292,8 @@ function CompactCalendarCard({ item, onOpen }: CardProps) {
   }
 
   const clientName = getClientShortName(item.clients ?? null);
+  const partnerName = getPartnerClientName(item);
+  const coupleName = partnerName ? `${clientName} + ${partnerName}` : clientName;
   const isFloorRental = item.appointment_type === "floor_space_rental";
 
   return (
@@ -301,7 +317,7 @@ function CompactCalendarCard({ item, onOpen }: CardProps) {
       </div>
 
       <p className="mt-2 truncate text-sm font-semibold text-slate-900">
-        {clientName}
+        {coupleName}
       </p>
 
       <p className="mt-1 truncate text-xs text-slate-700">
@@ -368,6 +384,8 @@ function ComfortableCalendarCard({ item, onOpen }: CardProps) {
   }
 
   const clientName = getClientName(item.clients ?? null);
+  const partnerName = getPartnerClientName(item);
+  const coupleName = partnerName ? `${clientName} + ${partnerName}` : clientName;
   const instructorName = getInstructorShortName(item.instructors ?? null);
   const roomName = getRoomName(item.rooms ?? null);
   const isFloorRental = item.appointment_type === "floor_space_rental";
@@ -408,7 +426,7 @@ function ComfortableCalendarCard({ item, onOpen }: CardProps) {
             ) : null}
           </div>
 
-          <p className="mt-2 text-sm text-slate-800">{clientName}</p>
+          <p className="mt-2 text-sm text-slate-800">{coupleName}</p>
         </div>
       </div>
 

@@ -10,6 +10,7 @@ type ClientOption = {
   id: string;
   first_name: string;
   last_name: string;
+  status?: string | null;
 };
 
 type InstructorOption = {
@@ -69,6 +70,7 @@ type Appointment = {
   title: string | null;
   appointment_type: string;
   client_id: string | null;
+  partner_client_id?: string | null;
   instructor_id: string | null;
   room_id: string | null;
   starts_at: string;
@@ -311,6 +313,7 @@ export default function AppointmentEditForm({
   rooms,
   clientPackages,
   clientMemberships,
+  linkedPartnersByClientId = {},
 }: {
   appointment: Appointment;
   clients: ClientOption[];
@@ -318,11 +321,15 @@ export default function AppointmentEditForm({
   rooms: RoomOption[];
   clientPackages: ClientPackageOption[];
   clientMemberships: ClientMembershipOption[];
+  linkedPartnersByClientId?: Record<string, ClientOption[]>;
 }) {
   const [state, formAction, pending] = useActionState(updateAppointmentAction, initialState);
 
   const [appointmentType, setAppointmentType] = useState(appointment.appointment_type);
   const [clientId, setClientId] = useState(appointment.client_id ?? "");
+  const [partnerClientId, setPartnerClientId] = useState(
+    appointment.partner_client_id ?? ""
+  );
   const [linkedPackageId, setLinkedPackageId] = useState(
     appointment.client_package_id ?? ""
   );
@@ -370,10 +377,23 @@ export default function AppointmentEditForm({
 
   const showPackageSection =
     appointmentType !== "floor_space_rental" && appointmentType !== "event";
+  const showPartnerSection =
+    appointmentType === "private_lesson" && clientId.length > 0;
+
+  const linkedPartners = useMemo(() => {
+    if (!clientId) return [];
+    return linkedPartnersByClientId[clientId] ?? [];
+  }, [clientId, linkedPartnersByClientId]);
+
 
   return (
     <form action={formAction} className="space-y-8">
       <input type="hidden" name="appointmentId" value={appointment.id} />
+      <input
+        type="hidden"
+        name="partnerClientId"
+        value={showPartnerSection ? partnerClientId : ""}
+      />
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-6 rounded-2xl border bg-white p-6 shadow-sm">
@@ -429,6 +449,7 @@ export default function AppointmentEditForm({
                 value={clientId}
                 onChange={(e) => {
                   setClientId(e.target.value);
+                  setPartnerClientId("");
                   setLinkedPackageId("");
                 }}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2"
@@ -441,6 +462,34 @@ export default function AppointmentEditForm({
                 ))}
               </select>
             </div>
+
+            {showPartnerSection ? (
+              <div>
+                <label htmlFor="partnerClientId" className="mb-1 block text-sm font-medium">
+                  Partner
+                </label>
+                <select
+                  id="partnerClientId"
+                  value={partnerClientId}
+                  onChange={(e) => setPartnerClientId(e.target.value)}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                >
+                  <option value="">
+                    {linkedPartners.length > 0
+                      ? "No partner selected"
+                      : "No linked partners available"}
+                  </option>
+                  {linkedPartners.map((partner) => (
+                    <option key={partner.id} value={partner.id}>
+                      {partner.first_name} {partner.last_name}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-slate-500">
+                  Optional. Link a student's saved partner for a couple lesson.
+                </p>
+              </div>
+            ) : null}
 
             <div>
               <label htmlFor="instructorId" className="mb-1 block text-sm font-medium">

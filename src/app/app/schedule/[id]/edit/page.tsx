@@ -1,5 +1,6 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 import AppointmentEditForm from "./AppointmentEditForm";
 
 type Params = Promise<{
@@ -10,6 +11,7 @@ type ClientOption = {
   id: string;
   first_name: string;
   last_name: string;
+  status?: string | null;
 };
 
 type InstructorOption = {
@@ -70,6 +72,7 @@ type Appointment = {
   title: string | null;
   appointment_type: string;
   client_id: string | null;
+  partner_client_id: string | null;
   instructor_id: string | null;
   room_id: string | null;
   starts_at: string;
@@ -79,35 +82,20 @@ type Appointment = {
   client_package_id: string | null;
 };
 
+type ClientRelationshipRow = {
+  client_id: string;
+  related_client_id: string;
+  relationship_type: string;
+};
+
 export default async function EditAppointmentPage({
   params,
 }: {
   params: Params;
 }) {
   const { id } = await params;
+  const { studioId } = await getCurrentStudioContext();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
-
-  if (roleError || !roleRow) {
-    redirect("/login");
-  }
-
-  const studioId = roleRow.studio_id as string;
 
   const [
     { data: appointment, error: appointmentError },
@@ -117,6 +105,7 @@ export default async function EditAppointmentPage({
     { data: clientPackages, error: clientPackagesError },
     { data: clientMembershipsRaw, error: clientMembershipsError },
     { data: membershipBenefitsRaw, error: membershipBenefitsError },
+    { data: clientRelationships, error: clientRelationshipsError },
   ] = await Promise.all([
     supabase
       .from("appointments")
@@ -125,6 +114,7 @@ export default async function EditAppointmentPage({
         title,
         appointment_type,
         client_id,
+        partner_client_id,
         instructor_id,
         room_id,
         starts_at,
@@ -139,7 +129,7 @@ export default async function EditAppointmentPage({
 
     supabase
       .from("clients")
-      .select("id, first_name, last_name")
+      .select("id, first_name, last_name, status")
       .eq("studio_id", studioId)
       .in("status", ["active", "lead"])
       .order("first_name", { ascending: true }),
@@ -208,6 +198,12 @@ export default async function EditAppointmentPage({
         applies_to,
         sort_order
       `),
+
+    supabase
+      .from("client_relationships")
+      .select("client_id, related_client_id, relationship_type")
+      .eq("studio_id", studioId)
+      .in("relationship_type", ["partner", "spouse"]),
   ]);
 
   if (appointmentError || !appointment) {
@@ -236,6 +232,10 @@ export default async function EditAppointmentPage({
 
   if (membershipBenefitsError) {
     throw new Error(`Failed to load membership benefits: ${membershipBenefitsError.message}`);
+  }
+
+  if (clientRelationshipsError) {
+    throw new Error(`Failed to load client relationships: ${clientRelationshipsError.message}`);
   }
 
   const benefitsByPlan = new Map<string, MembershipBenefit[]>();
@@ -275,14 +275,42 @@ export default async function EditAppointmentPage({
     })
   );
 
+  const availableClients = ((clients ?? []) as ClientOption[]).filter(
+    (client) => client.status !== "archived"
+  );
+
+  const clientLookup = new Map(
+    availableClients.map((client) => [client.id, client] as const)
+  );
+
+  const linkedPartnersByClientId: Record<string, ClientOption[]> = {};
+
+  for (const relationship of (clientRelationships ?? []) as ClientRelationshipRow[]) {
+    const primary = clientLookup.get(relationship.client_id);
+    const related = clientLookup.get(relationship.related_client_id);
+
+    if (primary && related) {
+      linkedPartnersByClientId[primary.id] ??= [];
+      if (!linkedPartnersByClientId[primary.id].some((item) => item.id === related.id)) {
+        linkedPartnersByClientId[primary.id].push(related);
+      }
+
+      linkedPartnersByClientId[related.id] ??= [];
+      if (!linkedPartnersByClientId[related.id].some((item) => item.id === primary.id)) {
+        linkedPartnersByClientId[related.id].push(primary);
+      }
+    }
+  }
+
   return (
     <AppointmentEditForm
       appointment={appointment as Appointment}
-      clients={(clients ?? []) as ClientOption[]}
+      clients={availableClients}
       instructors={(instructors ?? []) as InstructorOption[]}
       rooms={(rooms ?? []) as RoomOption[]}
       clientPackages={(clientPackages ?? []) as ClientPackageOption[]}
       clientMemberships={clientMemberships}
+      linkedPartnersByClientId={linkedPartnersByClientId}
     />
   );
 }

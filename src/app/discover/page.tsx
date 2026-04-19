@@ -1,14 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 
-type StudioCountRow = {
-  count: number | null;
-};
-
-type EventCountRow = {
-  count: number | null;
-};
-
 type StudioPreviewRow = {
   id: string;
   slug: string | null;
@@ -24,6 +16,7 @@ type StudioPreviewRow = {
 
 type EventPreviewRow = {
   id: string;
+  slug: string | null;
   name: string;
   start_date: string | null;
   public_summary: string | null;
@@ -65,6 +58,10 @@ function locationLabel(city: string | null, state: string | null) {
 export default async function DiscoverLandingPage() {
   const supabase = await createClient();
 
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
   const [
     studioCountResult,
     eventCountResult,
@@ -81,6 +78,7 @@ export default async function DiscoverLandingPage() {
       .from("events")
       .select("*", { count: "exact", head: true })
       .eq("visibility", "public")
+      .eq("public_directory_enabled", true)
       .in("status", ["published", "open"]),
 
     supabase
@@ -106,6 +104,7 @@ export default async function DiscoverLandingPage() {
       .from("events")
       .select(`
         id,
+        slug,
         name,
         start_date,
         public_summary,
@@ -114,6 +113,7 @@ export default async function DiscoverLandingPage() {
         studio_id
       `)
       .eq("visibility", "public")
+      .eq("public_directory_enabled", true)
       .in("status", ["published", "open"])
       .order("start_date", { ascending: true })
       .limit(6),
@@ -162,12 +162,15 @@ export default async function DiscoverLandingPage() {
               </p>
 
               <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-900 sm:text-5xl lg:text-6xl">
-                Make DanceFlow the front door to dance.
+                {user
+                  ? "Welcome back — keep discovering dance near you"
+                  : "Make DanceFlow the front door to dance"}
               </h1>
 
               <p className="mt-5 max-w-3xl text-lg text-slate-600">
-                Search studios, explore events, discover instructors, and take your first step into dance
-                from one public directory built for new dancers and growing communities.
+                Search studios, explore events, and discover your next step into
+                dance from one public directory built for new dancers, returning
+                dancers, and growing communities.
               </p>
 
               <div className="mt-8 flex flex-wrap gap-3">
@@ -184,6 +187,15 @@ export default async function DiscoverLandingPage() {
                 >
                   Find Events
                 </Link>
+
+                {!user ? (
+                  <Link
+                    href="/signup"
+                    className="rounded-xl border bg-white px-5 py-3 text-sm font-medium hover:bg-slate-50"
+                  >
+                    Create Free Account
+                  </Link>
+                ) : null}
               </div>
 
               <div className="mt-10 grid gap-4 sm:grid-cols-3">
@@ -208,6 +220,13 @@ export default async function DiscoverLandingPage() {
                   </p>
                 </div>
               </div>
+
+              {user ? (
+                <div className="mt-6 rounded-2xl border border-green-200 bg-green-50 px-4 py-4 text-sm text-green-800">
+                  You are signed in with a free account. This side of DanceFlow
+                  stays open for browsing even without a studio workspace.
+                </div>
+              ) : null}
             </div>
 
             <div className="overflow-hidden rounded-[32px] border bg-[linear-gradient(135deg,#f8fafc_0%,#fff7ed_100%)] p-8 shadow-sm">
@@ -288,7 +307,6 @@ export default async function DiscoverLandingPage() {
               >
                 <div className="h-48 bg-slate-100">
                   {studio.public_hero_image_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={studio.public_hero_image_url}
                       alt={studioTitle(studio)}
@@ -296,7 +314,6 @@ export default async function DiscoverLandingPage() {
                     />
                   ) : studio.public_logo_url ? (
                     <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#fff7ed_100%)] p-8">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={studio.public_logo_url}
                         alt={studioTitle(studio)}
@@ -359,7 +376,7 @@ export default async function DiscoverLandingPage() {
                 Find your next class, social, or workshop
               </h2>
               <p className="mt-2 max-w-3xl text-slate-600">
-                Browse public events and use the hosting studio page to learn more or take the next step.
+                Browse public events and jump straight into event details or the hosting studio.
               </p>
             </div>
 
@@ -389,7 +406,6 @@ export default async function DiscoverLandingPage() {
                   >
                     <div className="h-44 bg-slate-100">
                       {event.public_cover_image_url ? (
-                        // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={event.public_cover_image_url}
                           alt={event.name}
@@ -432,9 +448,18 @@ export default async function DiscoverLandingPage() {
                       </div>
 
                       <div className="flex flex-wrap gap-3">
-                        <span className="rounded-xl bg-slate-200 px-4 py-2 text-sm text-slate-500">
-                          Event page coming soon
-                        </span>
+                        {event.slug ? (
+                          <Link
+                            href={`/events/${event.slug}`}
+                            className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800"
+                          >
+                            View Event
+                          </Link>
+                        ) : (
+                          <span className="rounded-xl bg-slate-200 px-4 py-2 text-sm text-slate-500">
+                            Event details coming soon
+                          </span>
+                        )}
 
                         {hostStudio?.slug ? (
                           <Link
@@ -466,7 +491,7 @@ export default async function DiscoverLandingPage() {
               </h2>
               <p className="mt-3 max-w-3xl text-slate-600">
                 Instead of hunting across scattered sites and social posts, dancers can discover studios,
-                events, instructors, and contact options in one place.
+                events, and next steps in one place.
               </p>
             </div>
 

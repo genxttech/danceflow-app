@@ -1,10 +1,12 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
   isPlatformAdmin,
   requireAuthenticatedUser,
 } from "./platform";
-import { getPlatformSelectedStudioId } from "@/app/platform/actions";
+
+const PLATFORM_STUDIO_COOKIE = "platform_selected_studio_id";
 
 type StudioRoleRow = {
   studio_id: string;
@@ -19,6 +21,11 @@ type StudioContext = {
   userId: string;
   email: string | null;
 };
+
+async function getSelectedPlatformStudioIdFromCookie() {
+  const cookieStore = await cookies();
+  return cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value ?? null;
+}
 
 export async function getCurrentStudioRole() {
   const profile = await requireAuthenticatedUser();
@@ -44,10 +51,10 @@ export async function getCurrentStudioContext(): Promise<StudioContext> {
   const platformAdmin = await isPlatformAdmin();
 
   if (platformAdmin) {
-    const selectedStudioId = await getPlatformSelectedStudioId();
+    const selectedStudioId = await getSelectedPlatformStudioIdFromCookie();
 
     if (!selectedStudioId) {
-      redirect("/platform");
+      redirect("/platform/studios");
     }
 
     return {

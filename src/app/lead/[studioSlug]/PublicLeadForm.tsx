@@ -42,7 +42,7 @@ export default function PublicLeadForm({
   studio,
   successRedirect,
 }: {
-  studio: StudioBranding;
+  studio: StudioBranding | null;
   successRedirect?: string;
 }) {
   const [state, formAction] = useActionState(
@@ -50,13 +50,13 @@ export default function PublicLeadForm({
     initialState
   );
 
-  const accent = studio.public_primary_color?.trim() || "#0f172a";
-  const ctaText = studio.public_lead_cta_text?.trim() || "Submit Inquiry";
-  const headline =
-    studio.public_lead_headline?.trim() || `Get started with ${studio.name}`;
-  const description =
-    studio.public_lead_description?.trim() ||
-    "Tell us a little about yourself and what you are looking for.";
+  if (!studio) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        This studio is not available for inquiries right now.
+      </div>
+    );
+  }
 
   if (!studio.public_lead_enabled) {
     return (
@@ -65,6 +65,14 @@ export default function PublicLeadForm({
       </div>
     );
   }
+
+  const accent = studio.public_primary_color?.trim() || "#0f172a";
+  const ctaText = studio.public_lead_cta_text?.trim() || "Submit Inquiry";
+  const headline =
+    studio.public_lead_headline?.trim() || `Get started with ${studio.name}`;
+  const description =
+    studio.public_lead_description?.trim() ||
+    "Tell us a little about yourself and what you are looking for.";
 
   return (
     <div style={{ ["--studio-accent" as string]: accent }}>

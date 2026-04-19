@@ -2,7 +2,6 @@ import AppointmentCreateForm from "./AppointmentCreateForm";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 
-
 type SearchParams = Promise<{
   clientId?: string;
 }>;
@@ -15,6 +14,19 @@ type MembershipBenefit = {
   discount_amount: number | null;
   usage_period: string;
   applies_to: string | null;
+};
+
+type ClientRelationshipRow = {
+  client_id: string;
+  related_client_id: string;
+  relationship_type: string;
+};
+
+type ClientOption = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  status: string | null;
 };
 
 export default async function NewAppointmentPage({
@@ -37,6 +49,7 @@ export default async function NewAppointmentPage({
     { data: rooms, error: roomsError },
     { data: clientPackages, error: clientPackagesError },
     { data: clientMemberships, error: clientMembershipsError },
+    { data: clientRelationships, error: clientRelationshipsError },
   ] = await Promise.all([
     supabase
       .from("clients")
@@ -90,6 +103,11 @@ export default async function NewAppointmentPage({
       .eq("studio_id", studioId)
       .in("status", ["active", "past_due", "cancel_scheduled"])
       .order("created_at", { ascending: false }),
+    supabase
+      .from("client_relationships")
+      .select("client_id, related_client_id, relationship_type")
+      .eq("studio_id", studioId)
+      .in("relationship_type", ["partner", "spouse"]),
   ]);
 
   if (clientsError) {
@@ -113,6 +131,12 @@ export default async function NewAppointmentPage({
   if (clientMembershipsError) {
     throw new Error(
       `Failed to load client memberships: ${clientMembershipsError.message}`
+    );
+  }
+
+  if (clientRelationshipsError) {
+    throw new Error(
+      `Failed to load client relationships: ${clientRelationshipsError.message}`
     );
   }
 
@@ -160,7 +184,7 @@ export default async function NewAppointmentPage({
     })
   );
 
-  const availableClients = (clients ?? []).filter(
+  const availableClients = ((clients ?? []) as ClientOption[]).filter(
     (client) => client.status !== "archived"
   );
 
@@ -175,6 +199,31 @@ export default async function NewAppointmentPage({
   )
     ? requestedClientId
     : "";
+
+  const clientLookup = new Map(
+    availableClients.map((client) => [client.id, client] as const)
+  );
+
+  const linkedPartnersByClientId: Record<string, ClientOption[]> = {};
+
+  for (const relationship of (clientRelationships ?? []) as ClientRelationshipRow[]) {
+    const primary = clientLookup.get(relationship.client_id);
+    const related = clientLookup.get(relationship.related_client_id);
+
+    if (primary && related) {
+      linkedPartnersByClientId[primary.id] ??= [];
+      if (!linkedPartnersByClientId[primary.id].some((item) => item.id === related.id)) {
+        linkedPartnersByClientId[primary.id].push(related);
+      }
+    }
+
+    if (primary && related) {
+      linkedPartnersByClientId[related.id] ??= [];
+      if (!linkedPartnersByClientId[related.id].some((item) => item.id === primary.id)) {
+        linkedPartnersByClientId[related.id].push(primary);
+      }
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -193,12 +242,14 @@ export default async function NewAppointmentPage({
       </div>
 
       <AppointmentCreateForm
-  clients={(clients ?? []) as any}
-  instructors={(instructors ?? []) as any}
-  rooms={(rooms ?? []) as any}
-  clientPackages={(clientPackages ?? []) as any}
-  clientMemberships={hydratedClientMemberships as any}
-/>
+        clients={availableClients as any}
+        instructors={availableInstructors as any}
+        rooms={availableRooms as any}
+        clientPackages={(clientPackages ?? []) as any}
+        clientMemberships={hydratedClientMemberships as any}
+        initialClientId={validInitialClientId}
+        linkedPartnersByClientId={linkedPartnersByClientId as any}
+      />
     </div>
   );
 }

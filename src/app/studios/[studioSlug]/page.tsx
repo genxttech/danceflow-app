@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import FavoriteButton from "@/components/public/FavoriteButton";
 import PublicLeadForm from "@/app/lead/[studioSlug]/PublicLeadForm";
+import PublicSiteHeader from "@/components/public/PublicSiteHeader";
+import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 
 type StudioPageParams = Promise<{
   studioSlug: string;
@@ -65,7 +68,8 @@ function studioTitle(studio: StudioRow) {
 }
 
 function locationLabel(studio: StudioRow) {
-  return [studio.city, studio.state].filter(Boolean).join(", ");
+  const parts = [studio.city, studio.state].filter(Boolean);
+  return parts.length ? parts.join(", ") : "Location coming soon";
 }
 
 function normalizeWebsiteLabel(url: string) {
@@ -107,18 +111,22 @@ function formatEventDateRange(start: string | null, end: string | null) {
 
 function eventTypeLabel(value: string | null) {
   switch (value) {
-    case "class":
-      return "Class";
-    case "social":
-      return "Social";
+    case "group_class":
+      return "Group Class";
+    case "practice_party":
+      return "Practice Party";
     case "workshop":
       return "Workshop";
-    case "party":
-      return "Party";
-    case "performance":
-      return "Performance";
-    case "private_lesson":
-      return "Private Lesson";
+    case "social_dance":
+      return "Social Dance";
+    case "competition":
+      return "Competition";
+    case "showcase":
+      return "Showcase";
+    case "festival":
+      return "Festival";
+    case "special_event":
+      return "Special Event";
     default:
       return "Event";
   }
@@ -134,7 +142,12 @@ export default async function PublicStudioPage({
   const { studioSlug } = await params;
   const resolvedSearchParams = await searchParams;
   const inquirySuccess = resolvedSearchParams.inquiry === "success";
+
   const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
@@ -173,13 +186,17 @@ export default async function PublicStudioPage({
 
   if (!studio) {
     return (
-      <main className="min-h-screen bg-slate-50">
-        <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6 lg:px-8">
-          <div className="rounded-3xl border border-rose-200 bg-rose-50 px-6 py-5 text-rose-800">
-            Missing studio.
+      <>
+        <PublicSiteHeader currentPath="studios" isAuthenticated={!!user} />
+        <main className="min-h-screen bg-slate-50">
+          <div className="mx-auto max-w-4xl px-4 py-16 sm:px-6 lg:px-8">
+            <div className="rounded-3xl border border-rose-200 bg-rose-50 px-6 py-5 text-rose-800">
+              Missing studio.
+            </div>
           </div>
-        </div>
-      </main>
+        </main>
+        <PublicSiteFooter />
+      </>
     );
   }
 
@@ -187,6 +204,7 @@ export default async function PublicStudioPage({
     { data: styles, error: stylesError },
     { data: offerings, error: offeringsError },
     { data: events, error: eventsError },
+    favoriteResult,
   ] = await Promise.all([
     supabase
       .from("studio_public_styles")
@@ -225,6 +243,15 @@ export default async function PublicStudioPage({
       .in("status", ["published", "open"])
       .order("start_date", { ascending: true })
       .limit(6),
+
+    user
+      ? supabase
+          .from("user_favorites")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("studio_id", studio.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
   ]);
 
   if (stylesError) {
@@ -239,382 +266,395 @@ export default async function PublicStudioPage({
     throw new Error(`Failed to load studio events: ${eventsError.message}`);
   }
 
+  if (favoriteResult?.error) {
+    throw new Error(`Failed to load studio favorite state: ${favoriteResult.error.message}`);
+  }
+
   const typedStyles = (styles ?? []) as StyleRow[];
   const typedOfferings = (offerings ?? []) as OfferingRow[];
   const typedEvents = (events ?? []) as EventRow[];
   const title = studioTitle(studio);
   const location = locationLabel(studio);
   const studioUrlSlug = studio.slug ?? studioSlug;
+  const isFavorited = Boolean(favoriteResult?.data?.id);
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <section className="border-b border-slate-200/70 bg-[linear-gradient(180deg,#ffffff_0%,#f8fafc_100%)]">
-        <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 lg:px-8 lg:py-14">
-          <div className="grid gap-8 lg:grid-cols-[1.4fr_0.9fr] lg:items-center">
-            <div>
-              <div className="flex flex-wrap items-center gap-3">
-                <Link
-                  href="/discover/studios"
-                  className="inline-flex rounded-full border border-slate-200 bg-white px-4 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-                >
-                  Back to studio discovery
-                </Link>
+    <>
+      <PublicSiteHeader currentPath="studios" isAuthenticated={!!user} />
 
-                {studio.beginner_friendly ? (
-                  <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-700">
-                    Beginner Friendly
-                  </span>
-                ) : null}
-              </div>
-
-              <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                {title}
-              </h1>
-
-              {studio.public_short_description ? (
-                <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-                  {studio.public_short_description}
-                </p>
-              ) : null}
-
-              <div className="mt-6 flex flex-wrap gap-3 text-sm text-slate-600">
-                {location ? (
-                  <span className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200">
-                    {location}
-                  </span>
-                ) : null}
-
-                {typedStyles.slice(0, 4).map((style) => (
-                  <span
-                    key={style.style_key}
-                    className="rounded-full bg-white px-3 py-1.5 shadow-sm ring-1 ring-slate-200"
-                  >
-                    {style.display_name || style.style_key}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            <div className="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm">
-              {studio.public_hero_image_url ? (
-                <img
-                  src={studio.public_hero_image_url}
-                  alt={title}
-                  className="h-72 w-full object-cover"
-                />
-              ) : (
-                <div className="flex h-72 items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#ede9fe_40%,#fff7ed_100%)] px-8 text-center text-sm text-slate-500">
-                  Public studio image coming soon
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        {inquirySuccess ? (
-          <div className="mb-8 rounded-[2rem] border border-emerald-200 bg-emerald-50 px-6 py-5 text-emerald-800">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Inquiry sent</h2>
-                <p className="mt-1 text-sm">
-                  Thanks for reaching out to {title}. Your inquiry went through
-                  successfully.
-                </p>
-              </div>
-              <a
-                href={`#inquiry-form`}
-                className="inline-flex rounded-xl bg-white px-4 py-2 text-sm font-medium text-emerald-800 shadow-sm ring-1 ring-emerald-200"
+      <main className="min-h-screen bg-slate-50">
+        <section className="border-b bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_24%,#f8fafc_100%)]">
+          <div className="mx-auto max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+            <div className="mb-4">
+              <Link
+                href="/discover/studios"
+                className="inline-flex rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
-                View inquiry section
-              </a>
+                Back to Studios
+              </Link>
             </div>
-          </div>
-        ) : null}
 
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.35fr)_380px]">
-          <div className="space-y-8">
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-              <div className="flex items-center gap-4">
-                {studio.public_logo_url ? (
-                  <img
-                    src={studio.public_logo_url}
-                    alt={`${title} logo`}
-                    className="h-16 w-16 rounded-2xl object-cover ring-1 ring-slate-200"
+            <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+                  Public Studio Profile
+                </p>
+
+                <div className="mt-4 flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <h1 className="text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+                      {title}
+                    </h1>
+                    <p className="mt-3 text-lg text-slate-600">{location}</p>
+                    {studio.beginner_friendly ? (
+                      <span className="mt-4 inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
+                        Beginner Friendly
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <FavoriteButton
+                    targetType="studio"
+                    targetId={studio.id}
+                    initiallyFavorited={isFavorited}
+                    isAuthenticated={!!user}
+                    returnPath={`/studios/${studioUrlSlug}`}
                   />
-                ) : null}
-
-                <div>
-                  <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                    About {title}
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Studio profile and public offerings
-                  </p>
                 </div>
-              </div>
 
-              <div className="mt-6 space-y-4 text-base leading-8 text-slate-700">
-                {studio.public_about ? (
-                  <p>{studio.public_about}</p>
-                ) : (
-                  <p>
-                    This studio has not added a full public bio yet. Check their
-                    offerings, upcoming events, or submit an inquiry for more
-                    details.
-                  </p>
-                )}
-              </div>
-            </section>
-
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                Dance styles
-              </h2>
-
-              {typedStyles.length === 0 ? (
-                <p className="mt-4 text-sm text-slate-600">
-                  Styles coming soon.
+                <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-600">
+                  {studio.public_short_description ||
+                    "Explore this studio’s offerings, upcoming events, and ways to connect."}
                 </p>
-              ) : (
-                <div className="mt-5 flex flex-wrap gap-3">
-                  {typedStyles.map((style) => (
-                    <span
-                      key={style.style_key}
-                      className="rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700"
-                    >
-                      {style.display_name || style.style_key}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </section>
 
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                Public offerings
-              </h2>
-
-              {typedOfferings.length === 0 ? (
-                <p className="mt-4 text-sm text-slate-600">
-                  Offerings coming soon.
-                </p>
-              ) : (
-                <div className="mt-5 flex flex-wrap gap-3">
-                  {typedOfferings.map((offering) => (
-                    <span
-                      key={offering.offering_key}
-                      className="rounded-full bg-orange-50 px-4 py-2 text-sm font-medium text-orange-700"
-                    >
-                      {offering.display_name || offering.offering_key}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                    Upcoming public events
-                  </h2>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Organizer-published events currently visible to the public
-                  </p>
-                </div>
-
-                <Link
-                  href="/discover/events"
-                  className="inline-flex rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Browse all events
-                </Link>
-              </div>
-
-              {typedEvents.length === 0 ? (
-                <div className="mt-6 rounded-2xl border border-dashed border-slate-300 px-5 py-8 text-sm text-slate-600">
-                  No public events are listed right now.
-                </div>
-              ) : (
-                <div className="mt-6 grid gap-5 md:grid-cols-2">
-                  {typedEvents.map((event) => (
-                    <article
-                      key={event.id}
-                      className="overflow-hidden rounded-[1.5rem] border border-slate-200/80 bg-slate-50"
-                    >
-                      <div className="h-44 bg-slate-100">
-                        {event.public_cover_image_url ? (
-                          <img
-                            src={event.public_cover_image_url}
-                            alt={event.name}
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#ede9fe_40%,#fff7ed_100%)] px-6 text-center text-sm text-slate-500">
-                            Event image coming soon
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="space-y-4 p-5">
-                        <div className="flex flex-wrap gap-2">
-                          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                            {eventTypeLabel(event.event_type)}
-                          </span>
-
-                          <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700">
-                            {formatEventDateRange(event.start_date, event.end_date)}
-                          </span>
-
-                          {event.beginner_friendly ? (
-                            <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-                              Beginner Friendly
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <div>
-                          <h3 className="text-lg font-semibold text-slate-950">
-                            {event.name}
-                          </h3>
-                          <p className="mt-2 text-sm leading-6 text-slate-600">
-                            {event.public_summary ||
-                              event.public_description ||
-                              "Public event details coming soon."}
-                          </p>
-                        </div>
-
-                        {event.slug ? (
-                          <Link
-                            href={`/events/${event.slug}`}
-                            className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                          >
-                            View Event
-                          </Link>
-                        ) : null}
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </section>
-          </div>
-
-          <div className="space-y-8">
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                Studio Info
-              </h2>
-
-              <div className="mt-6 space-y-5 text-sm text-slate-700">
-                {location ? (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Location
-                    </p>
-                    <p className="mt-1 text-base text-slate-900">{location}</p>
-                  </div>
-                ) : null}
-
-                {studio.public_phone ? (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Phone
-                    </p>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  {studio.public_lead_enabled ? (
                     <a
-                      href={`tel:${studio.public_phone}`}
-                      className="mt-1 inline-block text-base text-slate-900 hover:text-slate-700"
+                      href="#lead"
+                      className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800"
                     >
-                      {studio.public_phone}
+                      {studio.public_lead_cta_text?.trim() || "Contact Studio"}
                     </a>
-                  </div>
-                ) : null}
+                  ) : null}
 
-                {studio.public_email ? (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Email
-                    </p>
-                    <a
-                      href={`mailto:${studio.public_email}`}
-                      className="mt-1 inline-block break-all text-base text-slate-900 hover:text-slate-700"
-                    >
-                      {studio.public_email}
-                    </a>
-                  </div>
-                ) : null}
-
-                {studio.public_website_url ? (
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                      Website
-                    </p>
+                  {studio.public_website_url ? (
                     <a
                       href={studio.public_website_url}
                       target="_blank"
                       rel="noreferrer"
-                      className="mt-1 inline-block break-all text-base text-slate-900 hover:text-slate-700"
+                      className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
                     >
-                      {normalizeWebsiteLabel(studio.public_website_url)}
+                      Visit Website
                     </a>
-                  </div>
-                ) : null}
+                  ) : null}
 
-                {!location &&
-                !studio.public_phone &&
-                !studio.public_email &&
-                !studio.public_website_url ? (
-                  <p className="text-sm text-slate-600">
-                    Public contact details coming soon.
-                  </p>
-                ) : null}
-              </div>
-            </section>
-
-            <section
-              id="inquiry-form"
-              className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8"
-            >
-              {inquirySuccess ? (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-4 text-sm text-emerald-800">
-                  Your inquiry has been sent successfully.
+                  <Link
+                    href="/discover/events"
+                    className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Browse Events
+                  </Link>
                 </div>
-              ) : (
-                <>
-                  <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                    Submit Inquiry
-                  </h2>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Ask about beginner options, lessons, events, rentals, or
-                    anything else before you visit.
-                  </p>
+              </div>
 
-                  <div className="mt-6">
-                    <PublicLeadForm
-                      studio={{
-                        id: studio.id,
-                        name: title,
-                        slug: studioUrlSlug,
-                        public_lead_enabled: studio.public_lead_enabled,
-                        public_lead_headline: studio.public_lead_headline,
-                        public_lead_description: studio.public_lead_description,
-                        public_logo_url: studio.public_logo_url,
-                        public_primary_color: studio.public_primary_color,
-                        public_lead_cta_text: studio.public_lead_cta_text,
-                      }}
-                      successRedirect={`/studios/${encodeURIComponent(
-                        studioUrlSlug
-                      )}?inquiry=success`}
+              <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+                <div className="h-[320px] bg-slate-100">
+                  {studio.public_hero_image_url ? (
+                    <img
+                      src={studio.public_hero_image_url}
+                      alt={title}
+                      className="h-full w-full object-cover"
                     />
-                  </div>
-                </>
-              )}
-            </section>
+                  ) : studio.public_logo_url ? (
+                    <div className="flex h-full items-center justify-center p-10">
+                      <img
+                        src={studio.public_logo_url}
+                        alt={title}
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#fff7ed_100%)] text-sm text-slate-500">
+                      Studio image coming soon
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </section>
-    </main>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
+            <div className="space-y-8">
+              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                  About This Studio
+                </h2>
+                <p className="mt-4 text-sm leading-7 text-slate-600">
+                  {studio.public_about ||
+                    studio.public_short_description ||
+                    "Public studio details coming soon."}
+                </p>
+              </section>
+
+              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                  Dance Styles
+                </h2>
+
+                {typedStyles.length === 0 ? (
+                  <p className="mt-4 text-sm text-slate-600">
+                    Dance styles will appear here as this studio updates its public profile.
+                  </p>
+                ) : (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {typedStyles.map((style) => (
+                      <span
+                        key={style.style_key}
+                        className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"
+                      >
+                        {style.display_name || style.style_key}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                  Offerings
+                </h2>
+
+                {typedOfferings.length === 0 ? (
+                  <p className="mt-4 text-sm text-slate-600">
+                    Public offerings will appear here as this studio updates its profile.
+                  </p>
+                ) : (
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {typedOfferings.map((offering) => (
+                      <span
+                        key={offering.offering_key}
+                        className="rounded-full bg-orange-50 px-3 py-1 text-xs text-orange-700"
+                      >
+                        {offering.display_name || offering.offering_key}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div>
+                    <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                      Upcoming Events
+                    </h2>
+                    <p className="mt-2 text-sm text-slate-600">
+                      Public events connected to this studio.
+                    </p>
+                  </div>
+
+                  <Link
+                    href="/discover/events"
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Discover More Events
+                  </Link>
+                </div>
+
+                {typedEvents.length === 0 ? (
+                  <div className="mt-6 rounded-2xl border border-dashed border-slate-200 px-5 py-10 text-center">
+                    <p className="text-sm text-slate-600">
+                      No public events are listed right now.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-6 grid gap-4 md:grid-cols-2">
+                    {typedEvents.map((event) => (
+                      <article
+                        key={event.id}
+                        className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+                      >
+                        <div className="h-40 bg-slate-100">
+                          {event.public_cover_image_url ? (
+                            <img
+                              src={event.public_cover_image_url}
+                              alt={event.name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#ede9fe_40%,#fff7ed_100%)] px-6 text-center text-sm text-slate-500">
+                              Event image coming soon
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="space-y-3 p-5">
+                          <div className="flex flex-wrap gap-2">
+                            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
+                              {eventTypeLabel(event.event_type)}
+                            </span>
+                            <span className="rounded-full bg-orange-50 px-3 py-1 text-xs text-orange-700">
+                              {formatEventDateRange(event.start_date, event.end_date)}
+                            </span>
+                            {event.beginner_friendly ? (
+                              <span className="rounded-full bg-green-50 px-3 py-1 text-xs text-green-700">
+                                Beginner Friendly
+                              </span>
+                            ) : null}
+                          </div>
+
+                          <h3 className="text-lg font-semibold text-slate-950">{event.name}</h3>
+
+                          <p className="text-sm leading-6 text-slate-600">
+                            {event.public_summary ||
+                              event.public_description ||
+                              "Public event details coming soon."}
+                          </p>
+
+                          {event.slug ? (
+                            <Link
+                              href={`/events/${event.slug}`}
+                              className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                            >
+                              View Event
+                            </Link>
+                          ) : null}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </section>
+
+              {studio.public_lead_enabled ? (
+                <section
+                  id="lead"
+                  className="rounded-[2rem] border border-violet-200 bg-violet-50 p-6 shadow-sm"
+                >
+                  <div className="mb-5">
+                    <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
+                      Reach Out
+                    </p>
+                    <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                      {studio.public_lead_headline?.trim() || `Connect with ${title}`}
+                    </h2>
+                    <p className="mt-2 text-sm leading-7 text-slate-600">
+                      {studio.public_lead_description?.trim() ||
+                        "Send a message and this studio can follow up with you directly."}
+                    </p>
+                  </div>
+
+                  {inquirySuccess ? (
+                    <div className="mb-5 rounded-2xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                      Your inquiry was sent successfully.
+                    </div>
+                  ) : null}
+
+                  <PublicLeadForm studioSlug={studioUrlSlug} />
+                </section>
+              ) : null}
+            </div>
+
+            <aside className="space-y-6">
+              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                  Contact Information
+                </h2>
+
+                <div className="mt-5 space-y-4 text-sm text-slate-600">
+                  <div>
+                    <p className="font-medium text-slate-900">Location</p>
+                    <p className="mt-1">{location}</p>
+                    {studio.postal_code ? <p>{studio.postal_code}</p> : null}
+                  </div>
+
+                  {studio.public_phone ? (
+                    <div>
+                      <p className="font-medium text-slate-900">Phone</p>
+                      <a
+                        href={`tel:${studio.public_phone}`}
+                        className="mt-1 inline-block hover:text-slate-900"
+                      >
+                        {studio.public_phone}
+                      </a>
+                    </div>
+                  ) : null}
+
+                  {studio.public_email ? (
+                    <div>
+                      <p className="font-medium text-slate-900">Email</p>
+                      <a
+                        href={`mailto:${studio.public_email}`}
+                        className="mt-1 inline-block hover:text-slate-900"
+                      >
+                        {studio.public_email}
+                      </a>
+                    </div>
+                  ) : null}
+
+                  {studio.public_website_url ? (
+                    <div>
+                      <p className="font-medium text-slate-900">Website</p>
+                      <a
+                        href={studio.public_website_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1 inline-block break-all hover:text-slate-900"
+                      >
+                        {normalizeWebsiteLabel(studio.public_website_url)}
+                      </a>
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+
+              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                  Explore More
+                </h2>
+
+                <div className="mt-5 grid gap-3">
+                  <Link
+                    href="/discover/studios"
+                    className="rounded-2xl border bg-slate-50 p-4 hover:bg-slate-100"
+                  >
+                    <p className="font-medium text-slate-900">Browse other studios</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Compare more options nearby.
+                    </p>
+                  </Link>
+
+                  <Link
+                    href="/discover/events"
+                    className="rounded-2xl border bg-slate-50 p-4 hover:bg-slate-100"
+                  >
+                    <p className="font-medium text-slate-900">Browse public events</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Find classes, socials, and workshops.
+                    </p>
+                  </Link>
+
+                  {!user ? (
+                    <Link
+                      href="/signup"
+                      className="rounded-2xl border border-violet-200 bg-violet-50 p-4 hover:bg-violet-100"
+                    >
+                      <p className="font-medium text-slate-900">Create a free account</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Save favorites and keep track of discovery.
+                      </p>
+                    </Link>
+                  ) : null}
+                </div>
+              </section>
+            </aside>
+          </div>
+        </section>
+      </main>
+
+      <PublicSiteFooter />
+    </>
   );
 }

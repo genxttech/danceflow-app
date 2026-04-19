@@ -39,6 +39,7 @@ type StudioNotificationSettingsRow = {
   follow_up_overdue_enabled: boolean;
   package_low_balance_enabled: boolean;
   package_depleted_enabled: boolean;
+  floor_rental_upcoming_enabled: boolean;
 };
 
 type InstructorOption = {
@@ -619,6 +620,14 @@ export default function SettingsForm({
               description="Create a notification when a client package reaches 0 remaining in a finite item."
               name="package_depleted_enabled"
               defaultChecked={notificationSettings.package_depleted_enabled}
+              disabled={!canEdit || notificationPending}
+            />
+
+            <ToggleRow
+              title="Upcoming floor rental alerts"
+              description="Create a notification when a floor space rental is scheduled to begin within the next 24 hours."
+              name="floor_rental_upcoming_enabled"
+              defaultChecked={notificationSettings.floor_rental_upcoming_enabled}
               disabled={!canEdit || notificationPending}
             />
           </div>

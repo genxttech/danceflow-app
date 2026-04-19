@@ -198,7 +198,7 @@ export async function syncStudioNotifications(studioId: string) {
         ends_at,
         title,
         status,
-        clients (
+        clients:clients!appointments_client_id_fkey (
           first_name,
           last_name
         )

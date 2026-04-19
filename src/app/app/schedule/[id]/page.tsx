@@ -64,6 +64,18 @@ type AppointmentRow = {
         referral_source?: string | null;
       }[]
     | null;
+  partner_client:
+    | {
+        id?: string;
+        first_name: string;
+        last_name: string;
+      }
+    | {
+        id?: string;
+        first_name: string;
+        last_name: string;
+      }[]
+    | null;
   instructors:
     | { id?: string; first_name: string; last_name: string }
     | { id?: string; first_name: string; last_name: string }[]
@@ -369,7 +381,8 @@ export default async function AppointmentDetailPage({
         is_recurring,
         recurrence_series_id,
         created_at,
-        clients ( id, first_name, last_name, referral_source ),
+        clients:clients!appointments_client_id_fkey ( id, first_name, last_name, referral_source ),
+        partner_client:clients!appointments_partner_client_id_fkey ( id, first_name, last_name ),
         instructors ( id, first_name, last_name ),
         rooms ( id, name ),
         client_packages (
@@ -429,6 +442,8 @@ export default async function AppointmentDetailPage({
   const packageHealth = pkg ? getPackageHealth(pkg) : null;
   const clientName = getClientName(typedAppointment.clients);
   const clientId = getClientId(typedAppointment.clients);
+  const partnerName = getClientName(typedAppointment.partner_client as any);
+  const partnerId = getClientId(typedAppointment.partner_client as any);
   const instructorName = getInstructorName(typedAppointment.instructors);
   const roomName = getRoomName(typedAppointment.rooms);
   const referralSource = getClientReferralSource(typedAppointment.clients);
@@ -551,7 +566,7 @@ export default async function AppointmentDetailPage({
             Back to Schedule
           </Link>
 
-          {!isFloorRental ? (
+          {typedAppointment.appointment_type === "group_class" ? (
             <Link
               href={`/app/schedule/${typedAppointment.id}/attendance`}
               className="rounded-xl border px-4 py-2 hover:bg-slate-50"
@@ -592,6 +607,20 @@ export default async function AppointmentDetailPage({
                   )}
                 </div>
               </div>
+
+              {partnerId ? (
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-400">Partner</p>
+                  <div className="mt-1">
+                    <Link
+                      href={`/app/clients/${partnerId}`}
+                      className="text-sm font-medium text-slate-900 underline"
+                    >
+                      {partnerName}
+                    </Link>
+                  </div>
+                </div>
+              ) : null}
 
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">

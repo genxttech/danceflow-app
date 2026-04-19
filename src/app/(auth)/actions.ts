@@ -1,46 +1,60 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { slugify } from "@/lib/utils/slug";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
 }
 
-async function generateUniqueStudioSlug(baseName: string) {
+function getPostLoginPath(hasStudioRole: boolean) {
+  return hasStudioRole ? "/app" : "/account";
+}
+
+async function hasActiveStudioRole(userId: string) {
   const supabase = await createClient();
-  const baseSlug = slugify(baseName);
-  let slug = baseSlug || "studio";
-  let counter = 2;
 
-  while (true) {
-    const { data, error } = await supabase
-      .from("studios")
-      .select("id")
-      .eq("slug", slug)
-      .maybeSingle();
+  const { data: roleRow, error: roleError } = await supabase
+    .from("user_studio_roles")
+    .select("studio_id")
+    .eq("user_id", userId)
+    .eq("active", true)
+    .limit(1)
+    .maybeSingle();
 
-    if (error) {
-      throw new Error(`Could not validate studio slug: ${error.message}`);
-    }
-
-    if (!data) return slug;
-
-    slug = `${baseSlug}-${counter}`;
-    counter++;
+  if (roleError) {
+    throw new Error(`Could not determine account access: ${roleError.message}`);
   }
+
+  return !!roleRow?.studio_id;
+}
+
+async function getBaseUrl() {
+  const headerStore = await headers();
+  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
+  const proto = headerStore.get("x-forwarded-proto") ?? "http";
+
+  if (!host) {
+    return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  }
+
+  return `${proto}://${host}`;
 }
 
 export async function signupAction(formData: FormData) {
   const fullName = getString(formData, "fullName");
   const email = getString(formData, "email").toLowerCase();
   const password = getString(formData, "password");
-  const studioName = getString(formData, "studioName");
+  const signupIntent = getString(formData, "signupIntent") || "public";
 
-  if (!fullName || !email || !password || !studioName) {
-    return { error: "All fields are required." };
+  if (!fullName || !email || !password) {
+    return { error: "Full name, email, and password are required." };
+  }
+
+  if (password.length < 8) {
+    return { error: "Password must be at least 8 characters." };
   }
 
   const supabase = await createClient();
@@ -48,6 +62,12 @@ export async function signupAction(formData: FormData) {
   const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
     email,
     password,
+    options: {
+      data: {
+        full_name: fullName,
+        signup_intent: signupIntent,
+      },
+    },
   });
 
   if (signUpError) {
@@ -60,93 +80,69 @@ export async function signupAction(formData: FormData) {
     return { error: "User account was not created." };
   }
 
-  const slug = await generateUniqueStudioSlug(studioName);
-
-  const { error: profileError } = await supabase.from("profiles").insert({
-    id: user.id,
-    full_name: fullName,
-    email,
-  });
+  const { error: profileError } = await supabase.from("profiles").upsert(
+    {
+      id: user.id,
+      full_name: fullName,
+      email,
+    },
+    {
+      onConflict: "id",
+    }
+  );
 
   if (profileError) {
     return { error: `Profile creation failed: ${profileError.message}` };
   }
 
-  console.log("About to create studio", { studioName, email, slug });
+  const hasImmediateSession = !!signUpData.session;
 
-const { error: studioInsertError } = await supabase.from("studios").insert({
-  name: studioName,
-  slug,
-  email,
-  timezone: "America/New_York",
-  billing_plan: "starter",
-  subscription_status: "trialing",
-});
-
-console.log("Studio insert result", { studioInsertError });
-
-if (studioInsertError) {
-  return {
-    error: `Studio creation failed: ${studioInsertError.message}`,
-  };
-}
-
-const { data: createdStudio, error: studioFetchError } = await supabase
-  .from("studios")
-  .select("id, name, slug")
-  .eq("slug", slug)
-  .single();
-
-console.log("Studio fetch result", { createdStudio, studioFetchError });
-
-if (studioFetchError || !createdStudio) {
-  return {
-    error: `Studio lookup failed after insert: ${studioFetchError?.message ?? "Unknown error"}`,
-  };
-}
-
-  const { error: settingsError } = await supabase.from("studio_settings").insert({
-    studio_id: createdStudio.id,
-    cancellation_window_hours: 24,
-    no_show_deducts_lesson: true,
-    allow_negative_balance: false,
-    package_expiration_enabled: true,
-    couples_can_share_packages: false,
-    group_classes_use_package_credits: false,
-    allow_booking_without_balance: false,
-    default_currency: "USD",
-    booking_window_days: 60,
-  });
-
-  if (settingsError) {
-    return { error: `Studio settings creation failed: ${settingsError.message}` };
+  if (!hasImmediateSession) {
+    redirect(`/login?signup=check-email&intent=${encodeURIComponent(signupIntent)}`);
   }
 
-  const { error: roleError } = await supabase.from("user_studio_roles").insert({
-    user_id: user.id,
-    studio_id: createdStudio.id,
-    role: "studio_owner",
-    active: true,
-  });
-
-  if (roleError) {
-    return { error: `Studio owner role creation failed: ${roleError.message}` };
-  }
-
-  redirect("/app");
+  redirect(`/get-started?welcome=1&intent=${encodeURIComponent(signupIntent)}`);
 }
 
 export async function loginAction(formData: FormData) {
   const email = getString(formData, "email").toLowerCase();
   const password = getString(formData, "password");
+  const next = getString(formData, "next");
+  const loginMode = getString(formData, "loginMode") || "password";
 
-  if (!email || !password) {
-    return { error: "Email and password are required." };
+  if (!email) {
+    return { error: "Email is required." };
   }
 
   const supabase = await createClient();
 
-  const { error } = await supabase.auth.signInWithPassword({
+  if (loginMode === "magic_link") {
+    const baseUrl = await getBaseUrl();
+    const redirectTo = next || "/account";
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent(
+          redirectTo
+        )}`,
+      },
+    });
+
+    if (error) {
+      return { error: error.message };
+    }
+
+    redirect(
+      `/login?check-email=1&email=${encodeURIComponent(email)}`
+    );
+  }
+
+  if (!password) {
+    return { error: "Password is required." };
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
     email,
     password,
   });
@@ -155,11 +151,22 @@ export async function loginAction(formData: FormData) {
     return { error: error.message };
   }
 
-  redirect("/app");
+  const userId = data.user?.id;
+
+  if (!userId) {
+    return { error: "Login succeeded, but no user session was returned." };
+  }
+
+  if (next) {
+    redirect(next);
+  }
+
+  const hasStudioRole = await hasActiveStudioRole(userId);
+  redirect(getPostLoginPath(hasStudioRole));
 }
 
 export async function logoutAction() {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  redirect("/login");
+  redirect("/");
 }

@@ -37,6 +37,7 @@ type StudioNotificationSettingsRow = {
   follow_up_overdue_enabled: boolean;
   package_low_balance_enabled: boolean;
   package_depleted_enabled: boolean;
+  floor_rental_upcoming_enabled: boolean;
 };
 
 type InstructorOption = {
@@ -128,7 +129,8 @@ export default async function SettingsPage() {
         public_intro_booking_enabled,
         follow_up_overdue_enabled,
         package_low_balance_enabled,
-        package_depleted_enabled
+        package_depleted_enabled,
+        floor_rental_upcoming_enabled
       `)
       .eq("studio_id", studioId)
       .maybeSingle(),
@@ -207,10 +209,11 @@ export default async function SettingsPage() {
     follow_up_overdue_enabled: true,
     package_low_balance_enabled: true,
     package_depleted_enabled: true,
+    floor_rental_upcoming_enabled: true,
   };
 
   const planValue = Array.isArray(studioSubscription?.subscription_plans)
-    ? studioSubscription?.subscription_plans[0]
+    ? studioSubscription.subscription_plans[0]
     : studioSubscription?.subscription_plans;
 
   const billingSummary: BillingSummary = {
