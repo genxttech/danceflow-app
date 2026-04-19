@@ -5,11 +5,26 @@ import { createClient } from "@/lib/supabase/server";
 
 type FavoriteTargetType = "studio" | "event";
 
-export async function toggleFavoriteAction(params: {
+type ToggleFavoriteParams = {
   targetType: FavoriteTargetType;
   targetId: string;
-  returnPath: string;
-}) {
+  returnPath?: string;
+};
+
+type ToggleFavoriteResult = {
+  ok: boolean;
+  favorited: boolean;
+  error?: string;
+};
+
+function normalizePath(path?: string) {
+  if (!path || !path.startsWith("/")) return "/";
+  return path;
+}
+
+export async function toggleFavoriteAction(
+  params: ToggleFavoriteParams
+): Promise<ToggleFavoriteResult> {
   const supabase = await createClient();
 
   const {
@@ -17,49 +32,178 @@ export async function toggleFavoriteAction(params: {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return;
+    return {
+      ok: false,
+      favorited: false,
+      error: "You must be logged in to save favorites.",
+    };
   }
 
-  if (params.targetType === "studio") {
-    const { data: existing } = await supabase
+  const targetType = params.targetType;
+  const targetId = params.targetId?.trim();
+  const returnPath = normalizePath(params.returnPath);
+
+  if (!targetId) {
+    return {
+      ok: false,
+      favorited: false,
+      error: "Missing favorite target.",
+    };
+  }
+
+  if (targetType !== "studio" && targetType !== "event") {
+    return {
+      ok: false,
+      favorited: false,
+      error: "Invalid favorite target type.",
+    };
+  }
+
+  if (targetType === "studio") {
+    const { data: existing, error: existingError } = await supabase
       .from("user_favorites")
       .select("id")
       .eq("user_id", user.id)
-      .eq("studio_id", params.targetId)
+      .eq("target_type", "studio")
+      .eq("studio_id", targetId)
+      .limit(1)
       .maybeSingle();
 
+    if (existingError) {
+      return {
+        ok: false,
+        favorited: false,
+        error: existingError.message,
+      };
+    }
+
     if (existing?.id) {
-      await supabase.from("user_favorites").delete().eq("id", existing.id);
-    } else {
-      await supabase.from("user_favorites").insert({
+      const { error: deleteError } = await supabase
+        .from("user_favorites")
+        .delete()
+        .eq("id", existing.id);
+
+      if (deleteError) {
+        return {
+          ok: false,
+          favorited: true,
+          error: deleteError.message,
+        };
+      }
+
+      revalidatePath(returnPath);
+      revalidatePath("/favorites");
+      revalidatePath("/account");
+      revalidatePath("/discover");
+      revalidatePath("/discover/studios");
+      revalidatePath("/discover/events");
+
+      return {
+        ok: true,
+        favorited: false,
+      };
+    }
+
+    const { error: insertError } = await supabase
+      .from("user_favorites")
+      .insert({
         user_id: user.id,
         target_type: "studio",
-        studio_id: params.targetId,
+        studio_id: targetId,
+        event_id: null,
       });
+
+    if (insertError) {
+      return {
+        ok: false,
+        favorited: false,
+        error: insertError.message,
+      };
     }
+
+    revalidatePath(returnPath);
+    revalidatePath("/favorites");
+    revalidatePath("/account");
+    revalidatePath("/discover");
+    revalidatePath("/discover/studios");
+    revalidatePath("/discover/events");
+
+    return {
+      ok: true,
+      favorited: true,
+    };
   }
 
-  if (params.targetType === "event") {
-    const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
+    .from("user_favorites")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("target_type", "event")
+    .eq("event_id", targetId)
+    .limit(1)
+    .maybeSingle();
+
+  if (existingError) {
+    return {
+      ok: false,
+      favorited: false,
+      error: existingError.message,
+    };
+  }
+
+  if (existing?.id) {
+    const { error: deleteError } = await supabase
       .from("user_favorites")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("event_id", params.targetId)
-      .maybeSingle();
+      .delete()
+      .eq("id", existing.id);
 
-    if (existing?.id) {
-      await supabase.from("user_favorites").delete().eq("id", existing.id);
-    } else {
-      await supabase.from("user_favorites").insert({
-        user_id: user.id,
-        target_type: "event",
-        event_id: params.targetId,
-      });
+    if (deleteError) {
+      return {
+        ok: false,
+        favorited: true,
+        error: deleteError.message,
+      };
     }
+
+    revalidatePath(returnPath);
+    revalidatePath("/favorites");
+    revalidatePath("/account");
+    revalidatePath("/discover");
+    revalidatePath("/discover/studios");
+    revalidatePath("/discover/events");
+
+    return {
+      ok: true,
+      favorited: false,
+    };
   }
 
-  revalidatePath(params.returnPath);
+  const { error: insertError } = await supabase
+    .from("user_favorites")
+    .insert({
+      user_id: user.id,
+      target_type: "event",
+      studio_id: null,
+      event_id: targetId,
+    });
+
+  if (insertError) {
+    return {
+      ok: false,
+      favorited: false,
+      error: insertError.message,
+    };
+  }
+
+  revalidatePath(returnPath);
+  revalidatePath("/favorites");
+  revalidatePath("/account");
   revalidatePath("/discover");
   revalidatePath("/discover/studios");
   revalidatePath("/discover/events");
+
+  return {
+    ok: true,
+    favorited: true,
+  };
 }
