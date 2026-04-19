@@ -53,7 +53,7 @@ async function getStudioContext() {
   return {
     supabase,
     studioId: context.studioId as string,
-    role: (context.role ?? null) as string | null,
+    role: null as string | null,
     isPlatformAdmin: Boolean(context.isPlatformAdmin),
     userId: user.id,
   };

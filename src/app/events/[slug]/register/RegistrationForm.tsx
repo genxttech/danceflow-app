@@ -22,6 +22,16 @@ type ActionState = {
   success: string;
 };
 
+type RegistrationFormProps = {
+  eventSlug: string;
+  ticketTypes: TicketTypeRow[];
+  currentUserEmail?: string;
+  isSoldOut?: boolean;
+  waitlistEnabled?: boolean;
+  accountRequiredForRegistration?: boolean;
+  isAuthenticated?: boolean;
+};
+
 const initialState: ActionState = {
   error: "",
   success: "",
@@ -36,6 +46,7 @@ function formatCurrency(value: number, currency: string) {
 
 function formatDateTime(value: string | null) {
   if (!value) return "—";
+
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -98,7 +109,8 @@ function ticketStatusMeta(ticket: TicketTypeRow, waitlistEnabled: boolean) {
           soldOut: true,
           label: "Waitlist only",
           className: "bg-purple-50 text-purple-700",
-          helper: "This ticket is full. You can still join the waitlist without being charged.",
+          helper:
+            "This ticket is full. You can still join the waitlist without being charged.",
         }
       : {
           selectable: false,
@@ -124,24 +136,18 @@ function ticketStatusMeta(ticket: TicketTypeRow, waitlistEnabled: boolean) {
 export default function RegistrationForm({
   eventSlug,
   ticketTypes,
-  currentUserEmail,
-  isSoldOut,
-  waitlistEnabled,
-  accountRequiredForRegistration,
-  isAuthenticated,
-}: {
-  eventSlug: string;
-  ticketTypes: TicketTypeRow[];
-  currentUserEmail: string;
-  isSoldOut: boolean;
-  waitlistEnabled: boolean;
-  accountRequiredForRegistration: boolean;
-  isAuthenticated: boolean;
-}) {
+  currentUserEmail = "",
+  isSoldOut = false,
+  waitlistEnabled = false,
+  accountRequiredForRegistration = false,
+  isAuthenticated = true,
+}: RegistrationFormProps) {
   const [state, formAction, pending] = useActionState(
     createEventRegistrationAction,
     initialState
   );
+
+  const [selectedTicketTypeId, setSelectedTicketTypeId] = useState<string>("");
 
   const ticketOptions = useMemo(() => {
     return ticketTypes.map((ticket) => ({
@@ -155,8 +161,6 @@ export default function RegistrationForm({
   const blockedForAuth = accountRequiredForRegistration && !isAuthenticated;
   const allowSubmission =
     !blockedForAuth && (selectableTicketTypes.length > 0 || (isSoldOut && waitlistEnabled));
-
-  const [selectedTicketTypeId, setSelectedTicketTypeId] = useState<string>("");
 
   const selectedTicket = useMemo(
     () => ticketOptions.find((ticket) => ticket.id === selectedTicketTypeId) ?? null,
@@ -217,6 +221,7 @@ export default function RegistrationForm({
             >
               Create Free Account
             </Link>
+
             <Link
               href="/login"
               className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -231,6 +236,7 @@ export default function RegistrationForm({
         <label htmlFor="ticketTypeId" className="mb-1 block text-sm font-medium">
           Ticket Type
         </label>
+
         <select
           id="ticketTypeId"
           name="ticketTypeId"
@@ -241,12 +247,9 @@ export default function RegistrationForm({
           className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
         >
           <option value="">Select ticket type</option>
+
           {ticketOptions.map((ticket) => (
-            <option
-              key={ticket.id}
-              value={ticket.id}
-              disabled={!ticket.meta.selectable}
-            >
+            <option key={ticket.id} value={ticket.id} disabled={!ticket.meta.selectable}>
               {ticket.name} — {formatCurrency(ticket.price, ticket.currency)}
               {!ticket.meta.selectable ? ` (${ticket.meta.label})` : ""}
             </option>
@@ -330,6 +333,7 @@ export default function RegistrationForm({
         <label htmlFor="quantity" className="mb-1 block text-sm font-medium">
           Quantity
         </label>
+
         <input
           id="quantity"
           name="quantity"
@@ -339,6 +343,7 @@ export default function RegistrationForm({
           disabled={!allowSubmission}
           className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
         />
+
         <p className="mt-1 text-xs text-slate-500">
           Quantity will be validated again when registration is submitted.
         </p>

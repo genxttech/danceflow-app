@@ -552,7 +552,10 @@ export default async function PublicStudioPage({
                     </div>
                   ) : null}
 
-                  <PublicLeadForm studioSlug={studioUrlSlug} />
+                  <PublicLeadForm
+  studio={studio}
+  successRedirect={`/studios/${studioUrlSlug}?inquiry=success#lead`}
+/>
                 </section>
               ) : null}
             </div>

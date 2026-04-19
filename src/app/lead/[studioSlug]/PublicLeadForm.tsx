@@ -10,8 +10,8 @@ import {
 type StudioBranding = {
   id: string;
   name: string;
-  slug: string;
-  public_lead_enabled: boolean;
+  slug: string | null;
+  public_lead_enabled: boolean | null;
   public_lead_headline: string | null;
   public_lead_description: string | null;
   public_logo_url: string | null;
@@ -82,7 +82,7 @@ export default function PublicLeadForm({
       </div>
 
       <form action={formAction} className="space-y-4">
-        <input type="hidden" name="studioSlug" value={studio.slug} />
+        <input type="hidden" name="studioSlug" value={studio.slug ?? ""} />
         <input
           type="hidden"
           name="successRedirect"

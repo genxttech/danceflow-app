@@ -1,9 +1,13 @@
+import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import {
   buildEventConfirmedEmailTemplate,
   buildEventConfirmedSmsTemplate,
 } from "@/lib/notifications/templates";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type EventReminderCandidate = {
   id: string;
@@ -66,12 +70,7 @@ function getEventValue(
   return Array.isArray(value) ? value[0] : value;
 }
 
-function getTicketTypeValue(
-  value:
-    | { name: string }
-    | { name: string }[]
-    | null
-) {
+function getTicketTypeValue(value: { name: string } | { name: string }[] | null) {
   return Array.isArray(value) ? value[0] : value;
 }
 
@@ -84,7 +83,7 @@ function hoursUntil(date: Date) {
   return (date.getTime() - Date.now()) / (1000 * 60 * 60);
 }
 
-export async function queueUpcomingEventReminders() {
+async function queueUpcomingEventReminders() {
   const supabase = createAdminClient();
 
   const today = new Date();
@@ -95,7 +94,8 @@ export async function queueUpcomingEventReminders() {
 
   const { data, error } = await supabase
     .from("event_registrations")
-    .select(`
+    .select(
+      `
       id,
       studio_id,
       attendee_first_name,
@@ -114,7 +114,8 @@ export async function queueUpcomingEventReminders() {
       event_ticket_types (
         name
       )
-    `)
+    `
+    )
     .eq("status", "confirmed")
     .gte("events.start_date", startDateMin)
     .lte("events.start_date", startDateMax);
@@ -130,6 +131,7 @@ export async function queueUpcomingEventReminders() {
 
   for (const row of rows) {
     const eventValue = getEventValue(row.events);
+
     if (!eventValue?.slug || !eventValue?.name || !eventValue?.start_date) {
       skipped += 1;
       continue;
@@ -141,7 +143,6 @@ export async function queueUpcomingEventReminders() {
     );
     const diffHours = hoursUntil(startAt);
 
-    // Send roughly in the 24-hour reminder window.
     if (diffHours < 0 || diffHours > 26) {
       skipped += 1;
       continue;
@@ -214,4 +215,39 @@ export async function queueUpcomingEventReminders() {
     queued,
     skipped,
   };
+}
+
+function isAuthorized(request: Request) {
+  const authHeader = request.headers.get("authorization");
+  const bearer = authHeader?.replace(/^Bearer\s+/i, "").trim();
+
+  const cronSecret = process.env.CRON_SECRET;
+
+  if (!cronSecret) {
+    return true;
+  }
+
+  return bearer === cronSecret;
+}
+
+export async function GET(request: Request) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const result = await queueUpcomingEventReminders();
+    return NextResponse.json({ ok: true, ...result });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Unknown reminder queue error";
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: message,
+      },
+      { status: 500 }
+    );
+  }
 }
