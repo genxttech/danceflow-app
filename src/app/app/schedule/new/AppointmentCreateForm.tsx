@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
 import { createAppointmentAction } from "../actions";
+import { useEffect } from "react";
 
 type InstructorOption = {
   id: string;
@@ -69,10 +70,12 @@ type AppointmentCreateFormProps = {
   clientPackagesByClientId: Record<string, ClientPackageOption[]>;
   clientMembershipsByClientId: Record<string, ClientMembershipOption[]>;
   linkedPartnersByClientId: Record<string, LinkedPartnerOption[]>;
+  initialClientId?: string;
 };
 
 type FormState = {
   error?: string;
+  success?: string;
 };
 
 type FloorRentalSlot = {
@@ -81,7 +84,10 @@ type FloorRentalSlot = {
   endTime: string;
 };
 
-const initialState: FormState = {};
+const initialState: FormState = {
+  error: "",
+  success: "",
+};
 
 function appointmentTypeLabel(value: string) {
   switch (value) {
@@ -338,6 +344,7 @@ export default function AppointmentCreateForm({
   clientPackagesByClientId,
   clientMembershipsByClientId,
   linkedPartnersByClientId,
+  initialClientId = "",
 }: AppointmentCreateFormProps) {
   const [state, formAction, pending] = useActionState(
     createAppointmentAction,
@@ -345,10 +352,16 @@ export default function AppointmentCreateForm({
   );
 
   const [appointmentType, setAppointmentType] = useState("private_lesson");
-  const [clientId, setClientId] = useState("");
+  const [clientId, setClientId] = useState(initialClientId);
   const [partnerClientId, setPartnerClientId] = useState("");
   const [linkedPackageId, setLinkedPackageId] = useState("");
   const [overrideRoomConflict, setOverrideRoomConflict] = useState(false);
+
+useEffect(() => {
+  setPartnerClientId("");
+  setLinkedPackageId("");
+}, [clientId]);
+
   const [priceAmount, setPriceAmount] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("unpaid");
   const [slotDraft, setSlotDraft] = useState<FloorRentalSlot>({

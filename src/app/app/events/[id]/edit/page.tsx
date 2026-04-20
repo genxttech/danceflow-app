@@ -239,8 +239,7 @@ export default async function EditEventPage({
             typedEvent.account_required_for_registration,
           registrationOpensAt: toDatetimeLocal(typedEvent.registration_opens_at),
           registrationClosesAt: toDatetimeLocal(typedEvent.registration_closes_at),
-          capacity:
-            typedEvent.capacity == null ? "" : String(typedEvent.capacity),
+          capacity: typedEvent.capacity ?? undefined,
           waitlistEnabled: typedEvent.waitlist_enabled,
           refundPolicy: typedEvent.refund_policy ?? "",
           faq: typedEvent.faq ?? "",

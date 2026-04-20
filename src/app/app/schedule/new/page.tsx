@@ -29,6 +29,51 @@ type ClientOption = {
   status: string | null;
 };
 
+type InstructorOption = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  active: boolean | null;
+};
+
+type RoomOption = {
+  id: string;
+  name: string;
+  active: boolean | null;
+};
+
+type ClientPackageItemRow = {
+  usage_type: string | null;
+  quantity_remaining: number | null;
+  quantity_total: number | null;
+  is_unlimited: boolean | null;
+};
+
+type ClientPackageRow = {
+  id: string;
+  client_id: string | null;
+  name_snapshot: string | null;
+  active: boolean | null;
+  expiration_date: string | null;
+  client_package_items: ClientPackageItemRow[] | null;
+};
+
+type ClientMembershipRow = {
+  id: string;
+  client_id: string | null;
+  membership_plan_id: string;
+  status: string;
+  starts_on: string | null;
+  ends_on: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+  auto_renew: boolean | null;
+  cancel_at_period_end: boolean | null;
+  name_snapshot: string | null;
+  price_snapshot: number | null;
+  billing_interval_snapshot: string | null;
+};
+
 export default async function NewAppointmentPage({
   searchParams,
 }: {
@@ -56,16 +101,19 @@ export default async function NewAppointmentPage({
       .select("id, first_name, last_name, status")
       .eq("studio_id", studioId)
       .order("first_name", { ascending: true }),
+
     supabase
       .from("instructors")
       .select("id, first_name, last_name, active")
       .eq("studio_id", studioId)
       .order("first_name", { ascending: true }),
+
     supabase
       .from("rooms")
       .select("id, name, active")
       .eq("studio_id", studioId)
       .order("name", { ascending: true }),
+
     supabase
       .from("client_packages")
       .select(`
@@ -83,6 +131,7 @@ export default async function NewAppointmentPage({
       `)
       .eq("studio_id", studioId)
       .order("purchase_date", { ascending: false }),
+
     supabase
       .from("client_memberships")
       .select(`
@@ -103,6 +152,7 @@ export default async function NewAppointmentPage({
       .eq("studio_id", studioId)
       .in("status", ["active", "past_due", "cancel_scheduled"])
       .order("created_at", { ascending: false }),
+
     supabase
       .from("client_relationships")
       .select("client_id, related_client_id, relationship_type")
@@ -142,7 +192,7 @@ export default async function NewAppointmentPage({
 
   const membershipPlanIds = Array.from(
     new Set(
-      (clientMemberships ?? [])
+      ((clientMemberships ?? []) as ClientMembershipRow[])
         .map((membership) => membership.membership_plan_id)
         .filter(Boolean)
     )
@@ -174,31 +224,55 @@ export default async function NewAppointmentPage({
     membershipBenefits = (membershipBenefitsData ?? []) as MembershipBenefit[];
   }
 
-  const hydratedClientMemberships = (clientMemberships ?? []).map(
-    (membership) => ({
-      ...membership,
-      benefits: membershipBenefits.filter(
-        (benefit) =>
-          benefit.membership_plan_id === membership.membership_plan_id
-      ),
-    })
-  );
-
   const availableClients = ((clients ?? []) as ClientOption[]).filter(
     (client) => client.status !== "archived"
   );
 
-  const availableInstructors = (instructors ?? []).filter(
+  const availableInstructors = ((instructors ?? []) as InstructorOption[]).filter(
     (instructor) => instructor.active === true
   );
 
-  const availableRooms = (rooms ?? []).filter((room) => room.active === true);
+  const availableRooms = ((rooms ?? []) as RoomOption[]).filter(
+    (room) => room.active === true
+  );
 
   const validInitialClientId = availableClients.some(
     (client) => client.id === requestedClientId
   )
     ? requestedClientId
     : "";
+
+  const clientPackagesByClientId: Record<string, ClientPackageRow[]> = {};
+
+  for (const client of availableClients) {
+    clientPackagesByClientId[client.id] = [];
+  }
+
+  for (const clientPackage of (clientPackages ?? []) as ClientPackageRow[]) {
+    if (!clientPackage.client_id) continue;
+    clientPackagesByClientId[clientPackage.client_id] ??= [];
+    clientPackagesByClientId[clientPackage.client_id].push(clientPackage);
+  }
+
+  const hydratedClientMembershipsByClientId: Record<string, Array<ClientMembershipRow & {
+    membership_plan_benefits: MembershipBenefit[];
+  }>> = {};
+
+  for (const client of availableClients) {
+    hydratedClientMembershipsByClientId[client.id] = [];
+  }
+
+  for (const membership of (clientMemberships ?? []) as ClientMembershipRow[]) {
+    if (!membership.client_id) continue;
+
+    hydratedClientMembershipsByClientId[membership.client_id] ??= [];
+    hydratedClientMembershipsByClientId[membership.client_id].push({
+      ...membership,
+      membership_plan_benefits: membershipBenefits.filter(
+        (benefit) => benefit.membership_plan_id === membership.membership_plan_id
+      ),
+    });
+  }
 
   const clientLookup = new Map(
     availableClients.map((client) => [client.id, client] as const)
@@ -245,8 +319,8 @@ export default async function NewAppointmentPage({
         clients={availableClients as any}
         instructors={availableInstructors as any}
         rooms={availableRooms as any}
-        clientPackages={(clientPackages ?? []) as any}
-        clientMemberships={hydratedClientMemberships as any}
+        clientPackagesByClientId={clientPackagesByClientId as any}
+        clientMembershipsByClientId={hydratedClientMembershipsByClientId as any}
         initialClientId={validInitialClientId}
         linkedPartnersByClientId={linkedPartnersByClientId as any}
       />
