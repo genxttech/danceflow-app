@@ -1,5 +1,6 @@
 "use server";
 
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
@@ -12,7 +13,8 @@ import {
 } from "@/lib/auth/serverRoleGuard";
 
 type ActionState = {
-  error: string;
+  error?: string;
+  success?: string;
 };
 
 type PackageValidationResult = {
@@ -1789,6 +1791,22 @@ export async function markFloorRentalWaivedAction(formData: FormData) {
   }
 }
 
+async function getStudioSlugById({
+  supabase,
+  studioId,
+}: {
+  supabase: SupabaseClient;
+  studioId: string;
+}) {
+  const { data } = await supabase
+    .from("studios")
+    .select("slug")
+    .eq("id", studioId)
+    .maybeSingle();
+
+  return data?.slug ?? null;
+}
+
 export async function upsertLessonRecapAction(
   _: ActionState,
   formData: FormData
@@ -1841,9 +1859,19 @@ export async function upsertLessonRecapAction(
       return { error: `Could not save lesson recap: ${updateError.message}` };
     }
 
-    revalidatePath(`/app/schedule/${appointmentId}`);
+        revalidatePath(`/app/schedule/${appointmentId}`);
     if (validation.appointment.client_id) {
       revalidatePath(`/app/clients/${validation.appointment.client_id}`);
+    }
+
+    const studioSlug = await getStudioSlugById({
+      supabase,
+      studioId,
+    });
+
+    if (studioSlug) {
+      revalidatePath(`/portal/${studioSlug}`);
+      revalidatePath(`/portal/${studioSlug}/appointments/${appointmentId}`);
     }
 
     return { error: "" };
@@ -1946,9 +1974,19 @@ export async function uploadLessonRecapVideoAction(formData: FormData) {
       storagePath: existingRecap.video_storage_path,
     });
 
-    revalidatePath(`/app/schedule/${appointmentId}`);
+        revalidatePath(`/app/schedule/${appointmentId}`);
     if (validation.appointment.client_id) {
       revalidatePath(`/app/clients/${validation.appointment.client_id}`);
+    }
+
+    const studioSlug = await getStudioSlugById({
+      supabase,
+      studioId,
+    });
+
+    if (studioSlug) {
+      revalidatePath(`/portal/${studioSlug}`);
+      revalidatePath(`/portal/${studioSlug}/appointments/${appointmentId}`);
     }
 
     redirect(getSuccessRedirect(formData, fallback, "video_uploaded"));
@@ -2013,9 +2051,19 @@ export async function deleteLessonRecapVideoAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "delete_video_failed"));
     }
 
-    revalidatePath(`/app/schedule/${appointmentId}`);
+        revalidatePath(`/app/schedule/${appointmentId}`);
     if (validation.appointment.client_id) {
       revalidatePath(`/app/clients/${validation.appointment.client_id}`);
+    }
+
+    const studioSlug = await getStudioSlugById({
+      supabase,
+      studioId,
+    });
+
+    if (studioSlug) {
+      revalidatePath(`/portal/${studioSlug}`);
+      revalidatePath(`/portal/${studioSlug}/appointments/${appointmentId}`);
     }
 
     redirect(getSuccessRedirect(formData, fallback, "video_deleted"));

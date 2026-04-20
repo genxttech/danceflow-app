@@ -14,7 +14,10 @@ import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
 import QuickPaymentPanel from "./QuickPaymentPanel";
 import {
   linkPartnerAction,
+  linkPortalAccessAction,
+  sendPortalInviteAction,
   unlinkPartnerAction,
+  unlinkPortalAccessAction,
   updateIndependentInstructorSettingsAction,
 } from "./actions";
 import ClientMembershipCard from "./ClientMembershipCard";
@@ -553,6 +556,20 @@ function hasRecoveredMembershipBilling(
 }
 
 function getBanner(search: { success?: string; error?: string }) {
+    if (search.success === "portal_invite_sent") {
+    return {
+      kind: "success" as const,
+      message: "Portal invite sent.",
+    };
+  }
+
+  if (search.error === "portal_invite_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not send the portal invite.",
+    };
+  }
+  
   if (search.success === "independent_instructor_updated") {
     return {
       kind: "success" as const,
@@ -776,6 +793,56 @@ function getBanner(search: { success?: string; error?: string }) {
       kind: "error" as const,
       message:
         "The client needs a saved default payment method before billing can be retried.",
+    };
+  }
+
+    if (search.success === "portal_linked") {
+    return {
+      kind: "success" as const,
+      message: "Portal access linked to an existing account.",
+    };
+  }
+
+  if (search.success === "portal_unlinked") {
+    return {
+      kind: "success" as const,
+      message: "Portal access unlinked.",
+    };
+  }
+
+  if (search.error === "portal_email_required") {
+    return {
+      kind: "error" as const,
+      message: "This client needs an email address before portal access can be linked.",
+    };
+  }
+
+  if (search.error === "portal_account_not_found") {
+    return {
+      kind: "error" as const,
+      message:
+        "No existing account was found for this email yet. Have the user create their account first, then link portal access.",
+    };
+  }
+
+  if (search.error === "portal_lookup_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not look up an existing portal account.",
+    };
+  }
+
+  if (search.error === "portal_link_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not link portal access.",
+    };
+  }
+
+  if (search.error === "portal_unlink_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not unlink portal access.",
     };
   }
 
@@ -1308,7 +1375,7 @@ export default async function ClientDetailPage({
 
       <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,rgba(255,255,255,0.94)_0%,rgba(255,249,243,0.98)_100%)] p-6 shadow-sm">
         <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
                 Client Profile
@@ -1452,7 +1519,7 @@ export default async function ClientDetailPage({
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-3 xl:max-w-xl xl:justify-end">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:flex xl:max-w-xl xl:flex-wrap xl:justify-end">
               {canEditClients(role) ? (
                 <Link
                   href={`/app/clients/${typedClient.id}/edit`}
@@ -1542,7 +1609,7 @@ export default async function ClientDetailPage({
           }
         >
           <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Lead Source</p>
               <div className="mt-2">
                 <span
@@ -1555,14 +1622,14 @@ export default async function ClientDetailPage({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Current Status</p>
               <p className="mt-2 font-semibold capitalize text-[var(--brand-text)]">
                 {typedClient.status}
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Portal Access</p>
               <p className="mt-2 font-semibold text-[var(--brand-text)]">
                 {hasPortalLogin ? "Enabled" : "Not yet created"}
@@ -1671,6 +1738,104 @@ export default async function ClientDetailPage({
         </SectionCard>
       ) : null}
 
+            <SectionCard
+        title="Products & Recurring Revenue"
+        subtitle="Sell packages, start memberships, and jump directly into the most common front-desk sales actions."
+      >
+        <div className="grid gap-4 xl:grid-cols-2">
+          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Memberships
+                </p>
+                <h3 className="mt-2 text-xl font-semibold text-[var(--brand-text)]">
+                  {typedActiveMembership ? typedActiveMembership.name_snapshot : "No active membership"}
+                </h3>
+                <p className="mt-2 text-sm text-slate-600">
+                  {typedActiveMembership
+                    ? `Status: ${typedActiveMembership.status.replaceAll("_", " ")} • ${fmtCurrency(
+                        typedActiveMembership.price_snapshot
+                      )} / ${billingIntervalLabel(typedActiveMembership.billing_interval_snapshot)}`
+                    : "Recurring revenue is not active for this client yet."}
+                </p>
+              </div>
+
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                  typedActiveMembership
+                    ? "bg-emerald-50 text-emerald-700"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {typedActiveMembership ? "Active / Managed" : "Available"}
+              </span>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <Link
+                href={`/app/memberships?clientId=${typedClient.id}`}
+                className="rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-3 text-center text-sm font-medium text-white hover:brightness-105"
+              >
+                {typedActiveMembership ? "Manage Membership" : "Start Membership"}
+              </Link>
+
+              <a
+                href="#membership-billing-controls"
+                className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-center text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+              >
+                Billing Controls
+              </a>
+            </div>
+          </div>
+
+          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Packages
+                </p>
+                <h3 className="mt-2 text-xl font-semibold text-[var(--brand-text)]">
+                  {activePackages.length > 0
+                    ? `${activePackages.length} active package${activePackages.length === 1 ? "" : "s"}`
+                    : "No active packages"}
+                </h3>
+                <p className="mt-2 text-sm text-slate-600">
+                  {typedPackageTemplates.length} package template
+                  {typedPackageTemplates.length === 1 ? "" : "s"} available to sell from this client profile.
+                </p>
+              </div>
+
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                  activePackages.length > 0
+                    ? "bg-violet-50 text-violet-700"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {activePackages.length > 0 ? "In Use" : "Ready to Sell"}
+              </span>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <a
+                href="#quick-sale-payment"
+                className="rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-3 text-center text-sm font-medium text-white hover:brightness-105"
+              >
+                Sell Package
+              </a>
+
+              <a
+                href="#package-balances"
+                className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-center text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+              >
+                View Packages
+              </a>
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+
       <ClientMembershipCard
         clientId={typedClient.id}
         activeMembership={typedActiveMembership}
@@ -1726,7 +1891,7 @@ export default async function ClientDetailPage({
           </div>
 
           <div className="mt-4 grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Last Membership Payment</p>
               <p className="mt-1 font-medium text-[var(--brand-text)]">
                 {latestMembershipPayment
@@ -1735,7 +1900,7 @@ export default async function ClientDetailPage({
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Last Payment Date</p>
               <p className="mt-1 font-medium text-[var(--brand-text)]">
                 {latestMembershipPayment
@@ -1744,7 +1909,7 @@ export default async function ClientDetailPage({
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Current Period End</p>
               <p className="mt-1 font-medium text-[var(--brand-text)]">
                 {typedActiveMembership
@@ -1812,14 +1977,14 @@ export default async function ClientDetailPage({
           </div>
 
           <div className="mt-4 grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Membership Status</p>
               <p className="mt-1 font-medium text-[var(--brand-text)]">
                 {typedActiveMembership?.status ?? "—"}
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Latest Membership Payment</p>
               <p className="mt-1 font-medium text-[var(--brand-text)]">
                 {latestMembershipPayment
@@ -1828,7 +1993,7 @@ export default async function ClientDetailPage({
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Latest Payment Date</p>
               <p className="mt-1 font-medium text-[var(--brand-text)]">
                 {latestMembershipPayment
@@ -1840,9 +2005,10 @@ export default async function ClientDetailPage({
         </SectionCard>
       ) : null}
 
-      {typedActiveMembership ? (
-        <SectionCard
-          title="Membership Billing Controls"
+            {typedActiveMembership ? (
+          <div id="membership-billing-controls">
+          <SectionCard
+            title="Membership Billing Controls"
           subtitle="Manage renewal behavior for the current membership."
           action={
             <span
@@ -1854,15 +2020,15 @@ export default async function ClientDetailPage({
             </span>
           }
         >
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Membership</p>
               <p className="mt-2 font-semibold text-[var(--brand-text)]">
                 {typedActiveMembership.name_snapshot}
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Billing</p>
               <p className="mt-2 font-semibold text-[var(--brand-text)]">
                 {fmtCurrency(typedActiveMembership.price_snapshot)} /{" "}
@@ -1870,7 +2036,7 @@ export default async function ClientDetailPage({
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Current Period</p>
               <p className="mt-2 font-semibold text-[var(--brand-text)]">
                 {fmtShortDate(typedActiveMembership.current_period_start)} -{" "}
@@ -1878,7 +2044,7 @@ export default async function ClientDetailPage({
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Renewal</p>
               <p className="mt-2 font-semibold text-[var(--brand-text)]">
                 {typedActiveMembership.cancel_at_period_end
@@ -1935,7 +2101,8 @@ export default async function ClientDetailPage({
               </form>
             )}
           </div>
-        </SectionCard>
+                  </SectionCard>
+        </div>
       ) : null}
 
       {typedActiveMembership ? (
@@ -1959,7 +2126,7 @@ export default async function ClientDetailPage({
               membershipPayments.map((payment) => (
                 <div
                   key={payment.id}
-                  className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4"
+                  className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <p className="font-medium text-[var(--brand-text)]">
@@ -2046,7 +2213,7 @@ export default async function ClientDetailPage({
           }
         >
           <div className="grid gap-4 md:grid-cols-4">
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Referral Source</p>
               <div className="mt-2">
                 <span
@@ -2059,23 +2226,23 @@ export default async function ClientDetailPage({
               </div>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Registrations</p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
+              <p className="mt-2 text-xl font-semibold text-[var(--brand-text)] md:text-2xl">
                 {typedEventRegistrations.length}
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Paid Registrations</p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
+              <p className="mt-2 text-xl font-semibold text-[var(--brand-text)] md:text-2xl">
                 {paidEventRegistrationCount}
               </p>
             </div>
 
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="text-sm text-slate-500">Attended Events</p>
-              <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
+              <p className="mt-2 text-xl font-semibold text-[var(--brand-text)] md:text-2xl">
                 {attendedEventCount}
               </p>
             </div>
@@ -2095,7 +2262,7 @@ export default async function ClientDetailPage({
                 return (
                   <div
                     key={registration.id}
-                    className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4"
+                    className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
                   >
                     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                       <div>
@@ -2220,32 +2387,32 @@ export default async function ClientDetailPage({
         <div className="space-y-6">
           <SectionCard title="Client Snapshot">
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
                 <p className="text-sm text-slate-500">Active Packages</p>
-                <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
+                <p className="mt-2 text-xl font-semibold text-[var(--brand-text)] md:text-2xl">
                   {activePackages.length}
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
                 <p className="text-sm text-slate-500">
                   {isIndependentInstructor ? "Upcoming Bookings" : "Upcoming Lessons"}
                 </p>
-                <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
+                <p className="mt-2 text-xl font-semibold text-[var(--brand-text)] md:text-2xl">
                   {typedUpcoming.length}
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
                 <p className="text-sm text-slate-500">Payments Recorded</p>
-                <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
+                <p className="mt-2 text-xl font-semibold text-[var(--brand-text)] md:text-2xl">
                   {typedPayments.length}
                 </p>
               </div>
 
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
                 <p className="text-sm text-slate-500">Total Paid</p>
-                <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
+                <p className="mt-2 text-xl font-semibold text-[var(--brand-text)] md:text-2xl">
                   {fmtCurrency(totalPaid)}
                 </p>
               </div>
@@ -2288,129 +2455,152 @@ export default async function ClientDetailPage({
           </SectionCard>
 
           <SectionCard
-            title="Independent Instructor Settings"
-            subtitle="Use this section to enable floor rental access for this client and optionally link them to an instructor profile for schedule tracking."
-            action={
-              canEditClients(role) ? (
-                <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-dark)]">
-                  Admin Managed
-                </span>
-              ) : null
-            }
-          >
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
-                <p className="text-sm text-slate-500">Independent Instructor</p>
-                <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
-                  {isIndependentInstructor ? "Enabled" : "Disabled"}
-                </p>
-              </div>
+  title="Portal & Independent Instructor Access"
+  subtitle="Manage whether this client is linked to portal access and whether they should have the limited independent instructor floor-rental workflow."
+  action={
+    canEditClients(role) ? (
+      <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-dark)]">
+        Admin Managed
+      </span>
+    ) : null
+  }
+>
+  <div className="grid gap-4 sm:grid-cols-3">
+    <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
+      <p className="text-sm text-slate-500">Portal Access</p>
+      <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
+        {hasPortalLogin ? "Linked" : "Not Linked"}
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        {typedClient.portal_user_id ? typedClient.portal_user_id : "No linked portal account"}
+      </p>
+    </div>
 
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
-                <p className="text-sm text-slate-500">Portal Login</p>
-                <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
-                  {hasPortalLogin ? "Linked" : "Not Linked"}
-                </p>
-              </div>
+    <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
+      <p className="text-sm text-slate-500">Independent Instructor</p>
+      <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
+        {isIndependentInstructor ? "Enabled" : "Disabled"}
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        {isIndependentInstructor
+          ? "Client has limited instructor portal access"
+          : "Client uses the standard portal experience"}
+      </p>
+    </div>
 
-              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
-                <p className="text-sm text-slate-500">Linked Instructor</p>
-                <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
-                  {linkedInstructorName}
-                </p>
-              </div>
-            </div>
+    <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
+      <p className="text-sm text-slate-500">Linked Instructor</p>
+      <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
+        {linkedInstructorName}
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        {isIndependentInstructor
+          ? "Used for rental and schedule tracking"
+          : "Optional unless independent instructor access is enabled"}
+      </p>
+    </div>
+  </div>
 
-            {isIndependentInstructor ? (
-              <div className="mt-5 grid gap-4 sm:grid-cols-3">
-                <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
-                  <p className="text-sm text-indigo-700">Upcoming Floor Rentals</p>
-                  <p className="mt-2 text-2xl font-semibold text-indigo-900">
-                    {rentalUpcomingCount}
-                  </p>
-                </div>
+  <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+    <p className="text-sm font-medium text-blue-800">Portal entry</p>
+    <p className="mt-1 break-all text-sm text-blue-900">
+      /portal/{typedStudio.slug}
+    </p>
+    <p className="mt-2 text-xs text-blue-700">
+      Portal linking currently matches the client email to an existing account and sets
+      <code className="mx-1 rounded bg-blue-100 px-1.5 py-0.5 text-[11px]">portal_user_id</code>.
+      If no account exists yet, the user must create one first.
+    </p>
+  </div>
 
-                <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
-                  <p className="text-sm text-indigo-700">Upcoming Studio Lessons</p>
-                  <p className="mt-2 text-2xl font-semibold text-indigo-900">
-                    {lessonUpcomingCount}
-                  </p>
-                </div>
+  {isIndependentInstructor ? (
+    <div className="mt-5 grid gap-4 sm:grid-cols-3">
+      <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+        <p className="text-sm text-indigo-700">Upcoming Floor Rentals</p>
+        <p className="mt-2 text-2xl font-semibold text-indigo-900">
+          {rentalUpcomingCount}
+        </p>
+      </div>
 
-                <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
-                  <p className="text-sm text-indigo-700">Portal Entry</p>
-                  <p className="mt-2 break-all text-sm font-semibold text-indigo-900">
-                    /portal/{typedStudio.slug}
-                  </p>
-                </div>
-              </div>
-            ) : null}
+      <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+        <p className="text-sm text-indigo-700">Upcoming Studio Lessons</p>
+        <p className="mt-2 text-2xl font-semibold text-indigo-900">
+          {lessonUpcomingCount}
+        </p>
+      </div>
 
-            <div className="mt-5 rounded-2xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-900">
-              Floor space rentals do not deduct from lesson packages. A room and instructor can be optional on the rental itself, but this linked instructor helps with schedule visibility and internal tracking.
-            </div>
+      <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
+        <p className="text-sm text-indigo-700">Portal Mode</p>
+        <p className="mt-2 text-sm font-semibold text-indigo-900">
+          Client + Limited Instructor Access
+        </p>
+      </div>
+    </div>
+  ) : null}
 
-            {canEditClients(role) ? (
-              <form action={updateIndependentInstructorSettingsAction} className="mt-5 space-y-4">
-                <input type="hidden" name="clientId" value={typedClient.id} />
-                <input type="hidden" name="returnTo" value={returnTo} />
+  {canEditClients(role) ? (
+    <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+  <h3 className="text-base font-semibold text-[var(--brand-text)]">
+    Portal Access
+  </h3>
+  <p className="mt-1 text-sm text-slate-600">
+    Link this client to an existing account or send a portal invite to their email.
+  </p>
 
-                <label className="flex items-start gap-3 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
-                  <input
-                    type="checkbox"
-                    name="isIndependentInstructor"
-                    defaultChecked={isIndependentInstructor}
-                    className="mt-1"
-                  />
-                  <div>
-                    <p className="font-medium text-[var(--brand-text)]">
-                      Enable independent instructor floor rental access
-                    </p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      This allows the client to be treated as an independent instructor for floor rental workflows.
-                    </p>
-                  </div>
-                </label>
+  <div className="mt-4 space-y-3">
+    <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        Client Email
+      </p>
+      <p className="mt-1 text-sm font-medium text-[var(--brand-text)]">
+        {typedClient.email || "No email on file"}
+      </p>
+    </div>
 
-                <div>
-                  <label
-                    htmlFor="linkedInstructorId"
-                    className="mb-1 block text-sm font-medium"
-                  >
-                    Linked Instructor Profile
-                  </label>
-                  <select
-                    id="linkedInstructorId"
-                    name="linkedInstructorId"
-                    defaultValue={typedClient.linked_instructor_id ?? ""}
-                    className="w-full rounded-2xl border border-slate-300 bg-white px-3 py-2"
-                  >
-                    <option value="">No linked instructor</option>
-                    {typedInstructors.map((instructor) => (
-                      <option key={instructor.id} value={instructor.id}>
-                        {instructor.first_name} {instructor.last_name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Optional. Use this when the same person also exists in the instructors table.
-                  </p>
-                </div>
+    {hasPortalLogin ? (
+      <form action={unlinkPortalAccessAction}>
+        <input type="hidden" name="clientId" value={typedClient.id} />
+        <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}`} />
+        <button
+          type="submit"
+          className="w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 hover:bg-red-100"
+        >
+          Unlink Portal Access
+        </button>
+      </form>
+    ) : (
+      <form action={linkPortalAccessAction}>
+        <input type="hidden" name="clientId" value={typedClient.id} />
+        <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}`} />
+        <button
+          type="submit"
+          className="w-full rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-3 text-sm font-medium text-white hover:brightness-105"
+        >
+          Link Existing Portal Account
+        </button>
+      </form>
+    )}
 
-                <div className="flex flex-wrap gap-3">
-                  <button
-                    type="submit"
-                    className="rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-2 text-white hover:brightness-105"
-                  >
-                    Save Instructor Settings
-                  </button>
-                </div>
-              </form>
-            ) : null}
-          </SectionCard>
+    {typedClient.email ? (
+      <form action={sendPortalInviteAction}>
+        <input type="hidden" name="clientId" value={typedClient.id} />
+        <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}`} />
+        <button
+          type="submit"
+          className="w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+        >
+          Send Portal Invite
+        </button>
+      </form>
+    ) : null}
+  </div>
+</div>
+  ) : null}
+</SectionCard>
 
-          <SectionCard
-            title="Package Balances"
+            <div id="package-balances">
+            <SectionCard
+              title="Package Balances"
             action={
               <Link href="/app/packages/client-balances" className="text-sm underline">
                 View all balances
@@ -2428,7 +2618,7 @@ export default async function ClientDetailPage({
                   return (
                     <div
                       key={pkg.id}
-                      className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4"
+                      className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div>
@@ -2494,10 +2684,11 @@ export default async function ClientDetailPage({
                 })
               )}
             </div>
-          </SectionCard>
+                      </SectionCard>
+          </div>
 
           <SectionCard title="Notes">
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="whitespace-pre-wrap text-slate-700">
                 {typedClient.notes ?? "No notes recorded."}
               </p>
@@ -2550,7 +2741,7 @@ export default async function ClientDetailPage({
                     typedLeadActivities.map((activity) => (
                       <div
                         key={activity.id}
-                        className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4"
+                        className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div>
@@ -2622,7 +2813,7 @@ export default async function ClientDetailPage({
                 </span>
               }
             >
-              <div className="grid gap-6 xl:grid-cols-2">
+              <div className="grid gap-5 xl:grid-cols-2">
                 <div>
                   <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
                     Upcoming Rentals
@@ -2728,7 +2919,7 @@ export default async function ClientDetailPage({
             </SectionCard>
           ) : null}
 
-          <div className="grid gap-6 xl:grid-cols-2">
+          <div className="grid gap-5 xl:grid-cols-2">
             <SectionCard
               title="Upcoming Appointments"
               action={
@@ -2874,7 +3065,7 @@ export default async function ClientDetailPage({
             </SectionCard>
           </div>
 
-          <div className="grid gap-6 xl:grid-cols-2">
+          <div className="grid gap-5 xl:grid-cols-2">
             <SectionCard
               title="Payments"
               action={
@@ -2890,7 +3081,7 @@ export default async function ClientDetailPage({
                   typedPayments.map((payment) => (
                     <div
                       key={payment.id}
-                      className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4"
+                      className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-3">
                         <p className="font-medium text-[var(--brand-text)]">
@@ -2979,7 +3170,7 @@ export default async function ClientDetailPage({
                   typedLedger.map((entry) => (
                     <div
                       key={entry.id}
-                      className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4"
+                      className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <p className="font-medium text-[var(--brand-text)]">

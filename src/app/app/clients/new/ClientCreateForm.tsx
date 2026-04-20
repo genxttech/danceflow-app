@@ -3,6 +3,11 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { createClientAction } from "../actions";
+import {
+  CLIENT_REFERRAL_SOURCE_OPTIONS,
+  CLIENT_SKILL_LEVEL_OPTIONS,
+  CLIENT_STATUS_OPTIONS,
+} from "@/lib/forms/options";
 
 type InstructorOption = {
   id: string;
@@ -30,6 +35,14 @@ export default function ClientCreateForm({
 
   return (
     <form action={formAction} className="space-y-8 rounded-2xl border bg-white p-6">
+      <div>
+        <h2 className="text-xl font-semibold text-slate-900">New Client</h2>
+        <p className="mt-1 text-sm text-slate-600">
+          Create a standard client record or mark the person as an independent
+          instructor with limited floor-rental access.
+        </p>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2">
         <div>
           <label htmlFor="firstName" className="mb-1 block text-sm font-medium">
@@ -88,9 +101,11 @@ export default function ClientCreateForm({
             defaultValue="lead"
             className="w-full rounded-xl border border-slate-300 px-3 py-2"
           >
-            <option value="lead">Lead</option>
-            <option value="active">Active Client</option>
-            <option value="inactive">Inactive</option>
+            {CLIENT_STATUS_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -98,12 +113,19 @@ export default function ClientCreateForm({
           <label htmlFor="skillLevel" className="mb-1 block text-sm font-medium">
             Skill Level
           </label>
-          <input
+          <select
             id="skillLevel"
             name="skillLevel"
+            defaultValue=""
             className="w-full rounded-xl border border-slate-300 px-3 py-2"
-            placeholder="Beginner, Bronze, Intermediate..."
-          />
+          >
+            <option value="">Not set</option>
+            {CLIENT_SKILL_LEVEL_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="md:col-span-2">
@@ -122,22 +144,30 @@ export default function ClientCreateForm({
           <label htmlFor="referralSource" className="mb-1 block text-sm font-medium">
             Referral Source
           </label>
-          <input
+          <select
             id="referralSource"
             name="referralSource"
+            defaultValue=""
             className="w-full rounded-xl border border-slate-300 px-3 py-2"
-            placeholder="Website, friend, social media..."
-          />
+          >
+            <option value="">Not set</option>
+            {CLIENT_REFERRAL_SOURCE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
       <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
         <h3 className="text-lg font-semibold text-indigo-900">
-          Independent Instructor Settings
+          Independent Instructor Access
         </h3>
         <p className="mt-1 text-sm text-indigo-800">
-          Enable this when the new client is an independent instructor who rents
-          floor space. They can still be managed as a normal client/contact.
+          Use this when the person is primarily a client/contact, but should also
+          be treated as an independent instructor for rentals and future limited
+          portal access.
         </p>
 
         <div className="mt-5 space-y-4">
@@ -149,11 +179,11 @@ export default function ClientCreateForm({
             />
             <div>
               <p className="font-medium text-slate-900">
-                Enable independent instructor floor rental access
+                Mark this client as an independent instructor
               </p>
               <p className="mt-1 text-sm text-slate-600">
-                This makes the client eligible for floor rental scheduling and
-                portal floor-rental workflows.
+                This enables independent-instructor settings and keeps the record
+                ready for restricted instructor workflows.
               </p>
             </div>
           </label>
@@ -179,7 +209,8 @@ export default function ClientCreateForm({
               ))}
             </select>
             <p className="mt-1 text-xs text-slate-500">
-              Optional. Use this if the same person also exists in the instructors table.
+              Optional. Link this client to an existing instructor profile for future
+              scheduling and portal-role handoff.
             </p>
           </div>
         </div>

@@ -3,8 +3,14 @@
 import { useActionState } from "react";
 import { upsertLessonRecapAction } from "@/app/app/schedule/actions";
 
-type ActionState = {
-  error: string;
+type LessonRecapFormState = {
+  error?: string;
+  success?: string;
+};
+
+const initialState: LessonRecapFormState = {
+  error: "",
+  success: "",
 };
 
 export default function LessonRecapForm({
@@ -20,9 +26,9 @@ export default function LessonRecapForm({
   defaultNextFocus?: string | null;
   defaultVisibleToClient?: boolean;
 }) {
-  const [state, formAction] = useActionState<ActionState, FormData>(
+  const [state, formAction] = useActionState<LessonRecapFormState, FormData>(
     upsertLessonRecapAction,
-    { error: "" },
+    initialState
   );
 
   return (
@@ -97,6 +103,10 @@ export default function LessonRecapForm({
 
       {state.error ? (
         <p className="text-sm text-red-600">{state.error}</p>
+      ) : null}
+
+      {state.success ? (
+        <p className="text-sm text-green-600">{state.success}</p>
       ) : null}
     </form>
   );

@@ -11,7 +11,8 @@ import {
 } from "@/lib/forms/options";
 
 type ActionState = {
-  error: string;
+  error?: string;
+  success?: string;
 };
 
 const EVENT_IMAGE_BUCKET = "event-media";

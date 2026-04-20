@@ -77,14 +77,15 @@ export default async function NewEventPage() {
         </div>
       ) : (
         <EventForm
-          organizers={typedOrganizers}
-          initialValues={{
-            visibility: "public",
-            publicDirectoryEnabled: false,
-            beginnerFriendly: false,
-            waitlistEnabled: false,
-          }}
-        />
+  mode="create"
+  organizers={typedOrganizers}
+  initialValues={{
+    visibility: "public",
+    publicDirectoryEnabled: false,
+    beginnerFriendly: false,
+    waitlistEnabled: false,
+  }}
+/>
       )}
     </div>
   );

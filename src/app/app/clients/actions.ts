@@ -68,19 +68,72 @@ function validateClientDropdowns(params: {
 }) {
   const { status, skillLevel, referralSource } = params;
 
-  if (!isAllowedOptionValue(CLIENT_STATUS_OPTIONS, status)) {
+  if (!status || !isAllowedOptionValue(CLIENT_STATUS_OPTIONS, status)) {
     return "Invalid client status.";
   }
 
-  if (!isAllowedOptionValue(CLIENT_SKILL_LEVEL_OPTIONS, skillLevel)) {
+  if (skillLevel && !isAllowedOptionValue(CLIENT_SKILL_LEVEL_OPTIONS, skillLevel)) {
     return "Invalid skill level.";
   }
 
-  if (!isAllowedOptionValue(CLIENT_REFERRAL_SOURCE_OPTIONS, referralSource)) {
+  if (
+    referralSource &&
+    !isAllowedOptionValue(CLIENT_REFERRAL_SOURCE_OPTIONS, referralSource)
+  ) {
     return "Invalid referral source.";
   }
 
   return null;
+}
+
+function normalizeClientPayload(params: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  danceInterests: string;
+  skillLevel: string;
+  notes: string;
+  referralSource: string;
+  status: string;
+  linkedInstructorId: string | null;
+  isIndependentInstructor: boolean;
+}) {
+  const {
+    firstName,
+    lastName,
+    email,
+    phone,
+    danceInterests,
+    skillLevel,
+    notes,
+    referralSource,
+    status,
+    linkedInstructorId,
+    isIndependentInstructor,
+  } = params;
+
+  const normalizedLinkedInstructorId = isIndependentInstructor
+    ? linkedInstructorId
+    : null;
+
+  return {
+    first_name: firstName,
+    last_name: lastName,
+    email: email || null,
+    phone: phone || null,
+    dance_interests: danceInterests || null,
+    skill_level: skillLevel
+      ? normalizeOptionValue(CLIENT_SKILL_LEVEL_OPTIONS, skillLevel)
+      : null,
+    notes: notes || null,
+    referral_source: referralSource
+      ? normalizeOptionValue(CLIENT_REFERRAL_SOURCE_OPTIONS, referralSource)
+      : null,
+    status: normalizeOptionValue(CLIENT_STATUS_OPTIONS, status) ?? "lead",
+    is_independent_instructor: isIndependentInstructor,
+    linked_instructor_id: normalizedLinkedInstructorId,
+  };
 }
 
 export async function createClientAction(
@@ -92,7 +145,7 @@ export async function createClientAction(
 
     const firstName = getString(formData, "firstName");
     const lastName = getString(formData, "lastName");
-    const email = getString(formData, "email");
+    const email = getString(formData, "email").toLowerCase();
     const phone = getString(formData, "phone");
     const danceInterests = getString(formData, "danceInterests");
     const skillLevel = getString(formData, "skillLevel");
@@ -119,6 +172,13 @@ export async function createClientAction(
       return { error: dropdownError };
     }
 
+    if (linkedInstructorId && !isIndependentInstructor) {
+      return {
+        error:
+          "Linked instructor profile can only be used when the client is marked as an independent instructor.",
+      };
+    }
+
     const linkedInstructorValidation = await validateLinkedInstructor({
       supabase,
       studioId,
@@ -129,22 +189,40 @@ export async function createClientAction(
       return { error: linkedInstructorValidation.error };
     }
 
+    if (email) {
+      const { data: duplicateClient } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("studio_id", studioId)
+        .eq("email", email)
+        .limit(1)
+        .maybeSingle();
+
+      if (duplicateClient) {
+        return {
+          error:
+            "A client with this email already exists in this studio. Update the existing record instead.",
+        };
+      }
+    }
+
+    const payload = normalizeClientPayload({
+      firstName,
+      lastName,
+      email,
+      phone,
+      danceInterests,
+      skillLevel,
+      notes,
+      referralSource,
+      status,
+      linkedInstructorId,
+      isIndependentInstructor,
+    });
+
     const { error } = await supabase.from("clients").insert({
       studio_id: studioId,
-      first_name: firstName,
-      last_name: lastName,
-      email: email || null,
-      phone: phone || null,
-      dance_interests: danceInterests || null,
-      skill_level: normalizeOptionValue(CLIENT_SKILL_LEVEL_OPTIONS, skillLevel),
-      notes: notes || null,
-      referral_source: normalizeOptionValue(
-        CLIENT_REFERRAL_SOURCE_OPTIONS,
-        referralSource
-      ),
-      status: normalizeOptionValue(CLIENT_STATUS_OPTIONS, status) ?? "lead",
-      is_independent_instructor: isIndependentInstructor,
-      linked_instructor_id: linkedInstructorId,
+      ...payload,
     });
 
     if (error) {
@@ -169,7 +247,7 @@ export async function updateClientAction(
     const clientId = getString(formData, "clientId");
     const firstName = getString(formData, "firstName");
     const lastName = getString(formData, "lastName");
-    const email = getString(formData, "email");
+    const email = getString(formData, "email").toLowerCase();
     const phone = getString(formData, "phone");
     const danceInterests = getString(formData, "danceInterests");
     const skillLevel = getString(formData, "skillLevel");
@@ -200,6 +278,13 @@ export async function updateClientAction(
       return { error: dropdownError };
     }
 
+    if (linkedInstructorId && !isIndependentInstructor) {
+      return {
+        error:
+          "Linked instructor profile can only be used when the client is marked as an independent instructor.",
+      };
+    }
+
     const { data: existingClient, error: existingClientError } = await supabase
       .from("clients")
       .select("id")
@@ -221,24 +306,41 @@ export async function updateClientAction(
       return { error: linkedInstructorValidation.error };
     }
 
+    if (email) {
+      const { data: duplicateClient } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("studio_id", studioId)
+        .eq("email", email)
+        .neq("id", clientId)
+        .limit(1)
+        .maybeSingle();
+
+      if (duplicateClient) {
+        return {
+          error:
+            "Another client with this email already exists in this studio. Use a different email or update the existing record.",
+        };
+      }
+    }
+
+    const payload = normalizeClientPayload({
+      firstName,
+      lastName,
+      email,
+      phone,
+      danceInterests,
+      skillLevel,
+      notes,
+      referralSource,
+      status,
+      linkedInstructorId,
+      isIndependentInstructor,
+    });
+
     const { error } = await supabase
       .from("clients")
-      .update({
-        first_name: firstName,
-        last_name: lastName,
-        email: email || null,
-        phone: phone || null,
-        dance_interests: danceInterests || null,
-        skill_level: normalizeOptionValue(CLIENT_SKILL_LEVEL_OPTIONS, skillLevel),
-        notes: notes || null,
-        referral_source: normalizeOptionValue(
-          CLIENT_REFERRAL_SOURCE_OPTIONS,
-          referralSource
-        ),
-        status: normalizeOptionValue(CLIENT_STATUS_OPTIONS, status) ?? "lead",
-        is_independent_instructor: isIndependentInstructor,
-        linked_instructor_id: linkedInstructorId,
-      })
+      .update(payload)
       .eq("id", clientId)
       .eq("studio_id", studioId);
 
@@ -303,6 +405,16 @@ export async function updateIndependentInstructorSettingsAction(
     redirect(appendQueryParam(returnTo, "error", "client_not_found"));
   }
 
+  if (linkedInstructorId && !isIndependentInstructor) {
+    redirect(
+      appendQueryParam(
+        returnTo,
+        "error",
+        "linked_instructor_requires_independent_flag"
+      )
+    );
+  }
+
   if (linkedInstructorId) {
     const { data: instructor, error: instructorError } = await supabase
       .from("instructors")
@@ -322,7 +434,7 @@ export async function updateIndependentInstructorSettingsAction(
     .from("clients")
     .update({
       is_independent_instructor: isIndependentInstructor,
-      linked_instructor_id: linkedInstructorId,
+      linked_instructor_id: isIndependentInstructor ? linkedInstructorId : null,
     })
     .eq("id", clientId)
     .eq("studio_id", studioId);

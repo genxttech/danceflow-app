@@ -10,6 +10,7 @@ type StudioRow = {
   id: string;
   name: string;
   slug: string;
+  public_name: string | null;
 };
 
 type ClientRow = {
@@ -41,26 +42,6 @@ type AppointmentSummaryRow = {
   status: string;
   appointment_type: string;
   title: string | null;
-  lesson_recaps:
-    | {
-        id: string;
-        visible_to_client: boolean;
-      }[]
-    | {
-        id: string;
-        visible_to_client: boolean;
-      }
-    | null;
-  instructors:
-    | {
-        id: string;
-        full_name: string | null;
-      }[]
-    | {
-        id: string;
-        full_name: string | null;
-      }
-    | null;
 };
 
 type RentalSummaryRow = {
@@ -69,6 +50,15 @@ type RentalSummaryRow = {
   ends_at: string;
   status: string;
   room_id: string | null;
+};
+
+type UpcomingItem = {
+  id: string;
+  kind: "appointment" | "rental";
+  starts_at: string;
+  ends_at: string;
+  status: string;
+  title: string;
 };
 
 function formatDateTime(value: string) {
@@ -131,15 +121,6 @@ function statusBadgeClass(status: string) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
-function getRecap(value: AppointmentSummaryRow["lesson_recaps"]) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function getInstructorName(value: AppointmentSummaryRow["instructors"]) {
-  const row = Array.isArray(value) ? value[0] : value;
-  return row?.full_name?.trim() || "Studio staff";
-}
-
 function getClientFirstName(client: ClientRow) {
   return client.first_name?.trim() || "there";
 }
@@ -147,17 +128,31 @@ function getClientFirstName(client: ClientRow) {
 function CardShell({
   title,
   subtitle,
+  accent = "slate",
   children,
 }: {
   title: string;
   subtitle?: string;
+  accent?: "slate" | "orange" | "emerald" | "violet" | "sky";
   children: React.ReactNode;
 }) {
+  const accentMap: Record<string, string> = {
+    slate: "text-slate-500",
+    orange: "text-orange-600",
+    emerald: "text-emerald-700",
+    violet: "text-violet-700",
+    sky: "text-sky-700",
+  };
+
   return (
-    <section className="rounded-[2rem] border bg-white p-6 shadow-sm sm:p-8">
+    <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
       <div className="max-w-2xl">
-        <h2 className="text-2xl font-semibold tracking-tight text-slate-950">{title}</h2>
-        {subtitle ? <p className="mt-2 text-sm leading-6 text-slate-600">{subtitle}</p> : null}
+        <p className={`text-sm font-semibold uppercase tracking-[0.16em] ${accentMap[accent]}`}>
+          {title}
+        </p>
+        {subtitle ? (
+          <p className="mt-3 text-sm leading-7 text-slate-600">{subtitle}</p>
+        ) : null}
       </div>
       <div className="mt-6">{children}</div>
     </section>
@@ -182,7 +177,7 @@ export default async function PortalHomePage({
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
-    .select("id, name, slug")
+    .select("id, name, slug, public_name")
     .eq("slug", studioSlug)
     .single();
 
@@ -191,12 +186,13 @@ export default async function PortalHomePage({
   }
 
   const typedStudio = studio as StudioRow;
+  const studioLabel = typedStudio.public_name?.trim() || typedStudio.name;
 
   const { data: client, error: clientError } = await supabase
     .from("clients")
     .select("id, first_name, last_name, email, is_independent_instructor")
     .eq("studio_id", typedStudio.id)
-    .eq("auth_user_id", user.id)
+    .eq("portal_user_id", user.id)
     .single();
 
   if (clientError || !client) {
@@ -204,13 +200,13 @@ export default async function PortalHomePage({
   }
 
   const typedClient = client as ClientRow;
-
+  const isInstructorPortal = Boolean(typedClient.is_independent_instructor);
   const nowIso = new Date().toISOString();
 
   const [
     { data: membership },
-    { data: appointments },
-    { data: rentals },
+    { data: appointments, error: appointmentsError },
+    { data: rentals, error: rentalsError },
   ] = await Promise.all([
     supabase
       .from("client_memberships")
@@ -242,15 +238,7 @@ export default async function PortalHomePage({
         ends_at,
         status,
         appointment_type,
-        title,
-        lesson_recaps (
-          id,
-          visible_to_client
-        ),
-        instructors (
-          id,
-          full_name
-        )
+        title
       `)
       .eq("studio_id", typedStudio.id)
       .eq("client_id", typedClient.id)
@@ -258,7 +246,7 @@ export default async function PortalHomePage({
       .order("starts_at", { ascending: false })
       .limit(8),
 
-    typedClient.is_independent_instructor
+    isInstructorPortal
       ? supabase
           .from("appointments")
           .select("id, starts_at, ends_at, status, room_id")
@@ -270,6 +258,14 @@ export default async function PortalHomePage({
           .limit(5)
       : Promise.resolve({ data: [], error: null }),
   ]);
+
+  if (appointmentsError) {
+    throw new Error(`Failed to load portal appointments: ${appointmentsError.message}`);
+  }
+
+  if (rentalsError) {
+    throw new Error(`Failed to load portal rentals: ${rentalsError.message}`);
+  }
 
   const typedMembership = (membership ?? null) as ActiveMembership | null;
   const typedAppointments = (appointments ?? []) as AppointmentSummaryRow[];
@@ -286,144 +282,311 @@ export default async function PortalHomePage({
       appointment.status === "scheduled" && new Date(appointment.starts_at) >= new Date()
   );
 
-  return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-      <section className="overflow-hidden rounded-[2rem] border bg-white shadow-sm">
-        <div className="bg-gradient-to-br from-slate-50 via-white to-slate-100 px-6 py-8 sm:px-8">
-          <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-sm font-medium text-slate-500">{typedStudio.name}</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
-                Welcome back, {getClientFirstName(typedClient)}
-              </h1>
-              <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">
-                Your portal keeps your upcoming lessons, recaps, and account details in one place.
-              </p>
-            </div>
+  const upcomingItems: UpcomingItem[] = [
+    ...upcomingAppointments.map((appointment) => ({
+      id: appointment.id,
+      kind: "appointment" as const,
+      starts_at: appointment.starts_at,
+      ends_at: appointment.ends_at,
+      status: appointment.status,
+      title:
+        appointment.title?.trim() ||
+        appointmentTypeLabel(appointment.appointment_type),
+    })),
+    ...typedRentals.map((rental) => ({
+      id: rental.id,
+      kind: "rental" as const,
+      starts_at: rental.starts_at,
+      ends_at: rental.ends_at,
+      status: rental.status,
+      title: "Floor Space Rental",
+    })),
+  ]
+    .sort(
+      (a, b) =>
+        new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()
+    )
+    .slice(0, 6);
 
-            <div className="flex flex-wrap gap-3">
+  return (
+    <div className="space-y-8">
+      <section className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_42%,#f8fafc_100%)] p-8 shadow-sm sm:p-10">
+        <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-orange-600">
+              {studioLabel}
+            </p>
+            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+              Hi, {getClientFirstName(typedClient)}
+            </h1>
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
+              {isInstructorPortal
+                ? "Your instructor portal gives you a studio-specific workspace for floor rentals, your upcoming schedule, lesson access, and any linked client billing tools."
+                : "Your studio portal keeps lessons, memberships, recaps, rentals, and studio-specific access in one place while your public favorites and event registrations remain in your main account."}
+            </p>
+
+            <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
+                <p className="text-sm text-slate-500">
+                  {isInstructorPortal ? "Upcoming Schedule Items" : "Upcoming Appointments"}
+                </p>
+                <p className="mt-2 text-3xl font-semibold text-slate-950">
+                  {isInstructorPortal ? upcomingItems.length : upcomingAppointments.length}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-violet-100 bg-white p-5 shadow-sm">
+                <p className="text-sm text-slate-500">
+                  {isInstructorPortal ? "Recent Lessons" : "Recent Lessons"}
+                </p>
+                <p className="mt-2 text-3xl font-semibold text-slate-950">
+                  {recentLessons.length}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+                <p className="text-sm text-slate-500">
+                  {isInstructorPortal ? "Upcoming Rentals" : "Portal Access"}
+                </p>
+                <p className="mt-2 text-xl font-semibold text-slate-950">
+                  {isInstructorPortal
+                    ? typedRentals.length
+                    : "Client"}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-sky-100 bg-white p-5 shadow-sm">
+                <p className="text-sm text-slate-500">
+                  {isInstructorPortal ? "Portal Access" : "Membership"}
+                </p>
+                <p className="mt-2 text-xl font-semibold text-slate-950">
+                  {isInstructorPortal
+                    ? "Independent Instructor"
+                    : typedMembership
+                      ? "Active"
+                      : "None"}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white/90 p-6 shadow-sm">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+              {isInstructorPortal ? "Instructor Actions" : "Portal Actions"}
+            </p>
+
+            <div className="mt-5 grid gap-3">
               <Link
                 href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
-                className="inline-flex rounded-xl border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
               >
-                My Profile
+                <p className="font-medium text-slate-900">My Profile</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Review your contact details and studio-linked portal access.
+                </p>
               </Link>
+
               {typedMembership ? (
                 <Link
                   href={`/portal/${encodeURIComponent(typedStudio.slug)}/membership`}
-                  className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
                 >
-                  View Membership
+                  <p className="font-medium text-slate-900">Membership Details</p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    View your active plan, billing period, and membership status.
+                  </p>
                 </Link>
               ) : null}
-              {typedClient.is_independent_instructor ? (
-                <Link
-                  href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space`}
-                  className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  Book Floor Space
-                </Link>
+
+              {isInstructorPortal ? (
+                <>
+                  <Link
+                    href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space`}
+                    className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 hover:bg-emerald-100"
+                  >
+                    <p className="font-medium text-slate-900">Book Floor Space</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Reserve studio time and manage rental bookings.
+                    </p>
+                  </Link>
+
+                  <Link
+                    href={`/portal/${encodeURIComponent(
+                      typedStudio.slug
+                    )}/floor-space/my-rentals`}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
+                  >
+                    <p className="font-medium text-slate-900">My Rentals</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Review your upcoming rentals and recent rental activity.
+                    </p>
+                  </Link>
+                </>
               ) : null}
             </div>
           </div>
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1.4fr,0.9fr]">
-        <CardShell
-          title="My Lessons"
-          subtitle="Open a completed private lesson to review your recap, practice notes, and any lesson video your instructor shared."
-        >
-          {recentLessons.length === 0 ? (
-            <div className="rounded-2xl border border-dashed bg-slate-50 p-5">
-              <p className="text-sm font-medium text-slate-900">No lessons yet</p>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                Your recent lessons will appear here once they have been added to your account.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {recentLessons.map((appointment) => {
-                const recap = getRecap(appointment.lesson_recaps);
-                const canViewLesson =
-                  appointment.appointment_type === "private_lesson" &&
-                  appointment.status === "attended" &&
-                  Boolean(recap?.visible_to_client);
-
-                return (
-                  <div
-                    key={appointment.id}
-                    className="rounded-2xl border bg-slate-50 p-5 transition hover:bg-white"
-                  >
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-base font-semibold text-slate-900">
-                            {appointment.title?.trim() ||
-                              appointmentTypeLabel(appointment.appointment_type)}
-                          </span>
-                          <span
-                            className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(
-                              appointment.status
-                            )}`}
-                          >
-                            {statusLabel(appointment.status)}
-                          </span>
-                          {canViewLesson ? (
-                            <span className="inline-flex items-center rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700 ring-1 ring-green-100">
-                              Recap Ready
-                            </span>
-                          ) : null}
-                        </div>
-
-                        <p className="mt-2 text-sm text-slate-700">
-                          {formatDateTime(appointment.starts_at)}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          With {getInstructorName(appointment.instructors)}
-                        </p>
-                      </div>
-
-                      <div className="flex shrink-0 flex-wrap gap-2">
-                        {canViewLesson ? (
-                          <Link
-                            href={`/portal/${encodeURIComponent(
-                              typedStudio.slug
-                            )}/appointments/${appointment.id}`}
-                            className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                          >
-                            View Lesson
-                          </Link>
-                        ) : (
-                          <span className="inline-flex rounded-xl border bg-white px-4 py-2 text-sm font-medium text-slate-500">
-                            {appointment.status === "scheduled"
-                              ? "Lesson not completed yet"
-                              : "No recap shared"}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+      <div className="grid gap-8 xl:grid-cols-[1.35fr_0.85fr]">
+        <div className="space-y-8">
+          {isInstructorPortal ? (
+            <CardShell
+              title="Instructor Workspace"
+              accent="emerald"
+              subtitle="Everything you need most often as an independent instructor from this studio portal."
+            >
+              <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+                <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+                  <p className="text-sm font-medium text-slate-900">Quick links</p>
+                  <div className="mt-4 grid gap-3">
+                    <Link
+                      href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space`}
+                      className="rounded-2xl bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white hover:bg-slate-800"
+                    >
+                      Book Floor Space
+                    </Link>
+                    <Link
+                      href={`/portal/${encodeURIComponent(
+                        typedStudio.slug
+                      )}/floor-space/my-rentals`}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      My Rentals
+                    </Link>
+                    <Link
+                      href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      My Profile
+                    </Link>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </CardShell>
+                </div>
 
-        <div className="space-y-6">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+                  <p className="text-sm font-medium text-slate-900">Upcoming rentals</p>
+                  {typedRentals.length === 0 ? (
+                    <p className="mt-3 text-sm leading-7 text-slate-600">
+                      You do not have any upcoming floor rentals scheduled.
+                    </p>
+                  ) : (
+                    <div className="mt-4 space-y-3">
+                      {typedRentals.map((rental) => (
+                        <div
+                          key={rental.id}
+                          className="rounded-2xl border border-slate-200 bg-white p-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">
+                                {formatDateTime(rental.starts_at)}
+                              </p>
+                              <p className="mt-1 text-sm text-slate-600">
+                                {formatTimeRange(rental.starts_at, rental.ends_at)}
+                              </p>
+                            </div>
+                            <span
+                              className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(
+                                rental.status
+                              )}`}
+                            >
+                              {statusLabel(rental.status)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </CardShell>
+          ) : null}
+
           <CardShell
-            title="Membership"
-            subtitle="Your current plan and billing cycle at a glance."
+            title={isInstructorPortal ? "My Lessons & Studio Activity" : "My Lessons"}
+            accent="violet"
+            subtitle={
+              isInstructorPortal
+                ? "Review your completed lessons and other studio-linked activity available through this portal."
+                : "Review your completed lessons and open the lesson detail page for recap information your studio has shared."
+            }
           >
-            {!typedMembership ? (
-              <div className="rounded-2xl border border-dashed bg-slate-50 p-5">
-                <p className="text-sm font-medium text-slate-900">No active membership</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  If your studio offers memberships, details will appear here once one is assigned to your account.
+            {recentLessons.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+                <p className="text-lg font-medium text-slate-900">No lessons yet</p>
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  Your recent lessons will appear here once they have been added to your account.
                 </p>
               </div>
             ) : (
-              <div className="rounded-2xl border bg-slate-50 p-5">
+              <div className="space-y-4">
+                {recentLessons.map((appointment) => {
+                  const canViewLesson =
+                    (appointment.appointment_type === "private_lesson" ||
+                      appointment.appointment_type === "intro_lesson") &&
+                    appointment.status === "attended";
+
+                  return (
+                    <div
+                      key={appointment.id}
+                      className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm transition hover:bg-white"
+                    >
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-base font-semibold text-slate-900">
+                              {appointment.title?.trim() ||
+                                appointmentTypeLabel(appointment.appointment_type)}
+                            </span>
+                            <span
+                              className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(
+                                appointment.status
+                              )}`}
+                            >
+                              {statusLabel(appointment.status)}
+                            </span>
+                          </div>
+
+                          <p className="mt-3 text-sm text-slate-700">
+                            {formatDateTime(appointment.starts_at)}
+                          </p>
+                        </div>
+
+                        <div className="flex shrink-0 flex-wrap gap-2">
+                          {canViewLesson ? (
+                            <Link
+                              href={`/portal/${encodeURIComponent(
+                                typedStudio.slug
+                              )}/appointments/${appointment.id}`}
+                              className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
+                            >
+                              View Lesson
+                            </Link>
+                          ) : (
+                            <span className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-500">
+                              {appointment.status === "scheduled"
+                                ? "Lesson not completed yet"
+                                : "Lesson details unavailable"}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardShell>
+        </div>
+
+        <div className="space-y-8">
+          {typedMembership ? (
+            <CardShell
+              title="Membership"
+              accent="emerald"
+              subtitle="Your current plan and billing cycle at a glance."
+            >
+              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="text-lg font-semibold text-slate-900">
                     {typedMembership.name_snapshot}
@@ -438,12 +601,12 @@ export default async function PortalHomePage({
                   ) : null}
                 </div>
 
-                <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                  <div>
+                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-white/80 bg-white p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                       Price
                     </p>
-                    <p className="mt-1 text-sm text-slate-700">
+                    <p className="mt-2 text-sm text-slate-700">
                       {formatCurrency(typedMembership.price_snapshot)}{" "}
                       {typedMembership.billing_interval_snapshot
                         ? `/ ${typedMembership.billing_interval_snapshot}`
@@ -451,63 +614,76 @@ export default async function PortalHomePage({
                     </p>
                   </div>
 
-                  <div>
+                  <div className="rounded-2xl border border-white/80 bg-white p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                       Current Period
                     </p>
-                    <p className="mt-1 text-sm text-slate-700">
+                    <p className="mt-2 text-sm text-slate-700">
                       {formatDate(typedMembership.current_period_start)} –{" "}
                       {formatDate(typedMembership.current_period_end)}
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-4">
+                <div className="mt-5">
                   <Link
                     href={`/portal/${encodeURIComponent(typedStudio.slug)}/membership`}
-                    className="inline-flex rounded-xl border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
                   >
                     Membership Details
                   </Link>
                 </div>
               </div>
-            )}
-          </CardShell>
+            </CardShell>
+          ) : null}
 
           <CardShell
-            title="Coming Up"
-            subtitle="Your next scheduled appointments."
+            title={isInstructorPortal ? "My Schedule" : "Coming Up"}
+            accent="sky"
+            subtitle={
+              isInstructorPortal
+                ? "Your next rentals and studio-linked appointments."
+                : "Your next scheduled appointments."
+            }
           >
-            {upcomingAppointments.length === 0 ? (
-              <div className="rounded-2xl border border-dashed bg-slate-50 p-5">
-                <p className="text-sm font-medium text-slate-900">Nothing upcoming</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Upcoming lessons and classes will appear here.
+            {upcomingItems.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+                <p className="text-lg font-medium text-slate-900">
+                  {isInstructorPortal ? "Nothing scheduled" : "Nothing upcoming"}
+                </p>
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  {isInstructorPortal
+                    ? "Upcoming rentals and appointments will appear here."
+                    : "Upcoming lessons and classes will appear here."}
                 </p>
               </div>
             ) : (
               <div className="space-y-3">
-                {upcomingAppointments.slice(0, 4).map((appointment) => (
-                  <div key={appointment.id} className="rounded-2xl border bg-slate-50 p-4">
+                {upcomingItems.map((item) => (
+                  <div
+                    key={`${item.kind}-${item.id}`}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-slate-900">
-                          {appointment.title?.trim() ||
-                            appointmentTypeLabel(appointment.appointment_type)}
+                          {item.title}
                         </p>
                         <p className="mt-1 text-sm text-slate-600">
-                          {formatDateTime(appointment.starts_at)}
+                          {formatDateTime(item.starts_at)}
                         </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          With {getInstructorName(appointment.instructors)}
-                        </p>
+                        {item.kind === "rental" ? (
+                          <p className="mt-1 text-xs font-medium uppercase tracking-[0.14em] text-emerald-700">
+                            Floor Rental
+                          </p>
+                        ) : null}
                       </div>
                       <span
                         className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(
-                          appointment.status
+                          item.status
                         )}`}
                       >
-                        {statusLabel(appointment.status)}
+                        {statusLabel(item.status)}
                       </span>
                     </div>
                   </div>
@@ -515,70 +691,27 @@ export default async function PortalHomePage({
               </div>
             )}
           </CardShell>
+
+          <CardShell
+            title="Portal Notes"
+            accent="orange"
+            subtitle="A few reminders about how this studio portal fits into your account."
+          >
+            <div className="rounded-3xl border border-orange-100 bg-orange-50 p-6 shadow-sm">
+              <ul className="space-y-3 text-sm leading-7 text-slate-700">
+                <li>Your favorites and public event registrations stay in your main account.</li>
+                <li>
+                  This portal is your studio-specific space for
+                  {isInstructorPortal
+                    ? " rentals, schedule access, lessons, and linked membership details."
+                    : " lessons, memberships, recaps, and studio-specific access."}
+                </li>
+                <li>If a studio links additional access later, it will appear in your account without replacing this login.</li>
+              </ul>
+            </div>
+          </CardShell>
         </div>
       </div>
-
-      {typedClient.is_independent_instructor ? (
-        <CardShell
-          title="Floor Space Rentals"
-          subtitle="Quick access to book time and review your upcoming rentals."
-        >
-          <div className="grid gap-6 lg:grid-cols-[0.9fr,1.1fr]">
-            <div className="rounded-2xl border bg-slate-50 p-5">
-              <p className="text-sm font-medium text-slate-900">Quick links</p>
-              <div className="mt-4 grid gap-3">
-                <Link
-                  href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space`}
-                  className="inline-flex justify-center rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  Book Floor Space
-                </Link>
-                <Link
-                  href={`/portal/${encodeURIComponent(
-                    typedStudio.slug
-                  )}/floor-space/my-rentals`}
-                  className="inline-flex justify-center rounded-xl border bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                >
-                  My Rentals
-                </Link>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border bg-slate-50 p-5">
-              <p className="text-sm font-medium text-slate-900">Upcoming rentals</p>
-              {typedRentals.length === 0 ? (
-                <p className="mt-3 text-sm leading-6 text-slate-600">
-                  You do not have any upcoming floor rentals scheduled.
-                </p>
-              ) : (
-                <div className="mt-4 space-y-3">
-                  {typedRentals.map((rental) => (
-                    <div key={rental.id} className="rounded-2xl border bg-white p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">
-                            {formatDateTime(rental.starts_at)}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-600">
-                            {formatTimeRange(rental.starts_at, rental.ends_at)}
-                          </p>
-                        </div>
-                        <span
-                          className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(
-                            rental.status
-                          )}`}
-                        >
-                          {statusLabel(rental.status)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </CardShell>
-      ) : null}
     </div>
   );
 }

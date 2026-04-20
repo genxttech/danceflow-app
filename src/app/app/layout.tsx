@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/auth/platform";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
@@ -16,6 +16,15 @@ type NotificationItem = {
   created_at: string;
   client_id: string | null;
   appointment_id: string | null;
+};
+
+type WorkspaceItem = {
+  studioId: string;
+  studioRole: string;
+  studioName: string;
+  studioSlug: string | null;
+  studioPublicName: string | null;
+  isSelected: boolean;
 };
 
 export default async function AppLayout({
@@ -37,11 +46,51 @@ export default async function AppLayout({
 
   const context = await getCurrentStudioContext();
 
+  async function switchWorkspaceAction(formData: FormData) {
+    "use server";
+
+    const studioId = String(formData.get("studioId") ?? "").trim();
+    if (!studioId) return;
+
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      redirect("/login");
+    }
+
+    const { data: allowedRole } = await supabase
+      .from("user_studio_roles")
+      .select("studio_id")
+      .eq("user_id", user.id)
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (!allowedRole) {
+      return;
+    }
+
+    const cookieStore = await cookies();
+    cookieStore.set("selected_studio_id", studioId, {
+      path: "/",
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+    });
+
+    redirect("/app");
+  }
+
   const [
     { data: studio },
     { data: profile },
     { data: notifications },
     { count: openLeadCount },
+    { data: accessibleRoles },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -69,7 +118,56 @@ export default async function AppLayout({
       .select("id", { count: "exact", head: true })
       .eq("studio_id", context.studioId)
       .eq("status", "lead"),
+
+    supabase
+      .from("user_studio_roles")
+      .select("studio_id, role")
+      .eq("user_id", user.id)
+      .eq("active", true),
   ]);
+
+  const roleRows =
+    (accessibleRoles as { studio_id: string; role: string }[] | null) ?? [];
+
+  const accessibleStudioIds = Array.from(
+    new Set(roleRows.map((row) => row.studio_id).filter(Boolean))
+  );
+
+  let accessibleStudios: WorkspaceItem[] = [];
+
+  if (accessibleStudioIds.length > 0) {
+    const { data: studiosForSwitcher } = await supabase
+  .from("studios")
+  .select("id, name, slug, public_name")
+  .in("id", accessibleStudioIds);
+
+    const studioById = new Map(
+  (
+    (studiosForSwitcher ?? []) as {
+      id: string;
+      name: string;
+      slug: string | null;
+      public_name: string | null;
+    }[]
+  ).map((item) => [item.id, item])
+);
+
+    accessibleStudios = roleRows
+  .map((row) => {
+    const matchedStudio = studioById.get(row.studio_id);
+    if (!matchedStudio) return null;
+
+    return {
+      studioId: matchedStudio.id,
+      studioRole: row.role,
+      studioName: matchedStudio.name,
+      studioSlug: matchedStudio.slug,
+      studioPublicName: matchedStudio.public_name,
+      isSelected: matchedStudio.id === context.studioId,
+    };
+  })
+  .filter(Boolean) as WorkspaceItem[];
+  }
 
   const safeNotifications = ((notifications ?? []) as NotificationItem[]) || [];
   const unreadNotificationsCount = safeNotifications.filter(
@@ -92,7 +190,7 @@ export default async function AppLayout({
 
   const sections = [
     {
-      title: "Front Desk",
+      title: "Daily Operations",
       items: [
         { label: "Dashboard", href: "/app", icon: "dashboard" },
         { label: "Schedule", href: "/app/schedule", icon: "schedule" },
@@ -112,11 +210,11 @@ export default async function AppLayout({
       ],
     },
     {
-      title: "Programs & Events",
+      title: "Programs & Staff",
       items: [
         { label: "Events", href: "/app/events", icon: "events" },
         {
-          label: "Registrations",
+          label: "Event Registrations",
           href: "/app/events",
           icon: "checkin",
         },
@@ -125,16 +223,24 @@ export default async function AppLayout({
       ],
     },
     {
-      title: "Revenue",
+      title: "Sales & Billing",
       items: [
         { label: "Payments", href: "/app/payments", icon: "payments" },
         {
-          label: "Balances",
+          label: "Client Balances",
           href: "/app/packages/client-balances",
           icon: "balances",
         },
-        { label: "Packages", href: "/app/packages", icon: "packages" },
-        { label: "Memberships", href: "/app/memberships", icon: "memberships" },
+        {
+          label: "Package Templates",
+          href: "/app/packages",
+          icon: "packages",
+        },
+        {
+          label: "Membership Plans",
+          href: "/app/memberships",
+          icon: "memberships",
+        },
         { label: "Reports", href: "/app/reports", icon: "reports" },
       ],
     },
@@ -203,6 +309,9 @@ export default async function AppLayout({
         sections={sections}
         unreadNotificationsCount={unreadNotificationsCount}
         recentNotifications={safeNotifications}
+        workspaces={accessibleStudios}
+        currentStudioId={context.studioId}
+        switchWorkspaceAction={switchWorkspaceAction}
       >
         {children}
       </AppSidebarShell>

@@ -12,6 +12,7 @@ type RentalSlot = {
   date: string;
   startTime: string;
   endTime: string;
+  priceAmount: string;
 };
 
 function getString(formData: FormData, key: string) {
@@ -34,12 +35,19 @@ function parseSlotsJson(raw: string): RentalSlot[] {
     return parsed
       .map((item) => ({
         date: typeof item?.date === "string" ? item.date.trim() : "",
-        startTime:
-          typeof item?.startTime === "string" ? item.startTime.trim() : "",
-        endTime:
-          typeof item?.endTime === "string" ? item.endTime.trim() : "",
+        startTime: typeof item?.startTime === "string" ? item.startTime.trim() : "",
+        endTime: typeof item?.endTime === "string" ? item.endTime.trim() : "",
+        priceAmount:
+          typeof item?.priceAmount === "string"
+            ? item.priceAmount.trim()
+            : typeof item?.priceAmount === "number"
+              ? String(item.priceAmount)
+              : "",
       }))
-      .filter((item) => item.date && item.startTime && item.endTime);
+      .filter(
+        (item) =>
+          item.date && item.startTime && item.endTime && item.priceAmount
+      );
   } catch {
     return [];
   }
@@ -58,7 +66,7 @@ function appointmentTypeLabel(value: string) {
   if (value === "practice_party") return "Practice Party";
   if (value === "floor_space_rental") return "Floor Space Rental";
   if (value === "event") return "Event";
-  return value.replaceAll("_", " ");
+  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 async function requireIndependentInstructorPortalAccess(studioSlug: string) {
@@ -92,15 +100,11 @@ async function requireIndependentInstructorPortalAccess(studioSlug: string) {
     .single();
 
   if (clientError || !client) {
-    throw new Error(
-      "No instructor profile is linked to this account for this studio."
-    );
+    throw new Error("No portal-linked instructor profile was found for this studio.");
   }
 
   if (!client.is_independent_instructor) {
-    throw new Error(
-      "This account is not enabled for floor space rental booking."
-    );
+    throw new Error("This account is not enabled for floor space rental booking.");
   }
 
   return { supabase, user, studio, client };
@@ -315,6 +319,15 @@ export async function createFloorSpaceRentalAction(
         };
       }
 
+            const priceAmount = Number(slot.priceAmount);
+
+      if (!Number.isFinite(priceAmount) || priceAmount <= 0) {
+        return {
+          error: `Enter a rental fee greater than $0 for ${slot.date} ${slot.startTime}-${slot.endTime}.`,
+          success: "",
+        };
+      }
+
       rows.push({
         studio_id: studio.id,
         client_id: client.id,
@@ -327,6 +340,8 @@ export async function createFloorSpaceRentalAction(
         starts_at: startsAt,
         ends_at: endsAt,
         status: "scheduled",
+        payment_status: "unpaid",
+        price_amount: priceAmount,
         is_recurring: false,
         created_by: user.id,
       });
@@ -348,7 +363,7 @@ export async function createFloorSpaceRentalAction(
   }
 
   redirect(
-    `/portal/${encodeURIComponent(studioSlug)}/floor-space?success=booked`
+    `/portal/${encodeURIComponent(studioSlug)}/floor-space?success=floor_rentals_booked`
   );
 }
 

@@ -6,7 +6,10 @@ import {
   markNotificationReadAction,
 } from "./dashboard-actions";
 import { syncStudioNotifications } from "@/lib/notifications/sync";
-import { getCurrentStudioContext } from "@/lib/auth/studio";
+import {
+  getAccessibleStudios,
+  getCurrentStudioContext,
+} from "@/lib/auth/studio";
 
 function startOfTodayLocal() {
   const now = new Date();
@@ -314,8 +317,19 @@ export default async function AppDashboardPage() {
     redirect("/login");
   }
 
-  const context = await getCurrentStudioContext();
+    const context = await getCurrentStudioContext();
   const studioId = context.studioId;
+  const accessibleStudios = await getAccessibleStudios();
+
+  const currentWorkspace =
+    accessibleStudios.find((workspace) => workspace.studioId === studioId) ??
+    accessibleStudios.find((workspace) => workspace.isSelected) ??
+    null;
+
+  const workspaceCount = accessibleStudios.length;
+  const currentRoleLabel = context.isPlatformAdmin
+    ? "platform admin"
+    : (context.studioRole ?? "studio user").replaceAll("_", " ");
 
   const todayStart = startOfTodayLocal().toISOString();
   const todayEnd = endOfTodayLocal().toISOString();
@@ -640,18 +654,39 @@ export default async function AppDashboardPage() {
 
   return (
     <div className="space-y-8">
-      <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,rgba(255,255,255,0.96)_0%,rgba(255,249,243,0.98)_100%)] p-6 shadow-sm">
+            <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,rgba(255,255,255,0.96)_0%,rgba(255,249,243,0.98)_100%)] p-6 shadow-sm">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
               Studio Command Center
             </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--brand-text)] sm:text-4xl">
-              {studio.name}
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-dark)]">
+                Active Workspace
+              </span>
+
+              <span className="rounded-full border border-[var(--brand-border)] bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                {currentRoleLabel}
+              </span>
+
+              {workspaceCount > 1 ? (
+                <span className="rounded-full border border-[var(--brand-border)] bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                  {workspaceCount} studio workspaces
+                </span>
+              ) : null}
+            </div>
+
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--brand-text)] sm:text-4xl">
+              {currentWorkspace?.studioPublicName?.trim() || studio.name}
             </h1>
+
             <p className="mt-3 max-w-2xl text-sm text-slate-600">
               Monitor urgent follow-ups, today’s activity, billing issues, recent recoveries, revenue,
               and floor rental operations from one place.
+              {workspaceCount > 1
+                ? " Use the workspace switcher in the sidebar to move between studio tenants without leaving the app."
+                : ""}
             </p>
           </div>
 
@@ -690,7 +725,7 @@ export default async function AppDashboardPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <StatCard label="Active Clients" value={activeClients ?? 0} />
         <StatCard label="Open Follow-Ups" value={followUpsOpen ?? 0} />
         <StatCard label="Today’s Appointments" value={todayAppointmentsCount ?? 0} />
@@ -699,6 +734,11 @@ export default async function AppDashboardPage() {
           label="Membership Billing Issues"
           value={delinquentMembershipCount}
           subtext="Past due or unpaid"
+        />
+        <StatCard
+          label="Workspaces"
+          value={workspaceCount}
+          subtext={workspaceCount > 1 ? "Switch from the sidebar" : "Single studio workspace"}
         />
       </div>
 

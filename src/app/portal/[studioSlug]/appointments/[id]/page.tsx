@@ -2,75 +2,63 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-type Params = Promise<{
+type PageParams = Promise<{
   studioSlug: string;
   id: string;
 }>;
 
 type StudioRow = {
   id: string;
-  name: string;
   slug: string;
+  name: string;
+  public_name: string | null;
 };
 
 type ClientRow = {
   id: string;
   first_name: string | null;
   last_name: string | null;
-  auth_user_id: string | null;
+  portal_user_id: string | null;
+};
+
+type LessonRecapMediaRow = {
+  id: string;
+  storage_path: string | null;
+  mime_type: string | null;
+  created_at: string;
+};
+
+type LessonRecapRow = {
+  id: string;
+  summary: string | null;
+  homework: string | null;
+  next_focus: string | null;
+  visible_to_client: boolean;
+  updated_at: string;
+  lesson_recap_media: LessonRecapMediaRow[] | null;
 };
 
 type AppointmentRow = {
   id: string;
-  title: string | null;
-  notes: string | null;
-  appointment_type: string;
-  status: string;
+  studio_id: string;
+  client_id: string | null;
   starts_at: string;
   ends_at: string;
-  client_id: string | null;
-  instructors:
-    | {
-        id: string;
-        full_name: string | null;
-      }[]
-    | {
-        id: string;
-        full_name: string | null;
-      }
-    | null;
-  lesson_recaps:
-    | {
-        id: string;
-        summary: string | null;
-        homework: string | null;
-        next_focus: string | null;
-        visible_to_client: boolean;
-        updated_at: string;
-        video_storage_path: string | null;
-        video_original_name: string | null;
-        video_mime_type: string | null;
-        video_uploaded_at: string | null;
-      }[]
-    | {
-        id: string;
-        summary: string | null;
-        homework: string | null;
-        next_focus: string | null;
-        visible_to_client: boolean;
-        updated_at: string;
-        video_storage_path: string | null;
-        video_original_name: string | null;
-        video_mime_type: string | null;
-        video_uploaded_at: string | null;
-      }
-    | null;
+  status: string;
+  appointment_type: string;
+  title: string | null;
+  notes: string | null;
 };
+
+function getClientName(client: ClientRow) {
+  const full = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
+  return full || "Client";
+}
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-US", {
-    weekday: "long",
-    month: "long",
+    weekday: "short",
+    month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
@@ -78,98 +66,59 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
-function formatShortDate(value: string) {
+function formatUpdatedAt(value: string) {
   return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
     month: "short",
     day: "numeric",
-  }).format(new Date(value));
-}
-
-function formatTime(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
 }
 
-function appointmentTypeLabel(value: string) {
+function formatAppointmentType(value: string) {
   if (value === "private_lesson") return "Private Lesson";
-  if (value === "group_class") return "Group Class";
   if (value === "intro_lesson") return "Intro Lesson";
+  if (value === "group_class") return "Group Class";
   if (value === "floor_space_rental") return "Floor Space Rental";
-  if (value === "party") return "Party";
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function statusLabel(value: string) {
+function formatStatus(value: string) {
   if (value === "scheduled") return "Scheduled";
   if (value === "attended") return "Completed";
   if (value === "cancelled") return "Cancelled";
   if (value === "no_show") return "Missed";
+  if (value === "rescheduled") return "Rescheduled";
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function statusBadgeClass(status: string) {
-  if (status === "scheduled") return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
-  if (status === "attended") return "bg-green-50 text-green-700 ring-1 ring-green-100";
-  if (status === "cancelled") return "bg-red-50 text-red-700 ring-1 ring-red-100";
-  if (status === "no_show") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
-  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+  if (status === "attended") return "bg-green-50 text-green-700 ring-green-100";
+  if (status === "scheduled") return "bg-blue-50 text-blue-700 ring-blue-100";
+  if (status === "cancelled") return "bg-red-50 text-red-700 ring-red-100";
+  if (status === "no_show") return "bg-amber-50 text-amber-700 ring-amber-100";
+  if (status === "rescheduled") return "bg-violet-50 text-violet-700 ring-violet-100";
+  return "bg-slate-100 text-slate-700 ring-slate-200";
 }
 
-function getInstructorName(value: AppointmentRow["instructors"]) {
-  const row = Array.isArray(value) ? value[0] : value;
-  return row?.full_name?.trim() || "Studio staff";
-}
-
-function getLessonRecap(value: AppointmentRow["lesson_recaps"]) {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function getClientFirstName(value: ClientRow) {
-  return value.first_name?.trim() || "there";
-}
-
-function SectionCard({
-  eyebrow,
-  title,
-  body,
-}: {
-  eyebrow: string;
-  title: string;
-  body: string;
-}) {
-  return (
-    <div className="rounded-2xl border bg-slate-50 p-5">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-        {eyebrow}
-      </p>
-      <h3 className="mt-2 text-lg font-semibold text-slate-900">{title}</h3>
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{body}</p>
-    </div>
+function isPlayableMedia(mimeType: string | null) {
+  return Boolean(
+    mimeType &&
+      (mimeType.startsWith("video/") || mimeType.startsWith("audio/"))
   );
 }
 
-function EmptyState({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-dashed bg-slate-50 p-5">
-      <p className="text-sm font-medium text-slate-900">{title}</p>
-      <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
-    </div>
-  );
+function getMediaLabel(storagePath: string | null) {
+  if (!storagePath) return "Lesson recap media";
+  const parts = storagePath.split("/");
+  return parts[parts.length - 1] || "Lesson recap media";
 }
 
 export default async function PortalAppointmentDetailPage({
   params,
 }: {
-  params: Params;
+  params: PageParams;
 }) {
   const { studioSlug, id } = await params;
   const supabase = await createClient();
@@ -184,21 +133,21 @@ export default async function PortalAppointmentDetailPage({
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
-    .select("id, name, slug")
+    .select("id, slug, name, public_name")
     .eq("slug", studioSlug)
     .single();
 
   if (studioError || !studio) {
-    redirect("/login");
+    notFound();
   }
 
   const typedStudio = studio as StudioRow;
 
   const { data: client, error: clientError } = await supabase
     .from("clients")
-    .select("id, first_name, last_name, auth_user_id")
+    .select("id, first_name, last_name, portal_user_id")
     .eq("studio_id", typedStudio.id)
-    .eq("auth_user_id", user.id)
+    .eq("portal_user_id", user.id)
     .single();
 
   if (clientError || !client) {
@@ -211,33 +160,18 @@ export default async function PortalAppointmentDetailPage({
     .from("appointments")
     .select(`
       id,
-      title,
-      notes,
-      appointment_type,
-      status,
+      studio_id,
+      client_id,
       starts_at,
       ends_at,
-      client_id,
-      instructors (
-        id,
-        full_name
-      ),
-      lesson_recaps (
-        id,
-        summary,
-        homework,
-        next_focus,
-        visible_to_client,
-        updated_at,
-        video_storage_path,
-        video_original_name,
-        video_mime_type,
-        video_uploaded_at
-      )
+      status,
+      appointment_type,
+      title,
+      notes
     `)
+    .eq("id", id)
     .eq("studio_id", typedStudio.id)
     .eq("client_id", typedClient.id)
-    .eq("id", id)
     .single();
 
   if (appointmentError || !appointment) {
@@ -245,217 +179,314 @@ export default async function PortalAppointmentDetailPage({
   }
 
   const typedAppointment = appointment as AppointmentRow;
-  const recap = getLessonRecap(typedAppointment.lesson_recaps);
 
-  const isPrivateLesson = typedAppointment.appointment_type === "private_lesson";
-  const isAttendedLesson = typedAppointment.status === "attended";
-  const canShowRecap =
-    isPrivateLesson && isAttendedLesson && Boolean(recap?.visible_to_client);
+  const { data: recapData, error: recapError } = await supabase
+    .from("lesson_recaps")
+    .select(`
+      id,
+      summary,
+      homework,
+      next_focus,
+      visible_to_client,
+      updated_at,
+      lesson_recap_media (
+        id,
+        storage_path,
+        mime_type,
+        created_at
+      )
+    `)
+    .eq("appointment_id", typedAppointment.id)
+    .eq("visible_to_client", true)
+    .maybeSingle();
 
-  let lessonVideoUrl: string | null = null;
-
-  if (canShowRecap && recap?.video_storage_path) {
-    const { data: signedVideo } = await supabase.storage
-      .from("lesson-recap-videos")
-      .createSignedUrl(recap.video_storage_path, 60 * 60);
-
-    lessonVideoUrl = signedVideo?.signedUrl ?? null;
+  if (recapError) {
+    throw new Error(`Failed to load lesson recap: ${recapError.message}`);
   }
 
-  const lessonTitle =
+  console.log("PORTAL_RECAP_DEBUG", {
+    studioSlug,
+    appointmentId: typedAppointment.id,
+    portalUserId: user.id,
+    portalClientId: typedClient.id,
+    appointmentStatus: typedAppointment.status,
+    recapFound: Boolean(recapData),
+    recapId: recapData?.id ?? null,
+    recapVisibleToClient: recapData?.visible_to_client ?? null,
+    recapMediaCount: recapData?.lesson_recap_media?.length ?? 0,
+  });
+
+  const recap = (recapData ?? null) as LessonRecapRow | null;
+
+  const recapVisible =
+    Boolean(recap) && typedAppointment.status === "attended";
+
+  const recapMedia = recapVisible ? recap?.lesson_recap_media ?? [] : [];
+
+  const mediaWithUrls = await Promise.all(
+    recapMedia.map(async (media) => {
+      if (!media.storage_path) {
+        return {
+          ...media,
+          signedUrl: null,
+        };
+      }
+
+      const { data: signedData } = await supabase.storage
+        .from("lesson-recap-videos")
+        .createSignedUrl(media.storage_path, 60 * 60);
+
+      return {
+        ...media,
+        signedUrl: signedData?.signedUrl ?? null,
+      };
+    })
+  );
+
+  const studioLabel = typedStudio.public_name?.trim() || typedStudio.name;
+  const appointmentLabel =
     typedAppointment.title?.trim() ||
-    (isPrivateLesson ? "Your Private Lesson" : appointmentTypeLabel(typedAppointment.appointment_type));
+    formatAppointmentType(typedAppointment.appointment_type);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
-      <section className="overflow-hidden rounded-[2rem] border bg-white shadow-sm">
-        <div className="border-b bg-gradient-to-br from-slate-50 via-white to-slate-50 px-6 py-8 sm:px-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="max-w-2xl">
-              <p className="text-sm font-medium text-slate-500">{typedStudio.name}</p>
-              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
-                {lessonTitle}
-              </h1>
-              <p className="mt-3 text-sm leading-6 text-slate-600 sm:text-base">
-                {isPrivateLesson
-                  ? `Hi ${getClientFirstName(typedClient)} — here is your lesson recap, practice plan, and any video your instructor shared with you.`
-                  : `Here are the details for your ${appointmentTypeLabel(
-                      typedAppointment.appointment_type
-                    ).toLowerCase()}.`}
-              </p>
-            </div>
+    <div className="space-y-8">
+      <section className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_42%,#f8fafc_100%)] p-8 shadow-sm sm:p-10">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-orange-600">
+              {studioLabel}
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+              {appointmentLabel}
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
+              Lesson details for {getClientName(typedClient)}. Review the recap,
+              practice notes, next focus, and any shared media your studio has made available.
+            </p>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="mt-6 flex flex-wrap items-center gap-2">
               <span
-                className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClass(
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ${statusBadgeClass(
                   typedAppointment.status
                 )}`}
               >
-                {statusLabel(typedAppointment.status)}
+                {formatStatus(typedAppointment.status)}
               </span>
 
-              <span className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-                {appointmentTypeLabel(typedAppointment.appointment_type)}
+              <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                {formatAppointmentType(typedAppointment.appointment_type)}
               </span>
 
-              {canShowRecap ? (
-                <span className="inline-flex items-center rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 ring-1 ring-green-100">
-                  Recap Available
+              {recapVisible ? (
+                <span className="inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 ring-1 ring-green-100">
+                  Recap Shared
                 </span>
               ) : null}
             </div>
           </div>
 
-          <div className="mt-6 flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3">
             <Link
-              href={`/portal/${encodeURIComponent(typedStudio.slug)}`}
-              className="inline-flex rounded-xl border bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              href={`/portal/${encodeURIComponent(studioSlug)}`}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Back to Portal
             </Link>
-          </div>
-        </div>
-
-        <div className="grid gap-4 px-6 py-6 sm:grid-cols-2 sm:px-8">
-          <div className="rounded-2xl border bg-slate-50 p-5">
-            <p className="text-sm font-medium text-slate-500">When</p>
-            <p className="mt-2 text-base font-semibold text-slate-900">
-              {formatShortDate(typedAppointment.starts_at)}
-            </p>
-            <p className="mt-1 text-sm text-slate-600">
-              {formatTime(typedAppointment.starts_at)} – {formatTime(typedAppointment.ends_at)}
-            </p>
-            <p className="mt-2 text-xs text-slate-500">
-              {formatDateTime(typedAppointment.starts_at)}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border bg-slate-50 p-5">
-            <p className="text-sm font-medium text-slate-500">Instructor</p>
-            <p className="mt-2 text-base font-semibold text-slate-900">
-              {getInstructorName(typedAppointment.instructors)}
-            </p>
-            <p className="mt-1 text-sm text-slate-600">
-              Your instructor for this lesson
-            </p>
+            <Link
+              href={`/portal/${encodeURIComponent(studioSlug)}/profile`}
+              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              My Profile
+            </Link>
           </div>
         </div>
       </section>
 
-      <section className="rounded-[2rem] border bg-white p-6 shadow-sm sm:p-8">
-        <div className="max-w-2xl">
-          <p className="text-sm font-medium text-slate-500">Your recap</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
-            What to remember from this lesson
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Review the main takeaways from your lesson and what to work on before next time.
-          </p>
-        </div>
+      <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
+        <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
+              Lesson Recap
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              What your studio shared
+            </h2>
+          </div>
 
-        <div className="mt-6">
-          {!isPrivateLesson ? (
-            <EmptyState
-              title="No recap for this appointment type"
-              description="Lesson recaps are shared for private lessons."
-            />
-          ) : !isAttendedLesson ? (
-            <EmptyState
-              title="Recap not ready yet"
-              description="Your instructor can share a recap after the lesson has been marked complete."
-            />
-          ) : !recap || !recap.visible_to_client ? (
-            <EmptyState
-              title="Nothing has been shared yet"
-              description="Your instructor has not shared a recap for this lesson yet."
-            />
-          ) : (
-            <div className="grid gap-4 lg:grid-cols-3">
-              {recap.summary ? (
-                <SectionCard
-                  eyebrow="Lesson Summary"
-                  title="What you covered"
-                  body={recap.summary}
-                />
-              ) : null}
-
-              {recap.homework ? (
-                <SectionCard
-                  eyebrow="Practice"
-                  title="What to work on"
-                  body={recap.homework}
-                />
-              ) : null}
-
-              {recap.next_focus ? (
-                <SectionCard
-                  eyebrow="Next Lesson"
-                  title="What comes next"
-                  body={recap.next_focus}
-                />
-              ) : null}
+          {!recapVisible || !recap ? (
+            <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+              <p className="text-lg font-medium text-slate-900">
+                No recap available yet
+              </p>
+              <p className="mt-2 text-sm leading-7 text-slate-600">
+                Your studio has not shared a visible lesson recap for this appointment yet.
+              </p>
             </div>
-          )}
-        </div>
-
-        {typedAppointment.notes ? (
-          <div className="mt-6 rounded-2xl border bg-slate-50 p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Additional Notes
-            </p>
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
-              {typedAppointment.notes}
-            </p>
-          </div>
-        ) : null}
-
-        {canShowRecap && recap ? (
-          <div className="mt-6 rounded-2xl border bg-slate-50 p-4 text-xs text-slate-500">
-            Shared {formatDateTime(recap.updated_at)}
-          </div>
-        ) : null}
-      </section>
-
-      <section className="rounded-[2rem] border bg-white p-6 shadow-sm sm:p-8">
-        <div className="max-w-2xl">
-          <p className="text-sm font-medium text-slate-500">Lesson video</p>
-          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
-            Watch your lesson again
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            If your instructor uploaded a video for this lesson, you can watch it here.
-          </p>
-        </div>
-
-        <div className="mt-6">
-          {!canShowRecap ? (
-            <EmptyState
-              title="No video available"
-              description="A lesson video will appear here if your instructor shares one with your recap."
-            />
-          ) : !recap?.video_storage_path || !lessonVideoUrl ? (
-            <EmptyState
-              title="No video has been uploaded"
-              description="Your recap is available, but there is not a video attached to this lesson."
-            />
           ) : (
-            <div className="space-y-4">
-              <video
-                controls
-                preload="metadata"
-                className="w-full rounded-3xl border bg-black shadow-sm"
-                src={lessonVideoUrl}
-              />
-              <div className="rounded-2xl border bg-slate-50 p-4 text-xs text-slate-500">
-                {recap.video_original_name ? <p>File: {recap.video_original_name}</p> : null}
-                {recap.video_uploaded_at ? (
-                  <p className="mt-1">Uploaded {formatDateTime(recap.video_uploaded_at)}</p>
-                ) : null}
+            <div className="mt-6 space-y-6">
+              <div className="rounded-3xl border border-violet-100 bg-violet-50 p-6 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                  Summary
+                </p>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                  {recap.summary?.trim() || "No summary was added for this lesson."}
+                </p>
               </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Homework
+                  </p>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                    {recap.homework?.trim() || "No homework was added."}
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Next Focus
+                  </p>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                    {recap.next_focus?.trim() || "No next-focus note was added."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-6 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                  Shared Media
+                </p>
+
+                {mediaWithUrls.length === 0 ? (
+                  <p className="mt-3 text-sm leading-7 text-slate-700">
+                    No media was attached to this lesson recap.
+                  </p>
+                ) : (
+                  <div className="mt-4 space-y-4">
+                    {mediaWithUrls.map((media) => (
+                      <div
+                        key={media.id}
+                        className="rounded-2xl border border-white/70 bg-white p-4 shadow-sm"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">
+                              {getMediaLabel(media.storage_path)}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {media.mime_type || "Unknown file type"}
+                            </p>
+                          </div>
+
+                          {media.signedUrl ? (
+                            <a
+                              href={media.signedUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                            >
+                              Open File
+                            </a>
+                          ) : null}
+                        </div>
+
+                        {media.signedUrl && isPlayableMedia(media.mime_type) ? (
+                          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-black">
+                            {media.mime_type?.startsWith("video/") ? (
+                              <video
+                                controls
+                                className="w-full"
+                                src={media.signedUrl}
+                              />
+                            ) : (
+                              <audio
+                                controls
+                                className="w-full"
+                                src={media.signedUrl}
+                              />
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <p className="text-xs text-slate-500">
+                Updated {formatUpdatedAt(recap.updated_at)}
+              </p>
             </div>
           )}
-        </div>
-      </section>
+        </section>
+
+        <section className="space-y-8">
+          <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
+              Appointment Details
+            </p>
+
+            <div className="mt-6 space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Date & Time
+                </p>
+                <p className="mt-2 text-sm text-slate-800">
+                  {formatDateTime(typedAppointment.starts_at)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Instructor
+                </p>
+                <p className="mt-2 text-sm text-slate-800">
+                  Studio Staff
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Status
+                </p>
+                <p className="mt-2 text-sm text-slate-800">
+                  {formatStatus(typedAppointment.status)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Appointment Type
+                </p>
+                <p className="mt-2 text-sm text-slate-800">
+                  {formatAppointmentType(typedAppointment.appointment_type)}
+                </p>
+              </div>
+
+              {typedAppointment.notes?.trim() ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Studio Notes
+                  </p>
+                  <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                    {typedAppointment.notes}
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-orange-600">
+              Need help?
+            </p>
+            <p className="mt-3 text-sm leading-7 text-slate-600">
+              Reach out to your studio directly if you expected a recap, video, or other lesson details that are not visible here yet.
+            </p>
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

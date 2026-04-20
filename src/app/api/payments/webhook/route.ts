@@ -955,6 +955,124 @@ async function handleEventRegistrationRefundUpdated(
   return true;
 }
 
+async function handlePortalFloorRentalCheckoutCompleted(
+  supabase: SupabaseClient,
+  session: Stripe.Checkout.Session
+) {
+  const source = getString(session.metadata?.source);
+  if (source !== "portal_floor_rental_balance_payment") return false;
+
+  const studioId = getString(session.metadata?.studioId);
+  const clientId = getString(session.metadata?.clientId);
+  const appointmentIdsRaw = getString(session.metadata?.appointmentIds);
+
+  if (!studioId || !clientId || !appointmentIdsRaw) {
+    throw new Error("Portal floor rental balance checkout missing metadata.");
+  }
+
+  if (session.payment_status !== "paid") {
+    return true;
+  }
+
+  const appointmentIds = appointmentIdsRaw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (appointmentIds.length === 0) {
+    throw new Error("Portal floor rental balance checkout missing appointments.");
+  }
+
+  const paymentIntentId = getString(session.payment_intent);
+  const sessionId = session.id;
+  const amountTotal = Number(session.amount_total ?? 0) / 100;
+
+  const { data: existingPayment, error: existingPaymentError } = await supabase
+    .from("payments")
+    .select("id")
+    .eq("stripe_payment_intent_id", paymentIntentId)
+    .maybeSingle();
+
+  if (existingPaymentError) {
+    throw new Error(existingPaymentError.message);
+  }
+
+  if (existingPayment) {
+    return true;
+  }
+
+  const { data: appointments, error: appointmentsError } = await supabase
+    .from("appointments")
+    .select("id, studio_id, client_id, appointment_type, status, payment_status, price_amount")
+    .eq("studio_id", studioId)
+    .eq("client_id", clientId)
+    .eq("appointment_type", "floor_space_rental")
+    .in("id", appointmentIds);
+
+  if (appointmentsError) {
+    throw new Error(appointmentsError.message);
+  }
+
+  const payableAppointments = (appointments ?? []).filter(
+    (appointment) =>
+      appointment.status !== "cancelled" &&
+      (appointment.payment_status === "unpaid" || appointment.payment_status === "partial") &&
+      Number(appointment.price_amount ?? 0) > 0
+  );
+
+  if (payableAppointments.length === 0) {
+    throw new Error("No payable floor rentals were found for the checkout session.");
+  }
+
+  const expectedAmount = payableAppointments.reduce(
+    (sum, appointment) => sum + Number(appointment.price_amount ?? 0),
+    0
+  );
+
+  if (Math.abs(expectedAmount - amountTotal) > 0.01) {
+    throw new Error(
+      `Portal floor rental balance amount mismatch. Expected ${expectedAmount}, received ${amountTotal}.`
+    );
+  }
+
+  const { error: insertPaymentError } = await supabase
+    .from("payments")
+    .insert({
+      studio_id: studioId,
+      client_id: clientId,
+      amount: amountTotal,
+      payment_method: "card",
+      status: "processed",
+      external_payment_id: sessionId,
+      paid_at: new Date().toISOString(),
+      payment_type: "floor_space_rental",
+      source: "portal_floor_rental_balance_checkout",
+      stripe_payment_intent_id: paymentIntentId,
+      notes: `Portal floor rental balance payment for appointments: ${appointmentIds.join(", ")}`,
+    });
+
+  if (insertPaymentError) {
+    throw new Error(insertPaymentError.message);
+  }
+
+  const { error: updateAppointmentsError } = await supabase
+    .from("appointments")
+    .update({
+      payment_status: "paid",
+      updated_at: new Date().toISOString(),
+    })
+    .in(
+      "id",
+      payableAppointments.map((appointment) => appointment.id)
+    );
+
+  if (updateAppointmentsError) {
+    throw new Error(updateAppointmentsError.message);
+  }
+
+  return true;
+}
+
 async function handleCheckoutSessionCompleted(
   supabase: SupabaseClient,
   stripe: Stripe,
@@ -970,12 +1088,21 @@ async function handleCheckoutSessionCompleted(
     return;
   }
 
-  const handledEventRegistration = await handleEventRegistrationCheckoutCompleted(
+    const handledEventRegistration = await handleEventRegistrationCheckoutCompleted(
     supabase,
     session
   );
 
   if (handledEventRegistration) {
+    return;
+  }
+
+  const handledPortalFloorRental = await handlePortalFloorRentalCheckoutCompleted(
+    supabase,
+    session
+  );
+
+  if (handledPortalFloorRental) {
     return;
   }
 

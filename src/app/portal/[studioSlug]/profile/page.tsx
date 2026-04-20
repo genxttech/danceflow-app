@@ -30,7 +30,7 @@ function getBanner(search: { success?: string; error?: string }) {
   return null;
 }
 
-export default async function InstructorPortalProfilePage({
+export default async function PortalProfilePage({
   params,
   searchParams,
 }: {
@@ -76,9 +76,9 @@ export default async function InstructorPortalProfilePage({
     .eq("portal_user_id", user.id)
     .single();
 
-  if (clientError || !client || !client.is_independent_instructor) {
-    redirect(`/login?studio=${encodeURIComponent(studioSlug)}`);
-  }
+  if (clientError || !client) {
+  redirect(`/login?studio=${encodeURIComponent(studioSlug)}`);
+}
 
   const fullName = `${client.first_name} ${client.last_name}`.trim();
 

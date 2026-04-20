@@ -43,21 +43,127 @@ async function getBaseUrl() {
   return `${proto}://${host}`;
 }
 
+async function upsertProfile(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+  email: string;
+  fullName?: string | null;
+}) {
+  const { supabase, userId, email, fullName } = params;
+
+  const payload: {
+    id: string;
+    email: string;
+    full_name?: string;
+  } = {
+    id: userId,
+    email,
+  };
+
+  if (fullName?.trim()) {
+    payload.full_name = fullName.trim();
+  }
+
+  const { error } = await supabase.from("profiles").upsert(payload, {
+    onConflict: "id",
+  });
+
+  if (error) {
+    throw new Error(`Profile creation failed: ${error.message}`);
+  }
+}
+
+async function attachPortalAccessForEmail(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+  email: string;
+}) {
+  const { supabase, userId, email } = params;
+
+  if (!email) return;
+
+  const { error } = await supabase.rpc("link_portal_client_by_email", {
+    p_user_id: userId,
+    p_email: email,
+  });
+
+  if (error) {
+    throw new Error(`Portal auto-link failed: ${error.message}`);
+  }
+}
+
+async function syncAccountAfterAuth(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+  email: string;
+  fullName?: string | null;
+}) {
+  const { supabase, userId, email, fullName } = params;
+
+  await upsertProfile({
+    supabase,
+    userId,
+    email,
+    fullName,
+  });
+
+  await attachPortalAccessForEmail({
+    supabase,
+    userId,
+    email,
+  });
+}
+
 export async function signupAction(formData: FormData) {
   const fullName = getString(formData, "fullName");
   const email = getString(formData, "email").toLowerCase();
   const password = getString(formData, "password");
   const signupIntent = getString(formData, "signupIntent") || "public";
+  const signupMode = getString(formData, "signupMode") || "password";
 
-  if (!fullName || !email || !password) {
-    return { error: "Full name, email, and password are required." };
+  if (!fullName || !email) {
+    return { error: "Full name and email are required." };
+  }
+
+  const supabase = await createClient();
+
+  if (signupMode === "magic_link_public") {
+    const baseUrl = await getBaseUrl();
+    const redirectTo =
+      signupIntent === "public" ? "/account" : "/get-started";
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: `${baseUrl}/callback?next=${encodeURIComponent(
+          redirectTo
+        )}`,
+        data: {
+          full_name: fullName,
+          signup_intent: signupIntent,
+        },
+      },
+    });
+
+    if (error) {
+      return { error: error.message };
+    }
+
+    redirect(
+      `/login?check-email=1&email=${encodeURIComponent(
+        email
+      )}&intent=${encodeURIComponent(signupIntent)}`
+    );
+  }
+
+  if (!password) {
+    return { error: "Password is required." };
   }
 
   if (password.length < 8) {
     return { error: "Password must be at least 8 characters." };
   }
-
-  const supabase = await createClient();
 
   const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
     email,
@@ -80,25 +186,25 @@ export async function signupAction(formData: FormData) {
     return { error: "User account was not created." };
   }
 
-  const { error: profileError } = await supabase.from("profiles").upsert(
-    {
-      id: user.id,
-      full_name: fullName,
-      email,
-    },
-    {
-      onConflict: "id",
-    }
-  );
-
-  if (profileError) {
-    return { error: `Profile creation failed: ${profileError.message}` };
-  }
-
   const hasImmediateSession = !!signUpData.session;
 
   if (!hasImmediateSession) {
-    redirect(`/login?signup=check-email&intent=${encodeURIComponent(signupIntent)}`);
+    redirect(
+      `/login?signup=check-email&intent=${encodeURIComponent(signupIntent)}`
+    );
+  }
+
+  try {
+    await syncAccountAfterAuth({
+      supabase,
+      userId: user.id,
+      email,
+      fullName,
+    });
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Account setup failed.",
+    };
   }
 
   redirect(`/get-started?welcome=1&intent=${encodeURIComponent(signupIntent)}`);
@@ -123,7 +229,8 @@ export async function loginAction(formData: FormData) {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent(
+        shouldCreateUser: true,
+        emailRedirectTo: `${baseUrl}/callback?next=${encodeURIComponent(
           redirectTo
         )}`,
       },
@@ -133,9 +240,7 @@ export async function loginAction(formData: FormData) {
       return { error: error.message };
     }
 
-    redirect(
-      `/login?check-email=1&email=${encodeURIComponent(email)}`
-    );
+    redirect(`/login?check-email=1&email=${encodeURIComponent(email)}`);
   }
 
   if (!password) {
@@ -151,17 +256,36 @@ export async function loginAction(formData: FormData) {
     return { error: error.message };
   }
 
-  const userId = data.user?.id;
+  const user = data.user;
 
-  if (!userId) {
+  if (!user?.id) {
     return { error: "Login succeeded, but no user session was returned." };
+  }
+
+  try {
+    await syncAccountAfterAuth({
+      supabase,
+      userId: user.id,
+      email,
+      fullName:
+        typeof user.user_metadata?.full_name === "string"
+          ? user.user_metadata.full_name
+          : null,
+    });
+  } catch (syncError) {
+    return {
+      error:
+        syncError instanceof Error
+          ? syncError.message
+          : "Account sync failed after login.",
+    };
   }
 
   if (next) {
     redirect(next);
   }
 
-  const hasStudioRole = await hasActiveStudioRole(userId);
+  const hasStudioRole = await hasActiveStudioRole(user.id);
   redirect(getPostLoginPath(hasStudioRole));
 }
 

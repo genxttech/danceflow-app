@@ -1,94 +1,97 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import PublicSiteHeader from "@/components/public/PublicSiteHeader";
-import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 
 type FavoriteRow = {
   studio_id: string | null;
   event_id: string | null;
-  created_at: string | null;
+  created_at: string;
+};
+
+type RegistrationRow = {
+  id: string;
+  event_id: string | null;
+  status: string | null;
+  created_at: string;
 };
 
 type StudioRow = {
   id: string;
   slug: string | null;
-  public_name: string | null;
   name: string;
+  public_name: string | null;
   city: string | null;
   state: string | null;
-  public_short_description: string | null;
-  public_logo_url: string | null;
-  beginner_friendly: boolean | null;
-};
-
-type EventRegistrationRow = {
-  id: string;
-  event_id: string | null;
-  status: string | null;
-  created_at: string | null;
 };
 
 type EventRow = {
   id: string;
   slug: string | null;
-  name: string;
-  start_date: string | null;
-  end_date: string | null;
-  event_type: string | null;
-  public_summary: string | null;
-  public_cover_image_url: string | null;
-  visibility: string | null;
-  status: string | null;
+  title: string;
+  starts_at: string | null;
+  city: string | null;
+  state: string | null;
 };
 
-function studioTitle(studio: StudioRow) {
-  return studio.public_name?.trim() || studio.name;
-}
-
-function studioLocation(studio: StudioRow) {
-  const parts = [studio.city, studio.state].filter(Boolean);
-  return parts.length ? parts.join(", ") : "Location coming soon";
-}
+type PortalLinkRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  is_independent_instructor: boolean | null;
+  studios:
+    | {
+        id: string;
+        slug: string | null;
+        name: string;
+        public_name: string | null;
+        city: string | null;
+        state: string | null;
+      }
+    | {
+        id: string;
+        slug: string | null;
+        name: string;
+        public_name: string | null;
+        city: string | null;
+        state: string | null;
+      }[]
+    | null;
+};
 
 function formatDate(value: string | null) {
   if (!value) return "Date coming soon";
-
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return "Date coming soon";
 
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
-  }).format(date);
+  }).format(new Date(value));
 }
 
-function formatDateRange(start: string | null, end: string | null) {
-  if (!start) return "Date coming soon";
-  if (!end || end === start) return formatDate(start);
-  return `${formatDate(start)} – ${formatDate(end)}`;
+function getEventLocation(event: EventRow) {
+  return [event.city, event.state].filter(Boolean).join(", ") || "Location coming soon";
 }
 
-function eventTypeLabel(value: string | null) {
-  if (value === "group_class") return "Group Class";
-  if (value === "practice_party") return "Practice Party";
-  if (value === "workshop") return "Workshop";
-  if (value === "social_dance") return "Social Dance";
-  if (value === "competition") return "Competition";
-  if (value === "showcase") return "Showcase";
-  if (value === "festival") return "Festival";
-  if (value === "special_event") return "Special Event";
-  if (!value) return "Event";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+function getStudioLocation(studio: StudioRow) {
+  return [studio.city, studio.state].filter(Boolean).join(", ") || "Location coming soon";
 }
 
-function registrationStatusLabel(value: string | null) {
-  if (!value) return "Registered";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+function getPortalStudio(
+  value: PortalLinkRow["studios"]
+):
+  | {
+      id: string;
+      slug: string | null;
+      name: string;
+      public_name: string | null;
+      city: string | null;
+      state: string | null;
+    }
+  | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
-export default async function PublicAccountPage() {
+export default async function AccountPage() {
   const supabase = await createClient();
 
   const {
@@ -99,17 +102,10 @@ export default async function PublicAccountPage() {
     redirect("/login");
   }
 
-  async function signOutAction() {
-    "use server";
-
-    const supabase = await createClient();
-    await supabase.auth.signOut();
-    redirect("/");
-  }
-
   const [
     { data: favorites, error: favoritesError },
     { data: registrations, error: registrationsError },
+    { data: portalLinks, error: portalLinksError },
   ] = await Promise.all([
     supabase
       .from("user_favorites")
@@ -122,6 +118,25 @@ export default async function PublicAccountPage() {
       .select("id, event_id, status, created_at")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
+
+    supabase
+      .from("clients")
+      .select(`
+        id,
+        first_name,
+        last_name,
+        is_independent_instructor,
+        studios (
+          id,
+          slug,
+          name,
+          public_name,
+          city,
+          state
+        )
+      `)
+      .eq("portal_user_id", user.id)
+      .order("created_at", { ascending: false }),
   ]);
 
   if (favoritesError) {
@@ -132,222 +147,320 @@ export default async function PublicAccountPage() {
     throw new Error(`Failed to load registrations: ${registrationsError.message}`);
   }
 
+  if (portalLinksError) {
+    throw new Error(`Failed to load studio portals: ${portalLinksError.message}`);
+  }
+
   const typedFavorites = (favorites ?? []) as FavoriteRow[];
-  const typedRegistrations = (registrations ?? []) as EventRegistrationRow[];
+  const typedRegistrations = (registrations ?? []) as RegistrationRow[];
+  const typedPortalLinks = (portalLinks ?? []) as PortalLinkRow[];
 
-  const studioIds = Array.from(
-    new Set(
-      typedFavorites
-        .map((row) => row.studio_id)
-        .filter((value): value is string => Boolean(value))
-    )
-  );
+  const favoriteStudioIds = Array.from(
+    new Set(typedFavorites.map((row) => row.studio_id).filter(Boolean))
+  ) as string[];
 
-  const eventFavoriteIds = Array.from(
-    new Set(
-      typedFavorites
-        .map((row) => row.event_id)
-        .filter((value): value is string => Boolean(value))
-    )
-  );
+  const favoriteEventIds = Array.from(
+    new Set(typedFavorites.map((row) => row.event_id).filter(Boolean))
+  ) as string[];
 
-  const registeredEventIds = Array.from(
-    new Set(
-      typedRegistrations
-        .map((row) => row.event_id)
-        .filter((value): value is string => Boolean(value))
-    )
-  );
+  const registrationEventIds = Array.from(
+    new Set(typedRegistrations.map((row) => row.event_id).filter(Boolean))
+  ) as string[];
 
-  const allEventIds = Array.from(new Set([...eventFavoriteIds, ...registeredEventIds]));
+  const allEventIds = Array.from(new Set([...favoriteEventIds, ...registrationEventIds]));
 
-  const [{ data: studios, error: studiosError }, { data: events, error: eventsError }] =
-    await Promise.all([
-      studioIds.length > 0
-        ? supabase
-            .from("studios")
-            .select(
-              `
-                id,
-                slug,
-                public_name,
-                name,
-                city,
-                state,
-                public_short_description,
-                public_logo_url,
-                beginner_friendly
-              `
-            )
-            .in("id", studioIds)
-        : Promise.resolve({ data: [], error: null }),
+  const [
+    { data: favoriteStudios, error: favoriteStudiosError },
+    { data: relatedEvents, error: relatedEventsError },
+  ] = await Promise.all([
+    favoriteStudioIds.length
+      ? supabase
+          .from("studios")
+          .select("id, slug, name, public_name, city, state")
+          .in("id", favoriteStudioIds)
+      : Promise.resolve({ data: [], error: null }),
 
-      allEventIds.length > 0
-        ? supabase
-            .from("events")
-            .select(
-              `
-                id,
-                slug,
-                name,
-                start_date,
-                end_date,
-                event_type,
-                public_summary,
-                public_cover_image_url,
-                visibility,
-                status
-              `
-            )
-            .in("id", allEventIds)
-        : Promise.resolve({ data: [], error: null }),
-    ]);
+    allEventIds.length
+      ? supabase
+          .from("events")
+          .select("id, slug, title, starts_at, city, state")
+          .in("id", allEventIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
 
-  if (studiosError) {
-    throw new Error(`Failed to load favorite studios: ${studiosError.message}`);
+  if (favoriteStudiosError) {
+    throw new Error(`Failed to load favorite studios: ${favoriteStudiosError.message}`);
   }
 
-  if (eventsError) {
-    throw new Error(`Failed to load events: ${eventsError.message}`);
+  if (relatedEventsError) {
+    throw new Error(`Failed to load events: ${relatedEventsError.message}`);
   }
 
-  const typedStudios = (studios ?? []) as StudioRow[];
-  const typedEvents = (events ?? []) as EventRow[];
+  const typedFavoriteStudios = (favoriteStudios ?? []) as StudioRow[];
+  const typedRelatedEvents = (relatedEvents ?? []) as EventRow[];
 
-  const studiosById = new Map(typedStudios.map((studio) => [studio.id, studio]));
-  const eventsById = new Map(typedEvents.map((event) => [event.id, event]));
+  const studiosById = new Map(typedFavoriteStudios.map((studio) => [studio.id, studio]));
+  const eventsById = new Map(typedRelatedEvents.map((event) => [event.id, event]));
 
-  const favoriteStudios = studioIds
-    .map((id) => studiosById.get(id))
-    .filter((value): value is StudioRow => Boolean(value));
+  const favoriteStudiosList = typedFavorites
+    .filter((row) => row.studio_id)
+    .map((row) => {
+      const studio = studiosById.get(row.studio_id!);
+      if (!studio) return null;
 
-  const favoriteEvents = eventFavoriteIds
-    .map((id) => eventsById.get(id))
-    .filter((value): value is EventRow => Boolean(value));
-
-  const registeredEvents = typedRegistrations
-    .map((registration) => {
-      const event = registration.event_id ? eventsById.get(registration.event_id) : undefined;
-      if (!event) return null;
-      return { registration, event };
+      return {
+        studio,
+        createdAt: row.created_at,
+      };
     })
     .filter(
       (
         value
       ): value is {
-        registration: EventRegistrationRow;
+        studio: StudioRow;
+        createdAt: string;
+      } => Boolean(value)
+    );
+
+  const favoriteEventsList = typedFavorites
+    .filter((row) => row.event_id)
+    .map((row) => {
+      const event = eventsById.get(row.event_id!);
+      if (!event) return null;
+
+      return {
+        event,
+        createdAt: row.created_at,
+      };
+    })
+    .filter(
+      (
+        value
+      ): value is {
+        event: EventRow;
+        createdAt: string;
+      } => Boolean(value)
+    );
+
+  const registeredEventsList = typedRegistrations
+    .map((row) => {
+      const event = row.event_id ? eventsById.get(row.event_id) : null;
+      if (!event) return null;
+
+      return {
+        registrationId: row.id,
+        status: row.status ?? "registered",
+        createdAt: row.created_at,
+        event,
+      };
+    })
+    .filter(
+      (
+        value
+      ): value is {
+        registrationId: string;
+        status: string;
+        createdAt: string;
         event: EventRow;
       } => Boolean(value)
     );
 
+  const linkedPortals = typedPortalLinks
+    .map((row) => {
+      const studio = getPortalStudio(row.studios);
+      if (!studio?.slug) return null;
+
+      return {
+        clientId: row.id,
+        studioId: studio.id,
+        studioSlug: studio.slug,
+        studioName: studio.public_name?.trim() || studio.name,
+        location: [studio.city, studio.state].filter(Boolean).join(", ") || "Location coming soon",
+        isIndependentInstructor: Boolean(row.is_independent_instructor),
+        clientName: `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Portal Member",
+      };
+    })
+    .filter(
+      (
+        value
+      ): value is {
+        clientId: string;
+        studioId: string;
+        studioSlug: string;
+        studioName: string;
+        location: string;
+        isIndependentInstructor: boolean;
+        clientName: string;
+      } => Boolean(value)
+    );
+
+  const firstPortalName =
+    linkedPortals.map((row) => row.clientName).find(Boolean) || null;
+
   const displayName =
-    user.user_metadata?.first_name ||
     user.user_metadata?.full_name ||
+    user.user_metadata?.first_name ||
+    firstPortalName ||
     user.email?.split("@")[0] ||
     "there";
 
   return (
-    <>
-      <PublicSiteHeader currentPath="account" isAuthenticated={!!user} />
+    <div className="min-h-screen bg-slate-50">
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <section className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_42%,#f8fafc_100%)] p-8 shadow-sm sm:p-10">
+          <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-orange-600">
+                My Account
+              </p>
+              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+                Welcome back, {displayName}
+              </h1>
+              <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
+                This is your public account home. Your favorites and event registrations stay here.
+                If a studio links your account, your studio portals will appear here as separate destinations without replacing your public account.
+              </p>
 
-      <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_18%,#f8fafc_100%)]">
-        <section className="border-b border-slate-200/70">
-          <div className="mx-auto max-w-7xl px-6 py-14 lg:px-8">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-              My Account
-            </p>
+              <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
+                  <p className="text-sm text-slate-500">Favorite Studios</p>
+                  <p className="mt-2 text-3xl font-semibold text-slate-950">
+                    {favoriteStudiosList.length}
+                  </p>
+                </div>
 
-            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-              Welcome back, {displayName}
-            </h1>
+                <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
+                  <p className="text-sm text-slate-500">Favorite Events</p>
+                  <p className="mt-2 text-3xl font-semibold text-slate-950">
+                    {favoriteEventsList.length}
+                  </p>
+                </div>
 
-            <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-              Keep track of your favorites, revisit events you registered for, and jump back into discovery.
-            </p>
+                <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
+                  <p className="text-sm text-slate-500">Registered Events</p>
+                  <p className="mt-2 text-3xl font-semibold text-slate-950">
+                    {registeredEventsList.length}
+                  </p>
+                </div>
 
-            <div className="mt-8 grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
-                <p className="text-sm text-slate-500">Favorite Studios</p>
-                <p className="mt-2 text-3xl font-semibold text-slate-950">
-                  {favoriteStudios.length}
-                </p>
+                <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
+                  <p className="text-sm text-slate-500">Studio Portals</p>
+                  <p className="mt-2 text-3xl font-semibold text-slate-950">
+                    {linkedPortals.length}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-[28px] border border-slate-200 bg-white/90 p-6 shadow-sm">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Account Actions
+              </p>
+
+              <div className="mt-5 grid gap-3">
+                {linkedPortals.length > 0 ? (
+                  <Link
+                    href={`/portal/${linkedPortals[0].studioSlug}`}
+                    className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 hover:bg-emerald-100"
+                  >
+                    <p className="font-medium text-slate-900">Open Studio Portal</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Jump into your linked studio portal access.
+                    </p>
+                  </Link>
+                ) : null}
+
+                <Link
+                  href="/discover"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
+                >
+                  <p className="font-medium text-slate-900">Explore Studios & Events</p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Discover studios, events, and new opportunities near you.
+                  </p>
+                </Link>
+
+                <form action="/auth/logout" method="post">
+                  <button
+                    type="submit"
+                    className="w-full rounded-2xl border border-slate-200 bg-white p-5 text-left hover:bg-slate-50"
+                  >
+                    <p className="font-medium text-slate-900">Log Out</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Sign out of your public account and any linked studio portals.
+                    </p>
+                  </button>
+                </form>
               </div>
 
-              <div className="rounded-2xl border border-violet-100 bg-white p-5 shadow-sm">
-                <p className="text-sm text-slate-500">Favorite Events</p>
-                <p className="mt-2 text-3xl font-semibold text-slate-950">
-                  {favoriteEvents.length}
+              <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Signed in as
                 </p>
-              </div>
-
-              <div className="rounded-2xl border border-sky-100 bg-white p-5 shadow-sm">
-                <p className="text-sm text-slate-500">Registered Events</p>
-                <p className="mt-2 text-3xl font-semibold text-slate-950">
-                  {registeredEvents.length}
+                <p className="mt-2 text-sm font-medium text-slate-900">
+                  {user.email || "No email found"}
                 </p>
               </div>
             </div>
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl space-y-8 px-6 py-8 lg:px-8">
+        <div className="mt-8 space-y-8">
           <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
-                  Account Actions
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                  My Studio Portals
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  Quick links and account controls
+                  Studio-linked portal access
                 </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+                  Your public account stays separate from your studio portals. Favorites and event registrations live here, while each studio portal gives you access to that studio’s client experience.
+                </p>
               </div>
             </div>
 
-            <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <Link
-                href="/favorites"
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
-              >
-                <p className="font-medium text-slate-900">View Favorites</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Go straight to your saved studios and events.
+            {linkedPortals.length === 0 ? (
+              <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+                <p className="text-lg font-medium text-slate-900">No linked studio portals yet</p>
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  When a studio links your account or sends you a portal invite, your studio portals will appear here.
                 </p>
-              </Link>
+              </div>
+            ) : (
+              <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                {linkedPortals.map((portal) => (
+                  <Link
+                    key={`${portal.studioId}-${portal.clientId}`}
+                    href={`/portal/${portal.studioSlug}`}
+                    className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm transition hover:bg-emerald-100"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-semibold text-slate-950">
+                          {portal.studioName}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">{portal.location}</p>
+                      </div>
 
-              <Link
-                href="/discover/studios"
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
-              >
-                <p className="font-medium text-slate-900">Browse Studios</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Continue exploring public studio pages.
-                </p>
-              </Link>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200">
+                        {portal.isIndependentInstructor
+                          ? "Independent Instructor"
+                          : "Client Portal"}
+                      </span>
+                    </div>
 
-              <Link
-                href="/discover/events"
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
-              >
-                <p className="font-medium text-slate-900">Browse Events</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Discover classes, socials, and workshops.
-                </p>
-              </Link>
-
-              <form action={signOutAction} className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
-                <p className="font-medium text-slate-900">Log Out</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Sign out of your free account on this device.
-                </p>
-
-                <button
-                  type="submit"
-                  className="mt-4 rounded-xl bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700"
-                >
-                  Log Out
-                </button>
-              </form>
-            </div>
+                    <p className="mt-4 text-sm text-slate-700">
+                      Signed in as {portal.clientName}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-600">
+                      Open this studio’s private portal for lessons, memberships, rentals, and studio-specific access.
+                    </p>
+                  </Link>
+                ))}
+              </div>
+            )}
           </section>
 
           <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
@@ -357,78 +470,37 @@ export default async function PublicAccountPage() {
                   Favorite Studios
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  Studios you want to keep up with
+                  Studios you want to keep nearby
                 </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+                  Your public favorites stay attached to this account, even when studio portal access is added later.
+                </p>
               </div>
-
-              <Link
-                href="/discover/studios"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Discover More Studios
-              </Link>
             </div>
 
-            {favoriteStudios.length === 0 ? (
-              <div className="mt-6 rounded-2xl border border-dashed border-slate-200 px-5 py-10 text-center">
-                <p className="text-sm text-slate-600">
-                  You have not favorited any studios yet.
+            {favoriteStudiosList.length === 0 ? (
+              <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+                <p className="text-lg font-medium text-slate-900">No favorite studios yet</p>
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  Favorite studios from discovery will appear here.
                 </p>
               </div>
             ) : (
-              <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {favoriteStudios.map((studio) => (
-                  <article
+              <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                {favoriteStudiosList.map(({ studio }) => (
+                  <Link
                     key={studio.id}
-                    className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+                    href={studio.slug ? `/studios/${studio.slug}` : "/discover"}
+                    className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm transition hover:bg-white"
                   >
-                    <div className="h-36 bg-slate-100">
-                      {studio.public_logo_url ? (
-                        <div className="flex h-full items-center justify-center p-6">
-                          <img
-                            src={studio.public_logo_url}
-                            alt={studioTitle(studio)}
-                            className="max-h-full max-w-full object-contain"
-                          />
-                        </div>
-                      ) : (
-                        <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#fff7ed_100%)] text-sm text-slate-500">
-                          Studio image coming soon
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-3 p-5">
-                      <div>
-                        <h3 className="text-lg font-semibold text-slate-950">
-                          {studioTitle(studio)}
-                        </h3>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {studioLocation(studio)}
-                        </p>
-                      </div>
-
-                      {studio.beginner_friendly ? (
-                        <span className="inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
-                          Beginner Friendly
-                        </span>
-                      ) : null}
-
-                      <p className="text-sm leading-6 text-slate-600">
-                        {studio.public_short_description ||
-                          "Explore this studio’s public profile and offerings."}
-                      </p>
-
-                      {studio.slug ? (
-                        <Link
-                          href={`/studios/${studio.slug}`}
-                          className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                        >
-                          View Studio
-                        </Link>
-                      ) : null}
-                    </div>
-                  </article>
+                    <p className="text-lg font-semibold text-slate-950">
+                      {studio.public_name?.trim() || studio.name}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">{getStudioLocation(studio)}</p>
+                    <p className="mt-4 text-sm text-slate-600">
+                      Open the public studio page.
+                    </p>
+                  </Link>
                 ))}
               </div>
             )}
@@ -437,77 +509,41 @@ export default async function PublicAccountPage() {
           <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-600">
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
                   Favorite Events
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  Events you saved for later
+                  Events you are tracking
                 </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+                  Saved public events stay tied to your account, not to a specific studio portal.
+                </p>
               </div>
-
-              <Link
-                href="/discover/events"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Discover More Events
-              </Link>
             </div>
 
-            {favoriteEvents.length === 0 ? (
-              <div className="mt-6 rounded-2xl border border-dashed border-slate-200 px-5 py-10 text-center">
-                <p className="text-sm text-slate-600">
-                  You have not favorited any events yet.
+            {favoriteEventsList.length === 0 ? (
+              <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+                <p className="text-lg font-medium text-slate-900">No favorite events yet</p>
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  Favorite events from discovery will appear here.
                 </p>
               </div>
             ) : (
-              <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {favoriteEvents.map((event) => (
-                  <article
+              <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                {favoriteEventsList.map(({ event }) => (
+                  <Link
                     key={event.id}
-                    className="overflow-hidden rounded-2xl border border-slate-200 bg-white"
+                    href={event.slug ? `/events/${event.slug}` : "/discover/events"}
+                    className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm transition hover:bg-white"
                   >
-                    <div className="h-36 bg-slate-100">
-                      {event.public_cover_image_url ? (
-                        <img
-                          src={event.public_cover_image_url}
-                          alt={event.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#ede9fe_40%,#fff7ed_100%)] text-sm text-slate-500">
-                          Event image coming soon
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-3 p-5">
-                      <div className="flex flex-wrap gap-2">
-                        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
-                          {eventTypeLabel(event.event_type)}
-                        </span>
-                        <span className="rounded-full bg-orange-50 px-3 py-1 text-xs text-orange-700">
-                          {formatDateRange(event.start_date, event.end_date)}
-                        </span>
-                      </div>
-
-                      <h3 className="text-lg font-semibold text-slate-950">
-                        {event.name}
-                      </h3>
-
-                      <p className="text-sm leading-6 text-slate-600">
-                        {event.public_summary || "Public event details coming soon."}
-                      </p>
-
-                      {event.slug ? (
-                        <Link
-                          href={`/events/${event.slug}`}
-                          className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                        >
-                          View Event
-                        </Link>
-                      ) : null}
-                    </div>
-                  </article>
+                    <p className="text-lg font-semibold text-slate-950">{event.title}</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {formatDate(event.starts_at)} • {getEventLocation(event)}
+                    </p>
+                    <p className="mt-4 text-sm text-slate-600">
+                      Open the public event page.
+                    </p>
+                  </Link>
                 ))}
               </div>
             )}
@@ -516,76 +552,56 @@ export default async function PublicAccountPage() {
           <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
             <div className="flex flex-wrap items-end justify-between gap-4">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-600">
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
                   Registered Events
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  Events you already signed up for
+                  Events you have registered for
                 </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+                  Your public event registrations stay with this account even after a studio portal is linked.
+                </p>
               </div>
-
-              <Link
-                href="/discover/events"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Find More Events
-              </Link>
             </div>
 
-            {registeredEvents.length === 0 ? (
-              <div className="mt-6 rounded-2xl border border-dashed border-slate-200 px-5 py-10 text-center">
-                <p className="text-sm text-slate-600">
-                  You have not registered for any events yet.
+            {registeredEventsList.length === 0 ? (
+              <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
+                <p className="text-lg font-medium text-slate-900">No event registrations yet</p>
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  Public event registrations will appear here.
                 </p>
               </div>
             ) : (
-              <div className="mt-6 grid gap-4">
-                {registeredEvents.map(({ registration, event }) => (
-                  <article
-                    key={registration.id}
-                    className="rounded-2xl border border-slate-200 bg-white p-5"
+              <div className="mt-6 grid gap-4 lg:grid-cols-2">
+                {registeredEventsList.map(({ registrationId, status, event }) => (
+                  <Link
+                    key={registrationId}
+                    href={event.slug ? `/events/${event.slug}` : "/discover/events"}
+                    className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm transition hover:bg-white"
                   >
-                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <div className="flex flex-wrap gap-2">
-                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700">
-                            {eventTypeLabel(event.event_type)}
-                          </span>
-                          <span className="rounded-full bg-sky-50 px-3 py-1 text-xs text-sky-700">
-                            {registrationStatusLabel(registration.status)}
-                          </span>
-                          <span className="rounded-full bg-orange-50 px-3 py-1 text-xs text-orange-700">
-                            {formatDateRange(event.start_date, event.end_date)}
-                          </span>
-                        </div>
-
-                        <h3 className="mt-3 text-lg font-semibold text-slate-950">
-                          {event.name}
-                        </h3>
-
-                        <p className="mt-2 text-sm leading-6 text-slate-600">
-                          {event.public_summary || "Public event details coming soon."}
+                        <p className="text-lg font-semibold text-slate-950">{event.title}</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {formatDate(event.starts_at)} • {getEventLocation(event)}
                         </p>
                       </div>
 
-                      {event.slug ? (
-                        <Link
-                          href={`/events/${event.slug}`}
-                          className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                        >
-                          View Event
-                        </Link>
-                      ) : null}
+                      <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700 ring-1 ring-sky-100">
+                        {status.replaceAll("_", " ")}
+                      </span>
                     </div>
-                  </article>
+
+                    <p className="mt-4 text-sm text-slate-600">
+                      Open the public registration event page.
+                    </p>
+                  </Link>
                 ))}
               </div>
             )}
           </section>
-        </section>
-      </main>
-
-      <PublicSiteFooter />
-    </>
+        </div>
+      </div>
+    </div>
   );
 }

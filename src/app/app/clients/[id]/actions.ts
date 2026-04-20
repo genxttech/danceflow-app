@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { canEditClients } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
@@ -15,6 +16,50 @@ function appendQueryParam(url: string, key: string, value: string) {
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
 }
 
+async function getEditableStudioContext(returnTo: string) {
+  const supabase = await createClient();
+  const context = await getCurrentStudioContext();
+  const studioId = context.studioId;
+  const role = context.studioRole ?? "";
+
+  if (!canEditClients(role)) {
+    redirect(appendQueryParam(returnTo, "error", "unauthorized"));
+  }
+
+  return { supabase, studioId, role };
+}
+
+async function getStudioClientOrRedirect(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  clientId: string;
+  returnTo: string;
+}) {
+  const { supabase, studioId, clientId, returnTo } = params;
+
+  const { data: client, error } = await supabase
+    .from("clients")
+    .select(`
+  id,
+  studio_id,
+  first_name,
+  last_name,
+  email,
+  is_independent_instructor,
+  linked_instructor_id,
+  portal_user_id
+`)
+    .eq("id", clientId)
+    .eq("studio_id", studioId)
+    .single();
+
+  if (error || !client) {
+    redirect(appendQueryParam(returnTo, "error", "client_not_found"));
+  }
+
+  return client;
+}
+
 export async function updateIndependentInstructorSettingsAction(
   formData: FormData
 ) {
@@ -27,27 +72,15 @@ export async function updateIndependentInstructorSettingsAction(
     redirect(appendQueryParam("/app/clients", "error", "missing_client"));
   }
 
-  const supabase = await createClient();
-  const context = await getCurrentStudioContext();
-  const studioId = context.studioId;
-  const role = context.studioRole ?? "";
-
-  if (!canEditClients(role)) {
-    redirect(appendQueryParam(returnTo, "error", "unauthorized"));
-  }
-
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
   const linkedInstructorId = linkedInstructorIdRaw || null;
 
-  const { data: client, error: clientError } = await supabase
-    .from("clients")
-    .select("id, studio_id")
-    .eq("id", clientId)
-    .eq("studio_id", studioId)
-    .single();
-
-  if (clientError || !client) {
-    redirect(appendQueryParam(returnTo, "error", "client_not_found"));
-  }
+  await getStudioClientOrRedirect({
+    supabase,
+    studioId,
+    clientId,
+    returnTo,
+  });
 
   if (linkedInstructorId) {
     const { data: instructor, error: instructorError } = await supabase
@@ -68,7 +101,7 @@ export async function updateIndependentInstructorSettingsAction(
     .from("clients")
     .update({
       is_independent_instructor: isIndependentInstructor,
-      linked_instructor_id: linkedInstructorId,
+      linked_instructor_id: isIndependentInstructor ? linkedInstructorId : null,
     })
     .eq("id", clientId)
     .eq("studio_id", studioId);
@@ -102,14 +135,7 @@ export async function linkPartnerAction(formData: FormData) {
     redirect(appendQueryParam(returnTo, "error", "invalid_relationship_type"));
   }
 
-  const supabase = await createClient();
-  const context = await getCurrentStudioContext();
-  const studioId = context.studioId;
-  const role = context.studioRole ?? "";
-
-  if (!canEditClients(role)) {
-    redirect(appendQueryParam(returnTo, "error", "unauthorized"));
-  }
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
 
   const { data: clients, error: clientsError } = await supabase
     .from("clients")
@@ -164,14 +190,7 @@ export async function unlinkPartnerAction(formData: FormData) {
     redirect(appendQueryParam(returnTo, "error", "missing_partner_client"));
   }
 
-  const supabase = await createClient();
-  const context = await getCurrentStudioContext();
-  const studioId = context.studioId;
-  const role = context.studioRole ?? "";
-
-  if (!canEditClients(role)) {
-    redirect(appendQueryParam(returnTo, "error", "unauthorized"));
-  }
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
 
   const { error: deleteError } = await supabase
     .from("client_relationships")
@@ -187,4 +206,155 @@ export async function unlinkPartnerAction(formData: FormData) {
   }
 
   redirect(appendQueryParam(returnTo, "success", "partner_unlinked"));
+}
+
+export async function linkPortalAccessAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
+
+  if (!clientId) {
+    redirect(appendQueryParam("/app/clients", "error", "missing_client"));
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+
+  const client = await getStudioClientOrRedirect({
+    supabase,
+    studioId,
+    clientId,
+    returnTo,
+  });
+
+  const email = client.email?.trim().toLowerCase();
+
+  if (!email) {
+    redirect(appendQueryParam(returnTo, "error", "portal_email_required"));
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("id, email")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (profileError) {
+    redirect(appendQueryParam(returnTo, "error", "portal_lookup_failed"));
+  }
+
+  if (!profile) {
+    redirect(appendQueryParam(returnTo, "error", "portal_account_not_found"));
+  }
+
+  const { error: updateError } = await supabase
+    .from("clients")
+    .update({
+      portal_user_id: profile.id,
+    })
+    .eq("id", client.id)
+    .eq("studio_id", studioId);
+
+  if (updateError) {
+    redirect(appendQueryParam(returnTo, "error", "portal_link_failed"));
+  }
+
+  redirect(appendQueryParam(returnTo, "success", "portal_linked"));
+}
+
+export async function unlinkPortalAccessAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
+
+  if (!clientId) {
+    redirect(appendQueryParam("/app/clients", "error", "missing_client"));
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+
+  await getStudioClientOrRedirect({
+    supabase,
+    studioId,
+    clientId,
+    returnTo,
+  });
+
+  const { error: updateError } = await supabase
+    .from("clients")
+    .update({
+      portal_user_id: null,
+    })
+    .eq("id", clientId)
+    .eq("studio_id", studioId);
+
+  if (updateError) {
+    redirect(appendQueryParam(returnTo, "error", "portal_unlink_failed"));
+  }
+
+  redirect(appendQueryParam(returnTo, "success", "portal_unlinked"));
+}
+
+export async function sendPortalInviteAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
+
+  if (!clientId) {
+    redirect(appendQueryParam("/app/clients", "error", "missing_client"));
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+
+  const client = await getStudioClientOrRedirect({
+    supabase,
+    studioId,
+    clientId,
+    returnTo,
+  });
+
+  const email = client.email?.trim().toLowerCase();
+
+  if (!email) {
+    redirect(appendQueryParam(returnTo, "error", "portal_email_required"));
+  }
+
+  const { data: studio, error: studioError } = await supabase
+    .from("studios")
+    .select("id, slug")
+    .eq("id", studioId)
+    .single();
+
+  if (studioError || !studio?.slug) {
+    redirect(appendQueryParam(returnTo, "error", "portal_invite_failed"));
+  }
+
+   const configuredBaseUrl =
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim();
+
+  const headerStore = await headers();
+  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
+  const proto = headerStore.get("x-forwarded-proto") ?? "http";
+
+  const fallbackBaseUrl = host ? `${proto}://${host}` : "http://localhost:3000";
+  const baseUrl = configuredBaseUrl || fallbackBaseUrl;
+
+  const nextPath = `/portal/${encodeURIComponent(studio.slug)}`;
+
+  const fullName =
+  `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || undefined;
+
+const { error: otpError } = await supabase.auth.signInWithOtp({
+  email,
+  options: {
+    shouldCreateUser: true,
+    emailRedirectTo: `${baseUrl}/callback?next=${encodeURIComponent(nextPath)}`,
+    data: {
+      full_name: fullName,
+    },
+  },
+});
+
+  if (otpError) {
+    redirect(appendQueryParam(returnTo, "error", "portal_invite_failed"));
+  }
+
+  redirect(appendQueryParam(returnTo, "success", "portal_invite_sent"));
 }

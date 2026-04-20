@@ -7,14 +7,38 @@ import {
 } from "./platform";
 
 const PLATFORM_STUDIO_COOKIE = "platform_selected_studio_id";
+const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
 type StudioRoleRow = {
   studio_id: string;
   role: string;
   active: boolean;
+  studios?:
+    | {
+        id: string;
+        name: string;
+        slug: string | null;
+        public_name: string | null;
+      }
+    | {
+        id: string;
+        name: string;
+        slug: string | null;
+        public_name: string | null;
+      }[]
+    | null;
 };
 
-type StudioContext = {
+export type StudioWorkspace = {
+  studioId: string;
+  studioRole: string;
+  studioName: string;
+  studioSlug: string | null;
+  studioPublicName: string | null;
+  isSelected: boolean;
+};
+
+export type StudioContext = {
   studioId: string;
   studioRole: string | null;
   isPlatformAdmin: boolean;
@@ -22,28 +46,110 @@ type StudioContext = {
   email: string | null;
 };
 
-async function getSelectedPlatformStudioIdFromCookie() {
+async function getCookieValue(name: string) {
   const cookieStore = await cookies();
-  return cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value ?? null;
+  return cookieStore.get(name)?.value ?? null;
+}
+
+function getStudioFromJoin(
+  value: StudioRoleRow["studios"]
+):
+  | {
+      id: string;
+      name: string;
+      slug: string | null;
+      public_name: string | null;
+    }
+  | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+async function getAccessibleStudioRolesForUser(userId: string) {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("user_studio_roles")
+    .select(`
+      studio_id,
+      role,
+      active,
+      studios (
+        id,
+        name,
+        slug,
+        public_name
+      )
+    `)
+    .eq("user_id", userId)
+    .eq("active", true)
+    .order("studio_id", { ascending: true });
+
+  if (error) {
+    throw new Error(`Failed to load studio workspaces: ${error.message}`);
+  }
+
+  return (data ?? []) as StudioRoleRow[];
+}
+
+function pickSelectedWorkspace(
+  roles: StudioRoleRow[],
+  selectedStudioId: string | null
+) {
+  if (!roles.length) return null;
+
+  if (selectedStudioId) {
+    const selected = roles.find((row) => row.studio_id === selectedStudioId);
+    if (selected) return selected;
+  }
+
+  return roles[0];
+}
+
+export async function getSelectedPlatformStudioIdFromCookie() {
+  return getCookieValue(PLATFORM_STUDIO_COOKIE);
+}
+
+export async function getSelectedAppStudioIdFromCookie() {
+  return getCookieValue(APP_SELECTED_STUDIO_COOKIE);
+}
+
+export async function getAccessibleStudios(): Promise<StudioWorkspace[]> {
+  const profile = await requireAuthenticatedUser();
+  const roles = await getAccessibleStudioRolesForUser(profile.id);
+  const selectedStudioId = await getSelectedAppStudioIdFromCookie();
+
+  return roles
+    .map((row) => {
+      const studio = getStudioFromJoin(row.studios);
+      if (!studio) return null;
+
+      return {
+        studioId: row.studio_id,
+        studioRole: row.role,
+        studioName: studio.name,
+        studioSlug: studio.slug,
+        studioPublicName: studio.public_name,
+        isSelected: row.studio_id === selectedStudioId,
+      } satisfies StudioWorkspace;
+    })
+    .filter((value): value is StudioWorkspace => Boolean(value));
 }
 
 export async function getCurrentStudioRole() {
   const profile = await requireAuthenticatedUser();
-  const supabase = await createClient();
+  const roles = await getAccessibleStudioRolesForUser(profile.id);
+  const selectedStudioId = await getSelectedAppStudioIdFromCookie();
+  const selected = pickSelectedWorkspace(roles, selectedStudioId);
 
-  const { data: roleRow, error } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id, role, active")
-    .eq("user_id", profile.id)
-    .eq("active", true)
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !roleRow) {
+  if (!selected) {
     return null;
   }
 
-  return roleRow as StudioRoleRow;
+  return {
+    studio_id: selected.studio_id,
+    role: selected.role,
+    active: selected.active,
+  } as StudioRoleRow;
 }
 
 export async function getCurrentStudioContext(): Promise<StudioContext> {
@@ -69,7 +175,7 @@ export async function getCurrentStudioContext(): Promise<StudioContext> {
   const studioRole = await getCurrentStudioRole();
 
   if (!studioRole) {
-    redirect("/login");
+    redirect("/account");
   }
 
   return {
@@ -85,7 +191,6 @@ export async function getStudioContextForStudio(
   studioId: string
 ): Promise<StudioContext> {
   const profile = await requireAuthenticatedUser();
-  const supabase = await createClient();
   const platformAdmin = await isPlatformAdmin();
 
   if (platformAdmin) {
@@ -98,22 +203,16 @@ export async function getStudioContextForStudio(
     };
   }
 
-  const { data: roleRow, error } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id, role, active")
-    .eq("user_id", profile.id)
-    .eq("studio_id", studioId)
-    .eq("active", true)
-    .limit(1)
-    .maybeSingle();
+  const roles = await getAccessibleStudioRolesForUser(profile.id);
+  const matchingRole = roles.find((row) => row.studio_id === studioId);
 
-  if (error || !roleRow) {
+  if (!matchingRole) {
     redirect("/app");
   }
 
   return {
     studioId,
-    studioRole: roleRow.role,
+    studioRole: matchingRole.role,
     isPlatformAdmin: false,
     userId: profile.id,
     email: profile.email,

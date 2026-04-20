@@ -30,153 +30,70 @@ type GroupedAgendaItems = {
   items: CalendarItem[];
 };
 
-function statusBadgeClass(status: string) {
-  if (status === "scheduled") return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
-  if (status === "attended") return "bg-green-50 text-green-700 ring-1 ring-green-100";
-  if (status === "cancelled") return "bg-red-50 text-red-700 ring-1 ring-red-100";
-  if (status === "no_show") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
-  if (status === "rescheduled") return "bg-purple-50 text-purple-700 ring-1 ring-purple-100";
-  if (status === "published") return "bg-green-50 text-green-700 ring-1 ring-green-100";
-  if (status === "draft") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
-  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+type Props = {
+  baseDate: string;
+  days: string[];
+  groupedAppointments: Record<string, CalendarItem[]>;
+  instructors: InstructorOption[];
+  rooms: RoomOption[];
+  selectedInstructorId?: string;
+  selectedRoomId?: string;
+  selectedAppointmentType?: string;
+  selectedStatus?: string;
+  selectedSource?: "all" | "appointments" | "events";
+  groupBy: "instructor" | "none";
+};
+
+type RowProps = {
+  item: CalendarItem;
+  onOpen: (appointment: DrawerAppointment) => void;
+};
+
+function buildQuery(params: Record<string, string | undefined>) {
+  const search = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value) search.set(key, value);
+  });
+
+  const query = search.toString();
+  return query ? `?${query}` : "";
 }
 
-function appointmentTypeLabel(value: string) {
-  if (value === "private_lesson") return "Private Lesson";
-  if (value === "group_class") return "Group Class";
-  if (value === "intro_lesson") return "Intro Lesson";
-  if (value === "coaching") return "Coaching";
-  if (value === "practice_party") return "Practice Party";
-  if (value === "event") return "Internal Event Appointment";
-  if (value === "floor_space_rental") return "Floor Space Rental";
-  return value.replaceAll("_", " ");
-}
+function formatRangeLabel(days: string[]) {
+  if (days.length === 0) return "";
 
-function appointmentTypeShortLabel(value: string) {
-  if (value === "private_lesson") return "Private";
-  if (value === "group_class") return "Group";
-  if (value === "intro_lesson") return "Intro";
-  if (value === "coaching") return "Coach";
-  if (value === "practice_party") return "Party";
-  if (value === "event") return "Event";
-  if (value === "floor_space_rental") return "Rental";
-  return value.replaceAll("_", " ");
-}
+  const start = new Date(`${days[0]}T00:00:00`);
+  const end = new Date(`${days[days.length - 1]}T00:00:00`);
 
-function eventTypeLabel(value: string) {
-  if (value === "group_class") return "Group Class";
-  if (value === "practice_party") return "Practice Party";
-  if (value === "workshop") return "Workshop";
-  if (value === "social_dance") return "Social Dance";
-  if (value === "competition") return "Competition";
-  if (value === "showcase") return "Showcase";
-  if (value === "festival") return "Festival";
-  if (value === "special_event") return "Special Event";
-  if (value === "other") return "Other";
-  return value.replaceAll("_", " ");
-}
+  const sameMonth = start.getMonth() === end.getMonth();
+  const sameYear = start.getFullYear() === end.getFullYear();
 
-function eventTypeShortLabel(value: string) {
-  if (value === "group_class") return "Class";
-  if (value === "practice_party") return "Party";
-  if (value === "workshop") return "Workshop";
-  if (value === "social_dance") return "Social";
-  if (value === "competition") return "Competition";
-  if (value === "showcase") return "Showcase";
-  if (value === "festival") return "Festival";
-  if (value === "special_event") return "Special";
-  return "Event";
-}
-
-function appointmentTypeBadgeClass(value: string) {
-  if (value === "private_lesson") {
-    return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
-  }
-  if (value === "floor_space_rental") {
-    return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100";
-  }
-  if (value === "intro_lesson") {
-    return "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-100";
-  }
-  if (value === "group_class") {
-    return "bg-green-50 text-green-700 ring-1 ring-green-100";
-  }
-  if (value === "coaching") {
-    return "bg-purple-50 text-purple-700 ring-1 ring-purple-100";
-  }
-  if (value === "practice_party") {
-    return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
-  }
-  if (value === "event") {
-    return "bg-rose-50 text-rose-700 ring-1 ring-rose-100";
-  }
-  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
-}
-
-function eventTypeBadgeClass(value: string) {
-  if (value === "group_class") return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
-  if (value === "practice_party") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
-  if (value === "workshop") return "bg-violet-50 text-violet-700 ring-1 ring-violet-100";
-  if (value === "social_dance") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100";
-  if (value === "competition") return "bg-red-50 text-red-700 ring-1 ring-red-100";
-  if (value === "showcase") return "bg-fuchsia-50 text-fuchsia-700 ring-1 ring-fuchsia-100";
-  if (value === "festival") return "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-100";
-  if (value === "special_event") return "bg-orange-50 text-orange-700 ring-1 ring-orange-100";
-  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
-}
-
-function agendaRowClass(item: CalendarItem) {
-  if (item.kind === "event") {
-    if (item.event_type === "group_class") {
-      return "border-blue-200 bg-blue-50 hover:border-blue-300 hover:bg-blue-100/60";
-    }
-    if (item.event_type === "practice_party") {
-      return "border-amber-200 bg-amber-50 hover:border-amber-300 hover:bg-amber-100/60";
-    }
-    if (item.event_type === "workshop") {
-      return "border-violet-200 bg-violet-50 hover:border-violet-300 hover:bg-violet-100/60";
-    }
-    if (item.event_type === "social_dance") {
-      return "border-emerald-200 bg-emerald-50 hover:border-emerald-300 hover:bg-emerald-100/60";
-    }
-    if (item.event_type === "competition") {
-      return "border-red-200 bg-red-50 hover:border-red-300 hover:bg-red-100/60";
-    }
-    if (item.event_type === "showcase") {
-      return "border-fuchsia-200 bg-fuchsia-50 hover:border-fuchsia-300 hover:bg-fuchsia-100/60";
-    }
-    if (item.event_type === "festival") {
-      return "border-cyan-200 bg-cyan-50 hover:border-cyan-300 hover:bg-cyan-100/60";
-    }
-    if (item.event_type === "special_event") {
-      return "border-orange-200 bg-orange-50 hover:border-orange-300 hover:bg-orange-100/60";
-    }
-    return "border-rose-200 bg-rose-50 hover:border-rose-300 hover:bg-rose-100/60";
+  if (sameMonth && sameYear) {
+    return `${start.toLocaleDateString([], {
+      month: "long",
+    })} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`;
   }
 
-  if (item.appointment_type === "private_lesson") {
-    return "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white";
-  }
-  if (item.appointment_type === "intro_lesson") {
-    return "border-cyan-200 bg-cyan-50 hover:border-cyan-300 hover:bg-cyan-100/60";
-  }
-  if (item.appointment_type === "group_class") {
-    return "border-green-200 bg-green-50 hover:border-green-300 hover:bg-green-100/60";
-  }
-  if (item.appointment_type === "coaching") {
-    return "border-purple-200 bg-purple-50 hover:border-purple-300 hover:bg-purple-100/60";
-  }
-  if (item.appointment_type === "practice_party") {
-    return "border-amber-200 bg-amber-50 hover:border-amber-300 hover:bg-amber-100/60";
-  }
-  if (item.appointment_type === "floor_space_rental") {
-    return "border-indigo-200 bg-indigo-50 hover:border-indigo-300 hover:bg-indigo-100/60";
-  }
-  if (item.appointment_type === "event") {
-    return "border-rose-200 bg-rose-50 hover:border-rose-300 hover:bg-rose-100/60";
+  if (sameYear) {
+    return `${start.toLocaleDateString([], {
+      month: "long",
+      day: "numeric",
+    })} - ${end.toLocaleDateString([], {
+      month: "long",
+      day: "numeric",
+    })}, ${start.getFullYear()}`;
   }
 
-  return "border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white";
+  return `${start.toLocaleDateString([], {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  })} - ${end.toLocaleDateString([], {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  })}`;
 }
 
 function getClient(
@@ -230,55 +147,130 @@ function getInstructorName(
 }
 
 function getRoomName(value: { name: string } | { name: string }[] | null | undefined) {
-  const room = getRoom(value);
-  return room?.name ?? "No room";
+  return getRoom(value)?.name ?? "No room";
 }
 
 function getOrganizerName(value: { name: string } | { name: string }[] | null | undefined) {
-  const organizer = getOrganizer(value);
-  return organizer?.name ?? "Organizer";
+  return getOrganizer(value)?.name ?? "Organizer";
 }
 
-function formatRangeLabel(days: string[]) {
-  if (days.length === 0) return "";
+function appointmentTypeLabel(value: string) {
+  if (value === "private_lesson") return "Private Lesson";
+  if (value === "group_class") return "Group Class";
+  if (value === "intro_lesson") return "Intro Lesson";
+  if (value === "coaching") return "Coaching";
+  if (value === "practice_party") return "Practice Party";
+  if (value === "event") return "Internal Event";
+  if (value === "floor_space_rental") return "Floor Rental";
+  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
 
-  const start = new Date(`${days[0]}T00:00:00`);
-  const end = new Date(`${days[days.length - 1]}T00:00:00`);
+function eventTypeLabel(value: string) {
+  if (value === "group_class") return "Group Class";
+  if (value === "practice_party") return "Practice Party";
+  if (value === "workshop") return "Workshop";
+  if (value === "social_dance") return "Social Dance";
+  if (value === "competition") return "Competition";
+  if (value === "showcase") return "Showcase";
+  if (value === "festival") return "Festival";
+  if (value === "special_event") return "Special Event";
+  if (value === "other") return "Other";
+  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
 
-  const sameMonth = start.getMonth() === end.getMonth();
-  const sameYear = start.getFullYear() === end.getFullYear();
-
-  if (sameMonth && sameYear) {
-    return `${start.toLocaleDateString([], {
-      month: "long",
-    })} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`;
+function typeShortLabel(item: CalendarItem) {
+  if (item.kind === "event") {
+    if (item.event_type === "group_class") return "Class";
+    if (item.event_type === "practice_party") return "Party";
+    if (item.event_type === "workshop") return "Workshop";
+    if (item.event_type === "social_dance") return "Social";
+    if (item.event_type === "competition") return "Competition";
+    if (item.event_type === "showcase") return "Showcase";
+    if (item.event_type === "festival") return "Festival";
+    if (item.event_type === "special_event") return "Special";
+    return "Event";
   }
 
-  if (sameYear) {
-    return `${start.toLocaleDateString([], {
-      month: "long",
-      day: "numeric",
-    })} - ${end.toLocaleDateString([], {
-      month: "long",
-      day: "numeric",
-    })}, ${start.getFullYear()}`;
+  if (item.appointment_type === "private_lesson") return "Private";
+  if (item.appointment_type === "group_class") return "Group";
+  if (item.appointment_type === "intro_lesson") return "Intro";
+  if (item.appointment_type === "coaching") return "Coaching";
+  if (item.appointment_type === "practice_party") return "Party";
+  if (item.appointment_type === "event") return "Event";
+  if (item.appointment_type === "floor_space_rental") return "Rental";
+  return "Appointment";
+}
+
+function typeBadgeClass(item: CalendarItem) {
+  if (item.kind === "event") {
+    if (item.event_type === "group_class") return "bg-blue-50 text-blue-700 ring-blue-100";
+    if (item.event_type === "practice_party")
+      return "bg-amber-50 text-amber-700 ring-amber-100";
+    if (item.event_type === "workshop") return "bg-violet-50 text-violet-700 ring-violet-100";
+    if (item.event_type === "social_dance")
+      return "bg-emerald-50 text-emerald-700 ring-emerald-100";
+    if (item.event_type === "competition") return "bg-red-50 text-red-700 ring-red-100";
+    if (item.event_type === "showcase") return "bg-fuchsia-50 text-fuchsia-700 ring-fuchsia-100";
+    if (item.event_type === "festival") return "bg-cyan-50 text-cyan-700 ring-cyan-100";
+    if (item.event_type === "special_event")
+      return "bg-orange-50 text-orange-700 ring-orange-100";
+    return "bg-rose-50 text-rose-700 ring-rose-100";
   }
 
-  return `${start.toLocaleDateString([], {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  })} - ${end.toLocaleDateString([], {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  })}`;
+  if (item.appointment_type === "private_lesson")
+    return "bg-slate-100 text-slate-700 ring-slate-200";
+  if (item.appointment_type === "floor_space_rental")
+    return "bg-indigo-50 text-indigo-700 ring-indigo-100";
+  if (item.appointment_type === "intro_lesson")
+    return "bg-cyan-50 text-cyan-700 ring-cyan-100";
+  if (item.appointment_type === "group_class")
+    return "bg-green-50 text-green-700 ring-green-100";
+  if (item.appointment_type === "coaching")
+    return "bg-purple-50 text-purple-700 ring-purple-100";
+  if (item.appointment_type === "practice_party")
+    return "bg-amber-50 text-amber-700 ring-amber-100";
+  if (item.appointment_type === "event") return "bg-rose-50 text-rose-700 ring-rose-100";
+
+  return "bg-slate-100 text-slate-700 ring-slate-200";
+}
+
+function leftAccentClass(item: CalendarItem) {
+  if (item.kind === "event") {
+    if (item.event_type === "group_class") return "border-l-blue-500";
+    if (item.event_type === "practice_party") return "border-l-amber-500";
+    if (item.event_type === "workshop") return "border-l-violet-500";
+    if (item.event_type === "social_dance") return "border-l-emerald-500";
+    if (item.event_type === "competition") return "border-l-red-500";
+    if (item.event_type === "showcase") return "border-l-fuchsia-500";
+    if (item.event_type === "festival") return "border-l-cyan-500";
+    if (item.event_type === "special_event") return "border-l-orange-500";
+    return "border-l-rose-500";
+  }
+
+  if (item.appointment_type === "private_lesson") return "border-l-slate-500";
+  if (item.appointment_type === "floor_space_rental") return "border-l-indigo-500";
+  if (item.appointment_type === "intro_lesson") return "border-l-cyan-500";
+  if (item.appointment_type === "group_class") return "border-l-green-500";
+  if (item.appointment_type === "coaching") return "border-l-purple-500";
+  if (item.appointment_type === "practice_party") return "border-l-amber-500";
+  if (item.appointment_type === "event") return "border-l-rose-500";
+
+  return "border-l-slate-400";
+}
+
+function statusDotClass(status: string) {
+  if (status === "scheduled") return "bg-blue-500";
+  if (status === "attended") return "bg-green-500";
+  if (status === "cancelled") return "bg-red-500";
+  if (status === "no_show") return "bg-amber-500";
+  if (status === "rescheduled") return "bg-purple-500";
+  if (status === "published") return "bg-green-500";
+  if (status === "draft") return "bg-amber-500";
+  return "bg-slate-400";
 }
 
 function formatAgendaItemTime(item: CalendarItem) {
-  if (item.kind === "event" && item.is_all_day) {
-    return "All day";
-  }
+  if (item.kind === "event" && item.is_all_day) return "All day";
   return `${formatTime(item.starts_at)} - ${formatTime(item.ends_at)}`;
 }
 
@@ -327,66 +319,45 @@ function groupItemsForAgenda(items: CalendarItem[]): GroupedAgendaItems[] {
   });
 }
 
-function buildQuery(params: Record<string, string | undefined>) {
-  const search = new URLSearchParams();
-
-  Object.entries(params).forEach(([key, value]) => {
-    if (value) search.set(key, value);
+function sortItems(items: CalendarItem[]) {
+  return [...items].sort((a, b) => {
+    if ((a.is_all_day ?? false) !== (b.is_all_day ?? false)) {
+      return a.is_all_day ? -1 : 1;
+    }
+    return a.starts_at.localeCompare(b.starts_at);
   });
-
-  const query = search.toString();
-  return query ? `?${query}` : "";
 }
 
-type RowProps = {
-  item: CalendarItem;
-  onOpen: (appointment: DrawerAppointment) => void;
-};
-
 function AgendaItemRow({ item, onOpen }: RowProps) {
-  const rowClass = agendaRowClass(item);
+  const accent = leftAccentClass(item);
+  const typeBadge = typeBadgeClass(item);
 
   if (item.kind === "event") {
+    const title = item.title || eventTypeLabel(item.event_type ?? "other");
+    const organizer = getOrganizerName(item.organizers);
     const location =
-      item.venue_name ||
-      [item.city, item.state].filter(Boolean).join(", ") ||
-      "No location";
+      item.venue_name || [item.city, item.state].filter(Boolean).join(", ") || "No location";
 
     return (
       <Link
         href={`/app/events/${item.id}`}
-        className={`block w-full rounded-2xl border p-4 text-left transition ${rowClass}`}
+        className={`block rounded-2xl border border-slate-200 border-l-4 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md ${accent}`}
       >
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-semibold text-slate-900">
-                {item.title || eventTypeLabel(item.event_type ?? "other")}
-              </p>
-
+              <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass(item.status)}`} />
+              <p className="text-xs font-medium text-slate-600">{formatAgendaItemTime(item)}</p>
               <span
-                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${statusBadgeClass(
-                  item.status
-                )}`}
+                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${typeBadge}`}
               >
-                {item.status.replaceAll("_", " ")}
-              </span>
-
-              <span
-                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${eventTypeBadgeClass(
-                  item.event_type ?? "other"
-                )}`}
-              >
-                {eventTypeShortLabel(item.event_type ?? "other")}
+                {typeShortLabel(item)}
               </span>
             </div>
 
-            <p className="mt-2 text-sm text-slate-900">
-              {getOrganizerName(item.organizers)}
-            </p>
-
-            <p className="mt-1 text-sm text-slate-600">{formatAgendaItemTime(item)}</p>
-            <p className="mt-1 text-sm text-slate-600">{location}</p>
+            <p className="mt-2 text-sm font-semibold text-slate-900 md:text-base">{title}</p>
+            <p className="mt-1 text-sm text-slate-700">{organizer}</p>
+            <p className="mt-1 text-sm text-slate-500">{location}</p>
           </div>
         </div>
       </Link>
@@ -402,58 +373,456 @@ function AgendaItemRow({ item, onOpen }: RowProps) {
     <button
       type="button"
       onClick={() => onOpen(item as DrawerAppointment)}
-      className={`block w-full rounded-2xl border p-4 text-left transition ${rowClass}`}
+      className={`block w-full rounded-2xl border border-slate-200 border-l-4 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md ${accent}`}
     >
-      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-slate-900">
-              {item.title || appointmentTypeLabel(item.appointment_type ?? "")}
-            </p>
-
+            <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass(item.status)}`} />
+            <p className="text-xs font-medium text-slate-600">{formatAgendaItemTime(item)}</p>
             <span
-              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${statusBadgeClass(
-                item.status
-              )}`}
+              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${typeBadge}`}
             >
-              {item.status.replaceAll("_", " ")}
+              {isFloorRental ? "Rental" : typeShortLabel(item)}
             </span>
-
-            <span
-              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ${appointmentTypeBadgeClass(
-                item.appointment_type ?? ""
-              )}`}
-            >
-              {isFloorRental
-                ? "Floor Rental"
-                : appointmentTypeShortLabel(item.appointment_type ?? "")}
-            </span>
-
             {item.is_recurring ? (
-              <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-slate-700 ring-1 ring-slate-200">
+              <span className="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-700 ring-1 ring-slate-200">
                 Recurring
               </span>
             ) : null}
           </div>
 
-          <p className="mt-2 text-sm text-slate-900">{clientName}</p>
+          <p className="mt-2 text-sm font-semibold text-slate-900 md:text-base">
+            {clientName}
+          </p>
 
-          <p className="mt-1 text-sm text-slate-600">{formatAgendaItemTime(item)}</p>
+          <p className="mt-1 text-sm text-slate-700">
+            {isFloorRental
+              ? "Independent instructor rental"
+              : item.title || appointmentTypeLabel(item.appointment_type ?? "")}
+          </p>
 
-          <p className="mt-1 text-sm text-slate-600">
-            {isFloorRental ? "Independent instructor rental" : instructorName}
+          <p className="mt-1 text-sm text-slate-500">
+            {isFloorRental ? "Floor rental" : instructorName}
             {!isFloorRental && roomName !== "No room" ? ` • ${roomName}` : ""}
           </p>
 
-          {isFloorRental ? (
-            <p className="mt-1 text-xs text-slate-500">
-              {roomName !== "No room" ? `${roomName} • ` : ""}
-              No package deduction
-            </p>
+          {isFloorRental && roomName !== "No room" ? (
+            <p className="mt-1 text-xs text-slate-500">{roomName}</p>
           ) : null}
         </div>
       </div>
     </button>
+  );
+}
+
+function TopToolbar({
+  baseDate,
+  previousDate,
+  nextDate,
+  todayDate,
+  selectedInstructorId,
+  selectedRoomId,
+  selectedAppointmentType,
+  selectedStatus,
+  selectedSource,
+  groupBy,
+  rangeLabel,
+}: {
+  baseDate: string;
+  previousDate: string;
+  nextDate: string;
+  todayDate: string;
+  selectedInstructorId?: string;
+  selectedRoomId?: string;
+  selectedAppointmentType?: string;
+  selectedStatus?: string;
+  selectedSource?: "all" | "appointments" | "events";
+  groupBy: "instructor" | "none";
+  rangeLabel: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+            Agenda View
+          </p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">
+            {rangeLabel}
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Dense weekly management view grouped by day.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 md:flex md:flex-wrap">
+          <Link
+            href={`/app/schedule/calendar${buildQuery({
+              view: "agenda",
+              date: previousDate,
+              source: selectedSource,
+              instructorId: selectedInstructorId,
+              roomId: selectedRoomId,
+              appointmentType: selectedAppointmentType,
+              status: selectedStatus,
+              groupBy,
+            })}`}
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Previous
+          </Link>
+
+          <Link
+            href={`/app/schedule/calendar${buildQuery({
+              view: "agenda",
+              date: todayDate,
+              source: selectedSource,
+              instructorId: selectedInstructorId,
+              roomId: selectedRoomId,
+              appointmentType: selectedAppointmentType,
+              status: selectedStatus,
+              groupBy,
+            })}`}
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Today
+          </Link>
+
+          <Link
+            href={`/app/schedule/calendar${buildQuery({
+              view: "agenda",
+              date: nextDate,
+              source: selectedSource,
+              instructorId: selectedInstructorId,
+              roomId: selectedRoomId,
+              appointmentType: selectedAppointmentType,
+              status: selectedStatus,
+              groupBy,
+            })}`}
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Next
+          </Link>
+
+          <Link
+            href={`/app/schedule/calendar${buildQuery({
+              view: "week",
+              date: baseDate,
+              source: selectedSource,
+              instructorId: selectedInstructorId,
+              roomId: selectedRoomId,
+              appointmentType: selectedAppointmentType,
+              status: selectedStatus,
+            })}`}
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Week View
+          </Link>
+
+          <Link
+            href={`/app/schedule/calendar${buildQuery({
+              view: "agenda",
+              date: baseDate,
+              source: selectedSource,
+              instructorId: selectedInstructorId,
+              roomId: selectedRoomId,
+              appointmentType: selectedAppointmentType,
+              status: selectedStatus,
+              groupBy: "instructor",
+            })}`}
+            className={`inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium ${
+              groupBy === "instructor"
+                ? "bg-slate-900 text-white hover:bg-slate-800"
+                : "border border-slate-200 text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            By Instructor
+          </Link>
+
+          <Link
+            href={`/app/schedule/calendar${buildQuery({
+              view: "agenda",
+              date: baseDate,
+              source: selectedSource,
+              instructorId: selectedInstructorId,
+              roomId: selectedRoomId,
+              appointmentType: selectedAppointmentType,
+              status: selectedStatus,
+              groupBy: "none",
+            })}`}
+            className={`inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium ${
+              groupBy === "none"
+                ? "bg-slate-900 text-white hover:bg-slate-800"
+                : "border border-slate-200 text-slate-700 hover:bg-slate-50"
+            }`}
+          >
+            Flat List
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilterBar({
+  baseDate,
+  instructors,
+  rooms,
+  selectedInstructorId,
+  selectedRoomId,
+  selectedAppointmentType,
+  selectedStatus,
+  selectedSource,
+  groupBy,
+}: {
+  baseDate: string;
+  instructors: InstructorOption[];
+  rooms: RoomOption[];
+  selectedInstructorId?: string;
+  selectedRoomId?: string;
+  selectedAppointmentType?: string;
+  selectedStatus?: string;
+  selectedSource?: "all" | "appointments" | "events";
+  groupBy: "instructor" | "none";
+}) {
+  return (
+    <form className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+      <input type="hidden" name="view" value="agenda" />
+      <input type="hidden" name="date" value={baseDate} />
+      <input type="hidden" name="groupBy" value={groupBy} />
+
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
+        <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div>
+            <label htmlFor="source" className="mb-1.5 block text-sm font-medium text-slate-700">
+              Source
+            </label>
+            <select
+              id="source"
+              name="source"
+              defaultValue={selectedSource ?? "all"}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            >
+              <option value="all">All items</option>
+              <option value="appointments">Appointments only</option>
+              <option value="events">Events only</option>
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="instructorId"
+              className="mb-1.5 block text-sm font-medium text-slate-700"
+            >
+              Instructor
+            </label>
+            <select
+              id="instructorId"
+              name="instructorId"
+              defaultValue={selectedInstructorId ?? ""}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            >
+              <option value="">All</option>
+              {instructors.map((instructor) => (
+                <option key={instructor.id} value={instructor.id}>
+                  {instructor.first_name} {instructor.last_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="roomId" className="mb-1.5 block text-sm font-medium text-slate-700">
+              Room
+            </label>
+            <select
+              id="roomId"
+              name="roomId"
+              defaultValue={selectedRoomId ?? ""}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            >
+              <option value="">All</option>
+              {rooms.map((room) => (
+                <option key={room.id} value={room.id}>
+                  {room.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="appointmentType"
+              className="mb-1.5 block text-sm font-medium text-slate-700"
+            >
+              Type
+            </label>
+            <select
+              id="appointmentType"
+              name="appointmentType"
+              defaultValue={selectedAppointmentType ?? ""}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            >
+              <option value="">All types</option>
+              <option value="private_lesson">Private Lesson</option>
+              <option value="group_class">Group Class</option>
+              <option value="intro_lesson">Intro Lesson</option>
+              <option value="coaching">Coaching</option>
+              <option value="practice_party">Practice Party</option>
+              <option value="floor_space_rental">Floor Space Rental</option>
+              <option value="event">Internal Event Appointment</option>
+              <option value="workshop">Workshop</option>
+              <option value="social_dance">Social Dance</option>
+              <option value="competition">Competition</option>
+              <option value="showcase">Showcase</option>
+              <option value="festival">Festival</option>
+              <option value="special_event">Special Event</option>
+              <option value="other">Other Event</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="status" className="mb-1.5 block text-sm font-medium text-slate-700">
+              Status
+            </label>
+            <select
+              id="status"
+              name="status"
+              defaultValue={selectedStatus ?? ""}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            >
+              <option value="">All</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="attended">Attended</option>
+              <option value="cancelled">Cancelled</option>
+              <option value="no_show">No Show</option>
+              <option value="rescheduled">Rescheduled</option>
+              <option value="published">Published</option>
+              <option value="draft">Draft</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 xl:flex xl:flex-shrink-0 xl:gap-3">
+          <button
+            type="submit"
+            className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+          >
+            Apply
+          </button>
+
+          <Link
+            href={`/app/schedule/calendar${buildQuery({
+              view: "agenda",
+              date: baseDate,
+              groupBy,
+            })}`}
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Reset
+          </Link>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function DaySection({
+  day,
+  items,
+  todayDate,
+  groupBy,
+  onOpen,
+}: {
+  day: string;
+  items: CalendarItem[];
+  todayDate: string;
+  groupBy: "instructor" | "none";
+  onOpen: (appointment: DrawerAppointment) => void;
+}) {
+  const isToday = day === todayDate;
+  const sortedItems = useMemo(() => sortItems(items), [items]);
+  const grouped = useMemo(() => groupItemsForAgenda(sortedItems), [sortedItems]);
+
+  return (
+    <section
+      className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${
+        isToday ? "ring-2 ring-slate-900/10" : ""
+      }`}
+    >
+      <div className="border-b border-slate-200 px-4 py-4 md:px-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-lg font-semibold text-slate-900">
+                {formatDateHeading(new Date(`${day}T00:00:00`))}
+              </h3>
+              {isToday ? (
+                <span className="rounded-full bg-slate-900 px-2.5 py-0.5 text-[11px] font-medium text-white">
+                  Today
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1 text-sm text-slate-500">
+              {formatShortDate(new Date(`${day}T00:00:00`))} • {items.length} item
+              {items.length === 1 ? "" : "s"}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="p-4 md:p-5">
+        {sortedItems.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
+            <p className="text-sm font-medium text-slate-600">No items</p>
+            <p className="mt-1 text-xs text-slate-500">Open availability for this date.</p>
+          </div>
+        ) : groupBy === "instructor" ? (
+          <div className="space-y-4">
+            {grouped.map((group) => (
+              <div
+                key={group.key}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-900">{group.label}</h4>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {group.items.length} item{group.items.length === 1 ? "" : "s"}
+                    </p>
+                  </div>
+
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                    {group.items.length}
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {group.items.map((item) => (
+                    <AgendaItemRow
+                      key={`${item.kind}-${item.id}-${item.display_date ?? day}`}
+                      item={item}
+                      onOpen={onOpen}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {sortedItems.map((item) => (
+              <AgendaItemRow
+                key={`${item.kind}-${item.id}-${item.display_date ?? day}`}
+                item={item}
+                onOpen={onOpen}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -469,19 +838,7 @@ export default function ScheduleAgendaView({
   selectedStatus,
   selectedSource,
   groupBy,
-}: {
-  baseDate: string;
-  days: string[];
-  groupedAppointments: Record<string, CalendarItem[]>;
-  instructors: InstructorOption[];
-  rooms: RoomOption[];
-  selectedInstructorId?: string;
-  selectedRoomId?: string;
-  selectedAppointmentType?: string;
-  selectedStatus?: string;
-  selectedSource?: "all" | "appointments" | "events";
-  groupBy: "instructor" | "none";
-}) {
+}: Props) {
   const [selectedAppointment, setSelectedAppointment] =
     useState<DrawerAppointment | null>(null);
 
@@ -492,26 +849,6 @@ export default function ScheduleAgendaView({
 
   const totalItems = days.reduce(
     (sum, day) => sum + (groupedAppointments[day] ?? []).length,
-    0
-  );
-
-  const floorRentalCount = days.reduce(
-    (sum, day) =>
-      sum +
-      (groupedAppointments[day] ?? []).filter(
-        (item) =>
-          item.kind === "appointment" &&
-          item.appointment_type === "floor_space_rental"
-      ).length,
-    0
-  );
-
-  const recurringCount = days.reduce(
-    (sum, day) =>
-      sum +
-      (groupedAppointments[day] ?? []).filter(
-        (item) => item.kind === "appointment" && item.is_recurring
-      ).length,
     0
   );
 
@@ -530,467 +867,106 @@ export default function ScheduleAgendaView({
     0
   );
 
+  const floorRentalCount = days.reduce(
+    (sum, day) =>
+      sum +
+      (groupedAppointments[day] ?? []).filter(
+        (item) =>
+          item.kind === "appointment" && item.appointment_type === "floor_space_rental"
+      ).length,
+    0
+  );
+
   const rangeLabel = useMemo(() => formatRangeLabel(days), [days]);
 
   return (
     <>
-      <div className="space-y-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="text-3xl font-semibold tracking-tight text-slate-900">
-              Agenda
-            </h2>
-            <p className="mt-2 max-w-3xl text-slate-600">
-              Detailed weekly schedule grouped by day, with optional instructor sections.
-              Colors and filters now match the calendar so appointments and public events behave consistently.
+      <div className="space-y-4 md:space-y-5">
+        <TopToolbar
+          baseDate={baseDate}
+          previousDate={previousDate}
+          nextDate={nextDate}
+          todayDate={todayDate}
+          selectedInstructorId={selectedInstructorId}
+          selectedRoomId={selectedRoomId}
+          selectedAppointmentType={selectedAppointmentType}
+          selectedStatus={selectedStatus}
+          selectedSource={selectedSource}
+          groupBy={groupBy}
+          rangeLabel={rangeLabel}
+        />
+
+        <FilterBar
+          baseDate={baseDate}
+          instructors={instructors}
+          rooms={rooms}
+          selectedInstructorId={selectedInstructorId}
+          selectedRoomId={selectedRoomId}
+          selectedAppointmentType={selectedAppointmentType}
+          selectedStatus={selectedStatus}
+          selectedSource={selectedSource}
+          groupBy={groupBy}
+        />
+
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+              Visible
+            </p>
+            <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">{totalItems}</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+              Scheduled
+            </p>
+            <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">
+              {scheduledCount}
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <Link
-              href="/app/schedule"
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              List View
-            </Link>
-
-            <Link
-              href="/app/events/new"
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              New Event
-            </Link>
-
-            <Link
-              href="/app/schedule/new"
-              className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
-            >
-              New Appointment
-            </Link>
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+              Events
+            </p>
+            <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">{eventCount}</p>
           </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+              Rentals
+            </p>
+            <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">
+              {floorRentalCount}
+            </p>
+          </div>
+
+          <Link
+            href="/app/schedule/new"
+            className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
+          >
+            New Appointment
+          </Link>
+
+          <Link
+            href="/app/events/new"
+            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+          >
+            New Event
+          </Link>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-5">
-          <div className="rounded-2xl border bg-white p-5">
-            <p className="text-sm text-slate-500">Visible Items</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-900">{totalItems}</p>
-          </div>
-
-          <div className="rounded-2xl border bg-white p-5">
-            <p className="text-sm text-slate-500">Scheduled</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-900">{scheduledCount}</p>
-          </div>
-
-          <div className="rounded-2xl border bg-white p-5">
-            <p className="text-sm text-slate-500">Recurring</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-900">{recurringCount}</p>
-          </div>
-
-          <div className="rounded-2xl border bg-white p-5">
-            <p className="text-sm text-slate-500">Floor Rentals</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-900">{floorRentalCount}</p>
-          </div>
-
-          <div className="rounded-2xl border bg-white p-5">
-            <p className="text-sm text-slate-500">Events</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-900">{eventCount}</p>
-          </div>
-        </div>
-
-        <form className="rounded-2xl border bg-white p-5">
-          <input type="hidden" name="view" value="agenda" />
-          <input type="hidden" name="date" value={baseDate} />
-          <input type="hidden" name="groupBy" value={groupBy} />
-
-          <div className="grid gap-4 md:grid-cols-5">
-            <div>
-              <label htmlFor="source" className="mb-1 block text-sm font-medium">
-                Source
-              </label>
-              <select
-                id="source"
-                name="source"
-                defaultValue={selectedSource ?? "all"}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
-              >
-                <option value="all">All items</option>
-                <option value="appointments">Appointments only</option>
-                <option value="events">Events only</option>
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="instructorId" className="mb-1 block text-sm font-medium">
-                Instructor
-              </label>
-              <select
-                id="instructorId"
-                name="instructorId"
-                defaultValue={selectedInstructorId ?? ""}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
-              >
-                <option value="">All</option>
-                {instructors.map((instructor) => (
-                  <option key={instructor.id} value={instructor.id}>
-                    {instructor.first_name} {instructor.last_name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="roomId" className="mb-1 block text-sm font-medium">
-                Room
-              </label>
-              <select
-                id="roomId"
-                name="roomId"
-                defaultValue={selectedRoomId ?? ""}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
-              >
-                <option value="">All</option>
-                {rooms.map((room) => (
-                  <option key={room.id} value={room.id}>
-                    {room.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="appointmentType" className="mb-1 block text-sm font-medium">
-                Type
-              </label>
-              <select
-                id="appointmentType"
-                name="appointmentType"
-                defaultValue={selectedAppointmentType ?? ""}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
-              >
-                <option value="">All types</option>
-                <option value="private_lesson">Private Lesson</option>
-                <option value="group_class">Group Class</option>
-                <option value="intro_lesson">Intro Lesson</option>
-                <option value="coaching">Coaching</option>
-                <option value="practice_party">Practice Party</option>
-                <option value="floor_space_rental">Floor Space Rental</option>
-                <option value="event">Internal Event Appointment</option>
-                <option value="workshop">Workshop</option>
-                <option value="social_dance">Social Dance</option>
-                <option value="competition">Competition</option>
-                <option value="showcase">Showcase</option>
-                <option value="festival">Festival</option>
-                <option value="special_event">Special Event</option>
-                <option value="other">Other Event</option>
-              </select>
-            </div>
-
-            <div>
-              <label htmlFor="status" className="mb-1 block text-sm font-medium">
-                Status
-              </label>
-              <select
-                id="status"
-                name="status"
-                defaultValue={selectedStatus ?? ""}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
-              >
-                <option value="">All</option>
-                <option value="scheduled">Scheduled</option>
-                <option value="attended">Attended</option>
-                <option value="cancelled">Cancelled</option>
-                <option value="no_show">No Show</option>
-                <option value="rescheduled">Rescheduled</option>
-                <option value="published">Published</option>
-                <option value="draft">Draft</option>
-              </select>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button
-              type="submit"
-              className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
-            >
-              Apply Filters
-            </button>
-
-            <Link
-              href={`/app/schedule/calendar${buildQuery({
-                view: "agenda",
-                date: baseDate,
-                groupBy,
-              })}`}
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              Reset Filters
-            </Link>
-
-            <Link
-              href={`/app/schedule/calendar${buildQuery({
-                view: "agenda",
-                date: todayDate,
-                source: selectedSource,
-                instructorId: selectedInstructorId,
-                roomId: selectedRoomId,
-                appointmentType: selectedAppointmentType,
-                status: selectedStatus,
-                groupBy,
-              })}`}
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              Today
-            </Link>
-
-            <Link
-              href={`/app/schedule/calendar${buildQuery({
-                view: "agenda",
-                date: baseDate,
-                source: "appointments",
-                appointmentType: "floor_space_rental",
-                instructorId: selectedInstructorId,
-                roomId: selectedRoomId,
-                status: selectedStatus,
-                groupBy,
-              })}`}
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              Floor Rentals
-            </Link>
-
-            <Link
-              href={`/app/schedule/calendar${buildQuery({
-                view: "agenda",
-                date: baseDate,
-                appointmentType: "intro_lesson",
-                source: "appointments",
-                instructorId: selectedInstructorId,
-                roomId: selectedRoomId,
-                status: selectedStatus,
-                groupBy,
-              })}`}
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              Intro Lessons
-            </Link>
-
-            <Link
-              href={`/app/schedule/calendar${buildQuery({
-                view: "agenda",
-                date: baseDate,
-                source: "events",
-                status: "published",
-                groupBy,
-              })}`}
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              Published Events
-            </Link>
-          </div>
-        </form>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-            <div>
-              <p className="text-sm font-medium uppercase tracking-wide text-slate-400">
-                Agenda View
-              </p>
-              <h3 className="mt-1 text-2xl font-semibold text-slate-900">
-                {rangeLabel}
-              </h3>
-              <p className="mt-1 text-sm text-slate-500">
-                Rich operational view grouped by day. Best for detail, grouping, and scanning full schedules.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href={`/app/schedule/calendar${buildQuery({
-                  view: "agenda",
-                  date: previousDate,
-                  source: selectedSource,
-                  instructorId: selectedInstructorId,
-                  roomId: selectedRoomId,
-                  appointmentType: selectedAppointmentType,
-                  status: selectedStatus,
-                  groupBy,
-                })}`}
-                className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-              >
-                Previous
-              </Link>
-
-              <Link
-                href={`/app/schedule/calendar${buildQuery({
-                  view: "agenda",
-                  date: nextDate,
-                  source: selectedSource,
-                  instructorId: selectedInstructorId,
-                  roomId: selectedRoomId,
-                  appointmentType: selectedAppointmentType,
-                  status: selectedStatus,
-                  groupBy,
-                })}`}
-                className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-              >
-                Next
-              </Link>
-
-              <Link
-                href={`/app/schedule/calendar${buildQuery({
-                  view: "agenda",
-                  date: baseDate,
-                  source: selectedSource,
-                  instructorId: selectedInstructorId,
-                  roomId: selectedRoomId,
-                  appointmentType: selectedAppointmentType,
-                  status: selectedStatus,
-                  groupBy: "instructor",
-                })}`}
-                className={`rounded-xl px-4 py-2 ${
-                  groupBy === "instructor"
-                    ? "bg-slate-900 text-white hover:bg-slate-800"
-                    : "border hover:bg-slate-50"
-                }`}
-              >
-                By Instructor
-              </Link>
-
-              <Link
-                href={`/app/schedule/calendar${buildQuery({
-                  view: "agenda",
-                  date: baseDate,
-                  source: selectedSource,
-                  instructorId: selectedInstructorId,
-                  roomId: selectedRoomId,
-                  appointmentType: selectedAppointmentType,
-                  status: selectedStatus,
-                  groupBy: "none",
-                })}`}
-                className={`rounded-xl px-4 py-2 ${
-                  groupBy === "none"
-                    ? "bg-slate-900 text-white hover:bg-slate-800"
-                    : "border hover:bg-slate-50"
-                }`}
-              >
-                Flat List
-              </Link>
-
-              <Link
-                href={`/app/schedule/calendar${buildQuery({
-                  view: "week",
-                  date: baseDate,
-                  source: selectedSource,
-                  instructorId: selectedInstructorId,
-                  roomId: selectedRoomId,
-                  appointmentType: selectedAppointmentType,
-                  status: selectedStatus,
-                })}`}
-                className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-              >
-                Switch to Week View
-              </Link>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          {days.map((day) => {
-            const items = groupedAppointments[day] ?? [];
-            const dayDate = new Date(`${day}T00:00:00`);
-            const grouped = groupItemsForAgenda(items);
-            const isToday = day === todayDate;
-
-            return (
-              <details key={day} open className="rounded-2xl border bg-white p-5">
-                <summary className="cursor-pointer list-none">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
-                        {formatDateHeading(dayDate)}
-                      </p>
-                      <h3 className="mt-1 text-xl font-semibold text-slate-900">
-                        {formatShortDate(dayDate)}
-                      </h3>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {items.length === 0
-                          ? "No items"
-                          : `${items.length} item${items.length === 1 ? "" : "s"}`}
-                      </p>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {isToday ? (
-                        <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-medium text-white">
-                          Today
-                        </span>
-                      ) : null}
-
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                        {items.length}
-                      </span>
-                    </div>
-                  </div>
-                </summary>
-
-                {items.length === 0 ? (
-                  <div className="mt-5 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center">
-                    <p className="text-sm font-medium text-slate-600">No items</p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Open availability for this date.
-                    </p>
-                  </div>
-                ) : groupBy === "instructor" ? (
-                  <div className="mt-5 space-y-4">
-                    {grouped.map((group) => (
-                      <details
-                        key={group.key}
-                        open
-                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                      >
-                        <summary className="cursor-pointer list-none">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <h4 className="text-base font-semibold text-slate-900">
-                                {group.label}
-                              </h4>
-                              <p className="mt-1 text-xs text-slate-500">
-                                {group.items.length} item{group.items.length === 1 ? "" : "s"}
-                              </p>
-                            </div>
-
-                            <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                              {group.items.length}
-                            </span>
-                          </div>
-                        </summary>
-
-                        <div className="mt-4 space-y-3">
-                          {group.items.map((item) => (
-                            <AgendaItemRow
-                              key={`${item.kind}-${item.id}-${item.display_date ?? day}`}
-                              item={item}
-                              onOpen={setSelectedAppointment}
-                            />
-                          ))}
-                        </div>
-                      </details>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="mt-5 space-y-3">
-                    {items.map((item) => (
-                      <AgendaItemRow
-                        key={`${item.kind}-${item.id}-${item.display_date ?? day}`}
-                        item={item}
-                        onOpen={setSelectedAppointment}
-                      />
-                    ))}
-                  </div>
-                )}
-              </details>
-            );
-          })}
+        <div className="space-y-4">
+          {days.map((day) => (
+            <DaySection
+              key={day}
+              day={day}
+              items={groupedAppointments[day] ?? []}
+              todayDate={todayDate}
+              groupBy={groupBy}
+              onOpen={setSelectedAppointment}
+            />
+          ))}
         </div>
       </div>
 

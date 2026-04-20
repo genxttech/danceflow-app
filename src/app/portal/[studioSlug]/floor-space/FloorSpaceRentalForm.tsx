@@ -15,6 +15,7 @@ type Slot = {
   date: string;
   startTime: string;
   endTime: string;
+  priceAmount: string;
 };
 
 type ActionState = {
@@ -33,6 +34,7 @@ function makeSlot(): Slot {
     date: "",
     startTime: "",
     endTime: "",
+    priceAmount: "",
   };
 }
 
@@ -44,7 +46,16 @@ function getTodayDateInputValue() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-function formatSlotLabel(slot: Pick<Slot, "date" | "startTime" | "endTime">) {
+function formatCurrencyInput(value: string) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) return "";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+}
+
+function formatSlotLabel(slot: Pick<Slot, "date" | "startTime" | "endTime" | "priceAmount">) {
   if (!slot.date || !slot.startTime || !slot.endTime) return "Incomplete slot";
 
   const start = new Date(`${slot.date}T${slot.startTime}:00`);
@@ -53,6 +64,10 @@ function formatSlotLabel(slot: Pick<Slot, "date" | "startTime" | "endTime">) {
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
     return "Incomplete slot";
   }
+
+  const amountLabel = slot.priceAmount
+    ? ` • ${formatCurrencyInput(slot.priceAmount) || `$${slot.priceAmount}`}`
+    : "";
 
   return `${start.toLocaleDateString([], {
     weekday: "short",
@@ -64,7 +79,7 @@ function formatSlotLabel(slot: Pick<Slot, "date" | "startTime" | "endTime">) {
   })} - ${end.toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
-  })}`;
+  })}${amountLabel}`;
 }
 
 function hasDuplicateSlots(slots: Slot[]) {
@@ -99,6 +114,11 @@ function getClientValidationError(slots: Slot[]) {
     if (endsAt <= startsAt) {
       return "Each slot must end after it starts.";
     }
+
+    const amount = Number(slot.priceAmount);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      return "Enter a rental fee greater than $0 for every slot.";
+    }
   }
 
   if (hasDuplicateSlots(slots)) {
@@ -122,6 +142,7 @@ export default function FloorSpaceRentalForm({
   const searchParams = useSearchParams();
 
   const [notes, setNotes] = useState("");
+  const [hasTouchedSlots, setHasTouchedSlots] = useState(false);
   const [slots, setSlots] = useState<Slot[]>([
     {
       ...makeSlot(),
@@ -129,7 +150,9 @@ export default function FloorSpaceRentalForm({
     },
   ]);
 
-  const bookingSuccess = searchParams.get("success") === "booked";
+  const bookingSuccess =
+    searchParams.get("success") === "booked" ||
+    searchParams.get("success") === "floor_rentals_booked";
 
   const slotsJson = useMemo(() => {
     return JSON.stringify(
@@ -137,6 +160,7 @@ export default function FloorSpaceRentalForm({
         date: slot.date,
         startTime: slot.startTime,
         endTime: slot.endTime,
+        priceAmount: slot.priceAmount,
       }))
     );
   }, [slots]);
@@ -147,8 +171,15 @@ export default function FloorSpaceRentalForm({
   );
 
   const slotCount = slots.length;
+  const totalAmount = useMemo(() => {
+    return slots.reduce((sum, slot) => {
+      const amount = Number(slot.priceAmount);
+      return Number.isFinite(amount) && amount > 0 ? sum + amount : sum;
+    }, 0);
+  }, [slots]);
 
   function addSlot() {
+    setHasTouchedSlots(true);
     setSlots((current) => [
       ...current,
       {
@@ -159,6 +190,7 @@ export default function FloorSpaceRentalForm({
   }
 
   function removeSlot(id: string) {
+    setHasTouchedSlots(true);
     setSlots((current) => {
       if (current.length === 1) return current;
       return current.filter((slot) => slot.id !== id);
@@ -166,6 +198,7 @@ export default function FloorSpaceRentalForm({
   }
 
   function updateSlot(id: string, patch: Partial<Slot>) {
+    setHasTouchedSlots(true);
     setSlots((current) =>
       current.map((slot) => (slot.id === id ? { ...slot, ...patch } : slot))
     );
@@ -212,6 +245,7 @@ export default function FloorSpaceRentalForm({
           <li>Floor space rentals do not deduct from lesson packages.</li>
           <li>Past time slots cannot be booked.</li>
           <li>Your own overlapping bookings are blocked.</li>
+          <li>Each slot needs a rental fee so it can be paid from the portal.</li>
           <li>
             Room overlap can be overridden only when you intentionally choose to do so.
           </li>
@@ -282,7 +316,7 @@ export default function FloorSpaceRentalForm({
             <div>
               <h3 className="text-lg font-semibold text-slate-900">Rental Slots</h3>
               <p className="mt-1 text-sm text-slate-600">
-                Add one or more future floor rental sessions.
+                Add one or more future floor rental sessions and assign a fee to each.
               </p>
             </div>
 
@@ -299,6 +333,13 @@ export default function FloorSpaceRentalForm({
                 Add Slot
               </button>
             </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            Total rental fees:{" "}
+            <span className="font-semibold">
+              {formatCurrencyInput(String(totalAmount)) || "$0.00"}
+            </span>
           </div>
 
           <div className="mt-5 space-y-4">
@@ -325,7 +366,7 @@ export default function FloorSpaceRentalForm({
                   </button>
                 </div>
 
-                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                <div className="mt-4 grid gap-4 md:grid-cols-4">
                   <div>
                     <label className="mb-1 block text-sm font-medium">Date</label>
                     <input
@@ -366,13 +407,34 @@ export default function FloorSpaceRentalForm({
                       className="w-full rounded-xl border border-slate-300 px-3 py-2"
                     />
                   </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">
+                      Rental Fee
+                    </label>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      inputMode="decimal"
+                      value={slot.priceAmount}
+                      onChange={(e) =>
+                        updateSlot(slot.id, { priceAmount: e.target.value })
+                      }
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                      placeholder="0.00"
+                    />
+                    <p className="mt-1 text-xs text-slate-500">
+                      Required for portal payment.
+                    </p>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         </div>
 
-        {clientValidationError ? (
+        {!bookingSuccess && hasTouchedSlots && clientValidationError ? (
           <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             {clientValidationError}
           </div>
@@ -393,7 +455,7 @@ export default function FloorSpaceRentalForm({
         <div className="flex flex-wrap gap-3">
           <button
             type="submit"
-            disabled={pending || !!clientValidationError}
+            disabled={pending || (!!clientValidationError && hasTouchedSlots)}
             className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800 disabled:opacity-60"
           >
             {pending ? "Booking..." : "Book Floor Rentals"}
