@@ -685,7 +685,7 @@ export default function EventForm({
                   name="capacity"
                   type="number"
                   min="0"
-                  value={capacity}
+                  defaultValue={initialValues?.capacity ?? ""}
                   onChange={(e) => setCapacity(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                   placeholder={isGroupClass ? "20" : "Optional"}
