@@ -25,6 +25,44 @@ type ActionState = {
   success: string;
 };
 
+type PublicEventRow = {
+  id: string;
+  slug: string;
+  name: string;
+  studio_id: string;
+  organizer_id: string | null;
+  status: string;
+  visibility: string;
+  public_directory_enabled: boolean;
+  registration_required: boolean;
+  account_required_for_registration: boolean;
+  registration_opens_at: string | null;
+  registration_closes_at: string | null;
+  capacity: number | null;
+  waitlist_enabled: boolean;
+};
+
+type PublicTicketTypeRow = {
+  id: string;
+  event_id: string;
+  name: string;
+  ticket_kind: string | null;
+  price: number;
+  currency: string | null;
+  capacity: number | null;
+  active: boolean;
+  sale_starts_at: string | null;
+  sale_ends_at: string | null;
+};
+
+type ExistingRegistrationRow = {
+  id: string;
+  status: string;
+  stripe_checkout_session_id: string | null;
+  quantity: number | null;
+  attendee_email: string;
+};
+
 const initialState: ActionState = {
   error: "",
   success: "",
@@ -53,6 +91,14 @@ function getInt(formData: FormData, key: string, fallback = 1) {
 function appendQueryParam(url: string, key: string, value: string) {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
+}
+
+function eventUrlFromSlug(eventSlug: string) {
+  return `/events/${encodeURIComponent(eventSlug)}`;
+}
+
+function eventUrlWithQuery(eventSlug: string, key: string, value: string) {
+  return appendQueryParam(eventUrlFromSlug(eventSlug), key, value);
 }
 
 function getAppUrl() {
@@ -403,6 +449,200 @@ async function safeQueueEventConfirmedOutbound(params: {
   }
 }
 
+async function getPublicEventBySlug(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventSlug: string;
+}) {
+  const { supabase, eventSlug } = params;
+
+  const { data: event, error } = await supabase
+    .from("events")
+    .select(`
+      id,
+      slug,
+      name,
+      studio_id,
+      organizer_id,
+      status,
+      visibility,
+      public_directory_enabled,
+      registration_required,
+      account_required_for_registration,
+      registration_opens_at,
+      registration_closes_at,
+      capacity,
+      waitlist_enabled
+    `)
+    .eq("slug", eventSlug)
+    .eq("status", "published")
+    .in("visibility", ["public", "unlisted"])
+    .single<PublicEventRow>();
+
+  if (error || !event) {
+    return null;
+  }
+
+  return event;
+}
+
+async function getPublicTicketType(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  ticketTypeId: string;
+}) {
+  const { supabase, eventId, ticketTypeId } = params;
+
+  const { data: ticketType, error } = await supabase
+    .from("event_ticket_types")
+    .select(`
+      id,
+      event_id,
+      name,
+      ticket_kind,
+      price,
+      currency,
+      capacity,
+      active,
+      sale_starts_at,
+      sale_ends_at
+    `)
+    .eq("id", ticketTypeId)
+    .eq("event_id", eventId)
+    .single<PublicTicketTypeRow>();
+
+  if (error || !ticketType) {
+    return null;
+  }
+
+  return ticketType;
+}
+
+async function findExistingOpenRegistration(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  ticketTypeId: string;
+  attendeeEmail: string;
+}) {
+  const { supabase, eventId, ticketTypeId, attendeeEmail } = params;
+
+  const { data } = await supabase
+    .from("event_registrations")
+    .select(`
+      id,
+      status,
+      stripe_checkout_session_id,
+      quantity,
+      attendee_email
+    `)
+    .eq("event_id", eventId)
+    .eq("ticket_type_id", ticketTypeId)
+    .ilike("attendee_email", attendeeEmail)
+    .neq("status", "cancelled")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<ExistingRegistrationRow>();
+
+  return data ?? null;
+}
+
+function validateRegistrationWindow(event: PublicEventRow) {
+  if (!event.registration_required) {
+    return "Registration is not enabled for this event.";
+  }
+
+  if (
+    event.registration_opens_at &&
+    new Date(event.registration_opens_at).getTime() > Date.now()
+  ) {
+    return "Registration has not opened yet.";
+  }
+
+  if (
+    event.registration_closes_at &&
+    new Date(event.registration_closes_at).getTime() < Date.now()
+  ) {
+    return "Registration is closed for this event.";
+  }
+
+  return null;
+}
+
+function validateTicketWindow(ticketType: PublicTicketTypeRow) {
+  if (!ticketType.active) {
+    return "This ticket type is no longer available.";
+  }
+
+  if (
+    ticketType.sale_starts_at &&
+    new Date(ticketType.sale_starts_at).getTime() > Date.now()
+  ) {
+    return "Ticket sales for this option have not opened yet.";
+  }
+
+  if (
+    ticketType.sale_ends_at &&
+    new Date(ticketType.sale_ends_at).getTime() < Date.now()
+  ) {
+    return "Ticket sales for this option have ended.";
+  }
+
+  return null;
+}
+
+async function getCapacitySnapshot(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  ticketTypeId: string;
+}) {
+  const { supabase, eventId, ticketTypeId } = params;
+
+  const { count: activeRegistrationCount, error: countError } = await supabase
+    .from("event_registrations")
+    .select("*", { count: "exact", head: true })
+    .eq("event_id", eventId)
+    .not("status", "in", "(cancelled,waitlisted)");
+
+  if (countError) {
+    throw new Error("Could not validate event capacity.");
+  }
+
+  const { count: activeTicketCount, error: ticketCountError } = await supabase
+    .from("event_registrations")
+    .select("*", { count: "exact", head: true })
+    .eq("event_id", eventId)
+    .eq("ticket_type_id", ticketTypeId)
+    .not("status", "in", "(cancelled,waitlisted)");
+
+  if (ticketCountError) {
+    throw new Error("Could not validate ticket capacity.");
+  }
+
+  return {
+    activeRegistrationCount: activeRegistrationCount ?? 0,
+    activeTicketCount: activeTicketCount ?? 0,
+  };
+}
+
+async function findLinkedClientId(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  attendeeEmail: string;
+}) {
+  const { supabase, studioId, attendeeEmail } = params;
+
+  if (!attendeeEmail) return null;
+
+  const { data: matchingClient } = await supabase
+    .from("clients")
+    .select("id")
+    .eq("studio_id", studioId)
+    .ilike("email", attendeeEmail)
+    .limit(1)
+    .maybeSingle();
+
+  return matchingClient?.id ?? null;
+}
+
 export async function createEventRegistrationAction(
   _prevState: ActionState = initialState,
   formData: FormData
@@ -438,35 +678,22 @@ export async function createEventRegistrationAction(
       data: { user },
     } = await supabase.auth.getUser();
 
-    const { data: event, error: eventError } = await supabase
-      .from("events")
-      .select(
-        `
-        id,
-        slug,
-        name,
-        studio_id,
-        status,
-        visibility,
-        registration_required,
-        account_required_for_registration,
-        registration_opens_at,
-        registration_closes_at,
-        capacity,
-        waitlist_enabled
-      `
-      )
-      .eq("slug", eventSlug)
-      .eq("status", "published")
-      .in("visibility", ["public", "unlisted"])
-      .single();
+    const event = await getPublicEventBySlug({
+      supabase,
+      eventSlug,
+    });
 
-    if (eventError || !event) {
+    if (!event) {
       return { error: "Event not found.", success: "" };
     }
 
-    if (!event.registration_required) {
-      return { error: "Registration is not enabled for this event.", success: "" };
+    if (!event.organizer_id) {
+      return { error: "This event is not available for public registration.", success: "" };
+    }
+
+    const registrationWindowError = validateRegistrationWindow(event);
+    if (registrationWindowError) {
+      return { error: registrationWindowError, success: "" };
     }
 
     if (event.account_required_for_registration && !user) {
@@ -476,116 +703,95 @@ export async function createEventRegistrationAction(
       };
     }
 
-    if (
-      event.registration_opens_at &&
-      new Date(event.registration_opens_at).getTime() > Date.now()
-    ) {
-      return { error: "Registration has not opened yet.", success: "" };
-    }
+    const ticketType = await getPublicTicketType({
+      supabase,
+      eventId: event.id,
+      ticketTypeId,
+    });
 
-    if (
-      event.registration_closes_at &&
-      new Date(event.registration_closes_at).getTime() < Date.now()
-    ) {
-      return { error: "Registration is closed for this event.", success: "" };
-    }
-
-    const { data: ticketType, error: ticketError } = await supabase
-      .from("event_ticket_types")
-      .select(
-        `
-        id,
-        event_id,
-        name,
-        ticket_kind,
-        price,
-        currency,
-        capacity,
-        active,
-        sale_starts_at,
-        sale_ends_at
-      `
-      )
-      .eq("id", ticketTypeId)
-      .eq("event_id", event.id)
-      .single();
-
-    if (ticketError || !ticketType) {
+    if (!ticketType) {
       return { error: "Ticket type not found.", success: "" };
     }
 
-    if (!ticketType.active) {
-      return { error: "This ticket type is no longer available.", success: "" };
+    const ticketWindowError = validateTicketWindow(ticketType);
+    if (ticketWindowError) {
+      return { error: ticketWindowError, success: "" };
     }
 
-    if (
-      ticketType.sale_starts_at &&
-      new Date(ticketType.sale_starts_at).getTime() > Date.now()
-    ) {
-      return {
-        error: "Ticket sales for this option have not opened yet.",
-        success: "",
-      };
-    }
-
-    if (
-      ticketType.sale_ends_at &&
-      new Date(ticketType.sale_ends_at).getTime() < Date.now()
-    ) {
-      return {
-        error: "Ticket sales for this option have ended.",
-        success: "",
-      };
-    }
-
-    const { count: activeRegistrationCount, error: countError } = await supabase
-      .from("event_registrations")
-      .select("*", { count: "exact", head: true })
-      .eq("event_id", event.id)
-      .not("status", "in", "(cancelled,waitlisted)");
-
-    if (countError) {
-      return { error: "Could not validate event capacity.", success: "" };
-    }
-
-    const { count: activeTicketCount, error: ticketCountError } = await supabase
-      .from("event_registrations")
-      .select("*", { count: "exact", head: true })
-      .eq("event_id", event.id)
-      .eq("ticket_type_id", ticketType.id)
-      .not("status", "in", "(cancelled,waitlisted)");
-
-    if (ticketCountError) {
-      return { error: "Could not validate ticket capacity.", success: "" };
-    }
-
-    let linkedClientId: string | null = null;
-
-    if (attendeeEmail) {
-      const { data: matchingClient } = await supabase
-        .from("clients")
-        .select("id")
-        .eq("studio_id", event.studio_id)
-        .ilike("email", attendeeEmail)
-        .limit(1)
-        .maybeSingle();
-
-      linkedClientId = matchingClient?.id ?? null;
-    }
+    const existingRegistration = await findExistingOpenRegistration({
+      supabase,
+      eventId: event.id,
+      ticketTypeId: ticketType.id,
+      attendeeEmail,
+    });
 
     const unitPrice = Number(ticketType.price ?? 0);
     const totalPrice = Number((unitPrice * quantity).toFixed(2));
     const currency = ticketType.currency || "USD";
 
+    if (existingRegistration) {
+      if (existingRegistration.status === "waitlisted") {
+        redirect(eventUrlWithQuery(event.slug, "success", "waitlisted"));
+      }
+
+      if (
+        existingRegistration.status === "confirmed" ||
+        existingRegistration.status === "attended" ||
+        existingRegistration.status === "checked_in"
+      ) {
+        redirect(
+          eventUrlWithQuery(event.slug, "success", totalPrice > 0 ? "paid" : "registered")
+        );
+      }
+
+      const session = await createStripeCheckoutSession({
+        studioId: event.studio_id,
+        eventId: event.id,
+        eventSlug: event.slug,
+        eventName: event.name,
+        registrationId: existingRegistration.id,
+        ticketTypeId: ticketType.id,
+        ticketTypeName: ticketType.name,
+        ticketKind: ticketType.ticket_kind,
+        attendeeEmail,
+        quantity: existingRegistration.quantity ?? quantity,
+        unitPrice,
+        currency,
+      });
+
+      await supabase
+        .from("event_registrations")
+        .update({
+          stripe_checkout_session_id: session.id,
+        })
+        .eq("id", existingRegistration.id);
+
+      redirect(
+        session.url || eventUrlWithQuery(event.slug, "error", "checkout_session_failed")
+      );
+    }
+
+    const capacitySnapshot = await getCapacitySnapshot({
+      supabase,
+      eventId: event.id,
+      ticketTypeId: ticketType.id,
+    });
+
     const eventHasNoCapacity =
       event.capacity != null &&
-      (activeRegistrationCount ?? 0) + quantity > event.capacity;
+      capacitySnapshot.activeRegistrationCount + quantity > event.capacity;
 
     const ticketHasNoCapacity =
       ticketType.capacity != null &&
-      (activeTicketCount ?? 0) + quantity > ticketType.capacity;
+      capacitySnapshot.activeTicketCount + quantity > ticketType.capacity;
 
     const shouldWaitlist = eventHasNoCapacity || ticketHasNoCapacity;
+
+    const linkedClientId = await findLinkedClientId({
+      supabase,
+      studioId: event.studio_id,
+      attendeeEmail,
+    });
 
     if (shouldWaitlist) {
       if (!event.waitlist_enabled) {
@@ -678,85 +884,11 @@ export async function createEventRegistrationAction(
         currency,
       });
 
-      redirect(
-        appendQueryParam(
-          `/events/${encodeURIComponent(event.slug)}`,
-          "success",
-          "waitlisted"
-        )
-      );
+      redirect(eventUrlWithQuery(event.slug, "success", "waitlisted"));
     }
 
     if (totalPrice > 0) {
       await requireStudioConnectReadyForCheckout(event.studio_id);
-    }
-
-    const { data: existingRegistration } = await supabase
-      .from("event_registrations")
-      .select(
-        `
-        id,
-        status,
-        stripe_checkout_session_id
-        `
-      )
-      .eq("event_id", event.id)
-      .eq("ticket_type_id", ticketType.id)
-      .ilike("attendee_email", attendeeEmail)
-      .neq("status", "cancelled")
-      .maybeSingle();
-
-    if (existingRegistration) {
-      if (existingRegistration.status === "waitlisted") {
-        redirect(
-          appendQueryParam(
-            `/events/${encodeURIComponent(event.slug)}`,
-            "success",
-            "waitlisted"
-          )
-        );
-      }
-
-      if (existingRegistration.status === "confirmed") {
-        redirect(
-          appendQueryParam(
-            `/events/${encodeURIComponent(event.slug)}`,
-            totalPrice > 0 ? "success" : "success",
-            totalPrice > 0 ? "paid" : "registered"
-          )
-        );
-      }
-
-      const session = await createStripeCheckoutSession({
-        studioId: event.studio_id,
-        eventId: event.id,
-        eventSlug: event.slug,
-        eventName: event.name,
-        registrationId: existingRegistration.id,
-        ticketTypeId: ticketType.id,
-        ticketTypeName: ticketType.name,
-        ticketKind: ticketType.ticket_kind,
-        attendeeEmail,
-        quantity,
-        unitPrice,
-        currency,
-      });
-
-      await supabase
-        .from("event_registrations")
-        .update({
-          stripe_checkout_session_id: session.id,
-        })
-        .eq("id", existingRegistration.id);
-
-      redirect(
-        session.url ||
-          appendQueryParam(
-            `/events/${encodeURIComponent(event.slug)}`,
-            "error",
-            "checkout_session_failed"
-          )
-      );
     }
 
     const { data: registration, error: registrationError } = await supabase
@@ -843,13 +975,7 @@ export async function createEventRegistrationAction(
         currency,
       });
 
-      redirect(
-        appendQueryParam(
-          `/events/${encodeURIComponent(event.slug)}`,
-          "success",
-          "registered"
-        )
-      );
+      redirect(eventUrlWithQuery(event.slug, "success", "registered"));
     }
 
     const session = await createStripeCheckoutSession({
@@ -886,12 +1012,7 @@ export async function createEventRegistrationAction(
     }
 
     redirect(
-      session.url ||
-        appendQueryParam(
-          `/events/${encodeURIComponent(event.slug)}`,
-          "error",
-          "checkout_session_failed"
-        )
+      session.url || eventUrlWithQuery(event.slug, "error", "checkout_session_failed")
     );
   } catch (error) {
     if (isRedirectError(error)) {
@@ -919,8 +1040,7 @@ export async function retryEventRegistrationCheckoutAction(formData: FormData) {
 
   const { data: registration, error: registrationError } = await supabase
     .from("event_registrations")
-    .select(
-      `
+    .select(`
       id,
       event_id,
       ticket_type_id,
@@ -933,39 +1053,75 @@ export async function retryEventRegistrationCheckoutAction(formData: FormData) {
         id,
         slug,
         name,
-        studio_id
+        studio_id,
+        organizer_id,
+        status,
+        visibility
       ),
       event_ticket_types (
         id,
         name,
-        ticket_kind
+        ticket_kind,
+        active,
+        sale_starts_at,
+        sale_ends_at
       )
-    `
-    )
+    `)
     .eq("id", registrationId)
     .single();
 
   if (registrationError || !registration) {
-    redirect(`/events/${encodeURIComponent(eventSlug)}?error=checkout_session_failed`);
+    redirect(eventUrlWithQuery(eventSlug, "error", "checkout_session_failed"));
   }
 
   const eventValue = Array.isArray(registration.events)
     ? registration.events[0]
     : registration.events;
+
   const ticketTypeValue = Array.isArray(registration.event_ticket_types)
     ? registration.event_ticket_types[0]
     : registration.event_ticket_types;
 
   if (!eventValue || !ticketTypeValue) {
-    redirect(`/events/${encodeURIComponent(eventSlug)}?error=checkout_session_failed`);
+    redirect(eventUrlWithQuery(eventSlug, "error", "checkout_session_failed"));
+  }
+
+  if (
+    eventValue.status !== "published" ||
+    !["public", "unlisted"].includes(eventValue.visibility) ||
+    !eventValue.organizer_id
+  ) {
+    redirect(eventUrlWithQuery(eventValue.slug, "error", "checkout_session_failed"));
+  }
+
+  if (!ticketTypeValue.active) {
+    redirect(eventUrlWithQuery(eventValue.slug, "error", "checkout_session_failed"));
+  }
+
+  if (
+    ticketTypeValue.sale_starts_at &&
+    new Date(ticketTypeValue.sale_starts_at).getTime() > Date.now()
+  ) {
+    redirect(eventUrlWithQuery(eventValue.slug, "error", "checkout_session_failed"));
+  }
+
+  if (
+    ticketTypeValue.sale_ends_at &&
+    new Date(ticketTypeValue.sale_ends_at).getTime() < Date.now()
+  ) {
+    redirect(eventUrlWithQuery(eventValue.slug, "error", "checkout_session_failed"));
   }
 
   if (registration.status === "waitlisted") {
-    redirect(`/events/${encodeURIComponent(eventValue.slug)}?success=waitlisted`);
+    redirect(eventUrlWithQuery(eventValue.slug, "success", "waitlisted"));
   }
 
-  if (registration.status === "confirmed") {
-    redirect(`/events/${encodeURIComponent(eventValue.slug)}?success=paid`);
+  if (
+    registration.status === "confirmed" ||
+    registration.status === "attended" ||
+    registration.status === "checked_in"
+  ) {
+    redirect(eventUrlWithQuery(eventValue.slug, "success", "paid"));
   }
 
   const session = await createStripeCheckoutSession({
@@ -991,11 +1147,8 @@ export async function retryEventRegistrationCheckoutAction(formData: FormData) {
     .eq("id", registration.id);
 
   if (registrationUpdateError) {
-    redirect(`/events/${encodeURIComponent(eventValue.slug)}?error=checkout_session_failed`);
+    redirect(eventUrlWithQuery(eventValue.slug, "error", "checkout_session_failed"));
   }
 
-  redirect(
-    session.url ||
-      `/events/${encodeURIComponent(eventValue.slug)}?error=checkout_session_failed`
-  );
+  redirect(session.url || eventUrlWithQuery(eventValue.slug, "error", "checkout_session_failed"));
 }

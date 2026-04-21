@@ -3,10 +3,24 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireStudioFeature } from "@/lib/billing/access";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import {
+  CalendarDays,
+  Globe2,
+  MapPin,
+  Sparkles,
+  Ticket,
+  Users,
+  Wallet,
+} from "lucide-react";
 
 type Params = Promise<{
   id: string;
 }>;
+
+type WorkspaceRow = {
+  id: string;
+  name: string | null;
+};
 
 type EventRow = {
   id: string;
@@ -102,6 +116,18 @@ type TicketRegistrationSummaryRow = {
   status: string;
 };
 
+function isOrganizerWorkspaceName(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+
+  if (!normalized) return false;
+
+  return (
+    normalized.endsWith(" organizer") ||
+    normalized.includes(" organizer ") ||
+    normalized.endsWith(" events")
+  );
+}
+
 function eventTypeLabel(value: string) {
   if (value === "group_class") return "Group Class";
   if (value === "practice_party") return "Practice Party";
@@ -116,23 +142,31 @@ function eventTypeLabel(value: string) {
 }
 
 function eventTypeBadgeClass(value: string) {
-  if (value === "group_class") return "bg-blue-50 text-blue-700";
-  if (value === "practice_party") return "bg-amber-50 text-amber-700";
-  if (value === "workshop") return "bg-violet-50 text-violet-700";
-  if (value === "social_dance") return "bg-emerald-50 text-emerald-700";
-  if (value === "competition") return "bg-red-50 text-red-700";
-  if (value === "showcase") return "bg-fuchsia-50 text-fuchsia-700";
-  if (value === "festival") return "bg-cyan-50 text-cyan-700";
-  if (value === "special_event") return "bg-orange-50 text-orange-700";
-  return "bg-slate-100 text-slate-700";
+  if (value === "group_class") return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
+  if (value === "practice_party") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (value === "workshop") return "bg-violet-50 text-violet-700 ring-1 ring-violet-200";
+  if (value === "social_dance") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  if (value === "competition") return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  if (value === "showcase") return "bg-fuchsia-50 text-fuchsia-700 ring-1 ring-fuchsia-200";
+  if (value === "festival") return "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200";
+  if (value === "special_event") return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function statusBadgeClass(status: string) {
-  if (status === "published" || status === "open") return "bg-green-50 text-green-700";
-  if (status === "draft") return "bg-amber-50 text-amber-700";
-  if (status === "cancelled") return "bg-red-50 text-red-700";
-  if (status === "completed") return "bg-slate-100 text-slate-700";
-  return "bg-slate-100 text-slate-700";
+  if (status === "published" || status === "open") {
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  }
+  if (status === "draft") {
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  }
+  if (status === "cancelled") {
+    return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  }
+  if (status === "completed") {
+    return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+  }
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function visibilityLabel(value: string) {
@@ -228,28 +262,55 @@ function ticketWindowState(ticket: TicketTypeSummaryRow) {
   if (!ticket.active) {
     return {
       label: "Inactive",
-      className: "bg-slate-100 text-slate-700",
+      className: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
     };
   }
 
   if (ticket.sale_starts_at && new Date(ticket.sale_starts_at).getTime() > now) {
     return {
       label: "Scheduled",
-      className: "bg-blue-50 text-blue-700",
+      className: "bg-blue-50 text-blue-700 ring-1 ring-blue-200",
     };
   }
 
   if (ticket.sale_ends_at && new Date(ticket.sale_ends_at).getTime() < now) {
     return {
       label: "Ended",
-      className: "bg-slate-100 text-slate-700",
+      className: "bg-slate-100 text-slate-700 ring-1 ring-slate-200",
     };
   }
 
   return {
     label: "On Sale",
-    className: "bg-green-50 text-green-700",
+    className: "bg-green-50 text-green-700 ring-1 ring-green-200",
   };
+}
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+  subtext,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ComponentType<{ className?: string }>;
+  subtext?: string;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-slate-500">{label}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
+          {subtext ? <p className="mt-2 text-sm text-slate-500">{subtext}</p> : null}
+        </div>
+        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default async function EventDetailPage({
@@ -276,12 +337,19 @@ export default async function EventDetailPage({
   }
 
   const [
+    { data: workspace, error: workspaceError },
     { data: event, error: eventError },
     { data: tags, error: tagsError },
     { data: registrations, error: registrationsError },
     { data: ticketTypes, error: ticketTypesError },
     { data: ticketRegistrations, error: ticketRegistrationsError },
   ] = await Promise.all([
+    supabase
+      .from("studios")
+      .select("id, name")
+      .eq("id", studioId)
+      .maybeSingle<WorkspaceRow>(),
+
     supabase
       .from("events")
       .select(`
@@ -373,6 +441,10 @@ export default async function EventDetailPage({
       .not("status", "in", "(cancelled,waitlisted)"),
   ]);
 
+  if (workspaceError) {
+    throw new Error(`Failed to load workspace: ${workspaceError.message}`);
+  }
+
   if (eventError || !event) {
     notFound();
   }
@@ -393,6 +465,7 @@ export default async function EventDetailPage({
     throw new Error(`Failed to load ticket registration counts: ${ticketRegistrationsError.message}`);
   }
 
+  const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
   const typedEvent = event as EventRow;
   const typedTags = (tags ?? []) as EventTagRow[];
   const typedRegistrations = (registrations ?? []) as RegistrationSummaryRow[];
@@ -531,422 +604,255 @@ export default async function EventDetailPage({
     activeTicketCount > 0;
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-3xl font-semibold tracking-tight">{typedEvent.name}</h2>
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div
+          className="px-6 py-8 text-white md:px-8"
+          style={{
+            background:
+              typedEvent.public_cover_image_url?.trim() || typedEvent.cover_image_url?.trim()
+                ? `linear-gradient(rgba(47,15,92,0.74), rgba(75,46,131,0.84)), url(${typedEvent.public_cover_image_url || typedEvent.cover_image_url}) center/cover`
+                : "linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)",
+          }}
+        >
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                {organizerWorkspace ? "DanceFlow Organizer Event" : "DanceFlow Event"}
+              </p>
 
-            <span
-              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                typedEvent.status
-              )}`}
-            >
-              {typedEvent.status}
-            </span>
+              <div className="mt-4 flex flex-wrap items-center gap-2">
+                <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+                  {typedEvent.name}
+                </h1>
 
-            <span
-              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${eventTypeBadgeClass(
-                typedEvent.event_type
-              )}`}
-            >
-              {eventTypeLabel(typedEvent.event_type)}
-            </span>
+                <span
+                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
+                    typedEvent.status
+                  )}`}
+                >
+                  {typedEvent.status}
+                </span>
 
-            <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-              {visibilityLabel(typedEvent.visibility)}
-            </span>
+                <span
+                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${eventTypeBadgeClass(
+                    typedEvent.event_type
+                  )}`}
+                >
+                  {eventTypeLabel(typedEvent.event_type)}
+                </span>
 
-            {typedEvent.featured ? (
-              <span className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">
-                Featured
-              </span>
-            ) : null}
+                <span className="inline-flex rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white ring-1 ring-white/15">
+                  {visibilityLabel(typedEvent.visibility)}
+                </span>
+              </div>
 
-            {typedEvent.public_directory_enabled ? (
-              <span className="inline-flex rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
-                Public Directory On
-              </span>
-            ) : (
-              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                Public Directory Off
-              </span>
-            )}
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+                {typedEvent.public_summary ||
+                  typedEvent.short_description ||
+                  "No short description provided."}
+              </p>
 
-            {typedEvent.beginner_friendly ? (
-              <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-                Beginner Friendly
-              </span>
-            ) : null}
+              <p className="mt-4 text-sm text-white/75">
+                Organizer: {organizer?.name ?? "Unknown"} • /events/{typedEvent.slug}
+              </p>
+
+              <p className="mt-2 text-sm text-white/75">
+                {eventUsageHint(typedEvent.event_type, typedEvent.visibility)}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/app/events"
+                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+              >
+                Back to Events
+              </Link>
+
+              <Link
+                href={`/app/events/${typedEvent.id}/edit`}
+                className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+              >
+                Edit Event
+              </Link>
+            </div>
           </div>
-
-          <p className="mt-2 text-slate-600">
-            {typedEvent.public_summary ||
-              typedEvent.short_description ||
-              "No short description provided."}
-          </p>
-
-          <p className="mt-3 text-sm text-slate-500">
-            {eventUsageHint(typedEvent.event_type, typedEvent.visibility)}
-          </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href="/app/events"
-            className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-          >
-            Back to Events
-          </Link>
-
-          <Link
-            href={`/app/events/${typedEvent.id}/edit`}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
-          >
-            Edit Event
-          </Link>
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+            <StatCard
+              label="Registrations"
+              value={totalRegistrations}
+              icon={Users}
+            />
+            <StatCard
+              label="Checked In"
+              value={checkedInCount}
+              icon={CalendarDays}
+            />
+            <StatCard
+              label="Discovery Ready"
+              value={publicDirectoryReady ? "Yes" : "No"}
+              icon={Sparkles}
+            />
+            <StatCard
+              label="Active Tickets"
+              value={activeTicketCount}
+              icon={Ticket}
+            />
+            <StatCard
+              label="Net Collected"
+              value={fmtCurrency(netCollected, defaultCurrency)}
+              icon={Wallet}
+            />
+          </div>
         </div>
-      </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-5">
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Type</p>
-          <p className="mt-2 text-xl font-semibold">{eventTypeLabel(typedEvent.event_type)}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">Date Range</p>
-          <p className="mt-2 text-xl font-semibold">{formatDate(typedEvent.start_date)}</p>
-          <p className="mt-1 text-sm text-slate-500">to {formatDate(typedEvent.end_date)}</p>
+          <p className="mt-2 text-xl font-semibold text-slate-900">
+            {formatDate(typedEvent.start_date)}
+          </p>
+          <p className="mt-1 text-sm text-slate-500">
+            to {formatDate(typedEvent.end_date)}
+          </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">Time</p>
-          <p className="mt-2 text-xl font-semibold">
+          <p className="mt-2 text-xl font-semibold text-slate-900">
             {formatTimeRange(typedEvent.start_time, typedEvent.end_time)}
           </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">Organizer</p>
-          <p className="mt-2 text-xl font-semibold">{organizer?.name ?? "Unknown"}</p>
+          <p className="mt-2 text-xl font-semibold text-slate-900">
+            {organizer?.name ?? "Unknown"}
+          </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
           <p className="text-sm text-slate-500">{registrationLabel(typedEvent.event_type)}</p>
-          <p className="mt-2 text-xl font-semibold">
+          <p className="mt-2 text-xl font-semibold text-slate-900">
             {registrationRequiredLabel(
               typedEvent.event_type,
               typedEvent.registration_required
             )}
           </p>
         </div>
-      </div>
 
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
-        <h3 className="text-xl font-semibold text-slate-900">Public Discovery</h3>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-              typedEvent.public_directory_enabled
-                ? "bg-green-50 text-green-700"
-                : "bg-slate-100 text-slate-700"
-            }`}
-          >
-            {typedEvent.public_directory_enabled ? "Public Directory On" : "Public Directory Off"}
-          </span>
-
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-              typedEvent.beginner_friendly
-                ? "bg-blue-50 text-blue-700"
-                : "bg-slate-100 text-slate-700"
-            }`}
-          >
-            {typedEvent.beginner_friendly ? "Beginner Friendly" : "Not Beginner Focused"}
-          </span>
-
-          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-            Visibility: {visibilityLabel(typedEvent.visibility)}
-          </span>
-
-          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-            Status: {typedEvent.status}
-          </span>
-
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-              typedEvent.organizer_id
-                ? "bg-green-50 text-green-700"
-                : "bg-amber-50 text-amber-700"
-            }`}
-          >
-            {typedEvent.organizer_id ? "Organizer Linked" : "No Organizer"}
-          </span>
-
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-              publicDirectoryReady
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-amber-50 text-amber-700"
-            }`}
-          >
-            {publicDirectoryReady ? "Discovery Ready" : "Not Yet Discovery Ready"}
-          </span>
-        </div>
-
-        <div className="mt-4 text-sm text-slate-600">
-          {publicDirectoryReady ? (
-            <p>
-              This event is configured for public discovery and is eligible to appear in the public
-              dance directory.
-            </p>
-          ) : (
-            <p>
-              This event is not currently fully eligible for public discovery. Public directory must
-              be on, visibility must be public, status must be published/open, and the event must be
-              linked to an organizer.
-            </p>
-          )}
-        </div>
-      </div>
-
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
-        <h3 className="text-xl font-semibold text-slate-900">Ticket & Registration Readiness</h3>
-
-        <div className="mt-4 flex flex-wrap gap-2">
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-              typedEvent.registration_required
-                ? "bg-green-50 text-green-700"
-                : "bg-slate-100 text-slate-700"
-            }`}
-          >
-            {typedEvent.registration_required ? "Registration On" : "Registration Optional/Off"}
-          </span>
-
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-              activeTicketCount > 0
-                ? "bg-green-50 text-green-700"
-                : "bg-amber-50 text-amber-700"
-            }`}
-          >
-            {activeTicketCount > 0 ? `${activeTicketCount} Active Tickets` : "No Active Tickets"}
-          </span>
-
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-              typedEvent.waitlist_enabled
-                ? "bg-purple-50 text-purple-700"
-                : "bg-slate-100 text-slate-700"
-            }`}
-          >
-            {typedEvent.waitlist_enabled ? "Waitlist Enabled" : "Waitlist Off"}
-          </span>
-
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-              ticketReadiness
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-amber-50 text-amber-700"
-            }`}
-          >
-            {ticketReadiness ? "Public Ticketing Ready" : "Not Yet Ticketing Ready"}
-          </span>
-        </div>
-
-        <div className="mt-4 grid gap-4 md:grid-cols-4">
-          <div className="rounded-xl border bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Ticket Types</p>
-            <p className="mt-1 font-medium text-slate-900">{ticketCount}</p>
-          </div>
-
-          <div className="rounded-xl border bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Active Tickets</p>
-            <p className="mt-1 font-medium text-slate-900">{activeTicketCount}</p>
-          </div>
-
-          <div className="rounded-xl border bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Public Ticket Types</p>
-            <p className="mt-1 font-medium text-slate-900">{publicTicketCount}</p>
-          </div>
-
-          <div className="rounded-xl border bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Event Capacity</p>
-            <p className="mt-1 font-medium text-slate-900">
-              {typedEvent.capacity ?? "Unlimited / not set"}
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              {remainingCapacity == null ? "No event cap" : `${remainingCapacity} spots left`}
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 text-sm text-slate-600">
-          {ticketReadiness ? (
-            <p>
-              This event has the basic requirements for public ticket registration: registration is enabled, the event is not private/draft, and at least one active ticket exists.
-            </p>
-          ) : (
-            <p>
-              To make public ticket registration work smoothly, enable registration, keep the event out of draft/private state, and create at least one active ticket type.
-            </p>
-          )}
-        </div>
-
-        {typedTicketTypes.length > 0 ? (
-          <div className="mt-6 space-y-3">
-            {typedTicketTypes.map((ticket) => {
-              const registrationsForTicket = ticketRegistrationsById.get(ticket.id) ?? 0;
-              const remainingForTicket =
-                ticket.capacity == null ? null : Math.max(ticket.capacity - registrationsForTicket, 0);
-              const windowState = ticketWindowState(ticket);
-
-              return (
-                <div
-                  key={ticket.id}
-                  className="rounded-xl border bg-slate-50 p-4"
-                >
-                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-slate-900">{ticket.name}</p>
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
-                            ticket.active
-                              ? "bg-green-50 text-green-700"
-                              : "bg-slate-100 text-slate-700"
-                          }`}
-                        >
-                          {ticket.active ? "Active" : "Inactive"}
-                        </span>
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${windowState.className}`}
-                        >
-                          {windowState.label}
-                        </span>
-                      </div>
-
-                      <p className="mt-2 text-sm text-slate-600">
-                        {fmtCurrency(ticket.price, ticket.currency)}
-                      </p>
-                    </div>
-
-                    <div className="grid gap-2 text-sm text-slate-600 md:text-right">
-                      <p>
-                        Capacity: {ticket.capacity ?? "Unlimited"}
-                        {remainingForTicket != null ? ` • ${remainingForTicket} left` : ""}
-                      </p>
-                      <p>Registrations: {registrationsForTicket}</p>
-                      <p>Sale starts: {formatDateTime(ticket.sale_starts_at)}</p>
-                      <p>Sale ends: {formatDateTime(ticket.sale_ends_at)}</p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : null}
-
-        <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
-          Use the ticket manager to control pricing, sale windows, ticket-level caps, and what the public registration page can sell right now.
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-4 xl:grid-cols-8">
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Registrations</p>
-          <p className="mt-2 text-3xl font-semibold">{totalRegistrations}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Paid</p>
-          <p className="mt-2 text-3xl font-semibold">{paidCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Pending Pay</p>
-          <p className="mt-2 text-3xl font-semibold">{pendingPaymentCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Refunded</p>
-          <p className="mt-2 text-3xl font-semibold">{refundedCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Checked In</p>
-          <p className="mt-2 text-3xl font-semibold">{checkedInCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Attended</p>
-          <p className="mt-2 text-3xl font-semibold">{attendedCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Gross Revenue</p>
-          <p className="mt-2 text-3xl font-semibold">{fmtCurrency(grossRevenue, defaultCurrency)}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Net Collected</p>
-          <p className="mt-2 text-3xl font-semibold">{fmtCurrency(netCollected, defaultCurrency)}</p>
+        <div className="rounded-2xl border border-slate-200 bg-white p-5">
+          <p className="text-sm text-slate-500">Capacity</p>
+          <p className="mt-2 text-xl font-semibold text-slate-900">
+            {typedEvent.capacity ?? "Unlimited"}
+          </p>
           <p className="mt-1 text-sm text-slate-500">
-            Refunds: {fmtCurrency(refundedAmount, defaultCurrency)}
+            {remainingCapacity == null ? "No cap" : `${remainingCapacity} spots left`}
           </p>
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-6">
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <h3 className="text-xl font-semibold text-slate-900">
-              Description
-            </h3>
-            <p className="mt-4 whitespace-pre-wrap text-sm text-slate-700">
+          <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">Public Discovery</h2>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                  typedEvent.public_directory_enabled
+                    ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                    : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
+                }`}
+              >
+                {typedEvent.public_directory_enabled ? "Public Directory On" : "Public Directory Off"}
+              </span>
+
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                  typedEvent.beginner_friendly
+                    ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200"
+                    : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
+                }`}
+              >
+                {typedEvent.beginner_friendly ? "Beginner Friendly" : "Not Beginner Focused"}
+              </span>
+
+              <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                Visibility: {visibilityLabel(typedEvent.visibility)}
+              </span>
+
+              <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                Status: {typedEvent.status}
+              </span>
+
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                  typedEvent.organizer_id
+                    ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                    : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                }`}
+              >
+                {typedEvent.organizer_id ? "Organizer Linked" : "No Organizer"}
+              </span>
+
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                  publicDirectoryReady
+                    ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                    : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                }`}
+              >
+                {publicDirectoryReady ? "Discovery Ready" : "Not Yet Discovery Ready"}
+              </span>
+            </div>
+
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+              {publicDirectoryReady ? (
+                <p>
+                  This event is configured for public discovery and is eligible to appear in the public dance directory.
+                </p>
+              ) : (
+                <p>
+                  This event is not currently fully eligible for public discovery. Public directory must be on, visibility must be public, status must be published/open, and the event must be linked to an organizer.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">Description</h2>
+            <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-700">
               {typedEvent.description || "No full description provided."}
             </p>
           </div>
 
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <h3 className="text-xl font-semibold text-slate-900">Venue & Location</h3>
+          <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">Venue & Location</h2>
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Venue</p>
                 <p className="mt-1 font-medium text-slate-900">
                   {typedEvent.venue_name || "—"}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Timezone</p>
                 <p className="mt-1 font-medium text-slate-900">{typedEvent.timezone}</p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Start Time</p>
-                <p className="mt-1 font-medium text-slate-900">
-                  {typedEvent.start_time
-                    ? formatTimeRange(typedEvent.start_time, typedEvent.start_time).split(" - ")[0]
-                    : "—"}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 md:col-span-2">
+                <p className="flex items-center gap-2 text-sm text-slate-500">
+                  <MapPin className="h-4 w-4" />
+                  <span>Address</span>
                 </p>
-              </div>
-
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">End Time</p>
-                <p className="mt-1 font-medium text-slate-900">
-                  {typedEvent.end_time
-                    ? formatTimeRange(typedEvent.end_time, typedEvent.end_time).split(" - ")[0]
-                    : "—"}
-                </p>
-              </div>
-
-              <div className="rounded-xl border bg-slate-50 p-4 md:col-span-2">
-                <p className="text-sm text-slate-500">Address</p>
                 <p className="mt-1 font-medium text-slate-900">
                   {[
                     typedEvent.address_line_1,
@@ -961,11 +867,11 @@ export default async function EventDetailPage({
             </div>
           </div>
 
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <h3 className="text-xl font-semibold text-slate-900">Public Content</h3>
+          <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">Public Content</h2>
 
             <div className="mt-4 space-y-4">
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Public Summary</p>
                 <p className="mt-1 text-sm text-slate-700">
                   {typedEvent.public_summary ||
@@ -974,7 +880,7 @@ export default async function EventDetailPage({
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Public Description</p>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
                   {typedEvent.public_description ||
@@ -983,21 +889,21 @@ export default async function EventDetailPage({
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Public Cover Image</p>
-                <p className="mt-1 text-sm text-slate-700 break-all">
+                <p className="mt-1 break-all text-sm text-slate-700">
                   {typedEvent.public_cover_image_url ||
                     typedEvent.cover_image_url ||
                     "No public cover image set."}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Public URL</p>
                 <p className="mt-1 font-medium text-slate-900">/events/{typedEvent.slug}</p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Tags</p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   {typedTags.length === 0 ? (
@@ -1017,18 +923,18 @@ export default async function EventDetailPage({
             </div>
           </div>
 
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <h3 className="text-xl font-semibold text-slate-900">Policies & FAQ</h3>
+          <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">Policies & FAQ</h2>
 
             <div className="mt-4 space-y-4">
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Refund Policy</p>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
                   {typedEvent.refund_policy || "No refund policy provided."}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">FAQ</p>
                 <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
                   {typedEvent.faq || "No FAQ provided."}
@@ -1039,118 +945,171 @@ export default async function EventDetailPage({
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <h3 className="text-xl font-semibold text-slate-900">Event Settings</h3>
+          <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">Ticket & Registration Readiness</h2>
 
-            <div className="mt-4 space-y-4">
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Visibility</p>
-                <p className="mt-1 font-medium text-slate-900">
-                  {visibilityLabel(typedEvent.visibility)}
-                </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                  typedEvent.registration_required
+                    ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                    : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
+                }`}
+              >
+                {typedEvent.registration_required ? "Registration On" : "Registration Optional/Off"}
+              </span>
+
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                  activeTicketCount > 0
+                    ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                    : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                }`}
+              >
+                {activeTicketCount > 0 ? `${activeTicketCount} Active Tickets` : "No Active Tickets"}
+              </span>
+
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                  typedEvent.waitlist_enabled
+                    ? "bg-purple-50 text-purple-700 ring-1 ring-purple-200"
+                    : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
+                }`}
+              >
+                {typedEvent.waitlist_enabled ? "Waitlist Enabled" : "Waitlist Off"}
+              </span>
+
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                  ticketReadiness
+                    ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                    : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                }`}
+              >
+                {ticketReadiness ? "Public Ticketing Ready" : "Not Yet Ticketing Ready"}
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Ticket Types</p>
+                <p className="mt-1 font-medium text-slate-900">{ticketCount}</p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Capacity</p>
-                <p className="mt-1 font-medium text-slate-900">
-                  {typedEvent.capacity ?? "Unlimited / not set"}
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  {remainingCapacity == null ? "No capacity limit" : `${remainingCapacity} spots left`}
-                </p>
-              </div>
-
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">{registrationLabel(typedEvent.event_type)} Window</p>
-                <p className="mt-1 font-medium text-slate-900">
-                  {formatDateTime(typedEvent.registration_opens_at)}
-                </p>
-                <p className="mt-1 text-sm text-slate-500">
-                  closes {formatDateTime(typedEvent.registration_closes_at)}
-                </p>
-              </div>
-
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Account Required</p>
-                <p className="mt-1 font-medium text-slate-900">
-                  {typedEvent.account_required_for_registration ? "Yes" : "No"}
-                </p>
-              </div>
-
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Created</p>
-                <p className="mt-1 font-medium text-slate-900">
-                  {formatDateTime(typedEvent.created_at)}
-                </p>
-              </div>
-
-              <div className="rounded-xl border bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Last Updated</p>
-                <p className="mt-1 font-medium text-slate-900">
-                  {formatDateTime(typedEvent.updated_at)}
-                </p>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Public Ticket Types</p>
+                <p className="mt-1 font-medium text-slate-900">{publicTicketCount}</p>
               </div>
             </div>
+
+            <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
+              Use the ticket manager to control pricing, sale windows, ticket-level caps, and what the public registration page can sell right now.
+            </div>
+
+            {typedTicketTypes.length > 0 ? (
+              <div className="mt-6 space-y-3">
+                {typedTicketTypes.map((ticket) => {
+                  const registrationsForTicket = ticketRegistrationsById.get(ticket.id) ?? 0;
+                  const remainingForTicket =
+                    ticket.capacity == null ? null : Math.max(ticket.capacity - registrationsForTicket, 0);
+                  const windowState = ticketWindowState(ticket);
+
+                  return (
+                    <div
+                      key={ticket.id}
+                      className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                    >
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium text-slate-900">{ticket.name}</p>
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                                ticket.active
+                                  ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                                  : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
+                              }`}
+                            >
+                              {ticket.active ? "Active" : "Inactive"}
+                            </span>
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${windowState.className}`}
+                            >
+                              {windowState.label}
+                            </span>
+                          </div>
+
+                          <p className="mt-2 text-sm text-slate-600">
+                            {fmtCurrency(ticket.price, ticket.currency)}
+                          </p>
+                        </div>
+
+                        <div className="grid gap-2 text-sm text-slate-600 md:text-right">
+                          <p>
+                            Capacity: {ticket.capacity ?? "Unlimited"}
+                            {remainingForTicket != null ? ` • ${remainingForTicket} left` : ""}
+                          </p>
+                          <p>Registrations: {registrationsForTicket}</p>
+                          <p>Sale starts: {formatDateTime(ticket.sale_starts_at)}</p>
+                          <p>Sale ends: {formatDateTime(ticket.sale_ends_at)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
           </div>
 
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between gap-4">
-              <h3 className="text-xl font-semibold text-slate-900">
-                {registrationLabel(typedEvent.event_type)} & Finance Summary
-              </h3>
-
-              <Link
-                href={`/app/events/${typedEvent.id}/registrations`}
-                className="text-sm underline"
-              >
-                Open registrations
-              </Link>
-            </div>
+          <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">
+              {registrationLabel(typedEvent.event_type)} & Finance Summary
+            </h2>
 
             <div className="mt-4 grid gap-3">
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Total Registrations</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
                   {totalRegistrations}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Paid / Pending / Refunded</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
                   {paidCount} / {pendingPaymentCount} / {refundedCount}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Checked In / Attended</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
                   {checkedInCount} / {attendedCount}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Gross Revenue</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
                   {fmtCurrency(grossRevenue, defaultCurrency)}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Refunded Amount / Net Collected</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
                   {fmtCurrency(refundedAmount, defaultCurrency)} / {fmtCurrency(netCollected, defaultCurrency)}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Linked to CRM / Not Yet Linked</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
                   {linkedToCrmCount} / {unlinkedToCrmCount}
                 </p>
               </div>
 
-              <div className="rounded-xl border bg-slate-50 p-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Cancelled</p>
                 <p className="mt-1 text-2xl font-semibold text-slate-900">
                   {cancelledCount}
@@ -1163,48 +1122,92 @@ export default async function EventDetailPage({
             </div>
           </div>
 
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <h3 className="text-xl font-semibold text-slate-900">Next Steps</h3>
+          <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">Event Settings</h2>
+
+            <div className="mt-4 space-y-4">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Visibility</p>
+                <p className="mt-1 font-medium text-slate-900">
+                  {visibilityLabel(typedEvent.visibility)}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">{registrationLabel(typedEvent.event_type)} Window</p>
+                <p className="mt-1 font-medium text-slate-900">
+                  {formatDateTime(typedEvent.registration_opens_at)}
+                </p>
+                <p className="mt-1 text-sm text-slate-500">
+                  closes {formatDateTime(typedEvent.registration_closes_at)}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Account Required</p>
+                <p className="mt-1 font-medium text-slate-900">
+                  {typedEvent.account_required_for_registration ? "Yes" : "No"}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Created</p>
+                <p className="mt-1 font-medium text-slate-900">
+                  {formatDateTime(typedEvent.created_at)}
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Last Updated</p>
+                <p className="mt-1 font-medium text-slate-900">
+                  {formatDateTime(typedEvent.updated_at)}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold text-slate-900">Next Steps</h2>
 
             <div className="mt-4 grid gap-3">
               <Link
                 href={`/app/events/${typedEvent.id}/edit`}
-                className="rounded-xl border px-4 py-3 hover:bg-slate-50"
+                className="rounded-xl border border-slate-300 px-4 py-3 hover:bg-slate-50"
               >
                 Edit Event
               </Link>
 
               <Link
                 href={`/app/events/${typedEvent.id}/tickets`}
-                className="rounded-xl border px-4 py-3 hover:bg-slate-50"
+                className="rounded-xl border border-slate-300 px-4 py-3 hover:bg-slate-50"
               >
                 Manage Tickets
               </Link>
 
               <Link
                 href={`/app/events/${typedEvent.id}/registrations`}
-                className="rounded-xl border px-4 py-3 hover:bg-slate-50"
+                className="rounded-xl border border-slate-300 px-4 py-3 hover:bg-slate-50"
               >
                 Manage Registrations
               </Link>
 
               <Link
                 href={`/app/events/${typedEvent.id}/check-in`}
-                className="rounded-xl border px-4 py-3 hover:bg-slate-50"
+                className="rounded-xl border border-slate-300 px-4 py-3 hover:bg-slate-50"
               >
                 Check-In Mode
               </Link>
 
               <Link
                 href={`/events/${typedEvent.slug}`}
-                className="rounded-xl border px-4 py-3 hover:bg-slate-50"
+                className="rounded-xl border border-slate-300 px-4 py-3 hover:bg-slate-50"
               >
                 Public Event Page
               </Link>
 
               <Link
                 href="/app/events"
-                className="rounded-xl border px-4 py-3 hover:bg-slate-50"
+                className="rounded-xl border border-slate-300 px-4 py-3 hover:bg-slate-50"
               >
                 Back to Event List
               </Link>

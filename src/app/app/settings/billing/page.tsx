@@ -1,5 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import {
+  ArrowRight,
+  CreditCard,
+  ShieldCheck,
+  Sparkles,
+  Wallet,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
@@ -7,6 +14,8 @@ import {
   BILLING_PLANS,
   formatPlanMoney,
   getBillingPlan,
+  type BillingPlan,
+  type PlanAudience,
   type PlanCode,
 } from "@/lib/billing/plans";
 
@@ -23,6 +32,14 @@ type StudioBillingRow = {
   stripe_connect_onboarding_complete: boolean | null;
 };
 
+type SubscriptionRow = {
+  status: string | null;
+  subscription_plans:
+    | { code: string | null }
+    | { code: string | null }[]
+    | null;
+};
+
 type StudioConnectReadiness = {
   connectedAccountId: string | null;
   detailsSubmitted: boolean;
@@ -37,11 +54,41 @@ type StudioConnectReadiness = {
   disabledReason: string | null;
 };
 
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+function parseSingleSearchParam(
+  value: string | string[] | undefined
+): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return typeof value === "string" ? value : undefined;
+}
+
+function isPlanCode(value: string | undefined): value is PlanCode {
+  return value === "starter" || value === "growth" || value === "pro" || value === "organizer";
+}
+
+function isAudience(value: string | undefined): value is PlanAudience {
+  return value === "studio" || value === "organizer";
+}
+
+function isOrganizerWorkspaceName(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+
+  return (
+    normalized.endsWith(" organizer") ||
+    normalized.includes(" organizer ") ||
+    normalized.endsWith(" events")
+  );
+}
+
 function formatStripeRequirementLabel(value: string) {
   return value.replaceAll(".", " → ").replaceAll("_", " ");
 }
 
-function statusBadgeClasses(tone: "green" | "yellow" | "red" | "slate" | "violet" | "sky") {
+function badgeClasses(
+  tone: "green" | "yellow" | "red" | "slate" | "violet" | "sky"
+) {
   switch (tone) {
     case "green":
       return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
@@ -82,8 +129,35 @@ function getSubscriptionLabel(status: string | null) {
     case "unpaid":
       return "Unpaid";
     default:
-      return (status ?? "Not started").replaceAll("_", " ");
+      return "Not started";
   }
+}
+
+function getCurrentPlanCode(row: SubscriptionRow | null) {
+  if (!row) return null;
+  const plan = Array.isArray(row.subscription_plans)
+    ? row.subscription_plans[0]
+    : row.subscription_plans;
+  return plan?.code ?? null;
+}
+
+function getEntryMode(value?: string) {
+  if (value === "trial-complete" || value === "chooser" || value === "no-card-trial") {
+    return value;
+  }
+  return "default";
+}
+
+function getPostTrialDashboardPath(audience: PlanAudience) {
+  return audience === "organizer" ? "/app/events" : "/app";
+}
+
+function getWorkspaceTone(audience: PlanAudience) {
+  return audience === "organizer" ? "violet" : "sky";
+}
+
+function getWorkspaceTitle(audience: PlanAudience) {
+  return audience === "organizer" ? "Organizer billing" : "Studio billing";
 }
 
 function getConnectStatus(connect: StudioConnectReadiness) {
@@ -92,7 +166,7 @@ function getConnectStatus(connect: StudioConnectReadiness) {
       label: "Not connected",
       tone: "slate" as const,
       description:
-        "Connect Stripe so your studio can accept payments and receive payouts.",
+        "Connect Stripe so this workspace can accept payments and receive payouts.",
       buttonLabel: "Connect Stripe",
     };
   }
@@ -105,10 +179,10 @@ function getConnectStatus(connect: StudioConnectReadiness) {
     connect.transfersEnabled
   ) {
     return {
-      label: "Direct-charge ready",
+      label: "Ready",
       tone: "green" as const,
       description:
-        "Your payout account is ready for direct-charge payment flows, including Organizer ticket sales.",
+        "Stripe payouts are connected and ready for payment flows.",
       buttonLabel: "Update payout details",
     };
   }
@@ -118,7 +192,7 @@ function getConnectStatus(connect: StudioConnectReadiness) {
       label: "Action required",
       tone: "yellow" as const,
       description:
-        "Stripe still needs additional capabilities or information before direct-charge payment flows are fully enabled.",
+        "Stripe still needs additional information or capability approval.",
       buttonLabel: "Continue onboarding",
     };
   }
@@ -126,30 +200,178 @@ function getConnectStatus(connect: StudioConnectReadiness) {
   return {
     label: "In progress",
     tone: "yellow" as const,
-    description:
-      "Your connected Stripe account exists, but onboarding is not complete yet.",
+    description: "Finish the payout onboarding flow to enable money movement.",
     buttonLabel: "Continue onboarding",
   };
 }
 
-function parseSingleSearchParam(
-  value: string | string[] | undefined
-): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
+function getSuccessMessage(
+  success?: string,
+  audience?: PlanAudience
+): { title: string; body: string; tone: "green" | "sky" | "violet" } | null {
+  if (!success) return null;
+
+  if (success === "subscription_checkout_started") {
+    return {
+      title: "Checkout opened",
+      body:
+        audience === "organizer"
+          ? "Complete billing setup to begin your organizer trial."
+          : "Complete billing setup to begin your studio trial.",
+      tone: audience === "organizer" ? "violet" : "sky",
+    };
+  }
+
+  if (success === "manage_subscription") {
+    return {
+      title: "Billing portal opened",
+      body: "You were redirected to manage your active subscription.",
+      tone: "green",
+    };
+  }
+
+  if (success === "stripe_connected") {
+    return {
+      title: "Stripe connected",
+      body: "Your payout account is now connected to this workspace.",
+      tone: "green",
+    };
+  }
+
+  return null;
 }
 
-function isPlanCode(value: string | undefined): value is PlanCode {
-  return value === "starter" || value === "growth" || value === "pro" || value === "organizer";
+function getErrorMessage(error?: string) {
+  if (!error) return null;
+
+  const messages: Record<string, string> = {
+    plan_not_found: "The selected billing plan could not be found.",
+    checkout_failed: "Billing checkout could not be started.",
+    checkout_cancelled: "Billing checkout was canceled.",
+    studio_not_found: "The current workspace could not be loaded.",
+    no_studio_context: "No active workspace was selected for billing.",
+    missing_price_id: "The selected plan is missing a Stripe price ID.",
+    connect_failed: "Stripe onboarding could not be started.",
+  };
+
+  return messages[error] ?? "Something went wrong while loading billing.";
 }
 
-function isPlanAudience(value: string | undefined): value is "studio" | "organizer" {
-  return value === "studio" || value === "organizer";
+function InfoCard({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string;
+  icon: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+          <Icon className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-sm text-slate-500">{label}</p>
+          <p className="mt-1 text-lg font-semibold text-slate-950">{value}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PlanCard({
+  plan,
+  selectedAudience,
+  isCurrent,
+  isRecommended,
+  entryMode,
+}: {
+  plan: BillingPlan;
+  selectedAudience: PlanAudience;
+  isCurrent: boolean;
+  isRecommended: boolean;
+  entryMode: string;
+}) {
+  return (
+    <div
+      className={[
+        "rounded-[28px] border bg-white p-6 shadow-sm",
+        isRecommended ? "border-violet-300 ring-2 ring-violet-100" : "border-slate-200",
+      ].join(" ")}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+            {plan.audience === "organizer" ? "Organizer Plan" : "Studio Plan"}
+          </p>
+          <h3 className="mt-2 text-2xl font-semibold text-slate-950">{plan.label}</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{plan.description}</p>
+        </div>
+
+        <div className="flex flex-col items-end gap-2">
+          {isCurrent ? (
+            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses("green")}`}>
+              Current plan
+            </span>
+          ) : null}
+
+          {isRecommended ? (
+            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses("violet")}`}>
+              Recommended
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <p className="text-3xl font-semibold text-slate-950">
+          {formatPlanMoney(plan.amountMonthlyCents)}
+          <span className="ml-1 text-base font-medium text-slate-500">/month</span>
+        </p>
+        <p className="mt-2 text-sm text-slate-500">{plan.trialDays}-day free trial</p>
+      </div>
+
+      <ul className="mt-6 space-y-2 text-sm text-slate-600">
+        {plan.highlights.map((highlight) => (
+          <li key={highlight}>• {highlight}</li>
+        ))}
+      </ul>
+
+      {plan.transparentFeeNote ? (
+        <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
+          {plan.transparentFeeNote}
+        </div>
+      ) : null}
+
+      <form action="/api/billing/checkout" method="post" className="mt-6">
+        <input type="hidden" name="planCode" value={plan.code} />
+        <input type="hidden" name="path" value={selectedAudience} />
+        <input type="hidden" name="entry" value={entryMode} />
+        <input type="hidden" name="billingInterval" value="month" />
+
+        <button
+          type="submit"
+          className={[
+            "inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition",
+            isCurrent
+              ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              : "bg-slate-900 text-white hover:bg-slate-800",
+          ].join(" ")}
+        >
+          <span>{isCurrent ? "Manage Current Plan" : `Choose ${plan.label}`}</span>
+          <ArrowRight className="h-4 w-4" />
+        </button>
+      </form>
+    </div>
+  );
 }
 
 export default async function BillingSettingsPage({
   searchParams,
 }: {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+  searchParams?: SearchParams;
 }) {
   const supabase = await createClient();
   const stripe = getStripe();
@@ -165,7 +387,7 @@ export default async function BillingSettingsPage({
 
   const context = await getCurrentStudioContext();
   if (!context?.studioId) {
-    redirect("/app");
+    redirect("/account");
   }
 
   const studioId = context.studioId;
@@ -174,17 +396,17 @@ export default async function BillingSettingsPage({
     .from("studios")
     .select(
       `
-        id,
-        name,
-        subscription_status,
-        stripe_customer_id,
-        stripe_subscription_id,
-        stripe_connected_account_id,
-        stripe_connect_details_submitted,
-        stripe_connect_charges_enabled,
-        stripe_connect_payouts_enabled,
-        stripe_connect_onboarding_complete
-      `
+      id,
+      name,
+      subscription_status,
+      stripe_customer_id,
+      stripe_subscription_id,
+      stripe_connected_account_id,
+      stripe_connect_details_submitted,
+      stripe_connect_charges_enabled,
+      stripe_connect_payouts_enabled,
+      stripe_connect_onboarding_complete
+    `
     )
     .eq("id", studioId)
     .single<StudioBillingRow>();
@@ -193,7 +415,53 @@ export default async function BillingSettingsPage({
     redirect("/app");
   }
 
-  let connectReadiness: StudioConnectReadiness = {
+  const { data: currentSubscriptionRow } = await supabase
+    .from("studio_subscriptions")
+    .select(
+      `
+      status,
+      subscription_plans (
+        code
+      )
+    `
+    )
+    .eq("studio_id", studio.id)
+    .maybeSingle<SubscriptionRow>();
+
+  const successParam = parseSingleSearchParam(resolvedSearchParams.success);
+  const errorParam = parseSingleSearchParam(resolvedSearchParams.error);
+  const pathParam = parseSingleSearchParam(resolvedSearchParams.path);
+  const entryParam = parseSingleSearchParam(resolvedSearchParams.entry);
+  const recommendedParam = parseSingleSearchParam(resolvedSearchParams.recommended);
+
+  const inferredAudience: PlanAudience = isOrganizerWorkspaceName(studio.name)
+    ? "organizer"
+    : "studio";
+
+  const selectedAudience: PlanAudience =
+    (isAudience(pathParam) ? pathParam : undefined) ?? inferredAudience;
+
+  const entryMode = getEntryMode(entryParam);
+
+  const currentPlanCode = getCurrentPlanCode(currentSubscriptionRow ?? null);
+  const currentPlan =
+    currentPlanCode && isPlanCode(currentPlanCode)
+      ? getBillingPlan(currentPlanCode)
+      : null;
+
+  const recommendedPlanCode =
+    (isPlanCode(recommendedParam) ? recommendedParam : undefined) ??
+    (selectedAudience === "organizer" ? "organizer" : undefined);
+
+  const recommendedPlan =
+    recommendedPlanCode ? getBillingPlan(recommendedPlanCode) : null;
+
+  const effectiveSubscriptionStatus =
+    currentSubscriptionRow?.status ?? studio.subscription_status ?? "not_started";
+
+  const visiblePlans = BILLING_PLANS.filter((plan) => plan.audience === selectedAudience);
+
+  const connectReadinessBase: StudioConnectReadiness = {
     connectedAccountId: studio.stripe_connected_account_id ?? null,
     detailsSubmitted: studio.stripe_connect_details_submitted ?? false,
     chargesEnabled: studio.stripe_connect_charges_enabled ?? false,
@@ -206,6 +474,8 @@ export default async function BillingSettingsPage({
     pendingVerification: [],
     disabledReason: null,
   };
+
+  let connectReadiness = connectReadinessBase;
 
   if (studio.stripe_connected_account_id) {
     try {
@@ -225,605 +495,296 @@ export default async function BillingSettingsPage({
           connectedAccount.payouts_enabled ??
           (studio.stripe_connect_payouts_enabled ?? false),
         onboardingComplete:
-          (connectedAccount.details_submitted ?? false) &&
-          (connectedAccount.charges_enabled ?? false) &&
-          (connectedAccount.payouts_enabled ?? false),
+          connectedAccount.details_submitted ??
+          (studio.stripe_connect_onboarding_complete ?? false),
         cardPaymentsEnabled:
           connectedAccount.capabilities?.card_payments === "active",
-        transfersEnabled:
-          connectedAccount.capabilities?.transfers === "active",
+        transfersEnabled: connectedAccount.capabilities?.transfers === "active",
         currentlyDue: connectedAccount.requirements?.currently_due ?? [],
         eventuallyDue: connectedAccount.requirements?.eventually_due ?? [],
-        pendingVerification:
-          connectedAccount.requirements?.pending_verification ?? [],
+        pendingVerification: connectedAccount.requirements?.pending_verification ?? [],
         disabledReason: connectedAccount.requirements?.disabled_reason ?? null,
       };
     } catch (error) {
-      console.error("Could not retrieve Stripe connected account capabilities:", error);
+      console.error("Failed to retrieve connected account readiness", error);
     }
   }
-
-  const { data: currentSubscriptionRow } = await supabase
-    .from("studio_subscriptions")
-    .select(
-      `
-      status,
-      subscription_plans (
-        code
-      )
-    `
-    )
-    .eq("studio_id", studio.id)
-    .maybeSingle();
-
-  const currentPlanCode = (() => {
-    if (!currentSubscriptionRow) return null;
-    const subscriptionPlan = Array.isArray(currentSubscriptionRow.subscription_plans)
-      ? currentSubscriptionRow.subscription_plans[0]
-      : currentSubscriptionRow.subscription_plans;
-    return subscriptionPlan?.code ?? null;
-  })();
-
-  let portalUrl: string | null = null;
-
-  if (studio.stripe_customer_id && studio.stripe_subscription_id) {
-    const subscriptions = await stripe.subscriptions.list({
-      customer: studio.stripe_customer_id,
-      limit: 10,
-      status: "all",
-    });
-
-    const currentSubscription = subscriptions.data.find(
-      (sub) => sub.id === studio.stripe_subscription_id
-    );
-
-    if (currentSubscription) {
-      const session = await stripe.billingPortal.sessions.create({
-        customer: studio.stripe_customer_id,
-        return_url: `${
-          process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"
-        }/app/settings/billing`,
-      });
-
-      portalUrl = session.url;
-    }
-  }
-
-  const subscriptionStatus = studio.subscription_status ?? "not_started";
-  const currentPlan = currentPlanCode ? getBillingPlan(currentPlanCode) : null;
-  const hasManagedSubscription =
-    Boolean(studio.stripe_customer_id) &&
-    Boolean(studio.stripe_subscription_id) &&
-    ["active", "trialing", "past_due", "unpaid"].includes(subscriptionStatus);
 
   const connectStatus = getConnectStatus(connectReadiness);
-
-    const successParam = parseSingleSearchParam(resolvedSearchParams.success);
-  const errorParam = parseSingleSearchParam(resolvedSearchParams.error);
-  const entryParam = parseSingleSearchParam(resolvedSearchParams.entry);
-  const recommendedParam = parseSingleSearchParam(resolvedSearchParams.recommended);
-  const pathParam = parseSingleSearchParam(resolvedSearchParams.path);
-
-  const recommendedPlanCode = isPlanCode(recommendedParam) ? recommendedParam : undefined;
-  const recommendedPlan = recommendedPlanCode ? getBillingPlan(recommendedPlanCode) : null;
-  const selectedPath = isPlanAudience(pathParam) ? pathParam : undefined;
-
-  const studioPlans = BILLING_PLANS.filter((plan) => plan.audience === "studio");
-  const organizerPlans = BILLING_PLANS.filter((plan) => plan.audience === "organizer");
-
-  const visibleStudioPlans =
-    selectedPath === "organizer" ? [] : studioPlans;
-
-  const visibleOrganizerPlans =
-    selectedPath === "studio" ? [] : organizerPlans;
-
-  const pageTitle =
-    selectedPath === "studio"
-      ? "Studio billing"
-      : selectedPath === "organizer"
-      ? "Organizer billing"
-      : "Billing & payments";
-
-  const pageDescription =
-    selectedPath === "studio"
-      ? "Choose the studio plan that fits your operations and growth goals."
-      : selectedPath === "organizer"
-      ? "Activate your organizer plan for public events, registrations, and ticketing."
-      : "Manage your DanceFlow subscription and connect your payout account.";
+  const successMessage = getSuccessMessage(successParam, selectedAudience);
+  const errorMessage = getErrorMessage(errorParam);
 
   return (
-    <div className="space-y-6">
+    <main className="min-h-screen bg-slate-50">
+      <section className="border-b border-slate-200/70 bg-white">
+        <div className="mx-auto max-w-7xl px-6 py-12">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          {pageTitle}
-        </h1>
-        <p className="mt-1 text-sm text-slate-600">
-          {pageDescription}
-        </p>
-      </div>
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses(
+                  getWorkspaceTone(selectedAudience)
+                )}`}
+              >
+                {getWorkspaceTitle(selectedAudience)}
+              </span>
 
-            {entryParam === "chooser" && recommendedPlan ? (
-        <div className="rounded-2xl border border-[var(--brand-primary)] bg-[var(--brand-primary-soft)]/40 px-4 py-3 text-sm text-slate-800">
-          Based on your selected path, the recommended plan is{" "}
-          <span className="font-semibold">{recommendedPlan.label}</span>.
-          {selectedPath === "studio"
-            ? " You are currently viewing the studio billing path."
-            : selectedPath === "organizer"
-            ? " You are currently viewing the organizer billing path."
-            : " You can still choose any eligible plan below."}
-        </div>
-      ) : null}
+              <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">
+                Billing & Payouts
+              </h1>
 
-      {successParam ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          {successParam === "stripe_connect_updated"
-            ? "Your Stripe payout account was updated successfully."
-            : "Billing update completed successfully."}
-        </div>
-      ) : null}
-
-      {errorParam ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
-          {errorParam === "no_studio_context" &&
-            "No studio context was found for this account."}
-          {errorParam === "studio_not_found" &&
-            "Studio record could not be found."}
-          {errorParam === "save_connected_account_failed" &&
-            "The connected Stripe account was created but could not be saved locally."}
-          {errorParam === "missing_connected_account" &&
-            "No Stripe connected account was found for this studio."}
-          {errorParam === "sync_connected_account_failed" &&
-            "Stripe returned successfully, but the account status could not be synced."}
-          {![
-            "no_studio_context",
-            "studio_not_found",
-            "save_connected_account_failed",
-            "missing_connected_account",
-            "sync_connected_account_failed",
-          ].includes(errorParam)
-            ? "Something went wrong while updating billing."
-            : null}
-        </div>
-      ) : null}
-
-      <div className="grid gap-6 xl:grid-cols-2">
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">
-                {selectedPath === "studio"
-                  ? "Studio plans"
-                  : selectedPath === "organizer"
-                  ? "Organizer plan"
-                  : "DanceFlow subscription"}
-              </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                {selectedPath === "studio"
-                  ? "Choose the studio tier that best matches your workflow and growth stage."
-                  : selectedPath === "organizer"
-                  ? "Activate the organizer plan for public events, ticketing, and attendee management."
-                  : "Choose the plan that fits how this account will use DanceFlow."}
+              <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
+                Manage your subscription, connect Stripe, and keep this{" "}
+                {selectedAudience === "organizer" ? "organizer" : "studio"} workspace
+                ready for payments.
               </p>
             </div>
 
-            <span
-              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClasses(
-                getSubscriptionTone(subscriptionStatus)
-              )}`}
-            >
-              {getSubscriptionLabel(subscriptionStatus)}
-            </span>
+            <div className="flex flex-wrap gap-3">
+              {(effectiveSubscriptionStatus === "active" ||
+                effectiveSubscriptionStatus === "trialing") && studio.stripe_customer_id ? (
+                <form action="/api/billing/portal" method="post">
+                  <button
+                    type="submit"
+                    className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Open Billing Portal
+                  </button>
+                </form>
+              ) : null}
+
+              <Link
+                href={getPostTrialDashboardPath(selectedAudience)}
+                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+              >
+                Go to Workspace
+              </Link>
+            </div>
           </div>
 
-          {currentPlan ? (
-            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4">
-              <p className="text-sm text-slate-500">Current plan</p>
-              <p className="mt-1 text-base font-semibold text-slate-900">
-                {currentPlan.label}
-              </p>
+          {entryMode === "trial-complete" ? (
+            <div
+              className={`mt-8 rounded-2xl border p-4 text-sm ${
+                selectedAudience === "organizer"
+                  ? "border-violet-200 bg-violet-50 text-violet-800"
+                  : "border-sky-200 bg-sky-50 text-sky-800"
+              }`}
+            >
+              {selectedAudience === "organizer"
+                ? "You are in the organizer trial setup flow. Complete billing to begin your organizer trial and continue into event operations."
+                : "You are in the studio trial setup flow. Complete billing to begin your studio trial and continue into the studio workspace."}
             </div>
           ) : null}
 
-                    <div className="mt-6 space-y-6">
-            {visibleStudioPlans.length > 0 ? (
-              <div>
-                <div className="mb-3 flex items-center gap-2">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-violet-600">
-                    Studio plans
-                  </h3>
-                  <span className="rounded-full bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
-                    14-day trial
-                  </span>
+          {successMessage ? (
+            <div
+              className={`mt-6 rounded-2xl border p-4 text-sm ${
+                successMessage.tone === "green"
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                  : successMessage.tone === "violet"
+                    ? "border-violet-200 bg-violet-50 text-violet-800"
+                    : "border-sky-200 bg-sky-50 text-sky-800"
+              }`}
+            >
+              <p className="font-semibold">{successMessage.title}</p>
+              <p className="mt-1">{successMessage.body}</p>
+            </div>
+          ) : null}
+
+          {errorMessage ? (
+            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+              <p className="font-semibold">Billing issue</p>
+              <p className="mt-1">{errorMessage}</p>
+            </div>
+          ) : null}
+
+          <div className="mt-8 grid gap-4 md:grid-cols-3">
+            <InfoCard
+              label="Workspace"
+              value={studio.name ?? "Workspace"}
+              icon={Sparkles}
+            />
+            <InfoCard
+              label="Subscription"
+              value={getSubscriptionLabel(effectiveSubscriptionStatus)}
+              icon={CreditCard}
+            />
+            <InfoCard
+              label="Payout setup"
+              value={connectStatus.label}
+              icon={Wallet}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-6 py-10">
+        <div className="grid gap-8 xl:grid-cols-[1.15fr_0.85fr]">
+          <div className="space-y-8">
+            <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
+              <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Subscription
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                    Choose the right {selectedAudience === "organizer" ? "organizer" : "studio"} plan
+                  </h2>
+                  <p className="mt-2 text-sm leading-7 text-slate-600">
+                    {selectedAudience === "organizer"
+                      ? "Organizer billing focuses on public event pages, registrations, ticketing, and transparent event-sale fees."
+                      : "Studio billing focuses on CRM, scheduling, operations, and studio growth."}
+                  </p>
                 </div>
 
-                <div className="space-y-3">
-                  {visibleStudioPlans.map((plan) => {
-                    const isCurrentPlan = currentPlanCode === plan.code;
-                    const isRecommended = recommendedPlanCode === plan.code;
-
-                    const changeLabel =
-                      currentPlan && plan.amountMonthlyCents > currentPlan.amountMonthlyCents
-                        ? "Upgrade in billing portal"
-                        : currentPlan && plan.amountMonthlyCents < currentPlan.amountMonthlyCents
-                        ? "Downgrade in billing portal"
-                        : "Choose plan";
-
-                    return (
-                      <div
-                        key={plan.code}
-                        className={`rounded-2xl border p-4 ${
-                          isCurrentPlan
-                            ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)]/40"
-                            : isRecommended
-                            ? "border-violet-300 bg-violet-50/50"
-                            : "border-slate-200"
-                        }`}
-                      >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-sm font-semibold text-slate-900">
-                                {plan.label}
-                              </div>
-
-                              {isCurrentPlan ? (
-                                <span className="inline-flex items-center rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
-                                  Current plan
-                                </span>
-                              ) : null}
-
-                              {isRecommended ? (
-                                <span className="inline-flex items-center rounded-full bg-violet-600 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
-                                  Recommended
-                                </span>
-                              ) : null}
-                            </div>
-
-                            <div className="mt-1 text-sm text-slate-600">
-                              {plan.description}
-                            </div>
-
-                            <ul className="mt-3 grid gap-1 text-xs text-slate-500">
-                              {plan.highlights.map((highlight) => (
-                                <li key={highlight}>• {highlight}</li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          <div className="flex items-center gap-3">
-                            <div className="text-sm font-semibold text-slate-900">
-                              {formatPlanMoney(plan.amountMonthlyCents)}/mo
-                            </div>
-
-                            {isCurrentPlan ? (
-                              <button
-                                type="button"
-                                disabled
-                                className="inline-flex cursor-not-allowed items-center rounded-xl border border-slate-300 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-500"
-                              >
-                                Current plan
-                              </button>
-                            ) : hasManagedSubscription && portalUrl ? (
-                              <Link
-                                href={portalUrl}
-                                className="inline-flex items-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                              >
-                                {changeLabel}
-                              </Link>
-                            ) : (
-                              <form action="/api/billing/checkout" method="post">
-                                <input type="hidden" name="planKey" value={plan.code} />
-                                <button
-                                  type="submit"
-                                  className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                                >
-                                  Start trial
-                                </button>
-                              </form>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            {visibleOrganizerPlans.length > 0 ? (
-              <div>
-                <div className="mb-3 flex items-center gap-2">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-sky-600">
-                    Organizer plan
-                  </h3>
-                  <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-semibold text-sky-700">
-                    Event-first
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  {visibleOrganizerPlans.map((plan) => {
-                    const isCurrentPlan = currentPlanCode === plan.code;
-                    const isRecommended = recommendedPlanCode === plan.code;
-
-                    return (
-                      <div
-                        key={plan.code}
-                        className={`rounded-2xl border p-4 ${
-                          isCurrentPlan
-                            ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)]/40"
-                            : isRecommended
-                            ? "border-sky-300 bg-sky-50/50"
-                            : "border-slate-200"
-                        }`}
-                      >
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <div className="flex flex-wrap items-center gap-2">
-                              <div className="text-sm font-semibold text-slate-900">
-                                {plan.label}
-                              </div>
-
-                              {isCurrentPlan ? (
-                                <span className="inline-flex items-center rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
-                                  Current plan
-                                </span>
-                              ) : null}
-
-                              {isRecommended ? (
-                                <span className="inline-flex items-center rounded-full bg-sky-600 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white">
-                                  Recommended
-                                </span>
-                              ) : null}
-                            </div>
-
-                            <div className="mt-1 text-sm text-slate-600">
-                              {plan.description}
-                            </div>
-
-                            {plan.transparentFeeNote ? (
-                              <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900">
-                                {plan.transparentFeeNote}
-                              </div>
-                            ) : null}
-
-                            <ul className="mt-3 grid gap-1 text-xs text-slate-500">
-                              {plan.highlights.map((highlight) => (
-                                <li key={highlight}>• {highlight}</li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          <div className="flex items-center gap-3">
-                            <div className="text-sm font-semibold text-slate-900">
-                              {formatPlanMoney(plan.amountMonthlyCents)}/mo
-                            </div>
-
-                            {isCurrentPlan ? (
-                              <button
-                                type="button"
-                                disabled
-                                className="inline-flex cursor-not-allowed items-center rounded-xl border border-slate-300 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-500"
-                              >
-                                Current plan
-                              </button>
-                            ) : hasManagedSubscription && portalUrl ? (
-                              <Link
-                                href={portalUrl}
-                                className="inline-flex items-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                              >
-                                Change in billing portal
-                              </Link>
-                            ) : (
-                              <form action="/api/billing/checkout" method="post">
-                                <input type="hidden" name="planKey" value={plan.code} />
-                                <button
-                                  type="submit"
-                                  className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                                >
-                                  Start trial
-                                </button>
-                              </form>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="pt-2">
-              <p className="mb-3 text-sm text-slate-500">
-                Paid studio tiers include a 14-day free trial with a card required at signup.
-                Billing begins automatically when the trial ends unless canceled first.
-              </p>
-
-              <div className="flex flex-wrap items-center gap-3">
-                {portalUrl ? (
-                  <>
-                    <Link
-                      href={portalUrl}
-                      className="inline-flex items-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      Manage subscription
-                    </Link>
-                    <Link
-                      href={portalUrl}
-                      className="inline-flex items-center rounded-xl border border-rose-300 px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50"
-                    >
-                      Cancel subscription
-                    </Link>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      disabled
-                      className="inline-flex cursor-not-allowed items-center rounded-xl border border-slate-300 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-500"
-                    >
-                      Manage subscription
-                    </button>
-                    <button
-                      type="button"
-                      disabled
-                      className="inline-flex cursor-not-allowed items-center rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-medium text-rose-400"
-                    >
-                      Cancel subscription
-                    </button>
-                  </>
-                )}
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses(
+                    getSubscriptionTone(effectiveSubscriptionStatus)
+                  )}`}
+                >
+                  {getSubscriptionLabel(effectiveSubscriptionStatus)}
+                </span>
               </div>
 
-              {!portalUrl ? (
-                <p className="mt-3 text-xs text-slate-500">
-                  Subscription management becomes available after the Stripe billing portal session is created for this account.
-                </p>
+              {currentPlan ? (
+                <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+                  Current plan: <span className="font-semibold text-slate-950">{currentPlan.label}</span>
+                </div>
+              ) : null}
+
+              <div className="mt-6 grid gap-6 lg:grid-cols-2">
+                {visiblePlans.map((plan) => (
+                  <PlanCard
+                    key={plan.code}
+                    plan={plan}
+                    selectedAudience={selectedAudience}
+                    isCurrent={currentPlan?.code === plan.code}
+                    isRecommended={recommendedPlan?.code === plan.code}
+                    entryMode={entryMode}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Stripe Payouts
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                    Connect payout details
+                  </h2>
+                  <p className="mt-2 text-sm leading-7 text-slate-600">
+                    {connectStatus.description}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <span
+                  className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses(
+                    connectStatus.tone
+                  )}`}
+                >
+                  {connectStatus.label}
+                </span>
+
+                <a
+                  href="/api/stripe/connect/onboarding"
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+                >
+                  <span>{connectStatus.buttonLabel}</span>
+                  <ArrowRight className="h-4 w-4" />
+                </a>
+              </div>
+
+              {connectReadiness.disabledReason ? (
+                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  Stripe disabled reason: {formatStripeRequirementLabel(connectReadiness.disabledReason)}
+                </div>
+              ) : null}
+
+              {connectReadiness.currentlyDue.length > 0 ? (
+                <div className="mt-5">
+                  <p className="text-sm font-semibold text-slate-900">Currently due</p>
+                  <ul className="mt-2 space-y-2 text-sm text-slate-600">
+                    {connectReadiness.currentlyDue.slice(0, 8).map((item) => (
+                      <li key={item}>• {formatStripeRequirementLabel(item)}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              {connectReadiness.pendingVerification.length > 0 ? (
+                <div className="mt-5">
+                  <p className="text-sm font-semibold text-slate-900">Pending verification</p>
+                  <ul className="mt-2 space-y-2 text-sm text-slate-600">
+                    {connectReadiness.pendingVerification.slice(0, 8).map((item) => (
+                      <li key={item}>• {formatStripeRequirementLabel(item)}</li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
             </div>
           </div>
-        </section>
 
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-lg font-semibold text-slate-900">
-                Studio payout account
-              </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Connect Stripe to accept payments and receive payouts.
+          <div className="space-y-8">
+            <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Workspace Fit
               </p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                {selectedAudience === "organizer"
+                  ? "Organizer-first billing view"
+                  : "Studio-first billing view"}
+              </h2>
+
+              <p className="mt-3 text-sm leading-7 text-slate-600">
+                {selectedAudience === "organizer"
+                  ? "This billing view is tuned for event publishing, registrations, ticketing, and payout readiness."
+                  : "This billing view is tuned for studio operations, customer billing, and growth features."}
+              </p>
+
+              {selectedAudience === "organizer" ? (
+                <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
+                  Transparent fees: 2.5% Square processing fee + 3.5% DanceFlow platform fee on ticket sales.
+                </div>
+              ) : null}
             </div>
 
-            <span
-              className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClasses(
-                connectStatus.tone
-              )}`}
-            >
-              {connectStatus.label}
-            </span>
-          </div>
+            <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Next Step
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                Continue into the correct workspace
+              </h2>
 
-          <div className="mt-6 space-y-4">
-            <div className="rounded-2xl border border-slate-200 p-4">
-              <div className="text-sm text-slate-700">
-                {connectStatus.description}
-              </div>
+              <p className="mt-3 text-sm leading-7 text-slate-600">
+                {selectedAudience === "organizer"
+                  ? "After billing, continue into event operations rather than the studio CRM."
+                  : "After billing, continue into the studio dashboard and daily operations."}
+              </p>
 
-              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Details submitted
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">
-                    {connectReadiness.detailsSubmitted ? "Yes" : "No"}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Charges enabled
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">
-                    {connectReadiness.chargesEnabled ? "Yes" : "No"}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Payouts enabled
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">
-                    {connectReadiness.payoutsEnabled ? "Yes" : "No"}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Card payments
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">
-                    {connectReadiness.cardPaymentsEnabled ? "Active" : "Not active"}
-                  </div>
-                </div>
-
-                <div className="rounded-2xl bg-slate-50 p-3">
-                  <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
-                    Transfers
-                  </div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">
-                    {connectReadiness.transfersEnabled ? "Active" : "Not active"}
-                  </div>
-                </div>
-              </div>
-
-              <form
-                action="/api/stripe/connect/onboarding"
-                method="post"
-                className="mt-4"
+              <Link
+                href={getPostTrialDashboardPath(selectedAudience)}
+                className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
               >
-                <button
-                  type="submit"
-                  className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  {connectStatus.buttonLabel}
-                </button>
-              </form>
-            </div>
-
-            {(connectReadiness.currentlyDue.length > 0 ||
-              connectReadiness.pendingVerification.length > 0 ||
-              connectReadiness.eventuallyDue.length > 0) && (
-              <div className="space-y-3">
-                {connectReadiness.currentlyDue.length > 0 ? (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                    <p className="text-sm font-semibold text-amber-900">Currently due</p>
-                    <ul className="mt-2 grid gap-1 text-sm text-amber-800">
-                      {connectReadiness.currentlyDue.map((item) => (
-                        <li key={item}>• {formatStripeRequirementLabel(item)}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {connectReadiness.pendingVerification.length > 0 ? (
-                  <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                    <p className="text-sm font-semibold text-sky-900">Pending verification</p>
-                    <ul className="mt-2 grid gap-1 text-sm text-sky-800">
-                      {connectReadiness.pendingVerification.map((item) => (
-                        <li key={item}>• {formatStripeRequirementLabel(item)}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {connectReadiness.eventuallyDue.length > 0 ? (
-                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-sm font-semibold text-slate-900">Eventually due</p>
-                    <ul className="mt-2 grid gap-1 text-sm text-slate-700">
-                      {connectReadiness.eventuallyDue.map((item) => (
-                        <li key={item}>• {formatStripeRequirementLabel(item)}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-
-                {connectReadiness.disabledReason ? (
-                  <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
-                    Stripe disabled reason: {formatStripeRequirementLabel(connectReadiness.disabledReason)}
-                  </div>
-                ) : null}
-              </div>
-            )}
-
-            <div className="rounded-2xl border border-dashed border-slate-300 p-4 text-sm text-slate-600">
-              Online payment features should stay gated until this payout account is fully connected.
-              Organizer direct-charge ticket sales additionally require active Card payments and Transfers capabilities.
+                <span>
+                  {selectedAudience === "organizer"
+                    ? "Go to Organizer Workspace"
+                    : "Go to Studio Workspace"}
+                </span>
+                <ArrowRight className="h-4 w-4" />
+              </Link>
             </div>
           </div>
-        </section>
-      </div>
-    </div>
+        </div>
+      </section>
+    </main>
   );
 }

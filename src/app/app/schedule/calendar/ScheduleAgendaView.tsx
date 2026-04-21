@@ -24,12 +24,6 @@ type RoomOption = {
   name: string;
 };
 
-type GroupedAgendaItems = {
-  key: string;
-  label: string;
-  items: CalendarItem[];
-};
-
 type Props = {
   baseDate: string;
   days: string[];
@@ -41,10 +35,10 @@ type Props = {
   selectedAppointmentType?: string;
   selectedStatus?: string;
   selectedSource?: "all" | "appointments" | "events";
-  groupBy: "instructor" | "none";
+  groupBy?: "none" | "instructor";
 };
 
-type RowProps = {
+type AgendaItemRowProps = {
   item: CalendarItem;
   onOpen: (appointment: DrawerAppointment) => void;
 };
@@ -124,6 +118,18 @@ function getOrganizer(value: { name: string } | { name: string }[] | null | unde
   return Array.isArray(value) ? value[0] : value;
 }
 
+function getPartnerClient(
+  item: CalendarItem & {
+    partner_client?:
+      | { first_name: string; last_name: string }
+      | { first_name: string; last_name: string }[]
+      | null;
+  }
+) {
+  const partner = item.partner_client;
+  return Array.isArray(partner) ? partner[0] : partner;
+}
+
 function getClientName(
   value:
     | { first_name: string; last_name: string }
@@ -135,7 +141,21 @@ function getClientName(
   return client ? `${client.first_name} ${client.last_name}` : "Unknown Client";
 }
 
-function getInstructorName(
+function getClientShortName(
+  value:
+    | { first_name: string; last_name: string }
+    | { first_name: string; last_name: string }[]
+    | null
+    | undefined
+) {
+  const client = getClient(value);
+  if (!client) return "Unknown";
+
+  const lastInitial = client.last_name?.trim()?.[0];
+  return lastInitial ? `${client.first_name} ${lastInitial}.` : client.first_name;
+}
+
+function getInstructorShortName(
   value:
     | { first_name: string; last_name: string }
     | { first_name: string; last_name: string }[]
@@ -143,7 +163,10 @@ function getInstructorName(
     | undefined
 ) {
   const instructor = getInstructor(value);
-  return instructor ? `${instructor.first_name} ${instructor.last_name}` : "Unassigned";
+  if (!instructor) return "Unassigned";
+
+  const lastInitial = instructor.last_name?.trim()?.[0];
+  return lastInitial ? `${instructor.first_name} ${lastInitial}.` : instructor.first_name;
 }
 
 function getRoomName(value: { name: string } | { name: string }[] | null | undefined) {
@@ -281,7 +304,7 @@ function getGroupKey(item: CalendarItem) {
   const instructor = getInstructor(item.instructors);
   if (!instructor) return "unassigned";
 
-  return `${instructor.first_name}-${instructor.last_name}`;
+  return `instructor-${instructor.first_name}-${instructor.last_name}`;
 }
 
 function getGroupLabel(item: CalendarItem) {
@@ -294,32 +317,7 @@ function getGroupLabel(item: CalendarItem) {
   return `${instructor.first_name} ${instructor.last_name}`;
 }
 
-function groupItemsForAgenda(items: CalendarItem[]): GroupedAgendaItems[] {
-  const map = new Map<string, GroupedAgendaItems>();
-
-  for (const item of items) {
-    const key = getGroupKey(item);
-    const label = getGroupLabel(item);
-
-    if (!map.has(key)) {
-      map.set(key, { key, label, items: [] });
-    }
-
-    map.get(key)!.items.push(item);
-  }
-
-  return Array.from(map.values()).sort((a, b) => {
-    if (a.key === "events") return -1;
-    if (b.key === "events") return 1;
-    if (a.key === "floor_rentals") return -1;
-    if (b.key === "floor_rentals") return 1;
-    if (a.key === "unassigned") return 1;
-    if (b.key === "unassigned") return -1;
-    return a.label.localeCompare(b.label);
-  });
-}
-
-function sortItems(items: CalendarItem[]) {
+function sortItemsForDisplay(items: CalendarItem[]) {
   return [...items].sort((a, b) => {
     if ((a.is_all_day ?? false) !== (b.is_all_day ?? false)) {
       return a.is_all_day ? -1 : 1;
@@ -328,7 +326,7 @@ function sortItems(items: CalendarItem[]) {
   });
 }
 
-function AgendaItemRow({ item, onOpen }: RowProps) {
+function AgendaItemRow({ item, onOpen }: AgendaItemRowProps) {
   const accent = leftAccentClass(item);
   const typeBadge = typeBadgeClass(item);
 
@@ -336,14 +334,14 @@ function AgendaItemRow({ item, onOpen }: RowProps) {
     const title = item.title || eventTypeLabel(item.event_type ?? "other");
     const organizer = getOrganizerName(item.organizers);
     const location =
-      item.venue_name || [item.city, item.state].filter(Boolean).join(", ") || "No location";
+      [item.city, item.state].filter(Boolean).join(", ") || item.venue_name || "No location";
 
     return (
       <Link
         href={`/app/events/${item.id}`}
-        className={`block rounded-2xl border border-slate-200 border-l-4 bg-white p-4 shadow-sm transition hover:border-slate-300 hover:shadow-md ${accent}`}
+        className={`block rounded-2xl border border-slate-200 border-l-4 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md ${accent}`}
       >
-        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass(item.status)}`} />
@@ -356,18 +354,26 @@ function AgendaItemRow({ item, onOpen }: RowProps) {
             </div>
 
             <p className="mt-2 text-sm font-semibold text-slate-900 md:text-base">{title}</p>
-            <p className="mt-1 text-sm text-slate-700">{organizer}</p>
-            <p className="mt-1 text-sm text-slate-500">{location}</p>
+            <p className="mt-1 text-sm text-slate-600">{organizer}</p>
+            <p className="mt-1 text-xs text-slate-500 md:text-sm">{location}</p>
           </div>
         </div>
       </Link>
     );
   }
 
-  const clientName = getClientName(item.clients);
-  const instructorName = getInstructorName(item.instructors);
-  const roomName = getRoomName(item.rooms);
+  const client = getClientShortName(item.clients);
+  const partner = getPartnerClient(item as CalendarItem & { partner_client?: any });
+  const partnerShort = partner ? getClientShortName(partner) : "";
+  const displayClient = partnerShort ? `${client} + ${partnerShort}` : client;
+
+  const fullClient = getClientName(item.clients);
+  const instructor = getInstructorShortName(item.instructors);
+  const room = getRoomName(item.rooms);
   const isFloorRental = item.appointment_type === "floor_space_rental";
+  const subtitle = isFloorRental
+    ? "Independent instructor rental"
+    : item.title || appointmentTypeLabel(item.appointment_type ?? "");
 
   return (
     <button
@@ -375,11 +381,11 @@ function AgendaItemRow({ item, onOpen }: RowProps) {
       onClick={() => onOpen(item as DrawerAppointment)}
       className={`block w-full rounded-2xl border border-slate-200 border-l-4 bg-white p-4 text-left shadow-sm transition hover:border-slate-300 hover:shadow-md ${accent}`}
     >
-      <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass(item.status)}`} />
-            <p className="text-xs font-medium text-slate-600">{formatAgendaItemTime(item)}</p>
+            <p className="text-xs font-medium text-slate-600">{formatTime(item.starts_at)}</p>
             <span
               className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${typeBadge}`}
             >
@@ -392,24 +398,19 @@ function AgendaItemRow({ item, onOpen }: RowProps) {
             ) : null}
           </div>
 
-          <p className="mt-2 text-sm font-semibold text-slate-900 md:text-base">
-            {clientName}
+          <p
+            className="mt-2 text-sm font-semibold text-slate-900 md:text-base"
+            title={fullClient}
+          >
+            {displayClient}
           </p>
 
-          <p className="mt-1 text-sm text-slate-700">
-            {isFloorRental
-              ? "Independent instructor rental"
-              : item.title || appointmentTypeLabel(item.appointment_type ?? "")}
+          <p className="mt-1 text-sm text-slate-700">{subtitle}</p>
+          <p className="mt-1 text-xs text-slate-500 md:text-sm">{formatAgendaItemTime(item)}</p>
+          <p className="mt-1 text-xs text-slate-500 md:text-sm">
+            {isFloorRental ? "Floor rental" : instructor}
+            {!isFloorRental && room !== "No room" ? ` • ${room}` : ""}
           </p>
-
-          <p className="mt-1 text-sm text-slate-500">
-            {isFloorRental ? "Floor rental" : instructorName}
-            {!isFloorRental && roomName !== "No room" ? ` • ${roomName}` : ""}
-          </p>
-
-          {isFloorRental && roomName !== "No room" ? (
-            <p className="mt-1 text-xs text-slate-500">{roomName}</p>
-          ) : null}
         </div>
       </div>
     </button>
@@ -438,21 +439,21 @@ function TopToolbar({
   selectedAppointmentType?: string;
   selectedStatus?: string;
   selectedSource?: "all" | "appointments" | "events";
-  groupBy: "instructor" | "none";
+  groupBy?: "none" | "instructor";
   rangeLabel: string;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+    <div className="rounded-3xl border border-slate-200 bg-white/95 p-4 shadow-sm ring-1 ring-black/[0.02] md:p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
             Agenda View
           </p>
           <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">
             {rangeLabel}
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Dense weekly management view grouped by day.
+            Dense management view for appointments, events, and floor rentals.
           </p>
         </div>
 
@@ -515,49 +516,9 @@ function TopToolbar({
               appointmentType: selectedAppointmentType,
               status: selectedStatus,
             })}`}
-            className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex items-center justify-center rounded-xl bg-[var(--brand-accent-dark)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-95"
           >
             Week View
-          </Link>
-
-          <Link
-            href={`/app/schedule/calendar${buildQuery({
-              view: "agenda",
-              date: baseDate,
-              source: selectedSource,
-              instructorId: selectedInstructorId,
-              roomId: selectedRoomId,
-              appointmentType: selectedAppointmentType,
-              status: selectedStatus,
-              groupBy: "instructor",
-            })}`}
-            className={`inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium ${
-              groupBy === "instructor"
-                ? "bg-slate-900 text-white hover:bg-slate-800"
-                : "border border-slate-200 text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            By Instructor
-          </Link>
-
-          <Link
-            href={`/app/schedule/calendar${buildQuery({
-              view: "agenda",
-              date: baseDate,
-              source: selectedSource,
-              instructorId: selectedInstructorId,
-              roomId: selectedRoomId,
-              appointmentType: selectedAppointmentType,
-              status: selectedStatus,
-              groupBy: "none",
-            })}`}
-            className={`inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-medium ${
-              groupBy === "none"
-                ? "bg-slate-900 text-white hover:bg-slate-800"
-                : "border border-slate-200 text-slate-700 hover:bg-slate-50"
-            }`}
-          >
-            Flat List
           </Link>
         </div>
       </div>
@@ -584,16 +545,15 @@ function FilterBar({
   selectedAppointmentType?: string;
   selectedStatus?: string;
   selectedSource?: "all" | "appointments" | "events";
-  groupBy: "instructor" | "none";
+  groupBy?: "none" | "instructor";
 }) {
   return (
-    <form className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+    <form className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-black/[0.02] md:p-5">
       <input type="hidden" name="view" value="agenda" />
       <input type="hidden" name="date" value={baseDate} />
-      <input type="hidden" name="groupBy" value={groupBy} />
 
       <div className="flex flex-col gap-4 xl:flex-row xl:items-end">
-        <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
           <div>
             <label htmlFor="source" className="mb-1.5 block text-sm font-medium text-slate-700">
               Source
@@ -702,12 +662,27 @@ function FilterBar({
               <option value="draft">Draft</option>
             </select>
           </div>
+
+          <div>
+            <label htmlFor="groupBy" className="mb-1.5 block text-sm font-medium text-slate-700">
+              Group by
+            </label>
+            <select
+              id="groupBy"
+              name="groupBy"
+              defaultValue={groupBy ?? "none"}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            >
+              <option value="none">None</option>
+              <option value="instructor">Instructor</option>
+            </select>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 xl:flex xl:flex-shrink-0 xl:gap-3">
           <button
             type="submit"
-            className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+            className="inline-flex items-center justify-center rounded-xl bg-[var(--brand-accent-dark)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-95"
           >
             Apply
           </button>
@@ -716,7 +691,6 @@ function FilterBar({
             href={`/app/schedule/calendar${buildQuery({
               view: "agenda",
               date: baseDate,
-              groupBy,
             })}`}
             className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
@@ -738,33 +712,52 @@ function DaySection({
   day: string;
   items: CalendarItem[];
   todayDate: string;
-  groupBy: "instructor" | "none";
+  groupBy?: "none" | "instructor";
   onOpen: (appointment: DrawerAppointment) => void;
 }) {
+  const sortedItems = useMemo(() => sortItemsForDisplay(items), [items]);
+
+  const grouped = useMemo(() => {
+    if (groupBy !== "instructor") return [];
+
+    const groups = new Map<string, { key: string; label: string; items: CalendarItem[] }>();
+
+    for (const item of sortedItems) {
+      const key = getGroupKey(item);
+      const label = getGroupLabel(item);
+
+      if (!groups.has(key)) {
+        groups.set(key, { key, label, items: [] });
+      }
+
+      groups.get(key)?.items.push(item);
+    }
+
+    return Array.from(groups.values());
+  }, [groupBy, sortedItems]);
+
   const isToday = day === todayDate;
-  const sortedItems = useMemo(() => sortItems(items), [items]);
-  const grouped = useMemo(() => groupItemsForAgenda(sortedItems), [sortedItems]);
 
   return (
     <section
       className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${
-        isToday ? "ring-2 ring-slate-900/10" : ""
+        isToday ? "ring-2 ring-[var(--brand-accent-dark)]/10" : ""
       }`}
     >
       <div className="border-b border-slate-200 px-4 py-4 md:px-5">
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-lg font-semibold text-slate-900">
+              <h3 className="text-base font-semibold text-slate-900 md:text-lg">
                 {formatDateHeading(new Date(`${day}T00:00:00`))}
               </h3>
               {isToday ? (
-                <span className="rounded-full bg-slate-900 px-2.5 py-0.5 text-[11px] font-medium text-white">
+                <span className="rounded-full bg-[var(--brand-accent-dark)] px-2.5 py-0.5 text-[11px] font-medium text-white">
                   Today
                 </span>
               ) : null}
             </div>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-xs text-slate-500 md:text-sm">
               {formatShortDate(new Date(`${day}T00:00:00`))} • {items.length} item
               {items.length === 1 ? "" : "s"}
             </p>
@@ -908,16 +901,16 @@ export default function ScheduleAgendaView({
           groupBy={groupBy}
         />
 
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-6">
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm ring-1 ring-black/[0.02]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
               Visible
             </p>
             <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">{totalItems}</p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm ring-1 ring-black/[0.02]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
               Scheduled
             </p>
             <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">
@@ -925,15 +918,15 @@ export default function ScheduleAgendaView({
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm ring-1 ring-black/[0.02]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
               Events
             </p>
             <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">{eventCount}</p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm ring-1 ring-black/[0.02]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
               Rentals
             </p>
             <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">
@@ -941,19 +934,21 @@ export default function ScheduleAgendaView({
             </p>
           </div>
 
-          <Link
-            href="/app/schedule/new"
-            className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
-          >
-            New Appointment
-          </Link>
+          <div className="col-span-2 grid gap-3 lg:col-span-1">
+            <Link
+              href="/app/schedule/new"
+              className="inline-flex items-center justify-center rounded-2xl bg-[var(--brand-accent-dark)] px-4 py-3 text-sm font-medium text-white shadow-sm hover:opacity-95"
+            >
+              New Appointment
+            </Link>
 
-          <Link
-            href="/app/events/new"
-            className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-          >
-            New Event
-          </Link>
+            <Link
+              href="/app/events/new"
+              className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              New Event
+            </Link>
+          </div>
         </div>
 
         <div className="space-y-4">
@@ -972,6 +967,7 @@ export default function ScheduleAgendaView({
 
       <ScheduleEventDrawer
         appointment={selectedAppointment}
+        open={selectedAppointment !== null}
         onClose={() => setSelectedAppointment(null)}
       />
     </>

@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   EVENT_VISIBILITY_OPTIONS,
   TIMEZONE_OPTIONS,
@@ -13,6 +14,19 @@ import {
 type ActionState = {
   error?: string;
   success?: string;
+};
+
+type WorkspaceRow = {
+  id: string;
+  name: string | null;
+};
+
+type OrganizerRow = {
+  id: string;
+  studio_id: string;
+  name: string;
+  slug: string;
+  active: boolean;
 };
 
 const EVENT_IMAGE_BUCKET = "event-media";
@@ -60,7 +74,7 @@ function getBoolean(formData: FormData, key: string) {
   if (typeof value !== "string") return false;
   return value === "true" || value === "on";
 }
- 
+
 function getFile(formData: FormData, key: string) {
   const value = formData.get(key);
   return value instanceof File && value.size > 0 ? value : null;
@@ -132,6 +146,18 @@ function normalizeDbEventType(value: string) {
   return "other";
 }
 
+function isOrganizerWorkspaceName(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+
+  if (!normalized) return false;
+
+  return (
+    normalized.endsWith(" organizer") ||
+    normalized.includes(" organizer ") ||
+    normalized.endsWith(" events")
+  );
+}
+
 async function getStudioContext() {
   const supabase = await createClient();
 
@@ -143,26 +169,11 @@ async function getStudioContext() {
     redirect("/login");
   }
 
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
-
-  if (roleError || !roleRow?.studio_id) {
-    return {
-      supabase,
-      studioId: "",
-      userId: user.id,
-      error: "No active studio role found for this user.",
-    };
-  }
+  const context = await getCurrentStudioContext();
 
   return {
     supabase,
-    studioId: roleRow.studio_id as string,
+    studioId: context.studioId,
     userId: user.id,
     error: null as string | null,
   };
@@ -237,11 +248,17 @@ function buildEventPayload(formData: FormData) {
 }
 
 function validateEventEnums(payload: ReturnType<typeof buildEventPayload>) {
-  if (!payload.visibility || !isAllowedOptionValue(EVENT_VISIBILITY_OPTIONS, payload.visibility)) {
+  if (
+    !payload.visibility ||
+    !isAllowedOptionValue(EVENT_VISIBILITY_OPTIONS, payload.visibility)
+  ) {
     return "Invalid visibility.";
   }
 
-  if (!payload.timezone || !isAllowedOptionValue(TIMEZONE_OPTIONS, payload.timezone)) {
+  if (
+    !payload.timezone ||
+    !isAllowedOptionValue(TIMEZONE_OPTIONS, payload.timezone)
+  ) {
     return "Invalid timezone.";
   }
 
@@ -340,6 +357,84 @@ async function ensureOrganizerValid(params: {
   }
 
   return true;
+}
+
+async function getWorkspaceAndOrganizerPolicy(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+}) {
+  const { supabase, studioId } = params;
+
+  const { data: workspace, error: workspaceError } = await supabase
+    .from("studios")
+    .select("id, name")
+    .eq("id", studioId)
+    .maybeSingle<WorkspaceRow>();
+
+  if (workspaceError) {
+    throw new Error(`Failed to load workspace policy: ${workspaceError.message}`);
+  }
+
+  const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
+
+  const { data: organizers, error: organizersError } = await supabase
+    .from("organizers")
+    .select("id, studio_id, name, slug, active")
+    .eq("studio_id", studioId)
+    .order("name", { ascending: true });
+
+  if (organizersError) {
+    throw new Error(`Failed to load organizer policy: ${organizersError.message}`);
+  }
+
+  const typedOrganizers = (organizers ?? []) as OrganizerRow[];
+  const singleOrganizer = typedOrganizers.length === 1 ? typedOrganizers[0] : null;
+
+  return {
+    organizerWorkspace,
+    organizers: typedOrganizers,
+    singleOrganizer,
+  };
+}
+
+async function resolveEffectiveOrganizerId(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  requestedOrganizerId: string;
+}) {
+  const { supabase, studioId, requestedOrganizerId } = params;
+
+  const policy = await getWorkspaceAndOrganizerPolicy({
+    supabase,
+    studioId,
+  });
+
+  if (policy.organizerWorkspace) {
+    if (!policy.singleOrganizer) {
+      return {
+        organizerId: "",
+        error:
+          "Organizer workspaces must have exactly one organizer profile before events can be created or edited.",
+      };
+    }
+
+    return {
+      organizerId: policy.singleOrganizer.id,
+      error: null as string | null,
+    };
+  }
+
+  if (!requestedOrganizerId) {
+    return {
+      organizerId: "",
+      error: "Organizer is required.",
+    };
+  }
+
+  return {
+    organizerId: requestedOrganizerId,
+    error: null as string | null,
+  };
 }
 
 async function replaceEventStyles(params: {
@@ -442,12 +537,13 @@ async function resolveCoverImageUrl(params: {
 function buildInsertUpdatePayload(params: {
   payload: ReturnType<typeof buildEventPayload>;
   studioId: string;
+  organizerId: string;
   resolvedCoverImageUrl: string | null;
 }) {
-  const { payload, studioId, resolvedCoverImageUrl } = params;
+  const { payload, studioId, organizerId, resolvedCoverImageUrl } = params;
 
   return {
-    organizer_id: payload.organizerId,
+    organizer_id: organizerId,
     studio_id: studioId,
     name: payload.name,
     slug: payload.slug,
@@ -500,7 +596,23 @@ export async function createEventAction(
     }
 
     const payload = buildEventPayload(formData);
-    const validationError = validateEventPayload(payload);
+
+    const organizerResolution = await resolveEffectiveOrganizerId({
+      supabase,
+      studioId,
+      requestedOrganizerId: payload.organizerId,
+    });
+
+    if (organizerResolution.error) {
+      return { error: organizerResolution.error };
+    }
+
+    const effectivePayload = {
+      ...payload,
+      organizerId: organizerResolution.organizerId,
+    };
+
+    const validationError = validateEventPayload(effectivePayload);
 
     if (validationError) {
       return { error: validationError };
@@ -509,7 +621,7 @@ export async function createEventAction(
     const organizerValid = await ensureOrganizerValid({
       supabase,
       studioId,
-      organizerId: payload.organizerId,
+      organizerId: effectivePayload.organizerId,
     });
 
     if (!organizerValid) {
@@ -519,7 +631,7 @@ export async function createEventAction(
     const slugAvailable = await ensureSlugAvailable({
       supabase,
       studioId,
-      slug: payload.slug,
+      slug: effectivePayload.slug,
     });
 
     if (!slugAvailable) {
@@ -529,15 +641,16 @@ export async function createEventAction(
     const resolvedCoverImageUrl = await resolveCoverImageUrl({
       supabase,
       studioId,
-      slug: payload.slug,
+      slug: effectivePayload.slug,
       existingUrl: null,
-      payload,
+      payload: effectivePayload,
     });
 
     const insertPayload = {
       ...buildInsertUpdatePayload({
-        payload,
+        payload: effectivePayload,
         studioId,
+        organizerId: effectivePayload.organizerId,
         resolvedCoverImageUrl,
       }),
       created_by: userId,
@@ -555,9 +668,9 @@ export async function createEventAction(
       };
     }
 
-    if (payload.tags.length > 0) {
+    if (effectivePayload.tags.length > 0) {
       const { error: tagsError } = await supabase.from("event_tags").insert(
-        payload.tags.map((tag) => ({
+        effectivePayload.tags.map((tag) => ({
           event_id: event.id,
           tag,
         }))
@@ -573,7 +686,7 @@ export async function createEventAction(
     await replaceEventStyles({
       supabase,
       eventId: event.id,
-      styleKeys: payload.styleKeys,
+      styleKeys: effectivePayload.styleKeys,
     });
   } catch (error) {
     return {
@@ -602,7 +715,23 @@ export async function updateEventAction(
     }
 
     const payload = buildEventPayload(formData);
-    const validationError = validateEventPayload(payload);
+
+    const organizerResolution = await resolveEffectiveOrganizerId({
+      supabase,
+      studioId,
+      requestedOrganizerId: payload.organizerId,
+    });
+
+    if (organizerResolution.error) {
+      return { error: organizerResolution.error };
+    }
+
+    const effectivePayload = {
+      ...payload,
+      organizerId: organizerResolution.organizerId,
+    };
+
+    const validationError = validateEventPayload(effectivePayload);
 
     if (validationError) {
       return { error: validationError };
@@ -622,7 +751,7 @@ export async function updateEventAction(
     const organizerValid = await ensureOrganizerValid({
       supabase,
       studioId,
-      organizerId: payload.organizerId,
+      organizerId: effectivePayload.organizerId,
     });
 
     if (!organizerValid) {
@@ -632,7 +761,7 @@ export async function updateEventAction(
     const slugAvailable = await ensureSlugAvailable({
       supabase,
       studioId,
-      slug: payload.slug,
+      slug: effectivePayload.slug,
       excludeEventId: id,
     });
 
@@ -643,18 +772,19 @@ export async function updateEventAction(
     const resolvedCoverImageUrl = await resolveCoverImageUrl({
       supabase,
       studioId,
-      slug: payload.slug,
+      slug: effectivePayload.slug,
       existingUrl:
         existingEvent.public_cover_image_url ?? existingEvent.cover_image_url ?? null,
-      payload,
+      payload: effectivePayload,
     });
 
     const { error: updateError } = await supabase
       .from("events")
       .update({
         ...buildInsertUpdatePayload({
-          payload,
+          payload: effectivePayload,
           studioId,
+          organizerId: effectivePayload.organizerId,
           resolvedCoverImageUrl,
         }),
         updated_at: new Date().toISOString(),
@@ -679,9 +809,9 @@ export async function updateEventAction(
       };
     }
 
-    if (payload.tags.length > 0) {
+    if (effectivePayload.tags.length > 0) {
       const { error: tagsError } = await supabase.from("event_tags").insert(
-        payload.tags.map((tag) => ({
+        effectivePayload.tags.map((tag) => ({
           event_id: id,
           tag,
         }))
@@ -697,7 +827,7 @@ export async function updateEventAction(
     await replaceEventStyles({
       supabase,
       eventId: id,
-      styleKeys: payload.styleKeys,
+      styleKeys: effectivePayload.styleKeys,
     });
   } catch (error) {
     return {

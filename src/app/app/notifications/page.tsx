@@ -6,6 +6,8 @@ import {
   markNotificationReadAction,
 } from "../dashboard-actions";
 import { syncStudioNotifications } from "@/lib/notifications/sync";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { Bell, CalendarDays, Sparkles } from "lucide-react";
 
 type SearchParams = Promise<{
   status?: string;
@@ -30,13 +32,31 @@ type NotificationTypeOption = {
   label: string;
 };
 
-const notificationTypeOptions: NotificationTypeOption[] = [
+type WorkspaceRow = {
+  id: string;
+  name: string | null;
+  public_name: string | null;
+};
+
+const studioNotificationTypeOptions: NotificationTypeOption[] = [
   { value: "public_intro_booking", label: "Public Intro" },
   { value: "floor_rental_upcoming", label: "Floor Rental" },
   { value: "follow_up_overdue", label: "Follow-Up Overdue" },
   { value: "package_low_balance", label: "Package Low Balance" },
   { value: "package_depleted", label: "Package Depleted" },
 ];
+
+function isOrganizerWorkspaceName(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+
+  if (!normalized) return false;
+
+  return (
+    normalized.endsWith(" organizer") ||
+    normalized.includes(" organizer ") ||
+    normalized.endsWith(" events")
+  );
+}
 
 function fmtDateTime(value: string) {
   return new Date(value).toLocaleString([], {
@@ -49,16 +69,16 @@ function fmtDateTime(value: string) {
 }
 
 function notificationBadgeClass(type: string) {
-  if (type === "public_intro_booking") return "bg-blue-50 text-blue-700";
-  if (type === "follow_up_overdue") return "bg-amber-50 text-amber-700";
-  if (type === "package_low_balance") return "bg-orange-50 text-orange-700";
-  if (type === "package_depleted") return "bg-red-50 text-red-700";
-  if (type === "floor_rental_upcoming") return "bg-indigo-50 text-indigo-700";
-  return "bg-slate-100 text-slate-700";
+  if (type === "public_intro_booking") return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
+  if (type === "follow_up_overdue") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (type === "package_low_balance") return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
+  if (type === "package_depleted") return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  if (type === "floor_rental_upcoming") return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function notificationTypeLabel(type: string) {
-  const match = notificationTypeOptions.find((option) => option.value === type);
+  const match = studioNotificationTypeOptions.find((option) => option.value === type);
   if (match) return match.label;
   return type.replaceAll("_", " ");
 }
@@ -79,14 +99,38 @@ function getNotificationHref(notification: NotificationRow) {
   return "/app";
 }
 
-function buildFilterHref(status: string, type: string) {
+function buildFilterHref(status: string, type: string, organizerWorkspace: boolean) {
   const params = new URLSearchParams();
 
   if (status !== "all") params.set("status", status);
-  if (type !== "all") params.set("type", type);
+  if (!organizerWorkspace && type !== "all") params.set("type", type);
 
   const query = params.toString();
   return query ? `/app/notifications?${query}` : "/app/notifications";
+}
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-slate-500">{label}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
+        </div>
+        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default async function NotificationsPage({
@@ -108,19 +152,26 @@ export default async function NotificationsPage({
     redirect("/login");
   }
 
-  const { data: roleRow } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
+  const context = await getCurrentStudioContext();
+  const studioId = context.studioId;
 
-  if (!roleRow) {
-    redirect("/login");
+  const { data: workspace, error: workspaceError } = await supabase
+    .from("studios")
+    .select("id, name, public_name")
+    .eq("id", studioId)
+    .maybeSingle<WorkspaceRow>();
+
+  if (workspaceError) {
+    throw new Error(`Failed to load workspace: ${workspaceError.message}`);
   }
 
-  const studioId = roleRow.studio_id as string;
+  const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
+  const workspaceName =
+    workspace?.public_name?.trim() || workspace?.name?.trim() || "Workspace";
+
+  const notificationTypeOptions = organizerWorkspace
+    ? []
+    : studioNotificationTypeOptions;
 
   await syncStudioNotifications(studioId);
 
@@ -148,7 +199,7 @@ export default async function NotificationsPage({
     notificationsQuery = notificationsQuery.not("read_at", "is", null);
   }
 
-  if (typeFilter !== "all") {
+  if (!organizerWorkspace && typeFilter !== "all") {
     notificationsQuery = notificationsQuery.eq("type", typeFilter);
   }
 
@@ -173,41 +224,68 @@ export default async function NotificationsPage({
   }
 
   const typedNotifications = (notifications ?? []) as NotificationRow[];
+  const unread = unreadCount ?? 0;
+  const readCount = typedNotifications.filter((item) => item.read_at).length;
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight text-slate-900">
-            Notifications
-          </h2>
-          <p className="mt-2 text-slate-600">
-            Review internal alerts for leads, packages, intro bookings, floor rentals, and studio operations.
-          </p>
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                {organizerWorkspace ? "DanceFlow Organizer Workspace" : "DanceFlow Studio Workspace"}
+              </p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                {organizerWorkspace ? "Organizer Notifications" : "Notifications"}
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+                {organizerWorkspace
+                  ? `Review workspace alerts for ${workspaceName} without the studio CRM-only noise.`
+                  : "Review internal alerts for leads, packages, intro bookings, floor rentals, and daily studio operations."}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="inline-flex rounded-full bg-white/10 px-3 py-1 text-sm font-medium text-white ring-1 ring-white/15">
+                {unread} unread
+              </span>
+
+              {unread > 0 ? (
+                <form action={markAllNotificationsReadAction}>
+                  <button
+                    type="submit"
+                    className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                  >
+                    Mark all read
+                  </button>
+                </form>
+              ) : null}
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700">
-            {unreadCount ?? 0} unread
-          </span>
-
-          {(unreadCount ?? 0) > 0 ? (
-            <form action={markAllNotificationsReadAction}>
-              <button
-                type="submit"
-                className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-              >
-                Mark all read
-              </button>
-            </form>
-          ) : null}
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+          <div className="grid gap-4 md:grid-cols-3">
+            <StatCard label="Unread" value={unread} icon={Bell} />
+            <StatCard label="Loaded" value={typedNotifications.length} icon={CalendarDays} />
+            <StatCard
+              label={organizerWorkspace ? "Reviewed" : "Read"}
+              value={readCount}
+              icon={Sparkles}
+            />
+          </div>
         </div>
-      </div>
+      </section>
 
-      <div className="rounded-2xl border bg-white p-5">
-        <div className="grid gap-4 lg:grid-cols-[220px_220px_auto]">
+      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div
+          className={`grid gap-4 ${
+            organizerWorkspace ? "lg:grid-cols-[220px_auto]" : "lg:grid-cols-[220px_220px_auto]"
+          }`}
+        >
           <div>
-            <label htmlFor="status" className="mb-1 block text-sm font-medium">
+            <label htmlFor="status" className="mb-1.5 block text-sm font-medium text-slate-800">
               Read Status
             </label>
             <select
@@ -215,7 +293,7 @@ export default async function NotificationsPage({
               name="status"
               defaultValue={statusFilter}
               form="notification-filter-form"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              className="w-full rounded-2xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-4 focus:ring-[var(--brand-primary)]/10"
             >
               <option value="all">All</option>
               <option value="unread">Unread</option>
@@ -223,31 +301,33 @@ export default async function NotificationsPage({
             </select>
           </div>
 
-          <div>
-            <label htmlFor="type" className="mb-1 block text-sm font-medium">
-              Type
-            </label>
-            <select
-              id="type"
-              name="type"
-              defaultValue={typeFilter}
-              form="notification-filter-form"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2"
-            >
-              <option value="all">All Types</option>
-              {notificationTypeOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          {!organizerWorkspace ? (
+            <div>
+              <label htmlFor="type" className="mb-1.5 block text-sm font-medium text-slate-800">
+                Type
+              </label>
+              <select
+                id="type"
+                name="type"
+                defaultValue={typeFilter}
+                form="notification-filter-form"
+                className="w-full rounded-2xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-4 focus:ring-[var(--brand-primary)]/10"
+              >
+                <option value="all">All Types</option>
+                {notificationTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           <div className="flex items-end gap-3">
             <form id="notification-filter-form" action="/app/notifications" method="get">
               <button
                 type="submit"
-                className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
+                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
               >
                 Apply Filters
               </button>
@@ -255,7 +335,7 @@ export default async function NotificationsPage({
 
             <Link
               href="/app/notifications"
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+              className="rounded-xl border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Reset
             </Link>
@@ -265,76 +345,78 @@ export default async function NotificationsPage({
         <div className="mt-5 space-y-4">
           <div className="flex flex-wrap gap-3">
             <Link
-              href={buildFilterHref("all", typeFilter)}
+              href={buildFilterHref("all", typeFilter, organizerWorkspace)}
               className={`rounded-full px-4 py-2 text-sm ${
                 statusFilter === "all"
                   ? "bg-slate-900 text-white"
-                  : "border bg-white text-slate-700 hover:bg-slate-50"
+                  : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
               }`}
             >
               All
             </Link>
             <Link
-              href={buildFilterHref("unread", typeFilter)}
+              href={buildFilterHref("unread", typeFilter, organizerWorkspace)}
               className={`rounded-full px-4 py-2 text-sm ${
                 statusFilter === "unread"
                   ? "bg-slate-900 text-white"
-                  : "border bg-white text-slate-700 hover:bg-slate-50"
+                  : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
               }`}
             >
               Unread
             </Link>
             <Link
-              href={buildFilterHref("read", typeFilter)}
+              href={buildFilterHref("read", typeFilter, organizerWorkspace)}
               className={`rounded-full px-4 py-2 text-sm ${
                 statusFilter === "read"
                   ? "bg-slate-900 text-white"
-                  : "border bg-white text-slate-700 hover:bg-slate-50"
+                  : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
               }`}
             >
               Read
             </Link>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href={buildFilterHref(statusFilter, "all")}
-              className={`rounded-full px-4 py-2 text-sm ${
-                typeFilter === "all"
-                  ? "bg-slate-900 text-white"
-                  : "border bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              All Types
-            </Link>
-
-            {notificationTypeOptions.map((option) => (
+          {!organizerWorkspace ? (
+            <div className="flex flex-wrap gap-3">
               <Link
-                key={option.value}
-                href={buildFilterHref(statusFilter, option.value)}
+                href={buildFilterHref(statusFilter, "all", organizerWorkspace)}
                 className={`rounded-full px-4 py-2 text-sm ${
-                  typeFilter === option.value
+                  typeFilter === "all"
                     ? "bg-slate-900 text-white"
-                    : "border bg-white text-slate-700 hover:bg-slate-50"
+                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
                 }`}
               >
-                {option.label}
+                All Types
               </Link>
-            ))}
-          </div>
-        </div>
-      </div>
 
-      <div className="space-y-4">
+              {notificationTypeOptions.map((option) => (
+                <Link
+                  key={option.value}
+                  href={buildFilterHref(statusFilter, option.value, organizerWorkspace)}
+                  className={`rounded-full px-4 py-2 text-sm ${
+                    typeFilter === option.value
+                      ? "bg-slate-900 text-white"
+                      : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {option.label}
+                </Link>
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="space-y-4">
         {typedNotifications.length === 0 ? (
-          <div className="rounded-2xl border bg-white p-8 text-center text-slate-500">
+          <div className="rounded-[32px] border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-sm">
             No notifications match your current filters.
           </div>
         ) : (
           typedNotifications.map((notification) => (
             <div
               key={notification.id}
-              className="rounded-2xl border bg-white p-5 shadow-sm"
+              className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
             >
               <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <Link href={getNotificationHref(notification)} className="min-w-0 flex-1">
@@ -343,13 +425,15 @@ export default async function NotificationsPage({
                       {notification.title}
                     </h3>
 
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${notificationBadgeClass(
-                        notification.type
-                      )}`}
-                    >
-                      {notificationTypeLabel(notification.type)}
-                    </span>
+                    {!organizerWorkspace ? (
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${notificationBadgeClass(
+                          notification.type
+                        )}`}
+                      >
+                        {notificationTypeLabel(notification.type)}
+                      </span>
+                    ) : null}
 
                     {!notification.read_at ? (
                       <span className="inline-flex rounded-full bg-slate-900 px-2.5 py-1 text-xs font-medium text-white">
@@ -363,7 +447,9 @@ export default async function NotificationsPage({
                   </div>
 
                   {notification.body ? (
-                    <p className="mt-2 text-sm text-slate-600">{notification.body}</p>
+                    <p className="mt-2 text-sm leading-7 text-slate-600">
+                      {notification.body}
+                    </p>
                   ) : null}
 
                   <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
@@ -377,7 +463,7 @@ export default async function NotificationsPage({
                 <div className="flex flex-wrap gap-3">
                   <Link
                     href={getNotificationHref(notification)}
-                    className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                    className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
                     Open
                   </Link>
@@ -387,7 +473,7 @@ export default async function NotificationsPage({
                       <input type="hidden" name="notificationId" value={notification.id} />
                       <button
                         type="submit"
-                        className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                        className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                       >
                         Mark read
                       </button>
@@ -398,7 +484,7 @@ export default async function NotificationsPage({
             </div>
           ))
         )}
-      </div>
+      </section>
     </div>
   );
 }

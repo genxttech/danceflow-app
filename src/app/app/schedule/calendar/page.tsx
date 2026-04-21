@@ -1,65 +1,47 @@
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 import ScheduleCalendarView from "./ScheduleCalendarView";
 import ScheduleAgendaView from "./ScheduleAgendaView";
-import { startOfWeek, addDays } from "@/lib/utils/schedule";
 
 type SearchParams = Promise<{
   view?: string;
   date?: string;
+  source?: string;
   instructorId?: string;
   roomId?: string;
   appointmentType?: string;
   status?: string;
-  source?: string;
   groupBy?: string;
 }>;
 
-type AppointmentRow = {
+type PersonRelation =
+  | { first_name: string; last_name: string }
+  | { first_name: string; last_name: string }[]
+  | null;
+
+type RoomRelation = { name: string } | { name: string }[] | null;
+type OrganizerRelation = { name: string } | { name: string }[] | null;
+
+export type CalendarItem = {
+  kind: "appointment" | "event";
   id: string;
   title: string | null;
-  appointment_type: string;
-  status: string;
   starts_at: string;
   ends_at: string;
-  is_recurring?: boolean;
-  recurrence_series_id?: string | null;
-  clients:
-    | { first_name: string; last_name: string }
-    | { first_name: string; last_name: string }[]
-    | null;
-  partner_client:
-    | { first_name: string; last_name: string }
-    | { first_name: string; last_name: string }[]
-    | null;
-  instructors:
-    | { first_name: string; last_name: string }
-    | { first_name: string; last_name: string }[]
-    | null;
-  rooms:
-    | { name: string }
-    | { name: string }[]
-    | null;
-};
-
-type EventRow = {
-  id: string;
-  name: string;
-  slug: string;
-  event_type: string;
   status: string;
-  visibility: string;
-  start_date: string;
-  end_date: string;
-  start_time: string | null;
-  end_time: string | null;
-  venue_name: string | null;
-  city: string | null;
-  state: string | null;
-  organizers:
-    | { name: string }
-    | { name: string }[]
-    | null;
+  appointment_type?: string;
+  event_type?: string;
+  is_recurring?: boolean | null;
+  is_all_day?: boolean | null;
+  clients: PersonRelation;
+  instructors: PersonRelation;
+  partner_client?: PersonRelation;
+  rooms: RoomRelation;
+  organizers?: OrganizerRelation;
+  city?: string | null;
+  state?: string | null;
+  venue_name?: string | null;
+  display_date?: string;
 };
 
 type InstructorOption = {
@@ -73,328 +55,234 @@ type RoomOption = {
   name: string;
 };
 
-export type CalendarItem = {
-  id: string;
-  kind: "appointment" | "event";
-  title: string | null;
-  slug?: string | null;
-  appointment_type?: string | null;
-  event_type?: string | null;
-  status: string;
-  starts_at: string;
-  ends_at: string;
-  display_date?: string;
-  is_all_day?: boolean;
-  is_recurring?: boolean;
-  recurrence_series_id?: string | null;
-  clients?:
-    | { first_name: string; last_name: string }
-    | { first_name: string; last_name: string }[]
-    | null;
-  instructors?:
-    | { first_name: string; last_name: string }
-    | { first_name: string; last_name: string }[]
-    | null;
-  rooms?:
-    | { name: string }
-    | { name: string }[]
-    | null;
-  organizers?:
-    | { name: string }
-    | { name: string }[]
-    | null;
-  venue_name?: string | null;
-  city?: string | null;
-  state?: string | null;
-};
+function startOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
 
-const APPOINTMENT_TYPES = new Set([
-  "private_lesson",
-  "group_class",
-  "intro_lesson",
-  "coaching",
-  "practice_party",
-  "event",
-  "floor_space_rental",
-]);
+function endOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
 
-const EVENT_TYPES = new Set([
-  "group_class",
-  "practice_party",
-  "workshop",
-  "social_dance",
-  "competition",
-  "showcase",
-  "festival",
-  "special_event",
-  "other",
-]);
+function addDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
+}
 
-const APPOINTMENT_STATUSES = new Set([
-  "scheduled",
-  "attended",
-  "cancelled",
-  "no_show",
-  "rescheduled",
-]);
+function startOfWeekMonday(date: Date) {
+  const next = startOfDay(date);
+  const day = next.getDay();
+  const offset = day === 0 ? -6 : 1 - day;
+  return addDays(next, offset);
+}
 
-const EVENT_STATUSES = new Set(["draft", "published"]);
+function isValidYmd(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
+}
 
-function getBaseDate(rawDate?: string) {
-  if (rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
-    return rawDate;
+function toYmd(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function getDaysForView(baseDate: string, view: "day" | "week" | "agenda") {
+  const base = new Date(`${baseDate}T00:00:00`);
+
+  if (view === "day") {
+    return [baseDate];
   }
 
-  return new Date().toISOString().slice(0, 10);
+  const weekStart = startOfWeekMonday(base);
+  return Array.from({ length: 7 }, (_, index) => toYmd(addDays(weekStart, index)));
 }
 
-function toDateTime(
-  dateValue: string,
-  timeValue: string | null | undefined,
-  fallback: string
-) {
-  return `${dateValue}T${timeValue || fallback}`;
+function normalizePersonRelation(value: any): PersonRelation {
+  if (!value) return null;
+  if (Array.isArray(value)) return value;
+  return value;
 }
 
-function eventIntersectsDay(event: EventRow, day: string) {
-  return event.start_date <= day && event.end_date >= day;
+function normalizeRoomRelation(value: any): RoomRelation {
+  if (!value) return null;
+  if (Array.isArray(value)) return value;
+  return value;
 }
 
-function buildEventInstance(event: EventRow, day: string): CalendarItem {
-  const isSingleDay = event.start_date === event.end_date;
-  const hasTimes = Boolean(event.start_time && event.end_time);
+function normalizeOrganizerRelation(value: any): OrganizerRelation {
+  if (!value) return null;
+  if (Array.isArray(value)) return value;
+  return value;
+}
 
-  let startsAt = `${day}T00:00:00`;
-  let endsAt = `${day}T23:59:59`;
-  let isAllDay = true;
+function getItemDateKey(item: { starts_at: string; is_all_day?: boolean | null }) {
+  return item.starts_at.slice(0, 10);
+}
 
-  if (hasTimes) {
-    isAllDay = false;
+function matchesType(item: CalendarItem, selectedAppointmentType?: string) {
+  if (!selectedAppointmentType) return true;
 
-    if (isSingleDay) {
-      startsAt = toDateTime(day, event.start_time, "00:00:00");
-      endsAt = toDateTime(day, event.end_time, "23:59:59");
-    } else if (day === event.start_date) {
-      startsAt = toDateTime(day, event.start_time, "00:00:00");
-      endsAt = `${day}T23:59:59`;
-    } else if (day === event.end_date) {
-      startsAt = `${day}T00:00:00`;
-      endsAt = toDateTime(day, event.end_time, "23:59:59");
-    }
+  if (item.kind === "appointment") {
+    return item.appointment_type === selectedAppointmentType;
   }
 
-  return {
-    id: event.id,
-    kind: "event",
-    title: event.name,
-    slug: event.slug,
-    appointment_type: null,
-    event_type: event.event_type,
-    status: event.status,
-    starts_at: startsAt,
-    ends_at: endsAt,
-    display_date: day,
-    is_all_day: isAllDay,
-    is_recurring: false,
-    recurrence_series_id: null,
-    clients: null,
-    instructors: null,
-    rooms: null,
-    organizers: event.organizers,
-    venue_name: event.venue_name,
-    city: event.city,
-    state: event.state,
-  };
+  return item.event_type === selectedAppointmentType;
+}
+
+function matchesSource(item: CalendarItem, selectedSource: "all" | "appointments" | "events") {
+  if (selectedSource === "all") return true;
+  if (selectedSource === "appointments") return item.kind === "appointment";
+  return item.kind === "event";
+}
+
+function matchesInstructor(item: CalendarItem, selectedInstructorId?: string) {
+  if (!selectedInstructorId) return true;
+
+  const instructor = Array.isArray(item.instructors) ? item.instructors[0] : item.instructors;
+  const anyItem = item as any;
+
+  if (anyItem.instructor_id && anyItem.instructor_id === selectedInstructorId) return true;
+  if (Array.isArray(anyItem.instructors) && anyItem.instructors[0]?.id === selectedInstructorId) {
+    return true;
+  }
+  if ((instructor as any)?.id === selectedInstructorId) return true;
+
+  return false;
+}
+
+function matchesRoom(item: CalendarItem, selectedRoomId?: string) {
+  if (!selectedRoomId) return true;
+
+  const room = Array.isArray(item.rooms) ? item.rooms[0] : item.rooms;
+  const anyItem = item as any;
+
+  if (anyItem.room_id && anyItem.room_id === selectedRoomId) return true;
+  if (Array.isArray(anyItem.rooms) && anyItem.rooms[0]?.id === selectedRoomId) return true;
+  if ((room as any)?.id === selectedRoomId) return true;
+
+  return false;
+}
+
+function matchesStatus(item: CalendarItem, selectedStatus?: string) {
+  if (!selectedStatus) return true;
+  return item.status === selectedStatus;
 }
 
 export default async function ScheduleCalendarPage({
   searchParams,
 }: {
-  searchParams: SearchParams;
+  searchParams?: SearchParams;
 }) {
-  const params = await searchParams;
-
-  const rawView = params.view ?? "week";
-  const view: "day" | "week" | "agenda" =
-    rawView === "day" || rawView === "agenda" || rawView === "week"
-      ? rawView
-      : "week";
-
-  const rawSource = params.source ?? "all";
-  const source: "all" | "appointments" | "events" =
-    rawSource === "appointments" || rawSource === "events" ? rawSource : "all";
-
-  const rawGroupBy = params.groupBy ?? "instructor";
-  const groupBy: "instructor" | "none" =
-    rawGroupBy === "none" ? "none" : "instructor";
-
-  const baseDate = getBaseDate(params.date);
-
+  const resolvedSearchParams = (await searchParams) ?? {};
+  const { studioId } = await getCurrentStudioContext();
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const today = new Date();
+  const fallbackDate = toYmd(today);
 
-  if (!user) {
-    redirect("/login");
-  }
+  const view: "day" | "week" | "agenda" =
+    resolvedSearchParams.view === "week" || resolvedSearchParams.view === "agenda"
+      ? resolvedSearchParams.view
+      : "day";
 
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
+  const selectedSource: "all" | "appointments" | "events" =
+    resolvedSearchParams.source === "appointments" || resolvedSearchParams.source === "events"
+      ? resolvedSearchParams.source
+      : "all";
 
-  if (roleError || !roleRow) {
-    redirect("/login");
-  }
+  const groupBy: "none" | "instructor" =
+    resolvedSearchParams.groupBy === "instructor" ? "instructor" : "none";
 
-  const studioId = roleRow.studio_id as string;
+  const baseDate =
+    typeof resolvedSearchParams.date === "string" && isValidYmd(resolvedSearchParams.date)
+      ? resolvedSearchParams.date
+      : fallbackDate;
 
-  const base = new Date(`${baseDate}T00:00:00`);
-  const rangeStart = view === "day" ? base : startOfWeek(base);
+  const selectedInstructorId =
+    typeof resolvedSearchParams.instructorId === "string"
+      ? resolvedSearchParams.instructorId
+      : undefined;
 
-  const days =
-    view === "day"
-      ? [base.toISOString().slice(0, 10)]
-      : Array.from({ length: 7 }).map((_, index) =>
-          addDays(rangeStart, index).toISOString().slice(0, 10)
-        );
+  const selectedRoomId =
+    typeof resolvedSearchParams.roomId === "string" ? resolvedSearchParams.roomId : undefined;
 
-  const rangeStartIso = `${days[0]}T00:00:00`;
-  const rangeEndIso = `${addDays(
-    new Date(`${days[days.length - 1]}T00:00:00`),
-    1
-  )
-    .toISOString()
-    .slice(0, 10)}T00:00:00`;
+  const selectedAppointmentType =
+    typeof resolvedSearchParams.appointmentType === "string"
+      ? resolvedSearchParams.appointmentType
+      : undefined;
 
-  const shouldLoadAppointments = source !== "events";
-  const shouldLoadEvents = source !== "appointments";
+  const selectedStatus =
+    typeof resolvedSearchParams.status === "string" ? resolvedSearchParams.status : undefined;
 
-  const selectedType = params.appointmentType?.trim() || "";
-  const selectedStatus = params.status?.trim() || "";
-
-  const selectedTypeAppliesToAppointments =
-    !selectedType || APPOINTMENT_TYPES.has(selectedType);
-  const selectedTypeAppliesToEvents =
-    !selectedType || EVENT_TYPES.has(selectedType);
-
-  const selectedStatusAppliesToAppointments =
-    !selectedStatus || APPOINTMENT_STATUSES.has(selectedStatus);
-  const selectedStatusAppliesToEvents =
-    !selectedStatus || EVENT_STATUSES.has(selectedStatus);
-
-  const appointmentsPromise = shouldLoadAppointments
-    ? (() => {
-        let query = supabase
-          .from("appointments")
-          .select(`
-            id,
-            title,
-            appointment_type,
-            status,
-            starts_at,
-            ends_at,
-            is_recurring,
-            recurrence_series_id,
-            clients:clients!appointments_client_id_fkey ( first_name, last_name ),
-            partner_client:clients!appointments_partner_client_id_fkey ( first_name, last_name ),
-            instructors ( first_name, last_name ),
-            rooms ( name )
-          `)
-          .eq("studio_id", studioId)
-          .gte("starts_at", rangeStartIso)
-          .lt("starts_at", rangeEndIso)
-          .order("starts_at", { ascending: true });
-
-        if (params.instructorId) {
-          query = query.eq("instructor_id", params.instructorId);
-        }
-
-        if (params.roomId) {
-          query = query.eq("room_id", params.roomId);
-        }
-
-        if (selectedType && selectedTypeAppliesToAppointments) {
-          query = query.eq("appointment_type", selectedType);
-        }
-
-        if (selectedStatus && selectedStatusAppliesToAppointments) {
-          query = query.eq("status", selectedStatus);
-        }
-
-        return query;
-      })()
-    : Promise.resolve({ data: [], error: null });
-
-  const eventsPromise = shouldLoadEvents
-    ? (() => {
-        let query = supabase
-          .from("events")
-          .select(`
-            id,
-            name,
-            slug,
-            event_type,
-            status,
-            visibility,
-            start_date,
-            end_date,
-            start_time,
-            end_time,
-            venue_name,
-            city,
-            state,
-            organizers ( name )
-          `)
-          .eq("studio_id", studioId)
-          .in("status", ["draft", "published"])
-          .not("visibility", "eq", "private")
-          .lte("start_date", days[days.length - 1])
-          .gte("end_date", days[0])
-          .order("start_date", { ascending: true });
-
-        if (selectedStatus && selectedStatusAppliesToEvents) {
-          query = query.eq("status", selectedStatus);
-        }
-
-        return query;
-      })()
-    : Promise.resolve({ data: [], error: null });
+  const days = getDaysForView(baseDate, view);
+  const rangeStart = startOfDay(new Date(`${days[0]}T00:00:00`));
+  const rangeEnd = endOfDay(new Date(`${days[days.length - 1]}T00:00:00`));
 
   const [
-    { data: appointments, error: appointmentsError },
-    { data: events, error: eventsError },
-    { data: instructors, error: instructorsError },
-    { data: rooms, error: roomsError },
+    { data: instructorsData, error: instructorsError },
+    { data: roomsData, error: roomsError },
+    { data: appointmentsData, error: appointmentsError },
+    { data: eventsData, error: eventsError },
   ] = await Promise.all([
-    appointmentsPromise,
-    eventsPromise,
     supabase
       .from("instructors")
       .select("id, first_name, last_name")
       .eq("studio_id", studioId)
       .eq("active", true)
       .order("first_name", { ascending: true }),
+
     supabase
       .from("rooms")
       .select("id, name")
       .eq("studio_id", studioId)
       .eq("active", true)
       .order("name", { ascending: true }),
+
+    supabase
+      .from("appointments")
+      .select(`
+        id,
+        title,
+        starts_at,
+        ends_at,
+        status,
+        appointment_type,
+        is_recurring,
+        instructor_id,
+        room_id,
+        clients:clients!client_id(first_name, last_name),
+        partner_client:clients!partner_client_id(first_name, last_name),
+        instructors:instructors!instructor_id(first_name, last_name),
+        rooms:rooms!room_id(name)
+      `)
+      .eq("studio_id", studioId)
+      .gte("starts_at", rangeStart.toISOString())
+      .lte("starts_at", rangeEnd.toISOString())
+      .order("starts_at", { ascending: true }),
+
+    supabase
+      .from("events")
+      .select(`
+        id,
+        title,
+        starts_at,
+        ends_at,
+        status,
+        event_type,
+        is_all_day,
+        city,
+        state,
+        venue_name,
+        organizer_id,
+        organizers:organizers!organizer_id(name)
+      `)
+      .eq("studio_id", studioId)
+      .gte("starts_at", rangeStart.toISOString())
+      .lte("starts_at", rangeEnd.toISOString())
+      .order("starts_at", { ascending: true }),
   ]);
-
-  if (appointmentsError) {
-    throw new Error(`Failed to load appointments: ${appointmentsError.message}`);
-  }
-
-  if (eventsError) {
-    throw new Error(`Failed to load events: ${eventsError.message}`);
-  }
 
   if (instructorsError) {
     throw new Error(`Failed to load instructors: ${instructorsError.message}`);
@@ -404,59 +292,96 @@ export default async function ScheduleCalendarPage({
     throw new Error(`Failed to load rooms: ${roomsError.message}`);
   }
 
-  const typedAppointments = (appointments ?? []) as AppointmentRow[];
-  const typedEvents = (events ?? []) as EventRow[];
+  if (appointmentsError) {
+    throw new Error(`Failed to load appointments: ${appointmentsError.message}`);
+  }
 
-  const appointmentItems: CalendarItem[] = typedAppointments.map((appointment) => ({
-    ...appointment,
-    kind: "appointment",
-    slug: null,
-    event_type: null,
-    display_date: appointment.starts_at.slice(0, 10),
-    is_all_day: false,
+  if (eventsError) {
+    throw new Error(`Failed to load events: ${eventsError.message}`);
+  }
+
+  const instructors = ((instructorsData ?? []) as InstructorOption[]).map((item) => ({
+    id: item.id,
+    first_name: item.first_name,
+    last_name: item.last_name,
   }));
 
-  const filteredEvents = typedEvents.filter((event) => {
-    if (!selectedType) return true;
-    return event.event_type === selectedType;
+  const rooms = ((roomsData ?? []) as RoomOption[]).map((item) => ({
+    id: item.id,
+    name: item.name,
+  }));
+
+  const appointmentItems: CalendarItem[] = ((appointmentsData ?? []) as any[]).map((item) => ({
+    kind: "appointment",
+    id: item.id,
+    title: item.title ?? null,
+    starts_at: item.starts_at,
+    ends_at: item.ends_at,
+    status: item.status ?? "scheduled",
+    appointment_type: item.appointment_type ?? "private_lesson",
+    is_recurring: item.is_recurring ?? false,
+    clients: normalizePersonRelation(item.clients),
+    partner_client: normalizePersonRelation(item.partner_client),
+    instructors: normalizePersonRelation(item.instructors),
+    rooms: normalizeRoomRelation(item.rooms),
+    display_date: item.starts_at?.slice(0, 10),
+    instructor_id: item.instructor_id,
+    room_id: item.room_id,
+  })) as CalendarItem[];
+
+  const eventItems: CalendarItem[] = ((eventsData ?? []) as any[]).map((item) => ({
+    kind: "event",
+    id: item.id,
+    title: item.title ?? null,
+    starts_at: item.starts_at,
+    ends_at: item.ends_at,
+    status: item.status ?? "published",
+    event_type: item.event_type ?? "other",
+    is_all_day: item.is_all_day ?? false,
+    clients: null,
+    instructors: null,
+    rooms: null,
+    organizers: normalizeOrganizerRelation(item.organizers),
+    city: item.city ?? null,
+    state: item.state ?? null,
+    venue_name: item.venue_name ?? null,
+    display_date: item.starts_at?.slice(0, 10),
+  })) as CalendarItem[];
+
+  const filteredItems = [...appointmentItems, ...eventItems].filter((item) => {
+    if (!matchesSource(item, selectedSource)) return false;
+    if (!matchesInstructor(item, selectedInstructorId)) return false;
+    if (!matchesRoom(item, selectedRoomId)) return false;
+    if (!matchesType(item, selectedAppointmentType)) return false;
+    if (!matchesStatus(item, selectedStatus)) return false;
+    return true;
   });
 
-  const eventInstances: CalendarItem[] = days.flatMap((day) =>
-    filteredEvents
-      .filter((event) => eventIntersectsDay(event, day))
-      .map((event) => buildEventInstance(event, day))
+  const groupedAppointments: Record<string, CalendarItem[]> = Object.fromEntries(
+    days.map((day) => [day, [] as CalendarItem[]])
   );
 
-  const allItems = [...appointmentItems, ...eventInstances].sort((a, b) => {
-    if (a.display_date !== b.display_date) {
-      return (a.display_date ?? "").localeCompare(b.display_date ?? "");
+  for (const item of filteredItems) {
+    const key = getItemDateKey(item);
+    if (!groupedAppointments[key]) {
+      groupedAppointments[key] = [];
     }
-
-    if ((a.is_all_day ?? false) !== (b.is_all_day ?? false)) {
-      return a.is_all_day ? -1 : 1;
-    }
-
-    return a.starts_at.localeCompare(b.starts_at);
-  });
-
-  const groupedItems = days.reduce<Record<string, CalendarItem[]>>((acc, day) => {
-    acc[day] = allItems.filter((item) => item.display_date === day);
-    return acc;
-  }, {});
+    groupedAppointments[key].push(item);
+  }
 
   if (view === "agenda") {
     return (
       <ScheduleAgendaView
         baseDate={baseDate}
         days={days}
-        groupedAppointments={groupedItems}
-        instructors={(instructors ?? []) as InstructorOption[]}
-        rooms={(rooms ?? []) as RoomOption[]}
-        selectedInstructorId={params.instructorId}
-        selectedRoomId={params.roomId}
-        selectedAppointmentType={params.appointmentType}
-        selectedStatus={params.status}
-        selectedSource={source}
+        groupedAppointments={groupedAppointments}
+        instructors={instructors}
+        rooms={rooms}
+        selectedInstructorId={selectedInstructorId}
+        selectedRoomId={selectedRoomId}
+        selectedAppointmentType={selectedAppointmentType}
+        selectedStatus={selectedStatus}
+        selectedSource={selectedSource}
         groupBy={groupBy}
       />
     );
@@ -467,14 +392,14 @@ export default async function ScheduleCalendarPage({
       view={view}
       baseDate={baseDate}
       days={days}
-      groupedAppointments={groupedItems}
-      instructors={(instructors ?? []) as InstructorOption[]}
-      rooms={(rooms ?? []) as RoomOption[]}
-      selectedInstructorId={params.instructorId}
-      selectedRoomId={params.roomId}
-      selectedAppointmentType={params.appointmentType}
-      selectedStatus={params.status}
-      selectedSource={source}
+      groupedAppointments={groupedAppointments}
+      instructors={instructors}
+      rooms={rooms}
+      selectedInstructorId={selectedInstructorId}
+      selectedRoomId={selectedRoomId}
+      selectedAppointmentType={selectedAppointmentType}
+      selectedStatus={selectedStatus}
+      selectedSource={selectedSource}
     />
   );
 }

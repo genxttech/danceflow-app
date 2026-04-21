@@ -3,7 +3,23 @@ import { createClient as createSupabaseAdmin } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
-import { getBillingPlan } from "@/lib/billing/plans";
+import { getBillingPlan, type PlanAudience } from "@/lib/billing/plans";
+
+type StudioRow = {
+  id: string;
+  name: string | null;
+  subscription_status: string | null;
+  stripe_subscription_id: string | null;
+  stripe_customer_id: string | null;
+};
+
+type PlanRow = {
+  id: string;
+  code: string;
+  name: string;
+  stripe_price_id_monthly: string | null;
+  stripe_price_id_yearly: string | null;
+};
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -30,6 +46,69 @@ function billingRedirect(request: NextRequest, path: string) {
   return NextResponse.redirect(new URL(path, request.url), { status: 303 });
 }
 
+function parseAudience(value: FormDataEntryValue | null): PlanAudience | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim().toLowerCase();
+  return normalized === "studio" || normalized === "organizer"
+    ? normalized
+    : undefined;
+}
+
+function parseEntry(value: FormDataEntryValue | null) {
+  if (typeof value !== "string") return "default";
+  const normalized = value.trim().toLowerCase();
+
+  if (
+    normalized === "trial-complete" ||
+    normalized === "chooser" ||
+    normalized === "no-card-trial"
+  ) {
+    return normalized;
+  }
+
+  return "default";
+}
+
+function parseBillingInterval(value: FormDataEntryValue | null) {
+  if (typeof value !== "string") return "month";
+  const normalized = value.trim().toLowerCase();
+  return normalized === "year" ? "year" : "month";
+}
+
+function isOrganizerWorkspaceName(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+
+  return (
+    normalized.endsWith(" organizer") ||
+    normalized.includes(" organizer ") ||
+    normalized.endsWith(" events")
+  );
+}
+
+function buildBillingReturnPath(params: {
+  success?: string;
+  error?: string;
+  path?: PlanAudience;
+  entry?: string;
+  recommended?: string;
+}) {
+  const search = new URLSearchParams();
+
+  if (params.success) search.set("success", params.success);
+  if (params.error) search.set("error", params.error);
+  if (params.path) search.set("path", params.path);
+  if (params.entry && params.entry !== "default") search.set("entry", params.entry);
+  if (params.recommended) search.set("recommended", params.recommended);
+
+  const query = search.toString();
+  return `/app/settings/billing${query ? `?${query}` : ""}`;
+}
+
+function buildSourceValue(audience: PlanAudience) {
+  return audience === "organizer" ? "organizer_subscription" : "studio_subscription";
+}
+
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
 
@@ -37,28 +116,47 @@ export async function POST(request: NextRequest) {
     typeof formData.get("planKey") === "string"
       ? String(formData.get("planKey")).trim()
       : typeof formData.get("planCode") === "string"
-      ? String(formData.get("planCode")).trim()
-      : "";
+        ? String(formData.get("planCode")).trim()
+        : "";
 
-  const billingInterval =
-    typeof formData.get("billingInterval") === "string"
-      ? String(formData.get("billingInterval")).trim()
-      : "month";
-
+  const requestedPath = parseAudience(formData.get("path"));
+  const entryMode = parseEntry(formData.get("entry"));
+  const billingInterval = parseBillingInterval(formData.get("billingInterval"));
   const planCode = planCodeRaw.toLowerCase();
 
   if (!planCode) {
-    return billingRedirect(request, "/app/settings/billing?error=plan_not_found");
-  }
-
-  if (!["month", "year"].includes(billingInterval)) {
-    return billingRedirect(request, "/app/settings/billing?error=checkout_failed");
+    return billingRedirect(
+      request,
+      buildBillingReturnPath({
+        error: "plan_not_found",
+        path: requestedPath,
+        entry: entryMode,
+      })
+    );
   }
 
   const sharedPlan = getBillingPlan(planCode);
 
   if (!sharedPlan) {
-    return billingRedirect(request, "/app/settings/billing?error=plan_not_found");
+    return billingRedirect(
+      request,
+      buildBillingReturnPath({
+        error: "plan_not_found",
+        path: requestedPath,
+        entry: entryMode,
+      })
+    );
+  }
+
+  if (requestedPath && requestedPath !== sharedPlan.audience) {
+    return billingRedirect(
+      request,
+      buildBillingReturnPath({
+        error: "plan_not_found",
+        path: requestedPath,
+        entry: entryMode,
+      })
+    );
   }
 
   try {
@@ -75,7 +173,15 @@ export async function POST(request: NextRequest) {
     const context = await getCurrentStudioContext();
 
     if (!context?.studioId) {
-      return billingRedirect(request, "/app/settings/billing?error=no_studio_context");
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "no_studio_context",
+          path: requestedPath ?? sharedPlan.audience,
+          entry: entryMode,
+          recommended: sharedPlan.code,
+        })
+      );
     }
 
     const studioId = context.studioId;
@@ -88,9 +194,9 @@ export async function POST(request: NextRequest) {
     ] = await Promise.all([
       supabaseAdmin
         .from("studios")
-        .select("id, name, subscription_status, stripe_subscription_id")
+        .select("id, name, subscription_status, stripe_subscription_id, stripe_customer_id")
         .eq("id", studioId)
-        .single(),
+        .single<StudioRow>(),
       supabaseAdmin
         .from("subscription_plans")
         .select(
@@ -104,7 +210,7 @@ export async function POST(request: NextRequest) {
         )
         .eq("code", planCode)
         .eq("active", true)
-        .single(),
+        .single<PlanRow>(),
       supabaseAdmin
         .from("studio_billing_customers")
         .select("id, stripe_customer_id")
@@ -113,15 +219,48 @@ export async function POST(request: NextRequest) {
     ]);
 
     if (studioError || !studio) {
-      return billingRedirect(request, "/app/settings/billing?error=studio_not_found");
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "studio_not_found",
+          path: requestedPath ?? sharedPlan.audience,
+          entry: entryMode,
+          recommended: sharedPlan.code,
+        })
+      );
     }
 
     if (planError || !planRow) {
-      return billingRedirect(request, "/app/settings/billing?error=plan_not_found");
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "plan_not_found",
+          path: requestedPath ?? sharedPlan.audience,
+          entry: entryMode,
+        })
+      );
     }
 
     if (customerLookupError) {
       throw new Error(customerLookupError.message);
+    }
+
+    const inferredAudience: PlanAudience = isOrganizerWorkspaceName(studio.name)
+      ? "organizer"
+      : "studio";
+
+    const audience: PlanAudience = requestedPath ?? inferredAudience ?? sharedPlan.audience;
+
+    if (audience !== sharedPlan.audience) {
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "plan_not_found",
+          path: audience,
+          entry: entryMode,
+          recommended: sharedPlan.code,
+        })
+      );
     }
 
     const stripePriceId =
@@ -130,35 +269,59 @@ export async function POST(request: NextRequest) {
         : planRow.stripe_price_id_monthly;
 
     if (!stripePriceId) {
-      return billingRedirect(request, "/app/settings/billing?error=missing_price_id");
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "missing_price_id",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })
+      );
     }
 
     const stripe = getStripe();
-    let stripeCustomerId = existingCustomer?.stripe_customer_id ?? null;
+    let stripeCustomerId =
+      existingCustomer?.stripe_customer_id ?? studio.stripe_customer_id ?? null;
 
     if (!stripeCustomerId) {
       const customer = await stripe.customers.create({
         email: user.email ?? undefined,
-        name: studio.name,
+        name: studio.name ?? undefined,
         metadata: {
-          studioId,
+          workspaceId: studioId,
+          workspaceName: studio.name ?? "",
           source: "danceflow_billing",
+          audience,
+          planCode: planRow.code,
         },
       });
 
       stripeCustomerId = customer.id;
 
-      const { error: insertCustomerError } = await supabaseAdmin
-        .from("studio_billing_customers")
-        .insert({
-          studio_id: studioId,
-          stripe_customer_id: stripeCustomerId,
-          billing_email: user.email ?? null,
-          contact_name: studio.name,
-        });
+      const [{ error: insertCustomerError }, { error: studioUpdateError }] =
+        await Promise.all([
+          supabaseAdmin.from("studio_billing_customers").upsert(
+            {
+              studio_id: studioId,
+              stripe_customer_id: stripeCustomerId,
+              billing_email: user.email ?? null,
+              contact_name: studio.name ?? null,
+            },
+            { onConflict: "studio_id" }
+          ),
+          supabaseAdmin
+            .from("studios")
+            .update({ stripe_customer_id: stripeCustomerId })
+            .eq("id", studioId),
+        ]);
 
       if (insertCustomerError) {
         throw new Error(insertCustomerError.message);
+      }
+
+      if (studioUpdateError) {
+        throw new Error(studioUpdateError.message);
       }
     }
 
@@ -173,11 +336,41 @@ export async function POST(request: NextRequest) {
     if (stripeCustomerId && hasManagedSubscription) {
       const portalSession = await stripe.billingPortal.sessions.create({
         customer: stripeCustomerId,
-        return_url: `${appUrl}/app/settings/billing?success=manage_subscription`,
+        return_url: `${appUrl}${buildBillingReturnPath({
+          success: "manage_subscription",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })}`,
       });
 
       return NextResponse.redirect(portalSession.url, { status: 303 });
     }
+
+    const successPath = buildBillingReturnPath({
+      success: "subscription_checkout_started",
+      path: audience,
+      entry: entryMode,
+      recommended: planCode,
+    });
+
+    const cancelPath = buildBillingReturnPath({
+      error: "checkout_cancelled",
+      path: audience,
+      entry: entryMode,
+      recommended: planCode,
+    });
+
+    const metadata = {
+      source: buildSourceValue(audience),
+      studioId,
+      workspaceId: studioId,
+      workspaceName: studio.name ?? "",
+      planCode: planRow.code,
+      billingInterval,
+      audience,
+      entry: entryMode,
+    };
 
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -189,30 +382,12 @@ export async function POST(request: NextRequest) {
           quantity: 1,
         },
       ],
-      success_url: `${appUrl}/app/settings/billing?success=subscription_checkout_started`,
-      cancel_url: `${appUrl}/app/settings/billing?error=checkout_cancelled`,
+      success_url: `${appUrl}${successPath}`,
+      cancel_url: `${appUrl}${cancelPath}`,
       allow_promotion_codes: true,
-      metadata: {
-        source:
-          sharedPlan.audience === "organizer"
-            ? "organizer_subscription"
-            : "studio_subscription",
-        studioId,
-        planCode: planRow.code,
-        billingInterval,
-        audience: sharedPlan.audience,
-      },
+      metadata,
       subscription_data: {
-        metadata: {
-          source:
-            sharedPlan.audience === "organizer"
-              ? "organizer_subscription"
-              : "studio_subscription",
-          studioId,
-          planCode: planRow.code,
-          billingInterval,
-          audience: sharedPlan.audience,
-        },
+        metadata,
         ...(sharedPlan.trialDays > 0
           ? { trial_period_days: sharedPlan.trialDays }
           : {}),
@@ -220,12 +395,29 @@ export async function POST(request: NextRequest) {
     });
 
     if (!checkoutSession.url) {
-      return billingRedirect(request, "/app/settings/billing?error=checkout_failed");
+      return billingRedirect(
+        request,
+        buildBillingReturnPath({
+          error: "checkout_failed",
+          path: audience,
+          entry: entryMode,
+          recommended: planCode,
+        })
+      );
     }
 
     return NextResponse.redirect(checkoutSession.url, { status: 303 });
   } catch (error) {
     console.error("billing checkout failed", error);
-    return billingRedirect(request, "/app/settings/billing?error=checkout_failed");
+
+    return billingRedirect(
+      request,
+      buildBillingReturnPath({
+        error: "checkout_failed",
+        path: requestedPath ?? sharedPlan.audience,
+        entry: entryMode,
+        recommended: planCode,
+      })
+    );
   }
 }

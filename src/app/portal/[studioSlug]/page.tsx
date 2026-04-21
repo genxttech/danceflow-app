@@ -260,426 +260,305 @@ export default async function PortalHomePage({
   ]);
 
   if (appointmentsError) {
-    throw new Error(`Failed to load portal appointments: ${appointmentsError.message}`);
+    throw appointmentsError;
   }
 
   if (rentalsError) {
-    throw new Error(`Failed to load portal rentals: ${rentalsError.message}`);
+    throw rentalsError;
   }
 
   const typedMembership = (membership ?? null) as ActiveMembership | null;
   const typedAppointments = (appointments ?? []) as AppointmentSummaryRow[];
   const typedRentals = (rentals ?? []) as RentalSummaryRow[];
 
-  const recentLessons = typedAppointments.filter(
-    (appointment) =>
-      appointment.appointment_type === "private_lesson" ||
-      appointment.appointment_type === "intro_lesson"
-  );
+  const upcomingAppointments = typedAppointments
+    .filter((item) => item.starts_at >= nowIso)
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
+    .slice(0, 5);
 
-  const upcomingAppointments = typedAppointments.filter(
-    (appointment) =>
-      appointment.status === "scheduled" && new Date(appointment.starts_at) >= new Date()
-  );
+  const recentAppointments = typedAppointments
+    .filter((item) => item.starts_at < nowIso)
+    .sort((a, b) => b.starts_at.localeCompare(a.starts_at))
+    .slice(0, 5);
 
   const upcomingItems: UpcomingItem[] = [
-    ...upcomingAppointments.map((appointment) => ({
-      id: appointment.id,
+    ...upcomingAppointments.map((item) => ({
+      id: item.id,
       kind: "appointment" as const,
-      starts_at: appointment.starts_at,
-      ends_at: appointment.ends_at,
-      status: appointment.status,
-      title:
-        appointment.title?.trim() ||
-        appointmentTypeLabel(appointment.appointment_type),
+      starts_at: item.starts_at,
+      ends_at: item.ends_at,
+      status: item.status,
+      title: item.title?.trim() || appointmentTypeLabel(item.appointment_type),
     })),
-    ...typedRentals.map((rental) => ({
-      id: rental.id,
+    ...typedRentals.map((item) => ({
+      id: item.id,
       kind: "rental" as const,
-      starts_at: rental.starts_at,
-      ends_at: rental.ends_at,
-      status: rental.status,
+      starts_at: item.starts_at,
+      ends_at: item.ends_at,
+      status: item.status,
       title: "Floor Space Rental",
     })),
   ]
-    .sort(
-      (a, b) =>
-        new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()
-    )
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
     .slice(0, 6);
+
+  const upcomingCount = isInstructorPortal
+    ? upcomingItems.length
+    : upcomingAppointments.length;
 
   return (
     <div className="space-y-8">
-      <section className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_42%,#f8fafc_100%)] p-8 shadow-sm sm:p-10">
-        <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-orange-600">
-              {studioLabel}
+      <section className="rounded-[36px] border border-slate-200 bg-white p-8 shadow-sm md:p-10">
+        <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+              {isInstructorPortal ? "Instructor Portal" : "Client Portal"}
             </p>
-            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-              Hi, {getClientFirstName(typedClient)}
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
+              Welcome back, {getClientFirstName(typedClient)}.
             </h1>
-            <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
+            <p className="mt-4 max-w-2xl text-base leading-8 text-slate-600">
               {isInstructorPortal
-                ? "Your instructor portal gives you a studio-specific workspace for floor rentals, your upcoming schedule, lesson access, and any linked client billing tools."
-                : "Your studio portal keeps lessons, memberships, recaps, rentals, and studio-specific access in one place while your public favorites and event registrations remain in your main account."}
+                ? "Your instructor portal gives you a studio-specific workspace for your schedule, floor rentals, lesson access, and any linked client billing tools."
+                : "Your client portal gives you a simple home base for memberships, lesson activity, and upcoming appointments at your studio."}
             </p>
 
-            <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
-                <p className="text-sm text-slate-500">
-                  {isInstructorPortal ? "Upcoming Schedule Items" : "Upcoming Appointments"}
-                </p>
-                <p className="mt-2 text-3xl font-semibold text-slate-950">
-                  {isInstructorPortal ? upcomingItems.length : upcomingAppointments.length}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-violet-100 bg-white p-5 shadow-sm">
-                <p className="text-sm text-slate-500">
-                  {isInstructorPortal ? "Recent Lessons" : "Recent Lessons"}
-                </p>
-                <p className="mt-2 text-3xl font-semibold text-slate-950">
-                  {recentLessons.length}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
-                <p className="text-sm text-slate-500">
-                  {isInstructorPortal ? "Upcoming Rentals" : "Portal Access"}
-                </p>
-                <p className="mt-2 text-xl font-semibold text-slate-950">
-                  {isInstructorPortal
-                    ? typedRentals.length
-                    : "Client"}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-sky-100 bg-white p-5 shadow-sm">
-                <p className="text-sm text-slate-500">
-                  {isInstructorPortal ? "Portal Access" : "Membership"}
-                </p>
-                <p className="mt-2 text-xl font-semibold text-slate-950">
-                  {isInstructorPortal
-                    ? "Independent Instructor"
-                    : typedMembership
-                      ? "Active"
-                      : "None"}
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-[28px] border border-slate-200 bg-white/90 p-6 shadow-sm">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-              {isInstructorPortal ? "Instructor Actions" : "Portal Actions"}
-            </p>
-
-            <div className="mt-5 grid gap-3">
-              <Link
-                href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
-              >
-                <p className="font-medium text-slate-900">My Profile</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Review your contact details and studio-linked portal access.
-                </p>
-              </Link>
-
-              {typedMembership ? (
-                <Link
-                  href={`/portal/${encodeURIComponent(typedStudio.slug)}/membership`}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
-                >
-                  <p className="font-medium text-slate-900">Membership Details</p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    View your active plan, billing period, and membership status.
-                  </p>
-                </Link>
-              ) : null}
-
+            <div className="mt-6 flex flex-wrap gap-3">
               {isInstructorPortal ? (
                 <>
                   <Link
-                    href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space`}
-                    className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 hover:bg-emerald-100"
+                    href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
+                    className="rounded-2xl bg-[var(--brand-accent-dark)] px-4 py-3 text-sm font-medium text-white hover:opacity-95"
                   >
-                    <p className="font-medium text-slate-900">Book Floor Space</p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Reserve studio time and manage rental bookings.
-                    </p>
+                    My Schedule
                   </Link>
-
                   <Link
-                    href={`/portal/${encodeURIComponent(
-                      typedStudio.slug
-                    )}/floor-space/my-rentals`}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
+                    href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space/book`}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
-                    <p className="font-medium text-slate-900">My Rentals</p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Review your upcoming rentals and recent rental activity.
-                    </p>
+                    Book Floor Space
+                  </Link>
+                  <Link
+                    href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space/my-rentals`}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    My Rentals
                   </Link>
                 </>
-              ) : null}
+              ) : (
+                <>
+                  <Link
+                    href={`/portal/${encodeURIComponent(typedStudio.slug)}/appointments`}
+                    className="rounded-2xl bg-[var(--brand-accent-dark)] px-4 py-3 text-sm font-medium text-white hover:opacity-95"
+                  >
+                    My Appointments
+                  </Link>
+                  <Link
+                    href={`/portal/${encodeURIComponent(typedStudio.slug)}/memberships`}
+                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Memberships
+                  </Link>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="grid w-full max-w-xl grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="rounded-[28px] border border-slate-200 bg-slate-50/70 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                {isInstructorPortal ? "My Schedule" : "Upcoming Appointments"}
+              </p>
+              <p className="mt-3 text-3xl font-semibold text-slate-950">{upcomingCount}</p>
+            </div>
+
+            <div className="rounded-[28px] border border-slate-200 bg-slate-50/70 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Active Membership
+              </p>
+              <p className="mt-3 text-lg font-semibold text-slate-950">
+                {typedMembership ? typedMembership.name_snapshot : "None"}
+              </p>
+            </div>
+
+            <div className="rounded-[28px] border border-slate-200 bg-slate-50/70 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Studio
+              </p>
+              <p className="mt-3 text-lg font-semibold text-slate-950">{studioLabel}</p>
             </div>
           </div>
         </div>
       </section>
 
-      <div className="grid gap-8 xl:grid-cols-[1.35fr_0.85fr]">
-        <div className="space-y-8">
-          {isInstructorPortal ? (
-            <CardShell
-              title="Instructor Workspace"
-              accent="emerald"
-              subtitle="Everything you need most often as an independent instructor from this studio portal."
+      {isInstructorPortal ? (
+        <CardShell
+          title="Instructor Actions"
+          accent="sky"
+          subtitle="Go straight to the tools you use most as an independent instructor."
+        >
+          <div className="grid gap-4 md:grid-cols-3">
+            <Link
+              href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
+              className="rounded-2xl border border-sky-200 bg-sky-50 p-5 hover:bg-sky-100"
             >
-              <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-                <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+              <p className="font-medium text-slate-900">My Schedule</p>
+              <p className="mt-1 text-sm text-slate-600">
+                View your upcoming rentals, lessons, and recent schedule history.
+              </p>
+            </Link>
+
+            <Link
+              href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space/book`}
+              className="rounded-2xl border border-orange-200 bg-orange-50 p-5 hover:bg-orange-100"
+            >
+              <p className="font-medium text-slate-900">Book Floor Space</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Reserve floor time for your lessons and teaching schedule.
+              </p>
+            </Link>
+
+            <Link
+              href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space/my-rentals`}
+              className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 hover:bg-emerald-100"
+            >
+              <p className="font-medium text-slate-900">My Rentals</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Review your rentals, unpaid balance, and payment history.
+              </p>
+            </Link>
+          </div>
+        </CardShell>
+      ) : null}
+
+      <div className="grid gap-8 xl:grid-cols-[1.25fr_0.95fr]">
+        <div className="space-y-8">
+          <CardShell
+            title={isInstructorPortal ? "Instructor Workspace" : "Membership Snapshot"}
+            accent={isInstructorPortal ? "sky" : "violet"}
+            subtitle={
+              isInstructorPortal
+                ? "A lightweight workspace built around your teaching and rental tasks."
+                : "Your current recurring membership status and billing period."
+            }
+          >
+            {isInstructorPortal ? (
+              <div className="space-y-5">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                   <p className="text-sm font-medium text-slate-900">Quick links</p>
-                  <div className="mt-4 grid gap-3">
+                  <div className="mt-4 grid gap-3 sm:grid-cols-3">
                     <Link
-                      href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space`}
+                      href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
                       className="rounded-2xl bg-slate-900 px-4 py-3 text-center text-sm font-medium text-white hover:bg-slate-800"
+                    >
+                      My Schedule
+                    </Link>
+                    <Link
+                      href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space/book`}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-medium text-slate-700 hover:bg-slate-100"
                     >
                       Book Floor Space
                     </Link>
                     <Link
-                      href={`/portal/${encodeURIComponent(
-                        typedStudio.slug
-                      )}/floor-space/my-rentals`}
+                      href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space/my-rentals`}
                       className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-medium text-slate-700 hover:bg-slate-100"
                     >
                       My Rentals
                     </Link>
-                    <Link
-                      href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-center text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      My Profile
-                    </Link>
                   </div>
                 </div>
 
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
-                  <p className="text-sm font-medium text-slate-900">Upcoming rentals</p>
-                  {typedRentals.length === 0 ? (
-                    <p className="mt-3 text-sm leading-7 text-slate-600">
-                      You do not have any upcoming floor rentals scheduled.
+                {typedMembership ? (
+                  <div className="rounded-3xl border border-violet-200 bg-violet-50 p-5">
+                    <p className="text-sm font-medium text-slate-900">Linked client membership</p>
+                    <p className="mt-2 text-lg font-semibold text-slate-950">
+                      {typedMembership.name_snapshot}
                     </p>
-                  ) : (
-                    <div className="mt-4 space-y-3">
-                      {typedRentals.map((rental) => (
-                        <div
-                          key={rental.id}
-                          className="rounded-2xl border border-slate-200 bg-white p-4"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="text-sm font-semibold text-slate-900">
-                                {formatDateTime(rental.starts_at)}
-                              </p>
-                              <p className="mt-1 text-sm text-slate-600">
-                                {formatTimeRange(rental.starts_at, rental.ends_at)}
-                              </p>
-                            </div>
-                            <span
-                              className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(
-                                rental.status
-                              )}`}
-                            >
-                              {statusLabel(rental.status)}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                    <p className="mt-2 text-sm text-slate-600">
+                      {formatCurrency(typedMembership.price_snapshot)} /{" "}
+                      {typedMembership.billing_interval_snapshot || "period"}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-5">
+                    <p className="text-sm text-slate-600">
+                      No client membership is currently linked to this portal account.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : typedMembership ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-sm text-slate-500">Plan</p>
+                  <p className="mt-2 text-xl font-semibold text-slate-950">
+                    {typedMembership.name_snapshot}
+                  </p>
+                  <p className="mt-2 text-sm text-slate-600">
+                    {formatCurrency(typedMembership.price_snapshot)} /{" "}
+                    {typedMembership.billing_interval_snapshot || "period"}
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-sm text-slate-500">Status</p>
+                  <p className="mt-2 text-xl font-semibold text-slate-950">
+                    {statusLabel(typedMembership.status)}
+                  </p>
+                  <p className="mt-2 text-sm text-slate-600">
+                    Current period: {formatDate(typedMembership.current_period_start)} –{" "}
+                    {formatDate(typedMembership.current_period_end)}
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 md:col-span-2">
+                  <p className="text-sm text-slate-500">Renewal</p>
+                  <p className="mt-2 text-sm text-slate-700">
+                    {typedMembership.cancel_at_period_end
+                      ? "Your membership will end at the close of the current billing period."
+                      : typedMembership.auto_renew
+                        ? "Your membership is set to renew automatically."
+                        : "Auto-renew is currently turned off."}
+                  </p>
                 </div>
               </div>
-            </CardShell>
-          ) : null}
-
-          <CardShell
-            title={isInstructorPortal ? "My Lessons & Studio Activity" : "My Lessons"}
-            accent="violet"
-            subtitle={
-              isInstructorPortal
-                ? "Review your completed lessons and other studio-linked activity available through this portal."
-                : "Review your completed lessons and open the lesson detail page for recap information your studio has shared."
-            }
-          >
-            {recentLessons.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-                <p className="text-lg font-medium text-slate-900">No lessons yet</p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Your recent lessons will appear here once they have been added to your account.
-                </p>
-              </div>
             ) : (
-              <div className="space-y-4">
-                {recentLessons.map((appointment) => {
-                  const canViewLesson =
-                    (appointment.appointment_type === "private_lesson" ||
-                      appointment.appointment_type === "intro_lesson") &&
-                    appointment.status === "attended";
-
-                  return (
-                    <div
-                      key={appointment.id}
-                      className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm transition hover:bg-white"
-                    >
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-base font-semibold text-slate-900">
-                              {appointment.title?.trim() ||
-                                appointmentTypeLabel(appointment.appointment_type)}
-                            </span>
-                            <span
-                              className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(
-                                appointment.status
-                              )}`}
-                            >
-                              {statusLabel(appointment.status)}
-                            </span>
-                          </div>
-
-                          <p className="mt-3 text-sm text-slate-700">
-                            {formatDateTime(appointment.starts_at)}
-                          </p>
-                        </div>
-
-                        <div className="flex shrink-0 flex-wrap gap-2">
-                          {canViewLesson ? (
-                            <Link
-                              href={`/portal/${encodeURIComponent(
-                                typedStudio.slug
-                              )}/appointments/${appointment.id}`}
-                              className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
-                            >
-                              View Lesson
-                            </Link>
-                          ) : (
-                            <span className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-500">
-                              {appointment.status === "scheduled"
-                                ? "Lesson not completed yet"
-                                : "Lesson details unavailable"}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">
+                  No active membership is linked to your client profile right now.
+                </p>
               </div>
             )}
           </CardShell>
-        </div>
-
-        <div className="space-y-8">
-          {typedMembership ? (
-            <CardShell
-              title="Membership"
-              accent="emerald"
-              subtitle="Your current plan and billing cycle at a glance."
-            >
-              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h3 className="text-lg font-semibold text-slate-900">
-                    {typedMembership.name_snapshot}
-                  </h3>
-                  <span className="inline-flex rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700 ring-1 ring-green-100">
-                    {typedMembership.status.replaceAll("_", " ")}
-                  </span>
-                  {typedMembership.cancel_at_period_end ? (
-                    <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-100">
-                      Ends This Period
-                    </span>
-                  ) : null}
-                </div>
-
-                <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-2xl border border-white/80 bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Price
-                    </p>
-                    <p className="mt-2 text-sm text-slate-700">
-                      {formatCurrency(typedMembership.price_snapshot)}{" "}
-                      {typedMembership.billing_interval_snapshot
-                        ? `/ ${typedMembership.billing_interval_snapshot}`
-                        : ""}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/80 bg-white p-4">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                      Current Period
-                    </p>
-                    <p className="mt-2 text-sm text-slate-700">
-                      {formatDate(typedMembership.current_period_start)} –{" "}
-                      {formatDate(typedMembership.current_period_end)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5">
-                  <Link
-                    href={`/portal/${encodeURIComponent(typedStudio.slug)}/membership`}
-                    className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                  >
-                    Membership Details
-                  </Link>
-                </div>
-              </div>
-            </CardShell>
-          ) : null}
 
           <CardShell
-            title={isInstructorPortal ? "My Schedule" : "Coming Up"}
-            accent="sky"
+            title={isInstructorPortal ? "Recent Lesson Activity" : "Recent Appointments"}
+            accent="emerald"
             subtitle={
               isInstructorPortal
-                ? "Your next rentals and studio-linked appointments."
-                : "Your next scheduled appointments."
+                ? "Your recent lesson-side appointment history linked to your client profile."
+                : "A quick look at your most recent lessons and class bookings."
             }
           >
-            {upcomingItems.length === 0 ? (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-                <p className="text-lg font-medium text-slate-900">
-                  {isInstructorPortal ? "Nothing scheduled" : "Nothing upcoming"}
-                </p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  {isInstructorPortal
-                    ? "Upcoming rentals and appointments will appear here."
-                    : "Upcoming lessons and classes will appear here."}
-                </p>
-              </div>
-            ) : (
+            {recentAppointments.length ? (
               <div className="space-y-3">
-                {upcomingItems.map((item) => (
+                {recentAppointments.map((item) => (
                   <div
-                    key={`${item.kind}-${item.id}`}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4 shadow-sm"
+                    key={item.id}
+                    className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-5 md:flex-row md:items-center md:justify-between"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">
-                          {item.title}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-600">
-                          {formatDateTime(item.starts_at)}
-                        </p>
-                        {item.kind === "rental" ? (
-                          <p className="mt-1 text-xs font-medium uppercase tracking-[0.14em] text-emerald-700">
-                            Floor Rental
-                          </p>
-                        ) : null}
-                      </div>
+                    <div>
+                      <p className="font-medium text-slate-950">
+                        {item.title?.trim() || appointmentTypeLabel(item.appointment_type)}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {formatDateTime(item.starts_at)}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-3">
                       <span
-                        className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(
                           item.status
                         )}`}
                       >
@@ -689,27 +568,132 @@ export default async function PortalHomePage({
                   </div>
                 ))}
               </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">No recent appointment history yet.</p>
+              </div>
             )}
           </CardShell>
+        </div>
 
+        <div className="space-y-8">
           <CardShell
-            title="Portal Notes"
-            accent="orange"
-            subtitle="A few reminders about how this studio portal fits into your account."
+            title="My Schedule"
+            accent="sky"
+            subtitle={
+              isInstructorPortal
+                ? "Your next upcoming lessons and rentals in one place."
+                : "Your upcoming appointment activity."
+            }
           >
-            <div className="rounded-3xl border border-orange-100 bg-orange-50 p-6 shadow-sm">
-              <ul className="space-y-3 text-sm leading-7 text-slate-700">
-                <li>Your favorites and public event registrations stay in your main account.</li>
-                <li>
-                  This portal is your studio-specific space for
-                  {isInstructorPortal
-                    ? " rentals, schedule access, lessons, and linked membership details."
-                    : " lessons, memberships, recaps, and studio-specific access."}
-                </li>
-                <li>If a studio links additional access later, it will appear in your account without replacing this login.</li>
-              </ul>
+            {upcomingItems.length ? (
+              <div className="space-y-3">
+                {upcomingItems.map((item) => (
+                  <div
+                    key={`${item.kind}-${item.id}`}
+                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(
+                          item.status
+                        )}`}
+                      >
+                        {statusLabel(item.status)}
+                      </span>
+
+                      <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                        {item.kind === "rental" ? "Rental" : "Lesson"}
+                      </span>
+                    </div>
+
+                    <p className="mt-3 font-medium text-slate-950">{item.title}</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {formatDateTime(item.starts_at)}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {formatTimeRange(item.starts_at, item.ends_at)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">No upcoming schedule items right now.</p>
+              </div>
+            )}
+
+            <div className="mt-5">
+              <Link
+                href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
+                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Open Full Schedule
+              </Link>
             </div>
           </CardShell>
+
+          {isInstructorPortal ? (
+            <CardShell
+              title="Floor Rentals"
+              accent="orange"
+              subtitle="Manage your floor rental activity and keep your balance current."
+            >
+              <div className="space-y-5">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm text-slate-500">Upcoming rentals</p>
+                      <p className="mt-2 text-3xl font-semibold text-slate-950">
+                        {typedRentals.length}
+                      </p>
+                    </div>
+
+                    <Link
+                      href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space/my-rentals`}
+                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      View Rentals
+                    </Link>
+                  </div>
+                </div>
+
+                {typedRentals.length ? (
+                  <div className="space-y-3">
+                    {typedRentals.map((item) => (
+                      <div
+                        key={item.id}
+                        className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(
+                              item.status
+                            )}`}
+                          >
+                            {statusLabel(item.status)}
+                          </span>
+                        </div>
+                        <p className="mt-3 font-medium text-slate-950">Floor Space Rental</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {formatDateTime(item.starts_at)}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {formatTimeRange(item.starts_at, item.ends_at)}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                    <p className="text-sm text-slate-600">
+                      You do not have any upcoming rentals booked.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </CardShell>
+          ) : null}
         </div>
       </div>
     </div>

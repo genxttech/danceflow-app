@@ -55,6 +55,7 @@ type EventFormProps = {
   mode: "create" | "edit";
   organizers: OrganizerOption[];
   initialValues?: EventFormInitialValues;
+  organizerWorkspace?: boolean;
 };
 
 const EVENT_TYPE_OPTIONS = [
@@ -215,6 +216,7 @@ export default function EventForm({
   mode,
   organizers,
   initialValues,
+  organizerWorkspace = false,
 }: EventFormProps) {
   const action = mode === "edit" ? updateEventAction : createEventAction;
   const [state, formAction, pending] = useActionState(action, initialState);
@@ -252,6 +254,12 @@ export default function EventForm({
   const suggestedSlug = useMemo(() => slugify(name), [name]);
   const isGroupClass = eventType === "group_class";
   const hasCapacity = capacity.trim() !== "" && Number(capacity) > 0;
+
+    const singleOrganizer = organizers.length === 1 ? organizers[0] : null;
+  const organizerDefaultValue =
+    initialValues?.organizerId ?? singleOrganizer?.id ?? "";
+  const organizerSelectionLocked =
+    organizerWorkspace && Boolean(singleOrganizer);
 
   const visibilitySummary = useMemo(() => {
     if (publicDirectoryEnabled) {
@@ -299,10 +307,10 @@ export default function EventForm({
               {mode === "edit" ? "Edit Event" : "New Event"}
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">
-              Create public or internal offerings like group classes, socials,
-              workshops, and special events. The mobile layout is tightened for
-              faster organizer and studio workflow.
-            </p>
+  Create public or internal offerings like group classes, socials,
+  workshops, and special events. Organizer workspaces keep events tied
+  to their single organizer profile for cleaner branding and discovery.
+</p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:min-w-[280px]">
@@ -372,6 +380,18 @@ export default function EventForm({
               </div>
             ) : null}
 
+                        {organizerSelectionLocked && singleOrganizer ? (
+              <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <h4 className="text-base font-semibold text-emerald-900">
+                  Organizer-linked event
+                </h4>
+                <p className="mt-2 text-sm text-emerald-800">
+                  This event will be created under <span className="font-medium">{singleOrganizer.name}</span>.
+                  Organizer accounts cannot create events under multiple organizer brands.
+                </p>
+              </div>
+            ) : null}
+
             <div className="grid gap-4 md:grid-cols-2">
               <div className="md:col-span-2">
                 <label htmlFor="name" className="mb-1.5 block text-sm font-medium">
@@ -406,24 +426,44 @@ export default function EventForm({
               </div>
 
               <div>
-                <label htmlFor="organizerId" className="mb-1.5 block text-sm font-medium">
-                  Organizer
-                </label>
-                <select
-                  id="organizerId"
-                  name="organizerId"
-                  required
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                  defaultValue={initialValues?.organizerId ?? ""}
-                >
-                  <option value="">Select organizer</option>
-                  {organizers.map((organizer) => (
-                    <option key={organizer.id} value={organizer.id}>
-                      {organizer.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
+  <label htmlFor="organizerId" className="mb-1.5 block text-sm font-medium">
+    Organizer
+  </label>
+
+  {organizerSelectionLocked && singleOrganizer ? (
+    <>
+      <input type="hidden" name="organizerId" value={singleOrganizer.id} />
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+        <p className="text-sm font-medium text-emerald-900">
+          {singleOrganizer.name}
+        </p>
+        <p className="mt-1 text-xs text-emerald-800">
+          This organizer workspace is locked to its single organizer profile.
+        </p>
+      </div>
+    </>
+  ) : (
+    <>
+      <select
+        id="organizerId"
+        name="organizerId"
+        required
+        className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+        defaultValue={organizerDefaultValue}
+      >
+        <option value="">Select organizer</option>
+        {organizers.map((organizer) => (
+          <option key={organizer.id} value={organizer.id}>
+            {organizer.name}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1 text-xs text-slate-500">
+        Choose the organizer brand this event belongs to.
+      </p>
+    </>
+  )}
+</div>
 
               <div>
                 <label htmlFor="eventType" className="mb-1.5 block text-sm font-medium">

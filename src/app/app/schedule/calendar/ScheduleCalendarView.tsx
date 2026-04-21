@@ -453,10 +453,10 @@ function TopToolbar({
   rangeLabel: string;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+    <div className="rounded-3xl border border-slate-200 bg-white/95 p-4 shadow-sm ring-1 ring-black/[0.02] md:p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
             {view === "day" ? "Day View" : "Week View"}
           </p>
           <h2 className="mt-1 text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">
@@ -538,7 +538,7 @@ function TopToolbar({
               appointmentType: selectedAppointmentType,
               status: selectedStatus,
             })}`}
-            className="col-span-2 inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800 md:col-auto"
+            className="col-span-2 inline-flex items-center justify-center rounded-xl bg-[var(--brand-accent-dark)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-95 md:col-auto"
           >
             Agenda View
           </Link>
@@ -570,7 +570,7 @@ function FilterBar({
   selectedSource?: "all" | "appointments" | "events";
 }) {
   return (
-    <form className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-5">
+    <form className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-black/[0.02] md:p-5">
       <input type="hidden" name="view" value={view} />
       <input type="hidden" name="date" value={baseDate} />
 
@@ -689,7 +689,7 @@ function FilterBar({
         <div className="grid grid-cols-2 gap-2 xl:flex xl:flex-shrink-0 xl:gap-3">
           <button
             type="submit"
-            className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+            className="inline-flex items-center justify-center rounded-xl bg-[var(--brand-accent-dark)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-95"
           >
             Apply
           </button>
@@ -724,14 +724,17 @@ function DayColumn({
 }) {
   const sortedItems = useMemo(() => sortItemsForDisplay(items), [items]);
   const compact = view === "week";
+
   const morningCount = sortedItems.filter((item) => {
     const hour = new Date(item.starts_at).getHours();
     return hour < 12 || item.is_all_day;
   }).length;
+
   const afternoonCount = sortedItems.filter((item) => {
     const hour = new Date(item.starts_at).getHours();
     return !item.is_all_day && hour >= 12 && hour < 17;
   }).length;
+
   const eveningCount = sortedItems.filter((item) => {
     const hour = new Date(item.starts_at).getHours();
     return !item.is_all_day && hour >= 17;
@@ -740,7 +743,7 @@ function DayColumn({
   return (
     <div
       className={`rounded-2xl border border-slate-200 bg-white shadow-sm ${
-        isToday ? "ring-2 ring-slate-900/10" : ""
+        isToday ? "ring-2 ring-[var(--brand-accent-dark)]/10" : ""
       }`}
     >
       <div className="border-b border-slate-200 px-4 py-4">
@@ -751,11 +754,12 @@ function DayColumn({
                 {formatDateHeading(new Date(`${day}T00:00:00`))}
               </h3>
               {isToday ? (
-                <span className="rounded-full bg-slate-900 px-2.5 py-0.5 text-[11px] font-medium text-white">
+                <span className="rounded-full bg-[var(--brand-accent-dark)] px-2.5 py-0.5 text-[11px] font-medium text-white">
                   Today
                 </span>
               ) : null}
             </div>
+
             <p className="mt-1 text-xs text-slate-500 md:text-sm">
               {formatShortDate(new Date(`${day}T00:00:00`))} • {items.length} item
               {items.length === 1 ? "" : "s"}
@@ -884,16 +888,16 @@ export default function ScheduleCalendarView({
           selectedSource={selectedSource}
         />
 
-        <div className="grid grid-cols-3 gap-3 md:grid-cols-6">
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm ring-1 ring-black/[0.02]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
               Visible
             </p>
             <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">{totalItems}</p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm ring-1 ring-black/[0.02]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
               Appts
             </p>
             <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">
@@ -901,15 +905,15 @@ export default function ScheduleCalendarView({
             </p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm ring-1 ring-black/[0.02]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
               Events
             </p>
             <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">{eventCount}</p>
           </div>
 
-          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-            <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-slate-400">
+          <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm ring-1 ring-black/[0.02]">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
               Rentals
             </p>
             <p className="mt-1 text-xl font-semibold text-slate-900 md:text-2xl">
@@ -919,41 +923,44 @@ export default function ScheduleCalendarView({
 
           <Link
             href="/app/schedule/new"
-            className="col-span-3 inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white shadow-sm hover:bg-slate-800 md:col-span-1"
+            className="col-span-2 inline-flex items-center justify-center rounded-2xl bg-[var(--brand-accent-dark)] px-4 py-3 text-sm font-medium text-white shadow-sm hover:opacity-95 lg:col-span-1"
           >
             New Appointment
           </Link>
-
-          <Link
-            href="/app/events/new"
-            className="col-span-3 inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 md:col-span-1"
-          >
-            New Event
-          </Link>
         </div>
 
-        <div
-          className={
-            view === "day"
-              ? "space-y-4"
-              : "grid gap-4 md:grid-cols-2 xl:grid-cols-7"
-          }
-        >
-          {days.map((day) => (
-            <DayColumn
-              key={day}
-              day={day}
-              items={groupedAppointments[day] ?? []}
-              view={view}
-              isToday={day === todayDate}
-              onOpen={setSelectedAppointment}
-            />
-          ))}
-        </div>
+        {view === "week" ? (
+          <div className="grid gap-4 xl:grid-cols-7">
+            {days.map((day) => (
+              <DayColumn
+                key={day}
+                day={day}
+                items={groupedAppointments[day] ?? []}
+                view={view}
+                isToday={day === todayDate}
+                onOpen={setSelectedAppointment}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {days.map((day) => (
+              <DayColumn
+                key={day}
+                day={day}
+                items={groupedAppointments[day] ?? []}
+                view={view}
+                isToday={day === todayDate}
+                onOpen={setSelectedAppointment}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       <ScheduleEventDrawer
         appointment={selectedAppointment}
+        open={selectedAppointment !== null}
         onClose={() => setSelectedAppointment(null)}
       />
     </>

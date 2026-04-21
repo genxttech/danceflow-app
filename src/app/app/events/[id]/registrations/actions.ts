@@ -3,67 +3,39 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/payments/stripe";
-
-type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
-
-type EventAccessRow = {
-  id: string;
-  studio_id: string;
-  name: string;
-};
-
-type TicketTypeRelation =
-  | { name: string | null }
-  | { name: string | null }[]
-  | null;
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 
 type RegistrationRow = {
   id: string;
   event_id: string;
   client_id: string | null;
-  attendee_first_name: string | null;
-  attendee_last_name: string | null;
-  attendee_email: string | null;
+  attendee_first_name: string;
+  attendee_last_name: string;
+  attendee_email: string;
   attendee_phone: string | null;
-  quantity: number | null;
-  unit_price: number | null;
-  total_price: number | null;
-  total_amount: number | null;
-  currency: string | null;
-  status: string | null;
+  status: string;
   payment_status: string | null;
-  notes: string | null;
+  total_amount: number | null;
+  total_price: number | null;
+  currency: string | null;
   checked_in_at: string | null;
-  promoted_from_waitlist_at: string | null;
-  event_ticket_types: TicketTypeRelation;
+  stripe_payment_intent_id: string | null;
 };
 
 type ClientRow = {
   id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
 };
 
 type AttendanceLookupRow = {
   id: string;
 };
 
-type DuplicateLookupRow = {
-  id: string;
-};
-
 type EventPaymentRow = {
   id: string;
-  registration_id: string;
-  amount: number | null;
-  currency: string | null;
-  payment_method: string | null;
-  status: string | null;
-  source: string | null;
-  stripe_payment_intent_id: string | null;
-  stripe_checkout_session_id: string | null;
-  external_reference: string | null;
-  refund_amount: number | null;
-  refunded_at: string | null;
-  created_at?: string | null;
 };
 
 function getString(formData: FormData, key: string) {
@@ -73,149 +45,29 @@ function getString(formData: FormData, key: string) {
 
 function buildReturnUrl(eventId: string, suffix?: string) {
   const base = `/app/events/${eventId}/registrations`;
-  return suffix ? `${base}?${suffix}` : base;
+  if (!suffix) return base;
+  return `${base}?${suffix}`;
 }
 
-function combineFollowUpDateTime(
-  followUpDate: string,
-  followUpTime: string
-): string | null {
-  if (!followUpDate) return null;
+function resolveReturnUrl(params: {
+  eventId: string;
+  returnTo?: string;
+  fallbackSuffix?: string;
+}) {
+  const { eventId, returnTo, fallbackSuffix } = params;
 
-  const raw = followUpTime
-    ? `${followUpDate}T${followUpTime}:00`
-    : `${followUpDate}T09:00:00`;
+  if (returnTo && returnTo.startsWith(`/app/events/${eventId}/`)) {
+    if (!fallbackSuffix) return returnTo;
 
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return null;
+    const separator = returnTo.includes("?") ? "&" : "?";
+    return `${returnTo}${separator}${fallbackSuffix}`;
+  }
 
-  return parsed.toISOString();
-}
-
-function getTicketTypeName(value: TicketTypeRelation) {
-  const ticket = Array.isArray(value) ? value[0] : value;
-  return ticket?.name ?? null;
-}
-
-function registrationStatusLabel(value: string | null) {
-  if (!value) return "Unknown";
-  if (value === "confirmed") return "Confirmed";
-  if (value === "waitlisted") return "Waitlisted";
-  if (value === "cancelled") return "Cancelled";
-  if (value === "refunded") return "Refunded";
-  if (value === "pending") return "Pending";
-  if (value === "attended") return "Attended";
-  if (value === "checked_in") return "Checked In";
-  return value.replaceAll("_", " ");
-}
-
-function paymentStatusLabel(value: string | null) {
-  if (!value) return "Unknown";
-  if (value === "paid") return "Paid";
-  if (value === "pending") return "Pending";
-  if (value === "refunded") return "Refunded";
-  if (value === "partial") return "Partial Refund";
-  return value.replaceAll("_", " ");
-}
-
-function getRegistrationAmount(registration: RegistrationRow) {
-  return Number(
-    registration.total_amount ??
-      registration.total_price ??
-      registration.unit_price ??
-      0
-  );
-}
-
-function getRegistrationCurrency(registration: RegistrationRow) {
-  return (registration.currency ?? "USD").toUpperCase();
+  return buildReturnUrl(eventId, fallbackSuffix);
 }
 
 function shouldBlockAttendanceForPayment(paymentStatus: string | null) {
-  if (!paymentStatus) return false;
-  return !["paid", "partial"].includes(paymentStatus);
-}
-
-function formatLeadOriginNote(params: {
-  eventName: string;
-  ticketTypeName: string | null;
-  registrationStatus: string | null;
-  paymentStatus: string | null;
-  attendeeEmail: string;
-  attendeePhone: string | null;
-  registrationNotes: string | null;
-  checkedInAt: string | null;
-  promotedFromWaitlistAt: string | null;
-}) {
-  const {
-    eventName,
-    ticketTypeName,
-    registrationStatus,
-    paymentStatus,
-    attendeeEmail,
-    attendeePhone,
-    registrationNotes,
-    checkedInAt,
-    promotedFromWaitlistAt,
-  } = params;
-
-  const lines = [
-    "CRM Origin: Event Registration",
-    `Event: ${eventName}`,
-    `Ticket Type: ${ticketTypeName ?? "Not specified"}`,
-    `Registration Status: ${registrationStatusLabel(registrationStatus)}`,
-    `Payment Status: ${paymentStatusLabel(paymentStatus)}`,
-    `Registrant Email: ${attendeeEmail || "Not provided"}`,
-    `Registrant Phone: ${attendeePhone || "Not provided"}`,
-  ];
-
-  if (checkedInAt) {
-    lines.push(`Checked In At: ${new Date(checkedInAt).toLocaleString()}`);
-  }
-
-  if (promotedFromWaitlistAt) {
-    lines.push(
-      `Promoted From Waitlist At: ${new Date(
-        promotedFromWaitlistAt
-      ).toLocaleString()}`
-    );
-  }
-
-  if (registrationNotes) {
-    lines.push("", "Registration Notes:", registrationNotes);
-  }
-
-  return lines.join("\n");
-}
-
-function formatLeadActivityNote(params: {
-  eventName: string;
-  ticketTypeName: string | null;
-  registrationStatus: string | null;
-  paymentStatus: string | null;
-  followUpNote: string;
-}) {
-  const {
-    eventName,
-    ticketTypeName,
-    registrationStatus,
-    paymentStatus,
-    followUpNote,
-  } = params;
-
-  const lines = [
-    "Lead created from event registration.",
-    `Event: ${eventName}`,
-    `Ticket Type: ${ticketTypeName ?? "Not specified"}`,
-    `Registration Status: ${registrationStatusLabel(registrationStatus)}`,
-    `Payment Status: ${paymentStatusLabel(paymentStatus)}`,
-  ];
-
-  if (followUpNote) {
-    lines.push("", "Follow-Up Note:", followUpNote);
-  }
-
-  return lines.join("\n");
+  return paymentStatus === "pending" || paymentStatus === "unpaid";
 }
 
 async function getStudioContext() {
@@ -229,52 +81,42 @@ async function getStudioContext() {
     redirect("/login");
   }
 
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
-
-  if (roleError || !roleRow) {
-    redirect("/login");
-  }
+  const context = await getCurrentStudioContext();
 
   return {
     supabase,
-    studioId: roleRow.studio_id as string,
+    studioId: context.studioId,
     userId: user.id,
   };
 }
 
 async function validateEventAccess(
-  supabase: SupabaseServerClient,
+  supabase: Awaited<ReturnType<typeof createClient>>,
   eventId: string,
   studioId: string
 ) {
   const { data: event, error } = await supabase
     .from("events")
-    .select("id, studio_id, name")
+    .select("id")
     .eq("id", eventId)
     .eq("studio_id", studioId)
-    .single();
+    .maybeSingle();
 
   if (error || !event) {
-    throw new Error("Event not found.");
+    redirect("/app/events");
   }
 
-  return event as EventAccessRow;
+  return event;
 }
 
 async function getRegistrationForEvent(params: {
-  supabase: SupabaseServerClient;
+  supabase: Awaited<ReturnType<typeof createClient>>;
   eventId: string;
   registrationId: string;
 }) {
   const { supabase, eventId, registrationId } = params;
 
-  const { data: registration, error } = await supabase
+  const { data, error } = await supabase
     .from("event_registrations")
     .select(`
       id,
@@ -284,109 +126,194 @@ async function getRegistrationForEvent(params: {
       attendee_last_name,
       attendee_email,
       attendee_phone,
-      quantity,
-      unit_price,
-      total_price,
-      total_amount,
-      currency,
       status,
       payment_status,
-      notes,
+      total_amount,
+      total_price,
+      currency,
       checked_in_at,
-      promoted_from_waitlist_at,
-      event_ticket_types ( name )
+      stripe_payment_intent_id
     `)
     .eq("id", registrationId)
     .eq("event_id", eventId)
-    .single();
-
-  if (error || !registration) {
-    return null;
-  }
-
-  return registration as RegistrationRow;
-}
-
-async function getPaymentsForRegistration(
-  supabase: SupabaseServerClient,
-  registrationId: string
-) {
-  const { data, error } = await supabase
-    .from("event_payments")
-    .select(`
-      id,
-      registration_id,
-      amount,
-      currency,
-      payment_method,
-      status,
-      source,
-      stripe_payment_intent_id,
-      stripe_checkout_session_id,
-      external_reference,
-      refund_amount,
-      refunded_at,
-      created_at
-    `)
-    .eq("registration_id", registrationId)
-    .order("created_at", { ascending: false });
+    .maybeSingle<RegistrationRow>();
 
   if (error) {
     throw new Error(error.message);
   }
 
-  return (data ?? []) as EventPaymentRow[];
+  return data ?? null;
 }
 
-function getBestExistingPayment(payments: EventPaymentRow[]) {
-  return (
-    payments.find((payment) =>
-      ["pending", "paid", "partial"].includes(payment.status ?? "")
-    ) ?? payments[0] ?? null
-  );
-}
-
-async function updateOrInsertManualPayment(params: {
-  supabase: SupabaseServerClient;
-  registration: RegistrationRow;
-  note: string;
+async function upsertAttendanceLink(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  registrationId: string;
+  clientId: string;
 }) {
-  const { supabase, registration, note } = params;
-  const payments = await getPaymentsForRegistration(supabase, registration.id);
-  const amount = getRegistrationAmount(registration);
-  const currency = getRegistrationCurrency(registration);
-  const existingPayment = getBestExistingPayment(payments);
+  const { supabase, studioId, registrationId, clientId } = params;
 
-  if (existingPayment) {
-    const { error } = await supabase
-      .from("event_payments")
-      .update({
-        amount,
-        currency,
-        payment_method: existingPayment.payment_method ?? "other",
-        status: "paid",
-        source: existingPayment.source ?? "manual_admin",
-        refund_amount: null,
-        refunded_at: null,
-        notes: note,
-      })
-      .eq("id", existingPayment.id);
+  const { data: existing, error: existingError } = await supabase
+    .from("attendance_records")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("event_registration_id", registrationId)
+    .maybeSingle<AttendanceLookupRow>();
 
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return;
+  if (existingError) {
+    throw new Error(existingError.message);
   }
 
-  const { error } = await supabase.from("event_payments").insert({
-    registration_id: registration.id,
+  if (existing) {
+    const { error: updateError } = await supabase
+      .from("attendance_records")
+      .update({
+        client_id: clientId,
+      })
+      .eq("id", existing.id)
+      .eq("studio_id", studioId);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    return existing.id;
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("attendance_records")
+    .insert({
+      studio_id: studioId,
+      event_registration_id: registrationId,
+      client_id: clientId,
+      status: "registered",
+    })
+    .select("id")
+    .single<AttendanceLookupRow>();
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  return inserted.id;
+}
+
+async function upsertAttendanceStatus(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  registration: RegistrationRow;
+  status: string;
+  checkedInAt?: string | null;
+  markedAttendedAt?: string | null;
+}) {
+  const { supabase, studioId, registration, status, checkedInAt, markedAttendedAt } =
+    params;
+
+  if (!registration.client_id) {
+    return null;
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("attendance_records")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("event_registration_id", registration.id)
+    .maybeSingle<AttendanceLookupRow>();
+
+  if (existingError) {
+    throw new Error(existingError.message);
+  }
+
+  const payload = {
+    studio_id: studioId,
+    client_id: registration.client_id,
+    event_registration_id: registration.id,
+    status,
+    checked_in_at: checkedInAt ?? null,
+    marked_attended_at: markedAttendedAt ?? null,
+  };
+
+  if (existing) {
+    const { error: updateError } = await supabase
+      .from("attendance_records")
+      .update(payload)
+      .eq("id", existing.id)
+      .eq("studio_id", studioId);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    return existing.id;
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("attendance_records")
+    .insert(payload)
+    .select("id")
+    .single<AttendanceLookupRow>();
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  return inserted.id;
+}
+
+async function ensureClientInStudio(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  clientId: string;
+}) {
+  const { supabase, studioId, clientId } = params;
+
+  const { data: client, error } = await supabase
+    .from("clients")
+    .select("id, first_name, last_name, email, phone")
+    .eq("id", clientId)
+    .eq("studio_id", studioId)
+    .maybeSingle<ClientRow>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return client ?? null;
+}
+
+async function logEventPayment(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  registration: RegistrationRow;
+  studioId: string;
+  amount: number;
+  currency: string;
+  paymentMethod?: string;
+  status?: string;
+  source?: string;
+  stripePaymentIntentId?: string | null;
+}) {
+  const {
+    supabase,
+    registration,
+    studioId,
     amount,
     currency,
-    payment_method: "other",
-    status: "paid",
-    source: "manual_admin",
-    notes: note,
+    paymentMethod = "other",
+    status = "paid",
+    source = "event_registration",
+    stripePaymentIntentId = null,
+  } = params;
+
+  const { error } = await supabase.from("event_payments").insert({
+    event_id: registration.event_id,
+    registration_id: registration.id,
+    studio_id: studioId,
+    amount,
+    currency,
+    payment_method: paymentMethod,
+    status,
+    source,
+    stripe_payment_intent_id: stripePaymentIntentId,
   });
 
   if (error) {
@@ -394,209 +321,78 @@ async function updateOrInsertManualPayment(params: {
   }
 }
 
-async function markAllLocalPaymentsRefunded(params: {
-  supabase: SupabaseServerClient;
-  payments: EventPaymentRow[];
-  note: string;
-}) {
-  const { supabase, payments, note } = params;
-  const refundedAt = new Date().toISOString();
-
-  for (const payment of payments) {
-    const amount = Number(payment.amount ?? 0);
-
-    const { error } = await supabase
-      .from("event_payments")
-      .update({
-        status: "refunded",
-        refund_amount: amount,
-        refunded_at: refundedAt,
-        notes: note,
-      })
-      .eq("id", payment.id);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-  }
-}
-
-async function findPossibleDuplicateClient(params: {
-  supabase: SupabaseServerClient;
+async function createLeadFromRegistration(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-}) {
-  const { supabase, studioId, firstName, lastName, email, phone } = params;
-
-  if (email) {
-    const { data: emailMatch, error: emailError } = await supabase
-      .from("clients")
-      .select("id")
-      .eq("studio_id", studioId)
-      .eq("email", email)
-      .maybeSingle<ClientRow>();
-
-    if (emailError) {
-      throw new Error(emailError.message);
-    }
-
-    if (emailMatch) {
-      return { kind: "exact_email" as const, clientId: emailMatch.id };
-    }
-  }
-
-  const checks: Array<
-    Promise<{ data: DuplicateLookupRow[] | null; error: { message: string } | null }>
-  > = [];
-
-  if (firstName && lastName) {
-    checks.push(
-      (async () => {
-        const { data, error } = await supabase
-          .from("clients")
-          .select("id")
-          .eq("studio_id", studioId)
-          .ilike("first_name", firstName)
-          .ilike("last_name", lastName)
-          .limit(1);
-
-        return {
-          data: (data ?? []) as DuplicateLookupRow[],
-          error: error ? { message: error.message } : null,
-        };
-      })()
-    );
-  }
-
-  if (phone) {
-    checks.push(
-      (async () => {
-        const { data, error } = await supabase
-          .from("clients")
-          .select("id")
-          .eq("studio_id", studioId)
-          .eq("phone", phone)
-          .limit(1);
-
-        return {
-          data: (data ?? []) as DuplicateLookupRow[],
-          error: error ? { message: error.message } : null,
-        };
-      })()
-    );
-  }
-
-  const results = await Promise.all(checks);
-
-  for (const result of results) {
-    if (result.error) {
-      throw new Error(result.error.message);
-    }
-
-    if (result.data && result.data.length > 0) {
-      return {
-        kind: "possible_duplicate" as const,
-        clientId: result.data[0].id,
-      };
-    }
-  }
-
-  return null;
-}
-
-async function upsertAttendanceLink(params: {
-  supabase: SupabaseServerClient;
-  studioId: string;
-  registrationId: string;
-  clientId: string;
-}) {
-  const { supabase, studioId, registrationId, clientId } = params;
-
-  const { data: attendanceRecord, error: attendanceLookupError } = await supabase
-    .from("attendance_records")
-    .select("id")
-    .eq("studio_id", studioId)
-    .eq("event_registration_id", registrationId)
-    .maybeSingle<AttendanceLookupRow>();
-
-  if (attendanceLookupError) {
-    throw new Error(attendanceLookupError.message);
-  }
-
-  if (!attendanceRecord) return;
-
-  const { error: attendanceUpdateError } = await supabase
-    .from("attendance_records")
-    .update({
-      client_id: clientId,
-    })
-    .eq("id", attendanceRecord.id)
-    .eq("studio_id", studioId);
-
-  if (attendanceUpdateError) {
-    throw new Error(attendanceUpdateError.message);
-  }
-}
-
-async function upsertAttendanceStatus(params: {
-  supabase: SupabaseServerClient;
-  studioId: string;
+  userId: string;
   registration: RegistrationRow;
-  status: "checked_in" | "attended" | "cancelled";
-  checkedInAt?: string | null;
-  markedAttendedAt?: string | null;
 }) {
-  const {
-    supabase,
-    studioId,
-    registration,
-    status,
-    checkedInAt = null,
-    markedAttendedAt = null,
-  } = params;
+  const { supabase, studioId, userId, registration } = params;
 
-  const { data: attendanceRecord, error: attendanceLookupError } = await supabase
-    .from("attendance_records")
-    .select("id")
-    .eq("studio_id", studioId)
-    .eq("event_registration_id", registration.id)
-    .maybeSingle<AttendanceLookupRow>();
-
-  if (attendanceLookupError) {
-    throw new Error(attendanceLookupError.message);
-  }
-
-  const payload = {
+  const { error } = await supabase.from("leads").insert({
     studio_id: studioId,
-    client_id: registration.client_id ?? null,
-    event_registration_id: registration.id,
-    status,
-    checked_in_at: checkedInAt,
-    marked_attended_at: markedAttendedAt,
-  };
-
-  if (attendanceRecord) {
-    const { error } = await supabase
-      .from("attendance_records")
-      .update(payload)
-      .eq("id", attendanceRecord.id)
-      .eq("studio_id", studioId);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    return;
-  }
-
-  const { error } = await supabase.from("attendance_records").insert(payload);
+    first_name: registration.attendee_first_name || "Event",
+    last_name: registration.attendee_last_name || "Registrant",
+    email: registration.attendee_email || null,
+    phone: registration.attendee_phone || null,
+    lead_source: "event_registration",
+    status: "new",
+    notes: `Created from event registration ${registration.id}`,
+    created_by: userId,
+  });
 
   if (error) {
     throw new Error(error.message);
   }
+}
+
+async function markRegistrationPaymentStatus(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  registrationId: string;
+  paymentStatus: string;
+  registrationStatus?: string;
+}) {
+  const { supabase, eventId, registrationId, paymentStatus, registrationStatus } = params;
+
+  const payload: Record<string, string> = {
+    payment_status: paymentStatus,
+  };
+
+  if (registrationStatus) {
+    payload.status = registrationStatus;
+  }
+
+  const { error } = await supabase
+    .from("event_registrations")
+    .update(payload)
+    .eq("id", registrationId)
+    .eq("event_id", eventId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+async function findLatestPaymentForRegistration(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  registrationId: string;
+}) {
+  const { supabase, registrationId } = params;
+
+  const { data, error } = await supabase
+    .from("event_payments")
+    .select("id")
+    .eq("registration_id", registrationId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<EventPaymentRow>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ?? null;
 }
 
 export async function confirmEventRegistrationAction(formData: FormData) {
@@ -611,35 +407,19 @@ export async function confirmEventRegistrationAction(formData: FormData) {
     const { supabase, studioId } = await getStudioContext();
     await validateEventAccess(supabase, eventId, studioId);
 
-    const registration = await getRegistrationForEvent({
-      supabase,
-      eventId,
-      registrationId,
-    });
-
-    if (!registration) {
-      redirect(buildReturnUrl(eventId, "error=registration_not_found"));
-    }
-
-    if (["cancelled", "refunded"].includes(registration.status ?? "")) {
-      redirect(buildReturnUrl(eventId, "error=confirm_failed"));
-    }
-
     const { error } = await supabase
       .from("event_registrations")
-      .update({
-        status: "confirmed",
-      })
+      .update({ status: "confirmed" })
       .eq("id", registrationId)
       .eq("event_id", eventId);
 
     if (error) {
-      redirect(buildReturnUrl(eventId, "error=confirm_failed"));
+      throw new Error(error.message);
     }
 
-    redirect(buildReturnUrl(eventId, "success=confirmed"));
+    redirect(buildReturnUrl(eventId, "success=registration_confirmed"));
   } catch {
-    redirect(buildReturnUrl(eventId, "error=confirm_failed"));
+    redirect(buildReturnUrl(eventId, "error=registration_confirm_failed"));
   }
 }
 
@@ -655,49 +435,53 @@ export async function cancelEventRegistrationAction(formData: FormData) {
     const { supabase, studioId } = await getStudioContext();
     await validateEventAccess(supabase, eventId, studioId);
 
-    const registration = await getRegistrationForEvent({
-      supabase,
-      eventId,
-      registrationId,
-    });
-
-    if (!registration) {
-      redirect(buildReturnUrl(eventId, "error=registration_not_found"));
-    }
-
-    const nextStatus =
-      registration.payment_status === "refunded" ? "refunded" : "cancelled";
-
     const { error: registrationError } = await supabase
       .from("event_registrations")
       .update({
-        status: nextStatus,
+        status: "cancelled",
       })
       .eq("id", registrationId)
       .eq("event_id", eventId);
 
     if (registrationError) {
-      redirect(buildReturnUrl(eventId, "error=cancel_failed"));
+      throw new Error(registrationError.message);
     }
 
-    await upsertAttendanceStatus({
-      supabase,
-      studioId,
-      registration,
-      status: "cancelled",
-      checkedInAt: registration.checked_in_at,
-      markedAttendedAt: null,
-    });
+    const { data: existingAttendance, error: attendanceLookupError } = await supabase
+      .from("attendance_records")
+      .select("id")
+      .eq("studio_id", studioId)
+      .eq("event_registration_id", registrationId)
+      .maybeSingle<AttendanceLookupRow>();
 
-    redirect(buildReturnUrl(eventId, "success=cancelled"));
+    if (attendanceLookupError) {
+      throw new Error(attendanceLookupError.message);
+    }
+
+    if (existingAttendance) {
+      const { error: attendanceUpdateError } = await supabase
+        .from("attendance_records")
+        .update({
+          status: "cancelled",
+        })
+        .eq("id", existingAttendance.id)
+        .eq("studio_id", studioId);
+
+      if (attendanceUpdateError) {
+        throw new Error(attendanceUpdateError.message);
+      }
+    }
+
+    redirect(buildReturnUrl(eventId, "success=registration_cancelled"));
   } catch {
-    redirect(buildReturnUrl(eventId, "error=cancel_failed"));
+    redirect(buildReturnUrl(eventId, "error=registration_cancel_failed"));
   }
 }
 
 export async function checkInEventRegistrationAction(formData: FormData) {
   const eventId = getString(formData, "eventId");
   const registrationId = getString(formData, "registrationId");
+  const returnTo = getString(formData, "returnTo");
 
   if (!eventId || !registrationId) {
     redirect("/app/events");
@@ -714,15 +498,43 @@ export async function checkInEventRegistrationAction(formData: FormData) {
     });
 
     if (!registration) {
-      redirect(buildReturnUrl(eventId, "error=registration_not_found"));
+      redirect(
+        resolveReturnUrl({
+          eventId,
+          returnTo,
+          fallbackSuffix: "error=registration_not_found",
+        })
+      );
     }
 
     if (["cancelled", "refunded"].includes(registration.status ?? "")) {
-      redirect(buildReturnUrl(eventId, "error=cannot_check_in_cancelled"));
+      redirect(
+        resolveReturnUrl({
+          eventId,
+          returnTo,
+          fallbackSuffix: "error=cannot_check_in_cancelled",
+        })
+      );
     }
 
     if (shouldBlockAttendanceForPayment(registration.payment_status)) {
-      redirect(buildReturnUrl(eventId, "error=cannot_check_in_unpaid"));
+      redirect(
+        resolveReturnUrl({
+          eventId,
+          returnTo,
+          fallbackSuffix: "error=cannot_check_in_unpaid",
+        })
+      );
+    }
+
+    if (registration.checked_in_at || registration.status === "checked_in") {
+      redirect(
+        resolveReturnUrl({
+          eventId,
+          returnTo,
+          fallbackSuffix: "success=already_checked_in",
+        })
+      );
     }
 
     const now = new Date().toISOString();
@@ -737,7 +549,7 @@ export async function checkInEventRegistrationAction(formData: FormData) {
       .eq("event_id", eventId);
 
     if (registrationUpdateError) {
-      redirect(buildReturnUrl(eventId, "error=checkin_failed"));
+      throw new Error(registrationUpdateError.message);
     }
 
     await upsertAttendanceStatus({
@@ -749,9 +561,21 @@ export async function checkInEventRegistrationAction(formData: FormData) {
       markedAttendedAt: null,
     });
 
-    redirect(buildReturnUrl(eventId, "success=checked_in"));
+    redirect(
+      resolveReturnUrl({
+        eventId,
+        returnTo,
+        fallbackSuffix: "success=checked_in",
+      })
+    );
   } catch {
-    redirect(buildReturnUrl(eventId, "error=checkin_failed"));
+    redirect(
+      resolveReturnUrl({
+        eventId,
+        returnTo,
+        fallbackSuffix: "error=checkin_failed",
+      })
+    );
   }
 }
 
@@ -777,16 +601,8 @@ export async function markEventRegistrationAttendedAction(formData: FormData) {
       redirect(buildReturnUrl(eventId, "error=registration_not_found"));
     }
 
-    if (["cancelled", "refunded"].includes(registration.status ?? "")) {
-      redirect(buildReturnUrl(eventId, "error=cannot_attend_cancelled"));
-    }
-
-    if (shouldBlockAttendanceForPayment(registration.payment_status)) {
-      redirect(buildReturnUrl(eventId, "error=cannot_check_in_unpaid"));
-    }
-
-    const now = new Date().toISOString();
-    const checkedInAt = registration.checked_in_at ?? now;
+    const checkedInAt = registration.checked_in_at ?? new Date().toISOString();
+    const markedAttendedAt = new Date().toISOString();
 
     const { error: registrationUpdateError } = await supabase
       .from("event_registrations")
@@ -798,21 +614,24 @@ export async function markEventRegistrationAttendedAction(formData: FormData) {
       .eq("event_id", eventId);
 
     if (registrationUpdateError) {
-      redirect(buildReturnUrl(eventId, "error=attended_failed"));
+      throw new Error(registrationUpdateError.message);
     }
 
     await upsertAttendanceStatus({
       supabase,
       studioId,
-      registration,
+      registration: {
+        ...registration,
+        checked_in_at: checkedInAt,
+      },
       status: "attended",
       checkedInAt,
-      markedAttendedAt: now,
+      markedAttendedAt,
     });
 
-    redirect(buildReturnUrl(eventId, "success=attended"));
+    redirect(buildReturnUrl(eventId, "success=marked_attended"));
   } catch {
-    redirect(buildReturnUrl(eventId, "error=attended_failed"));
+    redirect(buildReturnUrl(eventId, "error=mark_attended_failed"));
   }
 }
 
@@ -829,56 +648,69 @@ export async function linkEventRegistrationToClientAction(formData: FormData) {
     const { supabase, studioId } = await getStudioContext();
     await validateEventAccess(supabase, eventId, studioId);
 
-    const { data: client, error: clientError } = await supabase
-      .from("clients")
-      .select("id")
-      .eq("id", clientId)
-      .eq("studio_id", studioId)
-      .maybeSingle<ClientRow>();
+    const registration = await getRegistrationForEvent({
+      supabase,
+      eventId,
+      registrationId,
+    });
 
-    if (clientError || !client) {
+    if (!registration) {
+      redirect(buildReturnUrl(eventId, "error=registration_not_found"));
+    }
+
+    const client = await ensureClientInStudio({
+      supabase,
+      studioId,
+      clientId,
+    });
+
+    if (!client) {
       redirect(buildReturnUrl(eventId, "error=client_not_found"));
     }
 
-    const { error: linkError } = await supabase
+    const { error: registrationUpdateError } = await supabase
       .from("event_registrations")
       .update({
-        client_id: clientId,
+        client_id: client.id,
       })
       .eq("id", registrationId)
       .eq("event_id", eventId);
 
-    if (linkError) {
-      redirect(buildReturnUrl(eventId, "error=link_client_failed"));
+    if (registrationUpdateError) {
+      throw new Error(registrationUpdateError.message);
     }
 
     await upsertAttendanceLink({
       supabase,
       studioId,
       registrationId,
-      clientId,
+      clientId: client.id,
     });
 
-    redirect(buildReturnUrl(eventId, "success=linked_client"));
+    redirect(buildReturnUrl(eventId, "success=registration_linked"));
   } catch {
     redirect(buildReturnUrl(eventId, "error=link_client_failed"));
   }
 }
 
-export async function createLeadFromRegistrationAction(formData: FormData) {
+export async function upsertEventAttendanceAction(formData: FormData) {
   const eventId = getString(formData, "eventId");
   const registrationId = getString(formData, "registrationId");
-  const followUpDate = getString(formData, "followUpDate");
-  const followUpTime = getString(formData, "followUpTime");
-  const followUpNote = getString(formData, "followUpNote");
+  const clientId = getString(formData, "clientId");
+  const status = getString(formData, "status") as
+    | "registered"
+    | "checked_in"
+    | "attended"
+    | "no_show"
+    | "cancelled";
 
   if (!eventId || !registrationId) {
     redirect("/app/events");
   }
 
   try {
-    const { supabase, studioId, userId } = await getStudioContext();
-    const event = await validateEventAccess(supabase, eventId, studioId);
+    const { supabase, studioId } = await getStudioContext();
+    await validateEventAccess(supabase, eventId, studioId);
 
     const registration = await getRegistrationForEvent({
       supabase,
@@ -890,150 +722,140 @@ export async function createLeadFromRegistrationAction(formData: FormData) {
       redirect(buildReturnUrl(eventId, "error=registration_not_found"));
     }
 
-    if (registration.client_id) {
-      redirect(buildReturnUrl(eventId, "success=already_linked"));
-    }
+    let nextClientId = registration.client_id ?? null;
 
-    const firstName = registration.attendee_first_name?.trim() ?? "";
-    const lastName = registration.attendee_last_name?.trim() ?? "";
-    const email = registration.attendee_email?.trim() ?? "";
-    const phone = registration.attendee_phone?.trim() ?? "";
-    const ticketTypeName = getTicketTypeName(registration.event_ticket_types);
-
-    const duplicateResult = await findPossibleDuplicateClient({
-      supabase,
-      studioId,
-      firstName,
-      lastName,
-      email,
-      phone,
-    });
-
-    if (duplicateResult?.kind === "exact_email") {
-      const { error: linkExistingError } = await supabase
-        .from("event_registrations")
-        .update({
-          client_id: duplicateResult.clientId,
-        })
-        .eq("id", registrationId)
-        .eq("event_id", eventId);
-
-      if (linkExistingError) {
-        redirect(buildReturnUrl(eventId, "error=lead_create_failed"));
-      }
-
-      await upsertAttendanceLink({
+    if (clientId) {
+      const client = await ensureClientInStudio({
         supabase,
         studioId,
-        registrationId,
-        clientId: duplicateResult.clientId,
+        clientId,
       });
 
-      const followUpDueAt = combineFollowUpDateTime(followUpDate, followUpTime);
-
-      if (followUpDueAt || followUpNote) {
-        const { error: linkedActivityError } = await supabase
-          .from("lead_activities")
-          .insert({
-            studio_id: studioId,
-            client_id: duplicateResult.clientId,
-            activity_type: followUpDueAt ? "follow_up" : "note",
-            note: formatLeadActivityNote({
-              eventName: event.name,
-              ticketTypeName,
-              registrationStatus: registration.status,
-              paymentStatus: registration.payment_status,
-              followUpNote,
-            }),
-            follow_up_due_at: followUpDueAt,
-            created_by: userId,
-          });
-
-        if (linkedActivityError) {
-          redirect(buildReturnUrl(eventId, "error=lead_activity_failed"));
-        }
+      if (!client) {
+        redirect(buildReturnUrl(eventId, "error=client_not_found"));
       }
 
-      redirect(buildReturnUrl(eventId, "success=linked_existing_client"));
+      nextClientId = client.id;
     }
 
-    if (duplicateResult?.kind === "possible_duplicate") {
-      redirect(buildReturnUrl(eventId, "error=possible_duplicate_client"));
-    }
+    const checkedInAt =
+      status === "checked_in" || status === "attended"
+        ? registration.checked_in_at ?? new Date().toISOString()
+        : null;
 
-    const leadNote = formatLeadOriginNote({
-      eventName: event.name,
-      ticketTypeName,
-      registrationStatus: registration.status,
-      paymentStatus: registration.payment_status,
-      attendeeEmail: email,
-      attendeePhone: phone || null,
-      registrationNotes: registration.notes,
-      checkedInAt: registration.checked_in_at,
-      promotedFromWaitlistAt: registration.promoted_from_waitlist_at,
-    });
+    const registrationStatus =
+      status === "cancelled"
+        ? "cancelled"
+        : status === "attended"
+          ? "attended"
+          : status === "checked_in"
+            ? "checked_in"
+            : registration.status === "confirmed"
+              ? "confirmed"
+              : "confirmed";
 
-    const { data: createdLead, error: createLeadError } = await supabase
-      .from("clients")
-      .insert({
-        studio_id: studioId,
-        first_name: firstName,
-        last_name: lastName,
-        email: email || null,
-        phone: phone || null,
-        status: "lead",
-        referral_source: "event_registration",
-        notes: leadNote,
-        created_by: userId,
-      })
-      .select("id")
-      .single<ClientRow>();
-
-    if (createLeadError || !createdLead) {
-      redirect(buildReturnUrl(eventId, "error=lead_create_failed"));
-    }
-
-    const { error: updateRegistrationError } = await supabase
+    const { error: registrationUpdateError } = await supabase
       .from("event_registrations")
       .update({
-        client_id: createdLead.id,
+        client_id: nextClientId,
+        status: registrationStatus,
+        checked_in_at: checkedInAt,
       })
       .eq("id", registrationId)
       .eq("event_id", eventId);
 
-    if (updateRegistrationError) {
-      redirect(buildReturnUrl(eventId, "error=lead_create_failed"));
+    if (registrationUpdateError) {
+      throw new Error(registrationUpdateError.message);
     }
 
-    await upsertAttendanceLink({
+    if (nextClientId) {
+      await upsertAttendanceLink({
+        supabase,
+        studioId,
+        registrationId,
+        clientId: nextClientId,
+      });
+    }
+
+    if (status === "registered") {
+      const { data: attendanceRecord, error: attendanceLookupError } = await supabase
+        .from("attendance_records")
+        .select("id")
+        .eq("studio_id", studioId)
+        .eq("event_registration_id", registrationId)
+        .maybeSingle<AttendanceLookupRow>();
+
+      if (attendanceLookupError) {
+        throw new Error(attendanceLookupError.message);
+      }
+
+      if (attendanceRecord) {
+        const { error: resetError } = await supabase
+          .from("attendance_records")
+          .update({
+            client_id: nextClientId,
+            status: "registered",
+            checked_in_at: null,
+            marked_attended_at: null,
+          })
+          .eq("id", attendanceRecord.id)
+          .eq("studio_id", studioId);
+
+        if (resetError) {
+          throw new Error(resetError.message);
+        }
+      }
+
+      redirect(buildReturnUrl(eventId, "success=attendance_updated"));
+    }
+
+    await upsertAttendanceStatus({
       supabase,
       studioId,
-      registrationId,
-      clientId: createdLead.id,
+      registration: {
+        ...registration,
+        client_id: nextClientId,
+        checked_in_at: checkedInAt,
+      },
+      status,
+      checkedInAt,
+      markedAttendedAt: status === "attended" ? new Date().toISOString() : null,
     });
 
-    const followUpDueAt = combineFollowUpDateTime(followUpDate, followUpTime);
+    redirect(buildReturnUrl(eventId, "success=attendance_updated"));
+  } catch {
+    redirect(buildReturnUrl(eventId, "error=attendance_update_failed"));
+  }
+}
 
-    const { error: activityError } = await supabase
-      .from("lead_activities")
-      .insert({
-        studio_id: studioId,
-        client_id: createdLead.id,
-        activity_type: followUpDueAt ? "follow_up" : "note",
-        note: formatLeadActivityNote({
-          eventName: event.name,
-          ticketTypeName,
-          registrationStatus: registration.status,
-          paymentStatus: registration.payment_status,
-          followUpNote,
-        }),
-        follow_up_due_at: followUpDueAt,
-        created_by: userId,
-      });
+export async function createLeadFromRegistrationAction(formData: FormData) {
+  const eventId = getString(formData, "eventId");
+  const registrationId = getString(formData, "registrationId");
 
-    if (activityError) {
-      redirect(buildReturnUrl(eventId, "error=lead_activity_failed"));
+  if (!eventId || !registrationId) {
+    redirect("/app/events");
+  }
+
+  try {
+    const { supabase, studioId, userId } = await getStudioContext();
+    await validateEventAccess(supabase, eventId, studioId);
+
+    const registration = await getRegistrationForEvent({
+      supabase,
+      eventId,
+      registrationId,
+    });
+
+    if (!registration) {
+      redirect(buildReturnUrl(eventId, "error=registration_not_found"));
     }
+
+    await createLeadFromRegistration({
+      supabase,
+      studioId,
+      userId,
+      registration,
+    });
 
     redirect(buildReturnUrl(eventId, "success=lead_created"));
   } catch {
@@ -1063,37 +885,34 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
       redirect(buildReturnUrl(eventId, "error=registration_not_found"));
     }
 
-    if (registration.status === "refunded") {
-      redirect(buildReturnUrl(eventId, "error=payment_update_failed"));
-    }
+    const amount = Number(registration.total_amount ?? registration.total_price ?? 0);
+    const currency = registration.currency ?? "USD";
 
-    const nextStatus =
-      registration.status === "attended" || registration.status === "checked_in"
-        ? registration.status
-        : "confirmed";
-
-    const { error: registrationError } = await supabase
-      .from("event_registrations")
-      .update({
-        payment_status: "paid",
-        status: nextStatus,
-      })
-      .eq("id", registrationId)
-      .eq("event_id", eventId);
-
-    if (registrationError) {
-      redirect(buildReturnUrl(eventId, "error=payment_update_failed"));
-    }
-
-    await updateOrInsertManualPayment({
+    await markRegistrationPaymentStatus({
       supabase,
-      registration,
-      note: "Marked paid manually from admin registrations.",
+      eventId,
+      registrationId,
+      paymentStatus: "paid",
+      registrationStatus: registration.status === "pending" ? "confirmed" : undefined,
     });
 
-    redirect(buildReturnUrl(eventId, "success=payment_updated"));
+    if (amount > 0) {
+      await logEventPayment({
+        supabase,
+        registration,
+        studioId,
+        amount,
+        currency,
+        paymentMethod: "other",
+        status: "paid",
+        source: "manual_admin_mark_paid",
+        stripePaymentIntentId: registration.stripe_payment_intent_id,
+      });
+    }
+
+    redirect(buildReturnUrl(eventId, "success=registration_paid"));
   } catch {
-    redirect(buildReturnUrl(eventId, "error=payment_update_failed"));
+    redirect(buildReturnUrl(eventId, "error=mark_paid_failed"));
   }
 }
 
@@ -1119,63 +938,101 @@ export async function refundEventRegistrationAction(formData: FormData) {
       redirect(buildReturnUrl(eventId, "error=registration_not_found"));
     }
 
-    const payments = await getPaymentsForRegistration(supabase, registrationId);
-    const stripePayment = payments.find(
-      (payment) =>
-        !!payment.stripe_payment_intent_id &&
-        payment.status !== "refunded"
-    );
+    const amount = Number(registration.total_amount ?? registration.total_price ?? 0);
+    const currency = registration.currency ?? "USD";
 
-    if (stripePayment?.stripe_payment_intent_id) {
+    if (registration.stripe_payment_intent_id) {
       const stripe = getStripe();
-
       await stripe.refunds.create({
-        payment_intent: stripePayment.stripe_payment_intent_id,
-      });
-    } else if (payments.length > 0) {
-      await markAllLocalPaymentsRefunded({
-        supabase,
-        payments,
-        note: "Refund marked from admin registrations.",
+        payment_intent: registration.stripe_payment_intent_id,
       });
     }
 
-    const { error: registrationError } = await supabase
-      .from("event_registrations")
-      .update({
-        payment_status: "refunded",
-        status: "refunded",
-      })
-      .eq("id", registrationId)
-      .eq("event_id", eventId);
+    await markRegistrationPaymentStatus({
+      supabase,
+      eventId,
+      registrationId,
+      paymentStatus: "refunded",
+      registrationStatus: "cancelled",
+    });
 
-    if (registrationError) {
-      redirect(buildReturnUrl(eventId, "error=refund_failed"));
-    }
+    const latestPayment = await findLatestPaymentForRegistration({
+      supabase,
+      registrationId,
+    });
 
-    if (payments.length === 0) {
-      const amount = getRegistrationAmount(registration);
-
-      if (amount > 0) {
-        const { error: insertError } = await supabase.from("event_payments").insert({
-          registration_id: registration.id,
-          amount,
-          currency: getRegistrationCurrency(registration),
-          payment_method: "other",
+    if (latestPayment) {
+      const { error: paymentUpdateError } = await supabase
+        .from("event_payments")
+        .update({
           status: "refunded",
-          source: "manual_admin",
           refund_amount: amount,
           refunded_at: new Date().toISOString(),
-          notes: "Refund recorded from admin registrations with no prior payment row.",
-        });
+        })
+        .eq("id", latestPayment.id);
 
-        if (insertError) {
-          redirect(buildReturnUrl(eventId, "error=refund_failed"));
+      if (paymentUpdateError) {
+        throw new Error(paymentUpdateError.message);
+      }
+    } else if (amount > 0) {
+      await logEventPayment({
+        supabase,
+        registration,
+        studioId,
+        amount,
+        currency,
+        paymentMethod: "other",
+        status: "refunded",
+        source: "refund",
+        stripePaymentIntentId: registration.stripe_payment_intent_id,
+      });
+
+      const latestInserted = await findLatestPaymentForRegistration({
+        supabase,
+        registrationId,
+      });
+
+      if (latestInserted) {
+        const { error: paymentUpdateError } = await supabase
+          .from("event_payments")
+          .update({
+            refund_amount: amount,
+            refunded_at: new Date().toISOString(),
+          })
+          .eq("id", latestInserted.id);
+
+        if (paymentUpdateError) {
+          throw new Error(paymentUpdateError.message);
         }
       }
     }
 
-    redirect(buildReturnUrl(eventId, "success=refunded"));
+    const { data: existingAttendance, error: attendanceLookupError } = await supabase
+      .from("attendance_records")
+      .select("id")
+      .eq("studio_id", studioId)
+      .eq("event_registration_id", registrationId)
+      .maybeSingle<AttendanceLookupRow>();
+
+    if (attendanceLookupError) {
+      throw new Error(attendanceLookupError.message);
+    }
+
+    if (existingAttendance) {
+      const { error: attendanceUpdateError } = await supabase
+        .from("attendance_records")
+        .update({
+          status: "cancelled",
+        })
+        .eq("id", existingAttendance.id)
+        .eq("studio_id", studioId);
+
+      if (attendanceUpdateError) {
+        throw new Error(attendanceUpdateError.message);
+      }
+    }
+
+    redirect(buildReturnUrl(eventId, "success=registration_refunded"));
   } catch {
     redirect(buildReturnUrl(eventId, "error=refund_failed"));
   }

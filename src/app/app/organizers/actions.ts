@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 
 type ActionState = {
   error: string;
@@ -27,7 +28,7 @@ function normalizeUrl(value: string) {
   return `https://${value}`;
 }
 
-async function getStudioContext() {
+async function getOrganizerWorkspaceContext() {
   const supabase = await createClient();
 
   const {
@@ -38,23 +39,33 @@ async function getStudioContext() {
     redirect("/login");
   }
 
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
-
-  if (roleError || !roleRow) {
-    redirect("/login");
-  }
+  const context = await getCurrentStudioContext();
 
   return {
     supabase,
     userId: user.id,
-    studioId: roleRow.studio_id as string,
+    studioId: context.studioId,
   };
+}
+
+function humanizeOrganizerInsertError(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("organizers_one_per_workspace_idx") ||
+    normalized.includes("duplicate key") && normalized.includes("studio_id")
+  ) {
+    return "This organizer account already has an organizer profile. Only one organizer profile is allowed per account.";
+  }
+
+  if (
+    normalized.includes("duplicate key") &&
+    normalized.includes("slug")
+  ) {
+    return "That organizer slug is already in use. Please choose a different slug.";
+  }
+
+  return message;
 }
 
 export async function createOrganizerAction(
@@ -62,7 +73,7 @@ export async function createOrganizerAction(
   formData: FormData
 ): Promise<ActionState> {
   try {
-    const { supabase, studioId, userId } = await getStudioContext();
+    const { supabase, studioId, userId } = await getOrganizerWorkspaceContext();
 
     const name = getString(formData, "name");
     const slugInput = getString(formData, "slug");
@@ -86,6 +97,26 @@ export async function createOrganizerAction(
       return { error: "Organizer slug is required." };
     }
 
+    const { data: existingOrganizer, error: existingOrganizerError } = await supabase
+      .from("organizers")
+      .select("id, name, slug")
+      .eq("studio_id", studioId)
+      .limit(1)
+      .maybeSingle();
+
+    if (existingOrganizerError) {
+      return {
+        error: `Could not validate organizer account: ${existingOrganizerError.message}`,
+      };
+    }
+
+    if (existingOrganizer) {
+      return {
+        error:
+          "This organizer account already has an organizer profile. Only one organizer profile is allowed per account.",
+      };
+    }
+
     const { data: organizer, error: organizerError } = await supabase
       .from("organizers")
       .insert({
@@ -107,18 +138,23 @@ export async function createOrganizerAction(
 
     if (organizerError || !organizer) {
       return {
-        error: `Could not create organizer: ${
+        error: `Could not create organizer: ${humanizeOrganizerInsertError(
           organizerError?.message ?? "Unknown error."
-        }`,
+        )}`,
       };
     }
 
-    const { error: accessError } = await supabase.from("organizer_users").insert({
-      organizer_id: organizer.id,
-      user_id: userId,
-      role: "organizer_admin",
-      active: true,
-    });
+    const { error: accessError } = await supabase.from("organizer_users").upsert(
+      {
+        organizer_id: organizer.id,
+        user_id: userId,
+        role: "organizer_admin",
+        active: true,
+      },
+      {
+        onConflict: "organizer_id,user_id",
+      }
+    );
 
     if (accessError) {
       return {

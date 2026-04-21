@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -39,23 +40,42 @@ export default async function HomePage() {
       <PublicSiteHeader currentPath="home" isAuthenticated={false} />
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_18%,#f8fafc_100%)]">
-        <section className="border-b border-slate-200/70">
-          <div className="mx-auto max-w-7xl px-6 py-14 lg:px-8 lg:py-20">
-            <div className="grid gap-10 lg:grid-cols-[1.05fr_0.95fr] lg:items-center">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-                  Next-generation studio software for ballroom and country
-                </p>
+        <section className="relative overflow-hidden border-b border-slate-200/70">
+          <div className="absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.18),transparent_45%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.16),transparent_42%)]" />
 
-                <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
-                  Studio software for the business side of dance — and the dancers searching for it
+          <div className="relative mx-auto max-w-7xl px-6 py-14 lg:px-8 lg:py-20">
+            <div className="grid gap-12 lg:grid-cols-[1.02fr_0.98fr] lg:items-center">
+              <div>
+                <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+  <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded-[32px] bg-white shadow-sm ring-1 ring-slate-200 sm:h-40 sm:w-40 lg:h-48 lg:w-48">
+    <Image
+      src="/brand/danceflow-logo.png"
+      alt="DanceFlow logo"
+      width={180}
+      height={180}
+      className="h-24 w-24 object-contain sm:h-32 sm:w-32 lg:h-40 lg:w-40"
+      priority
+    />
+  </div>
+
+  <div>
+    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+      DanceFlow
+    </p>
+    <p className="mt-1 text-sm text-slate-600 sm:text-base">
+      Next-generation studio software for ballroom and country
+    </p>
+  </div>
+</div>
+
+                <h1 className="mt-8 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
+                  DanceFlow is where studios grow and dancers connect!
                 </h1>
 
                 <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">
-                  DanceFlow helps studios and organizers manage CRM, scheduling,
-                  memberships, payments, and events while giving dancers a better
-                  way to discover studios, save favorites, and register for what is
-                  happening nearby.
+                  Manage your studio, grow your community, and help dancers discover
+                  the lessons, events, and experiences they are looking for — all in
+                  one platform.
                 </p>
 
                 <div className="mt-8 flex flex-wrap gap-3">
@@ -67,83 +87,67 @@ export default async function HomePage() {
                   </Link>
 
                   <Link
-                    href="/discover/studios"
+                    href="/get-started"
                     className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
-                    Explore Studios
-                  </Link>
-
-                  <Link
-                    href="/discover/events"
-                    className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    Explore Events
+                    View Paths & Pricing
                   </Link>
                 </div>
 
-                <div className="mt-8 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm">
+                <div className="mt-10 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-orange-100 bg-white/90 p-4 shadow-sm backdrop-blur">
                     <p className="text-sm font-medium text-slate-900">For Dancers</p>
                     <p className="mt-1 text-sm text-slate-600">
-                      Search studios and events, save favorites, and track registrations.
+                      Find studios, save favorites, and keep up with events and registrations.
                     </p>
                   </div>
 
-                  <div className="rounded-2xl border border-violet-100 bg-white p-4 shadow-sm">
+                  <div className="rounded-2xl border border-violet-100 bg-white/90 p-4 shadow-sm backdrop-blur">
                     <p className="text-sm font-medium text-slate-900">For Studios</p>
                     <p className="mt-1 text-sm text-slate-600">
-                      Run scheduling, clients, memberships, packages, and payments in one place.
+                      Run CRM, lessons, memberships, packages, and payments in one place.
                     </p>
                   </div>
 
-                  <div className="rounded-2xl border border-sky-100 bg-white p-4 shadow-sm">
+                  <div className="rounded-2xl border border-sky-100 bg-white/90 p-4 shadow-sm backdrop-blur">
                     <p className="text-sm font-medium text-slate-900">For Organizers</p>
                     <p className="mt-1 text-sm text-slate-600">
-                      Publish events, manage registrations, and sell tickets with clear pricing.
+                      Publish public events, manage registrations, and sell tickets cleanly.
                     </p>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-                <div className="rounded-[28px] bg-[linear-gradient(135deg,#fff7ed_0%,#ede9fe_45%,#eff6ff_100%)] p-6">
-                  <div className="grid gap-4">
-                    <div className="rounded-2xl bg-white p-4 shadow-sm">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
-                        Studio Operations
-                      </p>
-                      <p className="mt-2 text-lg font-semibold text-slate-900">
-                        CRM, lessons, memberships, and billing
-                      </p>
-                      <p className="mt-2 text-sm text-slate-600">
-                        Give studios fewer clicks, cleaner workflows, and better visibility across daily operations.
-                      </p>
-                    </div>
-
-                    <div className="rounded-2xl bg-white p-4 shadow-sm">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
-                        Public Discovery
-                      </p>
-                      <p className="mt-2 text-lg font-semibold text-slate-900">
-                        Help dancers find the right studio or event faster
-                      </p>
-                      <p className="mt-2 text-sm text-slate-600">
-                        Public users can browse, favorite, and return to what matters without starting over every time.
-                      </p>
-                    </div>
-
-                    <div className="rounded-2xl bg-white p-4 shadow-sm">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">
-                        Event Growth
-                      </p>
-                      <p className="mt-2 text-lg font-semibold text-slate-900">
-                        Searchable event pages, registration, and ticketing
-                      </p>
-                      <p className="mt-2 text-sm text-slate-600">
-                        Organizers can publish public events and manage the registration flow in one system.
-                      </p>
-                    </div>
+              <div className="relative">
+                <div className="rounded-[34px] border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="overflow-hidden rounded-[28px] bg-[linear-gradient(135deg,#fff7ed_0%,#fdf2f8_38%,#eef2ff_100%)]">
+                    <Image
+                      src="/brand/danceflow-home-hero.png"
+                      alt="DanceFlow connects studio operations and dancers on the dance floor"
+                      width={1400}
+                      height={1000}
+                      className="h-auto w-full object-cover"
+                      priority
+                    />
                   </div>
+                </div>
+
+                <div className="absolute -bottom-5 left-5 rounded-2xl border border-orange-100 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">
+                    Studio Growth
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Operations that feel cleaner and easier to run
+                  </p>
+                </div>
+
+                <div className="absolute -top-5 right-5 rounded-2xl border border-violet-100 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                    Dancer Connection
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Discovery that helps people actually find you
+                  </p>
                 </div>
               </div>
             </div>
@@ -156,11 +160,11 @@ export default async function HomePage() {
               Why DanceFlow
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
-              Built for the real workflow of dance businesses
+              One platform for the business side of dance and the people searching for it
             </h2>
             <p className="mt-4 text-lg leading-8 text-slate-600">
-              Dance studios need more than a simple calendar. Dancers need more
-              than a static listing. DanceFlow brings both sides together.
+              Dance studios need more than a simple calendar. Dancers need more than a static listing.
+              DanceFlow brings both sides together in a way that feels modern, warm, and built for real growth.
             </p>
           </div>
 
@@ -173,7 +177,7 @@ export default async function HomePage() {
                 Manage clients, lessons, packages, and memberships
               </h3>
               <p className="mt-3 text-sm leading-7 text-slate-600">
-                Keep client details, scheduling, payment workflows, and recurring programs together in one system.
+                Keep client details, lesson scheduling, payments, and recurring revenue together in one system designed for studio flow.
               </p>
             </section>
 
@@ -182,22 +186,22 @@ export default async function HomePage() {
                 Discovery Experience
               </p>
               <h3 className="mt-3 text-xl font-semibold text-slate-900">
-                Help people actually find your studio and events
+                Help dancers find your studio and events faster
               </h3>
               <p className="mt-3 text-sm leading-7 text-slate-600">
-                Public profiles, searchable events, favorites, and nearby discovery make the front door of your business stronger.
+                Public profiles, favorites, searchable events, and nearby discovery make your digital front door stronger.
               </p>
             </section>
 
             <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-orange-700">
-                Transparent Pricing
+                Event Growth
               </p>
               <h3 className="mt-3 text-xl font-semibold text-slate-900">
-                Clear paths for public, studio, and organizer users
+                Publish, register, and ticket events with clarity
               </h3>
               <p className="mt-3 text-sm leading-7 text-slate-600">
-                Public users get a free discovery account. Studios and organizers continue into business pricing built for their use case.
+                Organizers can create public-facing events, manage registrations, and sell tickets through a cleaner workflow.
               </p>
             </section>
           </div>
@@ -205,13 +209,13 @@ export default async function HomePage() {
 
         <section className="border-y border-slate-200 bg-white/70">
           <div className="mx-auto max-w-7xl px-6 py-14 lg:px-8">
-            <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
                   Get started your way
                 </p>
                 <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
-                  One platform, different entry points
+                  Built for public users, studios, and organizers
                 </h2>
                 <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
                   Dancers can create a free account to save favorites and track event registrations.
@@ -221,15 +225,22 @@ export default async function HomePage() {
 
               <div className="flex flex-wrap gap-3">
                 <Link
-                  href="/get-started"
-                  className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800"
+                  href="/discover/studios"
+                  className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
-                  View Paths & Pricing
+                  Explore Studios
+                </Link>
+
+                <Link
+                  href="/discover/events"
+                  className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Explore Events
                 </Link>
 
                 <Link
                   href="/login"
-                  className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800"
                 >
                   Log In
                 </Link>

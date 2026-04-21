@@ -375,6 +375,65 @@ async function upsertStudioBillingCustomer(params: {
   }
 }
 
+async function syncStudioBillingSnapshot(params: {
+  supabase: SupabaseClient;
+  studioId: string;
+  stripeCustomerId: string;
+  stripeSubscriptionId: string;
+  subscriptionStatus: string;
+}) {
+  const {
+    supabase,
+    studioId,
+    stripeCustomerId,
+    stripeSubscriptionId,
+    subscriptionStatus,
+  } = params;
+
+  const { error } = await supabase
+    .from("studios")
+    .update({
+      stripe_customer_id: stripeCustomerId,
+      stripe_subscription_id: stripeSubscriptionId,
+      subscription_status: mapStudioSubscriptionStatus(subscriptionStatus),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", studioId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
+async function getStudioIdFromStripeCustomer(params: {
+  supabase: SupabaseClient;
+  stripeCustomerId: string | null;
+}) {
+  const { supabase, stripeCustomerId } = params;
+
+  if (!stripeCustomerId) return null;
+
+  const { data, error } = await supabase
+    .from("studio_billing_customers")
+    .select("studio_id")
+    .eq("stripe_customer_id", stripeCustomerId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data?.studio_id ?? null;
+}
+
+function getSubscriptionSource(subscription: Stripe.Subscription) {
+  const source = getString(subscription.metadata?.source);
+  if (source === "studio_subscription" || source === "organizer_subscription") {
+    return source;
+  }
+  return null;
+}
+
 async function upsertStudioSubscription(params: {
   supabase: SupabaseClient;
   stripe: Stripe;
@@ -382,20 +441,30 @@ async function upsertStudioSubscription(params: {
 }) {
   const { supabase, subscription } = params;
 
-  const stripeCustomerId = getString(subscription.customer);
-  if (!stripeCustomerId) {
-    throw new Error("Studio subscription missing customer id.");
-  }
-
   const metadata = subscription.metadata ?? {};
-  const studioId = getString(metadata.studioId);
-  const metadataPlanCode = getString(metadata.planCode);
+  const stripeCustomerId = getString(subscription.customer);
+  const source = getSubscriptionSource(subscription);
 
-  if (!studioId) {
+  if (!source) {
     return false;
   }
 
+  const metadataStudioId = getString(metadata.studioId) ?? getString(metadata.workspaceId);
+
+  const studioId =
+    metadataStudioId ??
+    (await getStudioIdFromStripeCustomer({
+      supabase,
+      stripeCustomerId,
+    }));
+
+  if (!studioId || !stripeCustomerId) {
+    return false;
+  }
+
+  const metadataPlanCode = getString(metadata.planCode);
   const stripePriceId = getString(subscription.items.data[0]?.price?.id);
+
   const currentPeriodStartUnix = getNumber(
     (subscription as unknown as { current_period_start?: number }).current_period_start
   );
@@ -447,8 +516,7 @@ async function upsertStudioSubscription(params: {
 
   if (!planRow) {
     throw new Error(
-      `Could not resolve subscription plan for studio subscription ${subscription.id}. ` +
-        `stripePriceId=${stripePriceId || "null"} metadata.planCode=${metadataPlanCode || "null"}`
+      `Could not resolve subscription plan for ${subscription.id}. stripePriceId=${stripePriceId || "null"} metadata.planCode=${metadataPlanCode || "null"}`
     );
   }
 
@@ -460,11 +528,9 @@ async function upsertStudioSubscription(params: {
   const payload = {
     studio_id: studioId,
     subscription_plan_id: planRow.id,
+    stripe_subscription_id: subscription.id,
     status: mappedStatus,
     billing_interval: billingInterval,
-    stripe_customer_id: stripeCustomerId,
-    stripe_subscription_id: subscription.id,
-    stripe_price_id: stripePriceId || null,
     current_period_start: toIsoOrNull(currentPeriodStartUnix),
     current_period_end: toIsoOrNull(currentPeriodEndUnix),
     cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
@@ -505,43 +571,19 @@ async function upsertStudioSubscription(params: {
     }
   }
 
-  const { data: existingCustomer, error: existingCustomerError } = await supabase
-    .from("studio_billing_customers")
-    .select("id")
-    .eq("studio_id", studioId)
-    .maybeSingle();
+  await upsertStudioBillingCustomer({
+    supabase,
+    stripeCustomerId,
+    studioId,
+  });
 
-  if (existingCustomerError) {
-    throw new Error(existingCustomerError.message);
-  }
-
-  const customerPayload = {
-    studio_id: studioId,
-    stripe_customer_id: stripeCustomerId,
-    updated_at: new Date().toISOString(),
-  };
-
-  if (existingCustomer) {
-    const { error: updateCustomerError } = await supabase
-      .from("studio_billing_customers")
-      .update(customerPayload)
-      .eq("id", existingCustomer.id);
-
-    if (updateCustomerError) {
-      throw new Error(updateCustomerError.message);
-    }
-  } else {
-    const { error: insertCustomerError } = await supabase
-      .from("studio_billing_customers")
-      .insert({
-        ...customerPayload,
-        created_at: new Date().toISOString(),
-      });
-
-    if (insertCustomerError) {
-      throw new Error(insertCustomerError.message);
-    }
-  }
+  await syncStudioBillingSnapshot({
+    supabase,
+    studioId,
+    stripeCustomerId,
+    stripeSubscriptionId: subscription.id,
+    subscriptionStatus: subscription.status,
+  });
 
   return true;
 }
@@ -647,14 +689,18 @@ async function handleStudioCheckoutCompleted(
   session: Stripe.Checkout.Session
 ) {
   const source = getString(session.metadata?.source);
-  if (source !== "studio_subscription") return false;
+
+  if (source !== "studio_subscription" && source !== "organizer_subscription") {
+    return false;
+  }
 
   const studioId = getString(session.metadata?.studioId);
   const stripeCustomerId = getString(session.customer);
   const subscriptionId = getString(session.subscription);
+  const planCode = getString(session.metadata?.planCode);
 
   if (!studioId || !stripeCustomerId || !subscriptionId) {
-    throw new Error("Studio subscription checkout missing required metadata.");
+    throw new Error("Subscription checkout missing required metadata.");
   }
 
   const customer = await stripe.customers.retrieve(stripeCustomerId);
@@ -672,10 +718,21 @@ async function handleStudioCheckoutCompleted(
   });
 
   const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+
+  const subscriptionWithMergedMetadata = {
+    ...subscription,
+    metadata: {
+      ...(subscription.metadata ?? {}),
+      studioId,
+      ...(planCode ? { planCode } : {}),
+      source,
+    },
+  } as Stripe.Subscription;
+
   await upsertStudioSubscription({
     supabase,
     stripe,
-    subscription,
+    subscription: subscriptionWithMergedMetadata,
   });
 
   return true;
@@ -1563,19 +1620,22 @@ export async function POST(request: Request) {
       }
 
       case "customer.subscription.created":
-      case "customer.subscription.updated":
-      case "customer.subscription.deleted": {
-        const subscription = event.data.object as Stripe.Subscription;
+case "customer.subscription.updated":
+case "customer.subscription.deleted": {
+  const subscription = event.data.object as Stripe.Subscription;
 
-        await upsertStudioSubscription({
-          supabase,
-          stripe,
-          subscription,
-        });
+  const handled = await upsertStudioSubscription({
+    supabase,
+    stripe,
+    subscription,
+  });
 
-        await upsertStripeSubscriptionRecord(supabase, subscription);
-        break;
-      }
+  if (handled) {
+    await upsertStripeSubscriptionRecord(supabase, subscription);
+  }
+
+  break;
+}
 
       case "invoice.paid": {
         await handleInvoicePaid(

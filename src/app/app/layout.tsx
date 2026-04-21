@@ -7,6 +7,8 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { clearStudioContextAction } from "@/app/platform/actions";
 import AppSidebarShell from "./AppSidebarShell";
 
+const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
+
 type NotificationItem = {
   id: string;
   type: string;
@@ -26,6 +28,173 @@ type WorkspaceItem = {
   studioPublicName: string | null;
   isSelected: boolean;
 };
+
+type RoleRow = {
+  studio_id: string;
+  role: string;
+};
+
+type StudioRow = {
+  id: string;
+  name: string;
+  slug: string | null;
+  public_name: string | null;
+};
+
+type ProfileRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  full_name: string | null;
+  email: string | null;
+};
+
+function isOrganizerWorkspaceName(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+
+  if (!normalized) return false;
+
+  return (
+    normalized.endsWith(" organizer") ||
+    normalized.includes(" organizer ") ||
+    normalized.endsWith(" events")
+  );
+}
+
+function formatRoleLabel(role: string | null | undefined) {
+  return (role ?? "").replaceAll("_", " ").trim();
+}
+
+function buildDisplayName(params: {
+  profile: ProfileRow | null;
+  fallbackEmail: string | null | undefined;
+}) {
+  const { profile, fallbackEmail } = params;
+
+  const fullName = profile?.full_name?.trim();
+  if (fullName) return fullName;
+
+  const firstLast = [profile?.first_name ?? "", profile?.last_name ?? ""]
+    .join(" ")
+    .trim();
+
+  if (firstLast) return firstLast;
+
+  return fallbackEmail ?? "Unknown User";
+}
+
+function buildStudioSections(params: {
+  leadsBadgeCount: number;
+  unreadNotificationsCount: number;
+}) {
+  const { leadsBadgeCount, unreadNotificationsCount } = params;
+
+  return [
+    {
+      title: "Daily Operations",
+      items: [
+        { label: "Dashboard", href: "/app", icon: "dashboard" },
+        { label: "Schedule", href: "/app/schedule", icon: "schedule" },
+        { label: "Clients", href: "/app/clients", icon: "clients" },
+        {
+          label: "Leads",
+          href: "/app/leads",
+          icon: "leads",
+          badge: leadsBadgeCount,
+        },
+        {
+          label: "Notifications",
+          href: "/app/notifications",
+          icon: "notifications",
+          badge: unreadNotificationsCount,
+        },
+      ],
+    },
+    {
+      title: "Programs & Staff",
+      items: [
+        { label: "Events", href: "/app/events", icon: "events" },
+        { label: "Instructors", href: "/app/instructors", icon: "instructors" },
+        { label: "Rooms", href: "/app/rooms", icon: "rooms" },
+      ],
+    },
+    {
+      title: "Sales & Billing",
+      items: [
+        { label: "Payments", href: "/app/payments", icon: "payments" },
+        {
+          label: "Client Balances",
+          href: "/app/packages/client-balances",
+          icon: "balances",
+        },
+        {
+          label: "Package Templates",
+          href: "/app/packages",
+          icon: "packages",
+        },
+        {
+          label: "Membership Plans",
+          href: "/app/memberships",
+          icon: "memberships",
+        },
+        { label: "Reports", href: "/app/reports", icon: "reports" },
+      ],
+    },
+    {
+      title: "Public Growth",
+      items: [
+        {
+          label: "Public Profile",
+          href: "/app/settings/public-profile",
+          icon: "settings",
+        },
+      ],
+    },
+    {
+      title: "Admin",
+      items: [{ label: "Settings", href: "/app/settings", icon: "settings" }],
+    },
+  ];
+}
+
+function buildOrganizerSections(params: {
+  unreadNotificationsCount: number;
+}) {
+  const { unreadNotificationsCount } = params;
+
+  return [
+    {
+      title: "Organizer Operations",
+      items: [
+        { label: "Dashboard", href: "/app", icon: "dashboard" },
+        { label: "Events", href: "/app/events", icon: "events" },
+        { label: "Organizer Profile", href: "/app/organizers", icon: "settings" },
+        {
+          label: "Notifications",
+          href: "/app/notifications",
+          icon: "notifications",
+          badge: unreadNotificationsCount,
+        },
+      ],
+    },
+    {
+  title: "Revenue",
+  items: [
+    {
+      label: "Billing & Payouts",
+      href: "/app/settings/billing",
+      icon: "payments",
+    },
+    { label: "Payment History", href: "/app/payments", icon: "payments" },
+    { label: "Reports", href: "/app/reports", icon: "reports" },
+  ],
+},
+    {
+      title: "Admin",
+      items: [{ label: "Settings", href: "/app/settings", icon: "settings" }],
+    },
+  ];
+}
 
 export default async function AppLayout({
   children,
@@ -75,7 +244,7 @@ export default async function AppLayout({
     }
 
     const cookieStore = await cookies();
-    cookieStore.set("selected_studio_id", studioId, {
+    cookieStore.set(APP_SELECTED_STUDIO_COOKIE, studioId, {
       path: "/",
       httpOnly: true,
       sameSite: "lax",
@@ -94,15 +263,15 @@ export default async function AppLayout({
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name")
+      .select("id, name, slug, public_name")
       .eq("id", context.studioId)
-      .maybeSingle(),
+      .maybeSingle<StudioRow>(),
 
     supabase
       .from("profiles")
-      .select("id, first_name, last_name, email")
+      .select("id, first_name, last_name, full_name, email")
       .eq("id", user.id)
-      .maybeSingle(),
+      .maybeSingle<ProfileRow>(),
 
     supabase
       .from("notifications")
@@ -126,9 +295,11 @@ export default async function AppLayout({
       .eq("active", true),
   ]);
 
-  const roleRows =
-    (accessibleRoles as { studio_id: string; role: string }[] | null) ?? [];
+  const currentStudio = studio ?? null;
+  const currentStudioName = currentStudio?.name ?? "Workspace";
+  const organizerWorkspace = isOrganizerWorkspaceName(currentStudioName);
 
+  const roleRows = ((accessibleRoles ?? []) as RoleRow[]) || [];
   const accessibleStudioIds = Array.from(
     new Set(roleRows.map((row) => row.studio_id).filter(Boolean))
   );
@@ -137,128 +308,65 @@ export default async function AppLayout({
 
   if (accessibleStudioIds.length > 0) {
     const { data: studiosForSwitcher } = await supabase
-  .from("studios")
-  .select("id, name, slug, public_name")
-  .in("id", accessibleStudioIds);
+      .from("studios")
+      .select("id, name, slug, public_name")
+      .in("id", accessibleStudioIds);
 
     const studioById = new Map(
-  (
-    (studiosForSwitcher ?? []) as {
-      id: string;
-      name: string;
-      slug: string | null;
-      public_name: string | null;
-    }[]
-  ).map((item) => [item.id, item])
-);
+      (((studiosForSwitcher ?? []) as StudioRow[]) || []).map((item) => [
+        item.id,
+        item,
+      ])
+    );
 
     accessibleStudios = roleRows
-  .map((row) => {
-    const matchedStudio = studioById.get(row.studio_id);
-    if (!matchedStudio) return null;
+      .map((row) => {
+        const matchedStudio = studioById.get(row.studio_id);
+        if (!matchedStudio) return null;
 
-    return {
-      studioId: matchedStudio.id,
-      studioRole: row.role,
-      studioName: matchedStudio.name,
-      studioSlug: matchedStudio.slug,
-      studioPublicName: matchedStudio.public_name,
-      isSelected: matchedStudio.id === context.studioId,
-    };
-  })
-  .filter(Boolean) as WorkspaceItem[];
+        return {
+          studioId: matchedStudio.id,
+          studioRole: row.role,
+          studioName: matchedStudio.name,
+          studioSlug: matchedStudio.slug,
+          studioPublicName: matchedStudio.public_name,
+          isSelected: matchedStudio.id === context.studioId,
+        } satisfies WorkspaceItem;
+      })
+      .filter((value): value is WorkspaceItem => Boolean(value));
   }
 
   const safeNotifications = ((notifications ?? []) as NotificationItem[]) || [];
   const unreadNotificationsCount = safeNotifications.filter(
     (item) => !item.read_at
   ).length;
-  const leadsBadgeCount = openLeadCount ?? 0;
 
-  const studioName = studio?.name ?? "Studio";
-  const userName =
-    profile?.first_name || profile?.last_name
-      ? [profile?.first_name ?? "", profile?.last_name ?? ""].join(" ").trim()
-      : user.email ?? "Unknown User";
+  const leadsBadgeCount = organizerWorkspace ? 0 : (openLeadCount ?? 0);
 
+  const studioName = organizerWorkspace ? currentStudioName : currentStudioName;
+  const userName = buildDisplayName({
+    profile: profile ?? null,
+    fallbackEmail: user.email,
+  });
   const userEmail = profile?.email ?? user.email ?? "";
-  const roleLabel = context.isPlatformAdmin
-    ? "Platform Admin"
-    : context.studioRole
-      ? context.studioRole.replaceAll("_", " ")
-      : "";
 
-  const sections = [
-    {
-      title: "Daily Operations",
-      items: [
-        { label: "Dashboard", href: "/app", icon: "dashboard" },
-        { label: "Schedule", href: "/app/schedule", icon: "schedule" },
-        { label: "Clients", href: "/app/clients", icon: "clients" },
-        {
-          label: "Leads",
-          href: "/app/leads",
-          icon: "leads",
-          badge: leadsBadgeCount,
-        },
-        {
-          label: "Notifications",
-          href: "/app/notifications",
-          icon: "notifications",
-          badge: unreadNotificationsCount,
-        },
-      ],
-    },
-    {
-      title: "Programs & Staff",
-      items: [
-        { label: "Events", href: "/app/events", icon: "events" },
-        {
-          label: "Event Registrations",
-          href: "/app/events",
-          icon: "checkin",
-        },
-        { label: "Instructors", href: "/app/instructors", icon: "instructors" },
-        { label: "Rooms", href: "/app/rooms", icon: "rooms" },
-      ],
-    },
-    {
-      title: "Sales & Billing",
-      items: [
-        { label: "Payments", href: "/app/payments", icon: "payments" },
-        {
-          label: "Client Balances",
-          href: "/app/packages/client-balances",
-          icon: "balances",
-        },
-        {
-          label: "Package Templates",
-          href: "/app/packages",
-          icon: "packages",
-        },
-        {
-          label: "Membership Plans",
-          href: "/app/memberships",
-          icon: "memberships",
-        },
-        { label: "Reports", href: "/app/reports", icon: "reports" },
-      ],
-    },
-    {
-      title: "Public Growth",
-      items: [
-        {
-          label: "Public Profile",
-          href: "/app/settings/public-profile",
-          icon: "settings",
-        },
-      ],
-    },
-    {
-      title: "Admin",
-      items: [{ label: "Settings", href: "/app/settings", icon: "settings" }],
-    },
-  ];
+  const baseRoleLabel = context.isPlatformAdmin
+    ? "Platform Admin"
+    : formatRoleLabel(context.studioRole);
+
+  const roleLabel =
+    organizerWorkspace && !context.isPlatformAdmin
+      ? `${baseRoleLabel || "organizer"} • organizer workspace`
+      : baseRoleLabel;
+
+  const sections = organizerWorkspace
+    ? buildOrganizerSections({
+        unreadNotificationsCount,
+      })
+    : buildStudioSections({
+        leadsBadgeCount,
+        unreadNotificationsCount,
+      });
 
   let studioBanner: React.ReactNode = null;
 
@@ -268,10 +376,10 @@ export default async function AppLayout({
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-6 py-3 md:flex-row md:items-center md:justify-between">
           <div>
             <p className="text-sm font-semibold text-amber-900">
-              Viewing studio as platform admin
+              Viewing workspace as platform admin
             </p>
             <p className="text-sm text-amber-800">
-              {studioName} • You are in temporary studio context.
+              {studioName} • You are in temporary workspace context.
             </p>
           </div>
 
@@ -288,7 +396,7 @@ export default async function AppLayout({
                 type="submit"
                 className="rounded-xl bg-amber-900 px-3 py-2 text-sm text-white hover:bg-amber-800"
               >
-                Exit Studio Context
+                Exit Workspace Context
               </button>
             </form>
           </div>
@@ -300,6 +408,7 @@ export default async function AppLayout({
   return (
     <div className="min-h-screen bg-slate-50">
       {studioBanner}
+
       <AppSidebarShell
         pathname={pathname}
         studioName={studioName}

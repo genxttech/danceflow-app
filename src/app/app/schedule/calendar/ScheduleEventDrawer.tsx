@@ -5,17 +5,16 @@ import {
   cancelAppointmentAction,
   markAppointmentAttendedAction,
   markAppointmentNoShowAction,
-} from "../actions";
+} from "@/app/app/schedule/actions";
 
 export type DrawerAppointment = {
   id: string;
   title: string | null;
-  appointment_type: string;
-  status: string;
   starts_at: string;
   ends_at: string;
-  is_recurring?: boolean;
-  recurrence_series_id?: string | null;
+  status: string;
+  appointment_type: string;
+  is_recurring?: boolean | null;
   clients:
     | { first_name: string; last_name: string }
     | { first_name: string; last_name: string }[]
@@ -24,23 +23,26 @@ export type DrawerAppointment = {
     | { first_name: string; last_name: string }
     | { first_name: string; last_name: string }[]
     | null;
-  rooms:
-    | { name: string }
-    | { name: string }[]
-    | null;
+  rooms: { name: string } | { name: string }[] | null;
 };
 
-function statusBadgeClass(status: string) {
-  if (status === "scheduled") return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
-  if (status === "attended") return "bg-green-50 text-green-700 ring-1 ring-green-100";
-  if (status === "cancelled") return "bg-red-50 text-red-700 ring-1 ring-red-100";
-  if (status === "no_show") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
-  if (status === "rescheduled") return "bg-purple-50 text-purple-700 ring-1 ring-purple-100";
-  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+type Props = {
+  appointment: DrawerAppointment | null;
+  open?: boolean;
+  onClose: () => void;
+};
+
+function formatStatusLabel(value: string) {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function formatStatusLabel(status: string) {
-  return status.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+function statusBadgeClass(value: string) {
+  if (value === "scheduled") return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
+  if (value === "attended") return "bg-green-50 text-green-700 ring-1 ring-green-100";
+  if (value === "cancelled") return "bg-red-50 text-red-700 ring-1 ring-red-100";
+  if (value === "no_show") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
+  if (value === "rescheduled") return "bg-purple-50 text-purple-700 ring-1 ring-purple-100";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function appointmentTypeLabel(value: string) {
@@ -126,13 +128,29 @@ function formatTimeRange(startsAt: string, endsAt: string) {
   return `${start} – ${end}`;
 }
 
-type Props = {
-  appointment: DrawerAppointment | null;
-  onClose: () => void;
-};
+function DetailCard({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
+        {label}
+      </p>
+      <p className="mt-2 text-sm font-medium text-slate-900">{value}</p>
+    </div>
+  );
+}
 
-export default function ScheduleEventDrawer({ appointment, onClose }: Props) {
-  if (!appointment) return null;
+export default function ScheduleEventDrawer({
+  appointment,
+  open = true,
+  onClose,
+}: Props) {
+  if (!appointment || !open) return null;
 
   const clientName = getClientName(appointment.clients);
   const instructorName = getInstructorName(appointment.instructors);
@@ -156,11 +174,13 @@ export default function ScheduleEventDrawer({ appointment, onClose }: Props) {
         className="fixed inset-0 z-40 bg-slate-950/35 backdrop-blur-[1px]"
       />
 
-      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-lg flex-col border-l border-slate-200 bg-white shadow-2xl">
-        <div className="border-b border-slate-200 px-5 py-4 sm:px-6">
+      <aside className="fixed right-0 top-0 z-50 flex h-full w-full max-w-xl flex-col border-l border-slate-200 bg-slate-50 shadow-2xl">
+        <div className="border-b border-slate-200 bg-white px-5 py-4 shadow-sm sm:px-6">
           <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
-              <p className="text-sm font-medium text-slate-500">Schedule Item</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+                Schedule Item
+              </p>
               <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
                 {appointment.title || appointmentTypeLabel(appointment.appointment_type)}
               </h3>
@@ -172,7 +192,7 @@ export default function ScheduleEventDrawer({ appointment, onClose }: Props) {
             <button
               type="button"
               onClick={onClose}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               Close
             </button>
@@ -203,60 +223,35 @@ export default function ScheduleEventDrawer({ appointment, onClose }: Props) {
           </div>
         </div>
 
-        <div className="flex-1 space-y-6 overflow-y-auto px-5 py-5 sm:px-6">
-          <section className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
+          <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-black/[0.02]">
             <h4 className="text-sm font-semibold text-slate-900">At a glance</h4>
+
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <div>
-                <p className="text-xs uppercase tracking-[0.15em] text-slate-400">Client</p>
-                <p className="mt-1 text-sm font-medium text-slate-900">{clientName}</p>
-              </div>
-
-              <div>
-                <p className="text-xs uppercase tracking-[0.15em] text-slate-400">Instructor</p>
-                <p className="mt-1 text-sm font-medium text-slate-900">
-                  {isFloorRental ? "Independent instructor rental" : instructorName}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-xs uppercase tracking-[0.15em] text-slate-400">Time</p>
-                <p className="mt-1 text-sm font-medium text-slate-900">
-                  {formatTimeRange(appointment.starts_at, appointment.ends_at)}
-                </p>
-              </div>
-
-              <div>
-                <p className="text-xs uppercase tracking-[0.15em] text-slate-400">Room</p>
-                <p className="mt-1 text-sm font-medium text-slate-900">{roomName}</p>
-              </div>
+              <DetailCard label="Client" value={clientName} />
+              <DetailCard
+                label="Instructor"
+                value={isFloorRental ? "Independent instructor rental" : instructorName}
+              />
+              <DetailCard label="Time" value={formatTimeRange(appointment.starts_at, appointment.ends_at)} />
+              <DetailCard label="Room" value={roomName} />
             </div>
           </section>
 
-          <section className="grid gap-4">
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs uppercase tracking-[0.15em] text-slate-400">Starts</p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {formatDateTime(appointment.starts_at)}
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-xs uppercase tracking-[0.15em] text-slate-400">Ends</p>
-              <p className="mt-1 text-sm font-medium text-slate-900">
-                {formatDateTime(appointment.ends_at)}
-              </p>
-            </div>
+          <section className="grid gap-3 sm:grid-cols-2">
+            <DetailCard label="Starts" value={formatDateTime(appointment.starts_at)} />
+            <DetailCard label="Ends" value={formatDateTime(appointment.ends_at)} />
           </section>
 
           {isFloorRental ? (
-            <section className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4 text-sm text-indigo-900">
-              Floor space rentals do not use the standard lesson attendance flow and do not deduct from lesson packages.
+            <section className="rounded-3xl border border-indigo-100 bg-indigo-50 p-4 text-sm text-indigo-900 shadow-sm">
+              Floor space rentals do not use the standard lesson attendance flow and do not deduct
+              from lesson packages.
             </section>
           ) : null}
 
           {canShowAttendanceActions ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-black/[0.02]">
               <h4 className="text-sm font-semibold text-slate-900">Attendance Actions</h4>
               <div className="mt-4 grid gap-3">
                 <form action={markAppointmentAttendedAction}>
@@ -283,7 +278,7 @@ export default function ScheduleEventDrawer({ appointment, onClose }: Props) {
           ) : null}
 
           {canShowCancelAction ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-black/[0.02]">
               <h4 className="text-sm font-semibold text-slate-900">Appointment Action</h4>
               <div className="mt-4">
                 <form action={cancelAppointmentAction}>
@@ -300,18 +295,18 @@ export default function ScheduleEventDrawer({ appointment, onClose }: Props) {
           ) : null}
         </div>
 
-        <div className="border-t border-slate-200 px-5 py-4 sm:px-6">
+        <div className="border-t border-slate-200 bg-white px-5 py-4 shadow-sm sm:px-6">
           <div className="flex flex-wrap gap-3">
             <Link
               href={`/app/schedule/${appointment.id}`}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               View Details
             </Link>
 
             <Link
               href={`/app/schedule/${appointment.id}/edit`}
-              className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+              className="rounded-xl bg-[var(--brand-accent-dark)] px-4 py-2 text-sm font-medium text-white hover:opacity-95"
             >
               Edit
             </Link>

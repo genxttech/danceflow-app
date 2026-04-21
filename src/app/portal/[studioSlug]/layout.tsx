@@ -79,17 +79,20 @@ export default async function PortalStudioLayout({
   const studioLocation =
     [typedStudio.city, typedStudio.state].filter(Boolean).join(", ") || null;
 
-  const navItems = [
-    { href: basePortalHref, label: "Portal Home" },
-    { href: `${basePortalHref}/profile`, label: "Profile" },
-    { href: `${basePortalHref}/membership`, label: "Membership" },
-    ...(isIndependentInstructor
-      ? [
-          { href: `${basePortalHref}/floor-space`, label: "Book Floor Space" },
-          { href: `${basePortalHref}/floor-space/my-rentals`, label: "My Rentals" },
-        ]
-      : []),
-  ];
+  const navItems = isIndependentInstructor
+    ? [
+        { href: basePortalHref, label: "Portal Home" },
+        { href: `${basePortalHref}/schedule`, label: "My Schedule" },
+        { href: `${basePortalHref}/floor-space`, label: "Book Floor Space" },
+        { href: `${basePortalHref}/floor-space/my-rentals`, label: "My Rentals" },
+        { href: `${basePortalHref}/profile`, label: "Profile" },
+        { href: `${basePortalHref}/membership`, label: "Membership" },
+      ]
+    : [
+        { href: basePortalHref, label: "Portal Home" },
+        { href: `${basePortalHref}/profile`, label: "Profile" },
+        { href: `${basePortalHref}/membership`, label: "Membership" },
+      ];
 
   return (
     <div className="min-h-screen bg-[linear-gradient(180deg,#f8fafc_0%,#ffffff_28%,#f8fafc_100%)]">
@@ -124,9 +127,9 @@ export default async function PortalStudioLayout({
                 </div>
 
                 <p className="mt-5 max-w-2xl text-sm leading-7 text-white/80 sm:text-base">
-                  Your studio portal gives you quick access to lessons, memberships,
-                  rentals, and studio-specific account tools while your favorites and
-                  public registrations remain in your main account.
+                  {isIndependentInstructor
+                    ? "Your instructor portal gives you a focused workspace for your schedule, floor rentals, studio access, and any linked client membership tools."
+                    : "Your studio portal gives you quick access to lessons, memberships, and studio-specific account tools while your favorites and public registrations remain in your main account."}
                 </p>
 
                 <div className="mt-6 flex flex-wrap gap-3">
@@ -163,12 +166,28 @@ export default async function PortalStudioLayout({
                   </Link>
 
                   {isIndependentInstructor ? (
-                    <Link
-                      href={`${basePortalHref}/floor-space`}
-                      className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/15"
-                    >
-                      Book Floor Space
-                    </Link>
+                    <>
+                      <Link
+                        href={`${basePortalHref}/schedule`}
+                        className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/15"
+                      >
+                        My Schedule
+                      </Link>
+
+                      <Link
+                        href={`${basePortalHref}/floor-space`}
+                        className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/15"
+                      >
+                        Book Floor Space
+                      </Link>
+
+                      <Link
+                        href={`${basePortalHref}/floor-space/my-rentals`}
+                        className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/15"
+                      >
+                        My Rentals
+                      </Link>
+                    </>
                   ) : null}
 
                   <form action="/auth/logout" method="post">

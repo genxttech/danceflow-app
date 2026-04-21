@@ -1,34 +1,63 @@
 "use server";
 
-import { headers } from "next/headers";
+import { headers, cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+
+const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
+
+type StudioRoleRow = {
+  studio_id: string;
+  role: string;
+  studios:
+    | {
+        id: string;
+        name: string;
+        slug: string | null;
+        public_name: string | null;
+      }
+    | {
+        id: string;
+        name: string;
+        slug: string | null;
+        public_name: string | null;
+      }[]
+    | null;
+};
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
 }
 
-function getPostLoginPath(hasStudioRole: boolean) {
-  return hasStudioRole ? "/app" : "/account";
-}
+function normalizeLocalNextPath(value: string) {
+  if (!value) return "";
 
-async function hasActiveStudioRole(userId: string) {
-  const supabase = await createClient();
-
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id")
-    .eq("user_id", userId)
-    .eq("active", true)
-    .limit(1)
-    .maybeSingle();
-
-  if (roleError) {
-    throw new Error(`Could not determine account access: ${roleError.message}`);
+  if (!value.startsWith("/")) {
+    return "";
   }
 
-  return !!roleRow?.studio_id;
+  if (value.startsWith("//")) {
+    return "";
+  }
+
+  return value;
+}
+
+function getStudioFromJoin(value: StudioRoleRow["studios"]) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function isOrganizerWorkspaceName(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+
+  if (!normalized) return false;
+
+  return (
+    normalized.endsWith(" organizer") ||
+    normalized.includes(" organizer ") ||
+    normalized.endsWith(" events")
+  );
 }
 
 async function getBaseUrl() {
@@ -41,6 +70,34 @@ async function getBaseUrl() {
   }
 
   return `${proto}://${host}`;
+}
+
+function buildSignupRedirectPath(params: {
+  signupIntent: string;
+  selectedPlan?: string;
+  nextPath?: string;
+}) {
+  const { signupIntent, selectedPlan, nextPath } = params;
+
+  const normalizedNext = normalizeLocalNextPath(nextPath ?? "");
+
+  if (normalizedNext) {
+    return normalizedNext;
+  }
+
+  if (signupIntent === "studio" || signupIntent === "organizer") {
+    const search = new URLSearchParams({
+      intent: signupIntent,
+    });
+
+    if (selectedPlan) {
+      search.set("plan", selectedPlan);
+    }
+
+    return `/get-started/complete?${search.toString()}`;
+  }
+
+  return "/account";
 }
 
 async function upsertProfile(params: {
@@ -114,34 +171,132 @@ async function syncAccountAfterAuth(params: {
   });
 }
 
+async function getActiveWorkspacesForUser(userId: string) {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("user_studio_roles")
+    .select(
+      `
+      studio_id,
+      role,
+      studios (
+        id,
+        name,
+        slug,
+        public_name
+      )
+    `
+    )
+    .eq("user_id", userId)
+    .eq("active", true)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    throw new Error(`Could not determine account access: ${error.message}`);
+  }
+
+  return (data ?? []) as StudioRoleRow[];
+}
+
+function pickPreferredWorkspace(params: {
+  roles: StudioRoleRow[];
+  nextPath?: string;
+  signupIntent?: string;
+}) {
+  const { roles, nextPath, signupIntent } = params;
+
+  if (!roles.length) return null;
+
+  const wantsOrganizer =
+    signupIntent === "organizer" ||
+    (nextPath ?? "").includes("intent=organizer") ||
+    (nextPath ?? "").includes("path=organizer") ||
+    (nextPath ?? "").startsWith("/app/events");
+
+  if (wantsOrganizer) {
+    const organizerWorkspace =
+      roles.find((row) => {
+        const studio = getStudioFromJoin(row.studios);
+        return isOrganizerWorkspaceName(studio?.name);
+      }) ?? null;
+
+    if (organizerWorkspace) {
+      return organizerWorkspace;
+    }
+  }
+
+  return roles[0];
+}
+
+async function setSelectedWorkspaceCookie(studioId: string) {
+  const cookieStore = await cookies();
+
+  cookieStore.set(APP_SELECTED_STUDIO_COOKIE, studioId, {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
+  });
+}
+
+function getPostLoginPath(params: {
+  selectedWorkspace: StudioRoleRow | null;
+  nextPath?: string;
+}) {
+  const { selectedWorkspace, nextPath } = params;
+
+  if (nextPath) {
+    return nextPath;
+  }
+
+  if (!selectedWorkspace) {
+    return "/account";
+  }
+
+  const studio = getStudioFromJoin(selectedWorkspace.studios);
+
+  if (isOrganizerWorkspaceName(studio?.name)) {
+    return "/app";
+  }
+
+  return "/app";
+}
+
 export async function signupAction(formData: FormData) {
   const fullName = getString(formData, "fullName");
   const email = getString(formData, "email").toLowerCase();
   const password = getString(formData, "password");
   const signupIntent = getString(formData, "signupIntent") || "public";
   const signupMode = getString(formData, "signupMode") || "password";
+  const selectedPlan = getString(formData, "selectedPlan");
+  const nextPath = getString(formData, "nextPath");
 
   if (!fullName || !email) {
     return { error: "Full name and email are required." };
   }
 
   const supabase = await createClient();
+  const redirectPath = buildSignupRedirectPath({
+    signupIntent,
+    selectedPlan,
+    nextPath,
+  });
 
-  if (signupMode === "magic_link_public") {
+  if (signupMode === "magic_link_public" || signupMode === "magic_link_paid_path") {
     const baseUrl = await getBaseUrl();
-    const redirectTo =
-      signupIntent === "public" ? "/account" : "/get-started";
 
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
         shouldCreateUser: true,
         emailRedirectTo: `${baseUrl}/callback?next=${encodeURIComponent(
-          redirectTo
+          redirectPath
         )}`,
         data: {
           full_name: fullName,
           signup_intent: signupIntent,
+          selected_plan: selectedPlan || null,
         },
       },
     });
@@ -150,11 +305,21 @@ export async function signupAction(formData: FormData) {
       return { error: error.message };
     }
 
-    redirect(
-      `/login?check-email=1&email=${encodeURIComponent(
-        email
-      )}&intent=${encodeURIComponent(signupIntent)}`
-    );
+    const loginSearch = new URLSearchParams({
+      "check-email": "1",
+      email,
+      intent: signupIntent,
+    });
+
+    if (selectedPlan) {
+      loginSearch.set("plan", selectedPlan);
+    }
+
+    if (redirectPath) {
+      loginSearch.set("next", redirectPath);
+    }
+
+    redirect(`/login?${loginSearch.toString()}`);
   }
 
   if (!password) {
@@ -172,6 +337,7 @@ export async function signupAction(formData: FormData) {
       data: {
         full_name: fullName,
         signup_intent: signupIntent,
+        selected_plan: selectedPlan || null,
       },
     },
   });
@@ -189,9 +355,20 @@ export async function signupAction(formData: FormData) {
   const hasImmediateSession = !!signUpData.session;
 
   if (!hasImmediateSession) {
-    redirect(
-      `/login?signup=check-email&intent=${encodeURIComponent(signupIntent)}`
-    );
+    const loginSearch = new URLSearchParams({
+      signup: "check-email",
+      intent: signupIntent,
+    });
+
+    if (selectedPlan) {
+      loginSearch.set("plan", selectedPlan);
+    }
+
+    if (redirectPath) {
+      loginSearch.set("next", redirectPath);
+    }
+
+    redirect(`/login?${loginSearch.toString()}`);
   }
 
   try {
@@ -207,14 +384,15 @@ export async function signupAction(formData: FormData) {
     };
   }
 
-  redirect(`/get-started?welcome=1&intent=${encodeURIComponent(signupIntent)}`);
+  redirect(redirectPath);
 }
 
 export async function loginAction(formData: FormData) {
   const email = getString(formData, "email").toLowerCase();
   const password = getString(formData, "password");
-  const next = getString(formData, "next");
+  const next = normalizeLocalNextPath(getString(formData, "next"));
   const loginMode = getString(formData, "loginMode") || "password";
+  const signupIntent = getString(formData, "intent").toLowerCase();
 
   if (!email) {
     return { error: "Email is required." };
@@ -233,6 +411,9 @@ export async function loginAction(formData: FormData) {
         emailRedirectTo: `${baseUrl}/callback?next=${encodeURIComponent(
           redirectTo
         )}`,
+        data: {
+          signup_intent: signupIntent || null,
+        },
       },
     });
 
@@ -240,7 +421,20 @@ export async function loginAction(formData: FormData) {
       return { error: error.message };
     }
 
-    redirect(`/login?check-email=1&email=${encodeURIComponent(email)}`);
+    const loginSearch = new URLSearchParams({
+      "check-email": "1",
+      email,
+    });
+
+    if (signupIntent) {
+      loginSearch.set("intent", signupIntent);
+    }
+
+    if (next) {
+      loginSearch.set("next", next);
+    }
+
+    redirect(`/login?${loginSearch.toString()}`);
   }
 
   if (!password) {
@@ -270,7 +464,9 @@ export async function loginAction(formData: FormData) {
       fullName:
         typeof user.user_metadata?.full_name === "string"
           ? user.user_metadata.full_name
-          : null,
+          : typeof user.user_metadata?.name === "string"
+            ? user.user_metadata.name
+            : null,
     });
   } catch (syncError) {
     return {
@@ -281,12 +477,23 @@ export async function loginAction(formData: FormData) {
     };
   }
 
-  if (next) {
-    redirect(next);
+  const roles = await getActiveWorkspacesForUser(user.id);
+  const selectedWorkspace = pickPreferredWorkspace({
+    roles,
+    nextPath: next,
+    signupIntent,
+  });
+
+  if (selectedWorkspace?.studio_id) {
+    await setSelectedWorkspaceCookie(selectedWorkspace.studio_id);
   }
 
-  const hasStudioRole = await hasActiveStudioRole(user.id);
-  redirect(getPostLoginPath(hasStudioRole));
+  redirect(
+    getPostLoginPath({
+      selectedWorkspace,
+      nextPath: next || undefined,
+    })
+  );
 }
 
 export async function logoutAction() {

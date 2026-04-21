@@ -82,6 +82,22 @@ function getIcon(icon: string) {
   return LayoutDashboard;
 }
 
+function normalizeNavLabel(item: NavItem) {
+  const lower = item.label.trim().toLowerCase();
+
+  if (
+    item.href === "/app/settings/billing" ||
+    lower === "payments" ||
+    lower === "billing" ||
+    lower === "billing & payouts" ||
+    lower === "payment settings"
+  ) {
+    return "Billing & Payouts";
+  }
+
+  return item.label;
+}
+
 function normalizeSections(input: unknown): NavSectionType[] {
   if (!Array.isArray(input)) return [];
 
@@ -98,7 +114,8 @@ function normalizeSections(input: unknown): NavSectionType[] {
             .filter((item) => item && typeof item === "object")
             .map((item) => {
               const rawItem = item as Partial<NavItem>;
-              return {
+
+              const normalizedItem = {
                 label:
                   typeof rawItem.label === "string" && rawItem.label.trim()
                     ? rawItem.label
@@ -113,6 +130,11 @@ function normalizeSections(input: unknown): NavSectionType[] {
                     : "dashboard",
                 badge:
                   typeof rawItem.badge === "number" ? rawItem.badge : undefined,
+              } satisfies NavItem;
+
+              return {
+                ...normalizedItem,
+                label: normalizeNavLabel(normalizedItem),
               } satisfies NavItem;
             })
         : [];
@@ -153,18 +175,11 @@ function WorkspaceSwitcher({
     ? "rounded-2xl border border-[var(--brand-border)] bg-white p-4"
     : "rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur";
 
-  const labelClass = mobile
-    ? "text-[var(--brand-muted)]"
-    : "text-white/50";
-
-  const titleClass = mobile
-    ? "text-[var(--brand-text)]"
-    : "text-white";
-
+  const labelClass = mobile ? "text-[var(--brand-muted)]" : "text-white/50";
+  const titleClass = mobile ? "text-[var(--brand-text)]" : "text-white";
   const subtitleClass = mobile
     ? "text-[var(--brand-accent-dark)]"
     : "text-[#FFDCA9]";
-
   const buttonClass = mobile
     ? "border-[var(--brand-border)] bg-white text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
     : "border-white/10 bg-white/8 text-white hover:bg-white/12";
@@ -391,7 +406,7 @@ export default function AppSidebarShell({
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const safePathname = pathname || "/app";
-  const safeStudioName = studioName || "Studio";
+  const safeStudioName = studioName || "Workspace";
   const safeUserName = userName || "Unknown User";
   const safeUserEmail = userEmail || "";
   const safeRole = role || "";
@@ -448,7 +463,7 @@ export default function AppSidebarShell({
 
                   <div className="min-w-0">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/50">
-                      Studio
+                      Workspace
                     </p>
                     <h1 className="mt-1 truncate text-2xl font-semibold text-white">
                       {safeStudioName}
@@ -535,7 +550,7 @@ export default function AppSidebarShell({
 
                       <div className="min-w-0">
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-muted)]">
-                          Studio
+                          Workspace
                         </p>
                         <h2 className="mt-1 truncate text-2xl font-semibold text-[var(--brand-text)]">
                           {safeStudioName}

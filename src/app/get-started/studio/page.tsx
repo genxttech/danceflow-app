@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { formatPlanMoney, getPlansByAudience } from "@/lib/billing/plans";
 import { startPaidPathAction } from "../actions";
@@ -12,10 +11,6 @@ export default async function StudioPricingPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
 
   const studioPlans = getPlansByAudience("studio");
 
@@ -36,17 +31,18 @@ export default async function StudioPricingPage() {
               </h1>
 
               <p className="mt-4 text-lg leading-8 text-slate-600">
-                Choose the plan that matches your current studio operations and the
-                level of growth support you want from DanceFlow.
+                Compare studio plans, see features clearly, and choose the trial that
+                matches your operation now and where you want to grow next.
               </p>
 
               <div className="mt-8 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4">
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
-                  Transparent studio pricing
+                  Start with pricing, then create your account
                 </p>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Compare tiers clearly before you start your trial. Pick the path
-                  that fits your current size, workflow, and growth stage.
+                  Studios should be able to review pricing before signing up. When you
+                  click Start Trial, DanceFlow will guide you into account creation if
+                  needed.
                 </p>
               </div>
             </div>
@@ -116,7 +112,7 @@ export default async function StudioPricingPage() {
                     Need a different path?
                   </p>
                   <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">
-                    DanceFlow also supports dancers and organizers
+                    DanceFlow also supports public users and organizers
                   </h2>
                   <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
                     Free discovery accounts are for dancers and the public. Organizer
@@ -130,6 +126,13 @@ export default async function StudioPricingPage() {
                     className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                   >
                     Back to Path Chooser
+                  </Link>
+
+                  <Link
+                    href="/get-started/organizer"
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Organizer Pricing
                   </Link>
                 </div>
               </div>

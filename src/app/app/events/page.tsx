@@ -1,5 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import {
+  CalendarDays,
+  Sparkles,
+  Ticket,
+  Globe2,
+  Star,
+  MapPin,
+  Wallet,
+  Users,
+  ArrowRight,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 
@@ -43,12 +54,38 @@ type AttendanceSummaryRow = {
   status: string;
 };
 
+type WorkspaceRow = {
+  id: string;
+  name: string | null;
+  public_name: string | null;
+};
+
+function isOrganizerWorkspaceName(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+
+  if (!normalized) return false;
+
+  return (
+    normalized.endsWith(" organizer") ||
+    normalized.includes(" organizer ") ||
+    normalized.endsWith(" events")
+  );
+}
+
 function statusBadgeClass(status: string) {
-  if (status === "published" || status === "open") return "bg-green-50 text-green-700";
-  if (status === "draft") return "bg-amber-50 text-amber-700";
-  if (status === "cancelled") return "bg-red-50 text-red-700";
-  if (status === "completed") return "bg-slate-100 text-slate-700";
-  return "bg-slate-100 text-slate-700";
+  if (status === "published" || status === "open") {
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  }
+  if (status === "draft") {
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  }
+  if (status === "cancelled") {
+    return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
+  }
+  if (status === "completed") {
+    return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+  }
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function eventTypeLabel(value: string) {
@@ -65,15 +102,15 @@ function eventTypeLabel(value: string) {
 }
 
 function eventTypeBadgeClass(value: string) {
-  if (value === "group_class") return "bg-blue-50 text-blue-700";
-  if (value === "practice_party") return "bg-amber-50 text-amber-700";
-  if (value === "workshop") return "bg-violet-50 text-violet-700";
-  if (value === "social_dance") return "bg-emerald-50 text-emerald-700";
-  if (value === "competition") return "bg-red-50 text-red-700";
-  if (value === "showcase") return "bg-fuchsia-50 text-fuchsia-700";
-  if (value === "festival") return "bg-cyan-50 text-cyan-700";
-  if (value === "special_event") return "bg-orange-50 text-orange-700";
-  return "bg-slate-100 text-slate-700";
+  if (value === "group_class") return "bg-sky-50 text-sky-700 ring-1 ring-sky-200";
+  if (value === "practice_party") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (value === "workshop") return "bg-violet-50 text-violet-700 ring-1 ring-violet-200";
+  if (value === "social_dance") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  if (value === "competition") return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
+  if (value === "showcase") return "bg-fuchsia-50 text-fuchsia-700 ring-1 ring-fuchsia-200";
+  if (value === "festival") return "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200";
+  if (value === "special_event") return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function visibilityLabel(value: string) {
@@ -84,10 +121,10 @@ function visibilityLabel(value: string) {
 }
 
 function visibilityBadgeClass(value: string) {
-  if (value === "public") return "bg-green-50 text-green-700";
-  if (value === "unlisted") return "bg-amber-50 text-amber-700";
-  if (value === "private") return "bg-slate-100 text-slate-700";
-  return "bg-slate-100 text-slate-700";
+  if (value === "public") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  if (value === "unlisted") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (value === "private") return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function formatDateRange(startDate: string, endDate: string) {
@@ -164,6 +201,30 @@ function fmtCurrency(value: number, currency = "USD") {
   }).format(value);
 }
 
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-slate-500">{label}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
+        </div>
+        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default async function EventsPage() {
   const supabase = await createClient();
 
@@ -178,36 +239,54 @@ export default async function EventsPage() {
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
 
-  const { data: events, error: eventsError } = await supabase
-    .from("events")
-    .select(`
-      id,
-      organizer_id,
-      name,
-      slug,
-      event_type,
-      city,
-      state,
-      start_date,
-      end_date,
-      start_time,
-      end_time,
-      visibility,
-      featured,
-      status,
-      registration_required,
-      beginner_friendly,
-      public_directory_enabled,
-      organizers ( id, name, slug )
-    `)
-    .eq("studio_id", studioId)
-    .order("start_date", { ascending: true })
-    .order("start_time", { ascending: true })
-    .order("name", { ascending: true });
+  const [
+    { data: workspace, error: workspaceError },
+    { data: events, error: eventsError },
+  ] = await Promise.all([
+    supabase
+      .from("studios")
+      .select("id, name, public_name")
+      .eq("id", studioId)
+      .maybeSingle<WorkspaceRow>(),
+
+    supabase
+      .from("events")
+      .select(`
+        id,
+        organizer_id,
+        name,
+        slug,
+        event_type,
+        city,
+        state,
+        start_date,
+        end_date,
+        start_time,
+        end_time,
+        visibility,
+        featured,
+        status,
+        registration_required,
+        beginner_friendly,
+        public_directory_enabled,
+        organizers ( id, name, slug )
+      `)
+      .eq("studio_id", studioId)
+      .order("start_date", { ascending: true })
+      .order("start_time", { ascending: true })
+      .order("name", { ascending: true }),
+  ]);
+
+  if (workspaceError) {
+    throw new Error(`Failed to load workspace: ${workspaceError.message}`);
+  }
 
   if (eventsError) {
     throw new Error(`Failed to load events: ${eventsError.message}`);
   }
+
+  const workspaceName = workspace?.public_name?.trim() || workspace?.name?.trim() || "Workspace";
+  const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
 
   const typedEvents = (events ?? []) as EventRow[];
   const eventIds = typedEvents.map((event) => event.id);
@@ -216,29 +295,31 @@ export default async function EventsPage() {
   let typedAttendance: AttendanceSummaryRow[] = [];
 
   if (eventIds.length > 0) {
-    const [{ data: registrationRows, error: registrationsError }, { data: attendanceRows, error: attendanceError }] =
-      await Promise.all([
-        supabase
-          .from("event_registrations")
-          .select(`
-            id,
-            event_id,
-            status,
-            payment_status,
-            total_price,
-            total_amount,
-            currency
-          `)
-          .in("event_id", eventIds),
+    const [
+      { data: registrationRows, error: registrationsError },
+      { data: attendanceRows, error: attendanceError },
+    ] = await Promise.all([
+      supabase
+        .from("event_registrations")
+        .select(`
+          id,
+          event_id,
+          status,
+          payment_status,
+          total_price,
+          total_amount,
+          currency
+        `)
+        .in("event_id", eventIds),
 
-        supabase
-          .from("attendance_records")
-          .select(`
-            id,
-            event_registration_id,
-            status
-          `),
-      ]);
+      supabase
+        .from("attendance_records")
+        .select(`
+          id,
+          event_registration_id,
+          status
+        `),
+    ]);
 
     if (registrationsError) {
       throw new Error(`Failed to load event reporting: ${registrationsError.message}`);
@@ -289,110 +370,223 @@ export default async function EventsPage() {
       Boolean(event.organizer_id)
   ).length;
 
+  const totalRegistrations = typedRegistrations.length;
+  const totalCheckedIn = typedRegistrations.filter((row) => {
+    const attendance = attendanceByRegistrationId.get(row.id);
+    return attendance?.status === "checked_in" || attendance?.status === "attended";
+  }).length;
+  const totalGrossRevenue = typedRegistrations.reduce((sum, row) => {
+    if (row.payment_status !== "paid" && row.payment_status !== "partial") {
+      return sum;
+    }
+    return sum + Number(row.total_amount ?? row.total_price ?? 0);
+  }, 0);
+
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight">Events</h2>
-          <p className="mt-2 text-slate-600">
-            Manage public and internal offerings like group classes, practice parties, workshops, socials, and special events.
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                {organizerWorkspace ? "DanceFlow Organizer Workspace" : "DanceFlow Events"}
+              </p>
+
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                {organizerWorkspace ? "Organizer Dashboard" : "Events"}
+              </h1>
+
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+                {organizerWorkspace
+                  ? `Manage event publishing, registrations, discovery visibility, and ticketing operations for ${workspaceName}.`
+                  : "Manage public and internal offerings like group classes, practice parties, workshops, socials, and special events."}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              {organizerWorkspace ? (
+                <>
+                  <Link
+                    href="/app/organizers"
+                    className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                  >
+                    Organizer Profile
+                  </Link>
+
+                  <Link
+                    href="/app/settings/billing"
+                    className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                  >
+                    Billing & Payouts
+                  </Link>
+                </>
+              ) : (
+                <Link
+                  href="/app"
+                  className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                >
+                  Back to Dashboard
+                </Link>
+              )}
+
+              <Link
+                href="/app/events/new"
+                className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+              >
+                New Event
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+          <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+              <h2 className="text-lg font-semibold text-sky-950">
+                {organizerWorkspace ? "Publishing controls live here" : "Group Classes Live Here"}
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-sky-900">
+                {organizerWorkspace
+                  ? "Organizer success depends on getting events public, directory-enabled, and properly linked so dancers can actually find and register."
+                  : "Group classes are managed as events, not standard appointments. Use visibility settings to control whether a class is public, unlisted, or private."}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-orange-200 bg-orange-50 p-5">
+              <h2 className="text-lg font-semibold text-orange-950">
+                {organizerWorkspace ? "Discovery readiness matters" : "Discovery and organizer publishing"}
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-orange-900">
+                Discovery-ready events should be public, directory-enabled, and linked to
+                an organizer so dancers can actually find and register for them.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+        <StatCard label="Total Events" value={typedEvents.length} icon={CalendarDays} />
+        <StatCard label="Published / Open" value={publishedCount} icon={Ticket} />
+        <StatCard label="Public Offerings" value={publicOfferingsCount} icon={Globe2} />
+        <StatCard label="Discovery Ready" value={discoveryReadyCount} icon={Star} />
+        <StatCard label="Registrations" value={totalRegistrations} icon={Users} />
+        <StatCard label="Checked In" value={totalCheckedIn} icon={Sparkles} />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Group Classes</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">{groupClasses.length}</p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Featured Events</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">{featuredCount}</p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Gross Revenue</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {fmtCurrency(totalGrossRevenue)}
+          </p>
+        </div>
+      </div>
+
+      {organizerWorkspace ? (
+        <section className="grid gap-4 lg:grid-cols-3">
+          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+                <Globe2 className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Visibility
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                  Push more events public
+                </h2>
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  Public, directory-enabled events are the ones dancers can actually find
+                  through discovery and public listings.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+                <Wallet className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Revenue
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                  Track registrations and money
+                </h2>
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  Use this page as the organizer home for ticketing performance, payment
+                  status, and event-by-event revenue.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+                <MapPin className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Next Action
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                  Finish organizer setup
+                </h2>
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  Make sure billing, organizer profile, and public discovery settings are
+                  complete before launch.
+                </p>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-6 py-4">
+          <h2 className="text-lg font-semibold text-slate-900">Event Listings</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            {organizerWorkspace
+              ? "All organizer-managed event offerings in one operational view."
+              : "All organizer and public-facing event offerings in one branded workspace."}
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href="/app"
-            className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-          >
-            Back to Dashboard
-          </Link>
-
-          <Link
-            href="/app/events/new"
-            className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
-          >
-            New Event
-          </Link>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
-        <h3 className="text-lg font-semibold text-blue-900">Group Classes Live Here</h3>
-        <p className="mt-2 text-sm text-blue-800">
-          Group classes are managed as events, not standard appointments. Use visibility
-          settings to control whether a class is public, unlisted, or private.
-        </p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-4 xl:grid-cols-6">
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Total Events</p>
-          <p className="mt-2 text-3xl font-semibold">{typedEvents.length}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Group Classes</p>
-          <p className="mt-2 text-3xl font-semibold">{groupClasses.length}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Published / Open</p>
-          <p className="mt-2 text-3xl font-semibold">{publishedCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Public Offerings</p>
-          <p className="mt-2 text-3xl font-semibold">{publicOfferingsCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Directory Enabled</p>
-          <p className="mt-2 text-3xl font-semibold">{publicDirectoryCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Discovery Ready</p>
-          <p className="mt-2 text-3xl font-semibold">{discoveryReadyCount}</p>
-        </div>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Public Group Classes</p>
-          <p className="mt-2 text-3xl font-semibold">{publicGroupClassesCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Featured Events</p>
-          <p className="mt-2 text-3xl font-semibold">{featuredCount}</p>
-        </div>
-      </div>
-
-      <div className="rounded-2xl border bg-white shadow-sm">
-        <div className="border-b px-6 py-4">
-          <h3 className="text-lg font-semibold text-slate-900">Event Listings</h3>
-        </div>
-
         {typedEvents.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <p className="text-base font-medium text-slate-900">
-              No events yet
-            </p>
+          <div className="px-6 py-14 text-center">
+            <p className="text-base font-medium text-slate-900">No events yet</p>
             <p className="mt-2 text-sm text-slate-500">
-              Create your first event offering to start publishing classes, socials, and special events.
+              Create your first event offering to start publishing classes, socials,
+              and special events.
             </p>
 
             <div className="mt-6">
               <Link
                 href="/app/events/new"
-                className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
+                className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-white hover:opacity-95"
               >
-                Create Event
+                <span>Create Event</span>
+                <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
           </div>
         ) : (
-          <div className="divide-y">
+          <div className="divide-y divide-slate-200">
             {typedEvents.map((event) => {
               const organizer = getOrganizer(event.organizers);
               const discoveryReady =
@@ -405,8 +599,10 @@ export default async function EventsPage() {
               const defaultCurrency =
                 eventRegistrations.find((row) => row.currency)?.currency ?? "USD";
 
-              const totalRegistrations = eventRegistrations.length;
-              const paidCount = eventRegistrations.filter((row) => row.payment_status === "paid").length;
+              const totalRegistrationsForEvent = eventRegistrations.length;
+              const paidCount = eventRegistrations.filter(
+                (row) => row.payment_status === "paid"
+              ).length;
               const pendingPaymentCount = eventRegistrations.filter(
                 (row) => row.payment_status === "pending"
               ).length;
@@ -422,13 +618,11 @@ export default async function EventsPage() {
               }, 0);
 
               return (
-                <div key={event.id} className="px-6 py-5">
-                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div key={event.id} className="px-6 py-6">
+                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h4 className="text-lg font-semibold text-slate-900">
-                          {event.name}
-                        </h4>
+                        <h3 className="text-xl font-semibold text-slate-950">{event.name}</h3>
 
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
@@ -455,57 +649,57 @@ export default async function EventsPage() {
                         </span>
 
                         {event.featured ? (
-                          <span className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700">
+                          <span className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 ring-1 ring-indigo-200">
                             Featured
                           </span>
                         ) : null}
 
                         {event.registration_required ? (
-                          <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                          <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
                             Registration Required
                           </span>
                         ) : null}
                       </div>
 
-                      <div className="mt-2 flex flex-wrap gap-2">
+                      <div className="mt-3 flex flex-wrap gap-2">
                         {event.public_directory_enabled ? (
-                          <span className="inline-flex rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
+                          <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
                             Public Directory On
                           </span>
                         ) : (
-                          <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                          <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
                             Public Directory Off
                           </span>
                         )}
 
                         {event.beginner_friendly ? (
-                          <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                          <span className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 ring-1 ring-sky-200">
                             Beginner Friendly
                           </span>
                         ) : null}
 
                         {organizer ? (
-                          <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                          <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
                             Organizer Linked
                           </span>
                         ) : (
-                          <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                          <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
                             No Organizer
                           </span>
                         )}
 
                         {discoveryReady ? (
-                          <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                          <span className="inline-flex rounded-full bg-[var(--brand-primary-soft)] px-2.5 py-1 text-xs font-medium text-[var(--brand-primary)] ring-1 ring-[var(--brand-primary)]/15">
                             Discovery Ready
                           </span>
                         ) : (
-                          <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                          <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
                             Needs Discovery Setup
                           </span>
                         )}
                       </div>
 
-                      <p className="mt-2 text-sm text-slate-500">
+                      <p className="mt-3 text-sm text-slate-500">
                         Organizer: {organizer?.name ?? "None"} • /events/{event.slug}
                       </p>
 
@@ -517,40 +711,40 @@ export default async function EventsPage() {
                         </span>
                       </div>
 
-                      <p className="mt-3 text-sm text-slate-600">
+                      <p className="mt-3 text-sm leading-7 text-slate-600">
                         {eventListingHint(event.event_type, event.visibility)}
                       </p>
 
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                        <div className="rounded-xl border bg-slate-50 p-3">
+                      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                           <p className="text-xs text-slate-500">Registrations</p>
                           <p className="mt-1 text-lg font-semibold text-slate-900">
-                            {totalRegistrations}
+                            {totalRegistrationsForEvent}
                           </p>
                         </div>
 
-                        <div className="rounded-xl border bg-slate-50 p-3">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                           <p className="text-xs text-slate-500">Paid</p>
                           <p className="mt-1 text-lg font-semibold text-slate-900">
                             {paidCount}
                           </p>
                         </div>
 
-                        <div className="rounded-xl border bg-slate-50 p-3">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                           <p className="text-xs text-slate-500">Pending Pay</p>
                           <p className="mt-1 text-lg font-semibold text-slate-900">
                             {pendingPaymentCount}
                           </p>
                         </div>
 
-                        <div className="rounded-xl border bg-slate-50 p-3">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                           <p className="text-xs text-slate-500">Checked In</p>
                           <p className="mt-1 text-lg font-semibold text-slate-900">
                             {checkedInCount}
                           </p>
                         </div>
 
-                        <div className="rounded-xl border bg-slate-50 p-3">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                           <p className="text-xs text-slate-500">Gross Revenue</p>
                           <p className="mt-1 text-lg font-semibold text-slate-900">
                             {fmtCurrency(grossRevenue, defaultCurrency)}
@@ -562,7 +756,7 @@ export default async function EventsPage() {
                     <div className="shrink-0">
                       <Link
                         href={`/app/events/${event.id}`}
-                        className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                        className="inline-flex items-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                       >
                         View Event
                       </Link>
@@ -573,7 +767,7 @@ export default async function EventsPage() {
             })}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

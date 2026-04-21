@@ -106,19 +106,46 @@ function hasLowFiniteBalance(items: ClientPackageItemRow[]) {
   );
 }
 
+function isDuplicateKeyError(error: unknown) {
+  if (!error || typeof error !== "object") return false;
+
+  const maybeError = error as {
+    code?: string;
+    message?: string;
+    details?: string;
+  };
+
+  if (maybeError.code === "23505") return true;
+  if (typeof maybeError.message === "string" && maybeError.message.includes("duplicate key value")) {
+    return true;
+  }
+
+  return false;
+}
+
 async function insertNotifications(
   supabase: ReturnType<typeof createAdminClient>,
   rows: Record<string, unknown>[]
 ) {
   if (rows.length === 0) return 0;
 
-  const { error } = await supabase.from("notifications").insert(rows);
+  let insertedCount = 0;
 
-  if (error) {
-    throw new Error(error.message);
+  for (const row of rows) {
+    const { error } = await supabase.from("notifications").insert(row);
+
+    if (error) {
+      if (isDuplicateKeyError(error)) {
+        continue;
+      }
+
+      throw new Error(error.message);
+    }
+
+    insertedCount += 1;
   }
 
-  return rows.length;
+  return insertedCount;
 }
 
 export async function syncStudioNotifications(studioId: string) {
@@ -134,10 +161,22 @@ export async function syncStudioNotifications(studioId: string) {
     { data: overdueFollowUps, error: overdueError },
     { data: packageRows, error: packageRowsError },
     { data: floorRentalRows, error: floorRentalRowsError },
-    { data: existingFollowUpNotifications, error: existingFollowUpNotificationsError },
-    { data: existingPackageDepletedNotifications, error: existingPackageDepletedNotificationsError },
-    { data: existingPackageLowBalanceNotifications, error: existingPackageLowBalanceNotificationsError },
-    { data: existingFloorRentalNotifications, error: existingFloorRentalNotificationsError },
+    {
+      data: existingFollowUpNotifications,
+      error: existingFollowUpNotificationsError,
+    },
+    {
+      data: existingPackageDepletedNotifications,
+      error: existingPackageDepletedNotificationsError,
+    },
+    {
+      data: existingPackageLowBalanceNotifications,
+      error: existingPackageLowBalanceNotificationsError,
+    },
+    {
+      data: existingFloorRentalNotifications,
+      error: existingFloorRentalNotificationsError,
+    },
   ] = await Promise.all([
     supabase
       .from("studio_notification_settings")

@@ -1,10 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import {
-  isPlatformAdmin,
-  requireAuthenticatedUser,
-} from "./platform";
+import { isPlatformAdmin, requireAuthenticatedUser } from "./platform";
 
 const PLATFORM_STUDIO_COOKIE = "platform_selected_studio_id";
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
@@ -117,6 +114,7 @@ export async function getAccessibleStudios(): Promise<StudioWorkspace[]> {
   const profile = await requireAuthenticatedUser();
   const roles = await getAccessibleStudioRolesForUser(profile.id);
   const selectedStudioId = await getSelectedAppStudioIdFromCookie();
+  const selected = pickSelectedWorkspace(roles, selectedStudioId);
 
   return roles
     .map((row) => {
@@ -129,7 +127,7 @@ export async function getAccessibleStudios(): Promise<StudioWorkspace[]> {
         studioName: studio.name,
         studioSlug: studio.slug,
         studioPublicName: studio.public_name,
-        isSelected: row.studio_id === selectedStudioId,
+        isSelected: row.studio_id === selected?.studio_id,
       } satisfies StudioWorkspace;
     })
     .filter((value): value is StudioWorkspace => Boolean(value));

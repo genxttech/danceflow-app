@@ -16,6 +16,14 @@ function appendQueryParam(url: string, key: string, value: string) {
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
 }
 
+function redirectWithResult(
+  returnTo: string,
+  kind: "success" | "error",
+  code: string
+): never {
+  redirect(appendQueryParam(returnTo, kind, code));
+}
+
 async function getEditableStudioContext(returnTo: string) {
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
@@ -23,7 +31,7 @@ async function getEditableStudioContext(returnTo: string) {
   const role = context.studioRole ?? "";
 
   if (!canEditClients(role)) {
-    redirect(appendQueryParam(returnTo, "error", "unauthorized"));
+    redirectWithResult(returnTo, "error", "unauthorized");
   }
 
   return { supabase, studioId, role };
@@ -40,24 +48,44 @@ async function getStudioClientOrRedirect(params: {
   const { data: client, error } = await supabase
     .from("clients")
     .select(`
-  id,
-  studio_id,
-  first_name,
-  last_name,
-  email,
-  is_independent_instructor,
-  linked_instructor_id,
-  portal_user_id
-`)
+      id,
+      studio_id,
+      first_name,
+      last_name,
+      email,
+      is_independent_instructor,
+      linked_instructor_id,
+      portal_user_id
+    `)
     .eq("id", clientId)
     .eq("studio_id", studioId)
     .single();
 
   if (error || !client) {
-    redirect(appendQueryParam(returnTo, "error", "client_not_found"));
+    redirectWithResult(returnTo, "error", "client_not_found");
   }
 
   return client;
+}
+
+async function getBaseUrl() {
+  const configuredBaseUrl =
+    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_APP_URL?.trim();
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl.replace(/\/$/, "");
+  }
+
+  const headerStore = await headers();
+  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
+  const proto = headerStore.get("x-forwarded-proto") ?? "http";
+
+  if (host) {
+    return `${proto}://${host}`;
+  }
+
+  return "http://localhost:3000";
 }
 
 export async function updateIndependentInstructorSettingsAction(
@@ -91,9 +119,7 @@ export async function updateIndependentInstructorSettingsAction(
       .single();
 
     if (instructorError || !instructor) {
-      redirect(
-        appendQueryParam(returnTo, "error", "invalid_linked_instructor")
-      );
+      redirectWithResult(returnTo, "error", "invalid_linked_instructor");
     }
   }
 
@@ -107,14 +133,10 @@ export async function updateIndependentInstructorSettingsAction(
     .eq("studio_id", studioId);
 
   if (updateError) {
-    redirect(
-      appendQueryParam(returnTo, "error", "independent_instructor_update_failed")
-    );
+    redirectWithResult(returnTo, "error", "independent_instructor_update_failed");
   }
 
-  redirect(
-    appendQueryParam(returnTo, "success", "independent_instructor_updated")
-  );
+  redirectWithResult(returnTo, "success", "independent_instructor_updated");
 }
 
 export async function linkPartnerAction(formData: FormData) {
@@ -124,15 +146,15 @@ export async function linkPartnerAction(formData: FormData) {
   const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
 
   if (!clientId || !partnerClientId) {
-    redirect(appendQueryParam(returnTo, "error", "missing_partner_client"));
+    redirectWithResult(returnTo, "error", "missing_partner_client");
   }
 
   if (clientId === partnerClientId) {
-    redirect(appendQueryParam(returnTo, "error", "partner_same_as_client"));
+    redirectWithResult(returnTo, "error", "partner_same_as_client");
   }
 
   if (!["partner", "spouse"].includes(relationshipType)) {
-    redirect(appendQueryParam(returnTo, "error", "invalid_relationship_type"));
+    redirectWithResult(returnTo, "error", "invalid_relationship_type");
   }
 
   const { supabase, studioId } = await getEditableStudioContext(returnTo);
@@ -144,7 +166,7 @@ export async function linkPartnerAction(formData: FormData) {
     .in("id", [clientId, partnerClientId]);
 
   if (clientsError || !clients || clients.length !== 2) {
-    redirect(appendQueryParam(returnTo, "error", "partner_client_not_found"));
+    redirectWithResult(returnTo, "error", "partner_client_not_found");
   }
 
   const normalizedClientId =
@@ -162,7 +184,7 @@ export async function linkPartnerAction(formData: FormData) {
     .in("relationship_type", ["partner", "spouse"]);
 
   if (deleteExistingError) {
-    redirect(appendQueryParam(returnTo, "error", "partner_link_failed"));
+    redirectWithResult(returnTo, "error", "partner_link_failed");
   }
 
   const { error: insertError } = await supabase
@@ -175,10 +197,10 @@ export async function linkPartnerAction(formData: FormData) {
     });
 
   if (insertError) {
-    redirect(appendQueryParam(returnTo, "error", "partner_link_failed"));
+    redirectWithResult(returnTo, "error", "partner_link_failed");
   }
 
-  redirect(appendQueryParam(returnTo, "success", "partner_linked"));
+  redirectWithResult(returnTo, "success", "partner_linked");
 }
 
 export async function unlinkPartnerAction(formData: FormData) {
@@ -187,7 +209,7 @@ export async function unlinkPartnerAction(formData: FormData) {
   const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
 
   if (!clientId || !partnerClientId) {
-    redirect(appendQueryParam(returnTo, "error", "missing_partner_client"));
+    redirectWithResult(returnTo, "error", "missing_partner_client");
   }
 
   const { supabase, studioId } = await getEditableStudioContext(returnTo);
@@ -202,10 +224,10 @@ export async function unlinkPartnerAction(formData: FormData) {
     .in("relationship_type", ["partner", "spouse"]);
 
   if (deleteError) {
-    redirect(appendQueryParam(returnTo, "error", "partner_unlink_failed"));
+    redirectWithResult(returnTo, "error", "partner_unlink_failed");
   }
 
-  redirect(appendQueryParam(returnTo, "success", "partner_unlinked"));
+  redirectWithResult(returnTo, "success", "partner_unlinked");
 }
 
 export async function linkPortalAccessAction(formData: FormData) {
@@ -228,7 +250,7 @@ export async function linkPortalAccessAction(formData: FormData) {
   const email = client.email?.trim().toLowerCase();
 
   if (!email) {
-    redirect(appendQueryParam(returnTo, "error", "portal_email_required"));
+    redirectWithResult(returnTo, "error", "portal_email_required");
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -238,11 +260,11 @@ export async function linkPortalAccessAction(formData: FormData) {
     .maybeSingle();
 
   if (profileError) {
-    redirect(appendQueryParam(returnTo, "error", "portal_lookup_failed"));
+    redirectWithResult(returnTo, "error", "portal_lookup_failed");
   }
 
   if (!profile) {
-    redirect(appendQueryParam(returnTo, "error", "portal_account_not_found"));
+    redirectWithResult(returnTo, "error", "portal_account_not_found");
   }
 
   const { error: updateError } = await supabase
@@ -254,10 +276,10 @@ export async function linkPortalAccessAction(formData: FormData) {
     .eq("studio_id", studioId);
 
   if (updateError) {
-    redirect(appendQueryParam(returnTo, "error", "portal_link_failed"));
+    redirectWithResult(returnTo, "error", "portal_link_failed");
   }
 
-  redirect(appendQueryParam(returnTo, "success", "portal_linked"));
+  redirectWithResult(returnTo, "success", "portal_linked");
 }
 
 export async function unlinkPortalAccessAction(formData: FormData) {
@@ -286,10 +308,10 @@ export async function unlinkPortalAccessAction(formData: FormData) {
     .eq("studio_id", studioId);
 
   if (updateError) {
-    redirect(appendQueryParam(returnTo, "error", "portal_unlink_failed"));
+    redirectWithResult(returnTo, "error", "portal_unlink_failed");
   }
 
-  redirect(appendQueryParam(returnTo, "success", "portal_unlinked"));
+  redirectWithResult(returnTo, "success", "portal_unlinked");
 }
 
 export async function sendPortalInviteAction(formData: FormData) {
@@ -312,7 +334,7 @@ export async function sendPortalInviteAction(formData: FormData) {
   const email = client.email?.trim().toLowerCase();
 
   if (!email) {
-    redirect(appendQueryParam(returnTo, "error", "portal_email_required"));
+    redirectWithResult(returnTo, "error", "portal_email_required");
   }
 
   const { data: studio, error: studioError } = await supabase
@@ -322,39 +344,28 @@ export async function sendPortalInviteAction(formData: FormData) {
     .single();
 
   if (studioError || !studio?.slug) {
-    redirect(appendQueryParam(returnTo, "error", "portal_invite_failed"));
+    redirectWithResult(returnTo, "error", "portal_invite_failed");
   }
 
-   const configuredBaseUrl =
-    process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_APP_URL?.trim();
-
-  const headerStore = await headers();
-  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
-  const proto = headerStore.get("x-forwarded-proto") ?? "http";
-
-  const fallbackBaseUrl = host ? `${proto}://${host}` : "http://localhost:3000";
-  const baseUrl = configuredBaseUrl || fallbackBaseUrl;
-
+  const baseUrl = await getBaseUrl();
   const nextPath = `/portal/${encodeURIComponent(studio.slug)}`;
-
   const fullName =
-  `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || undefined;
+    `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || undefined;
 
-const { error: otpError } = await supabase.auth.signInWithOtp({
-  email,
-  options: {
-    shouldCreateUser: true,
-    emailRedirectTo: `${baseUrl}/callback?next=${encodeURIComponent(nextPath)}`,
-    data: {
-      full_name: fullName,
+  const { error: otpError } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      shouldCreateUser: true,
+      emailRedirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+      data: {
+        full_name: fullName,
+      },
     },
-  },
-});
+  });
 
   if (otpError) {
-    redirect(appendQueryParam(returnTo, "error", "portal_invite_failed"));
+    redirectWithResult(returnTo, "error", "portal_invite_failed");
   }
 
-  redirect(appendQueryParam(returnTo, "success", "portal_invite_sent"));
+  redirectWithResult(returnTo, "success", "portal_invite_sent");
 }
