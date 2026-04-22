@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { getBillingPlan } from "@/lib/billing/plans";
 
 type StudioRow = {
   id: string;
@@ -73,12 +74,34 @@ function statusBadgeClass(status: string) {
 }
 
 function statusLabel(status: string) {
-  if (status === "trialing") return "Trialing";
+  if (status === "trialing") return "Trial";
   if (status === "active") return "Active";
   if (status === "past_due") return "Past Due";
   if (status === "cancelled") return "Cancelled";
   if (status === "inactive") return "Inactive";
   return status;
+}
+
+function isOrganizerWorkspace(params: {
+  studioName: string;
+  subscription: SubscriptionRow | undefined;
+}) {
+  const { studioName, subscription } = params;
+  const plan = subscription ? getPlan(subscription.subscription_plans) : null;
+  const planCode = plan?.code?.toLowerCase() ?? "";
+  const sharedPlan = planCode ? getBillingPlan(planCode as never) : null;
+
+  if (sharedPlan?.audience === "organizer") {
+    return true;
+  }
+
+  const normalizedName = studioName.trim().toLowerCase();
+  return (
+    normalizedName.endsWith(" organizer") ||
+    normalizedName.includes(" organizer ") ||
+    normalizedName.endsWith(" events") ||
+    normalizedName.includes(" festival")
+  );
 }
 
 export default async function PlatformStudiosPage({
@@ -106,9 +129,7 @@ export default async function PlatformStudiosPage({
       .select("id, name, created_at")
       .order("created_at", { ascending: false }),
 
-    supabase
-      .from("studio_subscriptions")
-      .select(`
+    supabase.from("studio_subscriptions").select(`
         id,
         studio_id,
         status,
@@ -169,7 +190,17 @@ export default async function PlatformStudiosPage({
     eventCounts.set(event.studio_id, current);
   }
 
-  const filteredStudios = typedStudios.filter((studio) => {
+  const studioOnlyWorkspaces = typedStudios.filter((studio) => {
+    const subscription = subscriptionByStudioId.get(studio.id);
+    return !isOrganizerWorkspace({
+      studioName: studio.name,
+      subscription,
+    });
+  });
+
+  const organizerWorkspaceCount = typedStudios.length - studioOnlyWorkspaces.length;
+
+  const filteredStudios = studioOnlyWorkspaces.filter((studio) => {
     const subscription = subscriptionByStudioId.get(studio.id);
     const plan = subscription ? getPlan(subscription.subscription_plans) : null;
     const planCode = plan?.code?.toLowerCase() ?? "";
@@ -204,25 +235,79 @@ export default async function PlatformStudiosPage({
 
   const availablePlans = Array.from(
     new Set(
-      typedSubscriptions
-        .map((subscription) => getPlan(subscription.subscription_plans)?.name)
+      studioOnlyWorkspaces
+        .map((studio) => {
+          const subscription = subscriptionByStudioId.get(studio.id);
+          return subscription ? getPlan(subscription.subscription_plans)?.name : null;
+        })
         .filter((value): value is string => Boolean(value))
     )
   ).sort((a, b) => a.localeCompare(b));
 
   return (
-    <div className="space-y-8">
-      <div className="rounded-3xl border bg-white p-6 shadow-sm">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Studios</h1>
-        <p className="mt-2 text-slate-600">
-          Review studio billing health, adoption, organizer usage, and event publishing across the platform.
-        </p>
-      </div>
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.42)_0%,rgba(255,255,255,0)_20%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                DanceFlow Platform Admin
+              </p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                Studio Directory
+              </h1>
+              <p className="mt-3 text-sm leading-7 text-white/85 md:text-base">
+                Review real studio workspaces only. Organizer workspaces are intentionally excluded from this directory so the platform admin view stays clear.
+              </p>
+            </div>
 
-      <form className="rounded-2xl border bg-white p-5 shadow-sm">
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/platform/organizers"
+                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+              >
+                Open Organizer Directory
+              </Link>
+              <Link
+                href="/platform"
+                className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+              >
+                Back to Platform Dashboard
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+              <p className="text-sm text-sky-700">Studio Workspaces</p>
+              <p className="mt-1 text-2xl font-semibold text-sky-950">
+                {studioOnlyWorkspaces.length}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+              <p className="text-sm text-violet-700">Organizer Workspaces Excluded</p>
+              <p className="mt-1 text-2xl font-semibold text-violet-950">
+                {organizerWorkspaceCount}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm text-amber-700">Filtered Results</p>
+              <p className="mt-1 text-2xl font-semibold text-amber-950">
+                {filteredStudios.length}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <form className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4 md:grid-cols-[1fr_220px_220px_auto]">
           <div>
-            <label htmlFor="q" className="mb-1 block text-sm font-medium">
+            <label htmlFor="q" className="mb-1 block text-sm font-medium text-slate-700">
               Search studios
             </label>
             <input
@@ -235,7 +320,7 @@ export default async function PlatformStudiosPage({
           </div>
 
           <div>
-            <label htmlFor="status" className="mb-1 block text-sm font-medium">
+            <label htmlFor="status" className="mb-1 block text-sm font-medium text-slate-700">
               Subscription Status
             </label>
             <select
@@ -246,7 +331,7 @@ export default async function PlatformStudiosPage({
             >
               <option value="">All</option>
               <option value="active">Active</option>
-              <option value="trialing">Trialing</option>
+              <option value="trialing">Trial</option>
               <option value="past_due">Past Due</option>
               <option value="cancelled">Cancelled</option>
               <option value="inactive">Inactive</option>
@@ -254,7 +339,7 @@ export default async function PlatformStudiosPage({
           </div>
 
           <div>
-            <label htmlFor="plan" className="mb-1 block text-sm font-medium">
+            <label htmlFor="plan" className="mb-1 block text-sm font-medium text-slate-700">
               Plan
             </label>
             <select
@@ -282,7 +367,7 @@ export default async function PlatformStudiosPage({
 
             <Link
               href="/platform/studios"
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+              className="rounded-xl border border-slate-300 px-4 py-2 hover:bg-slate-50"
             >
               Reset
             </Link>
@@ -290,18 +375,20 @@ export default async function PlatformStudiosPage({
         </div>
       </form>
 
-      <div className="rounded-2xl border bg-white shadow-sm">
-        <div className="border-b px-6 py-4">
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-6 py-4">
           <h2 className="text-lg font-semibold text-slate-900">Studio Directory</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Showing {filteredStudios.length} of {typedStudios.length} studios.
+            Showing {filteredStudios.length} of {studioOnlyWorkspaces.length} studio workspaces.
           </p>
         </div>
 
         {filteredStudios.length === 0 ? (
           <div className="px-6 py-12 text-center">
             <p className="text-base font-medium text-slate-900">No studios found</p>
-            <p className="mt-2 text-sm text-slate-500">Adjust your filters and try again.</p>
+            <p className="mt-2 text-sm text-slate-500">
+              Adjust your filters and try again.
+            </p>
           </div>
         ) : (
           <div className="overflow-hidden">
@@ -361,7 +448,11 @@ export default async function PlatformStudiosPage({
                       <td className="px-4 py-4 text-slate-700">
                         <div>
                           <p>
-                            {subscription?.billing_interval === "year" ? "Yearly" : "Monthly"}
+                            {subscription?.billing_interval === "year"
+                              ? "Yearly"
+                              : subscription?.billing_interval === "month"
+                                ? "Monthly"
+                                : "—"}
                           </p>
                           <p className="mt-1 text-xs text-slate-500">
                             Ends {formatDate(subscription?.current_period_end ?? null)}

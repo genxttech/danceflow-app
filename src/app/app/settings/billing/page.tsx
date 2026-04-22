@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import type { ComponentType } from "react";
 import {
   ArrowRight,
   CreditCard,
@@ -64,7 +65,12 @@ function parseSingleSearchParam(
 }
 
 function isPlanCode(value: string | undefined): value is PlanCode {
-  return value === "starter" || value === "growth" || value === "pro" || value === "organizer";
+  return (
+    value === "starter" ||
+    value === "growth" ||
+    value === "pro" ||
+    value === "organizer"
+  );
 }
 
 function isAudience(value: string | undefined): value is PlanAudience {
@@ -142,7 +148,11 @@ function getCurrentPlanCode(row: SubscriptionRow | null) {
 }
 
 function getEntryMode(value?: string) {
-  if (value === "trial-complete" || value === "chooser" || value === "no-card-trial") {
+  if (
+    value === "trial-complete" ||
+    value === "chooser" ||
+    value === "no-card-trial"
+  ) {
     return value;
   }
   return "default";
@@ -225,7 +235,16 @@ function getSuccessMessage(
   if (success === "manage_subscription") {
     return {
       title: "Billing portal opened",
-      body: "You were redirected to manage your active subscription.",
+      body: "You were redirected to manage your existing subscription.",
+      tone: "green",
+    };
+  }
+
+  if (success === "current_plan") {
+    return {
+      title: "Already on this plan",
+      body:
+        "This workspace is already on that plan. Use subscription management to make changes.",
       tone: "green",
     };
   }
@@ -257,6 +276,10 @@ function getErrorMessage(error?: string) {
   return messages[error] ?? "Something went wrong while loading billing.";
 }
 
+function isManagedSubscriptionStatus(status: string | null | undefined) {
+  return ["active", "trialing", "past_due", "unpaid"].includes(status ?? "");
+}
+
 function InfoCard({
   label,
   value,
@@ -264,7 +287,7 @@ function InfoCard({
 }: {
   label: string;
   value: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: ComponentType<{ className?: string }>;
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -287,13 +310,21 @@ function PlanCard({
   isCurrent,
   isRecommended,
   entryMode,
+  hasManagedSubscription,
 }: {
   plan: BillingPlan;
   selectedAudience: PlanAudience;
   isCurrent: boolean;
   isRecommended: boolean;
   entryMode: string;
+  hasManagedSubscription: boolean;
 }) {
+  const ctaLabel = isCurrent
+    ? "Current Plan"
+    : hasManagedSubscription
+      ? "Change Plan"
+      : `Start ${plan.label} Trial`;
+
   return (
     <div
       className={[
@@ -312,13 +343,21 @@ function PlanCard({
 
         <div className="flex flex-col items-end gap-2">
           {isCurrent ? (
-            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses("green")}`}>
+            <span
+              className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses(
+                "green"
+              )}`}
+            >
               Current plan
             </span>
           ) : null}
 
           {isRecommended ? (
-            <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses("violet")}`}>
+            <span
+              className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses(
+                "violet"
+              )}`}
+            >
               Recommended
             </span>
           ) : null}
@@ -353,15 +392,16 @@ function PlanCard({
 
         <button
           type="submit"
+          disabled={isCurrent}
           className={[
             "inline-flex w-full items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition",
             isCurrent
-              ? "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+              ? "cursor-not-allowed border border-slate-300 bg-white text-slate-500"
               : "bg-slate-900 text-white hover:bg-slate-800",
           ].join(" ")}
         >
-          <span>{isCurrent ? "Manage Current Plan" : `Choose ${plan.label}`}</span>
-          <ArrowRight className="h-4 w-4" />
+          <span>{ctaLabel}</span>
+          {!isCurrent ? <ArrowRight className="h-4 w-4" /> : null}
         </button>
       </form>
     </div>
@@ -459,6 +499,14 @@ export default async function BillingSettingsPage({
   const effectiveSubscriptionStatus =
     currentSubscriptionRow?.status ?? studio.subscription_status ?? "not_started";
 
+  const hasManagedSubscription = isManagedSubscriptionStatus(
+    effectiveSubscriptionStatus
+  );
+
+  const isTrialCompleteEntry = entryMode === "trial-complete";
+  const showWorkspaceButton = hasManagedSubscription;
+  const showPayoutsCard = !isTrialCompleteEntry || hasManagedSubscription;
+
   const visiblePlans = BILLING_PLANS.filter((plan) => plan.audience === selectedAudience);
 
   const connectReadinessBase: StudioConnectReadiness = {
@@ -477,7 +525,7 @@ export default async function BillingSettingsPage({
 
   let connectReadiness = connectReadinessBase;
 
-  if (studio.stripe_connected_account_id) {
+  if (showPayoutsCard && studio.stripe_connected_account_id) {
     try {
       const connectedAccount = await stripe.accounts.retrieve(
         studio.stripe_connected_account_id
@@ -533,15 +581,18 @@ export default async function BillingSettingsPage({
               </h1>
 
               <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
-                Manage your subscription, connect Stripe, and keep this{" "}
-                {selectedAudience === "organizer" ? "organizer" : "studio"} workspace
-                ready for payments.
+                {isTrialCompleteEntry && !hasManagedSubscription
+                  ? `Start your ${
+                      selectedAudience === "organizer" ? "organizer" : "studio"
+                    } subscription and begin your free trial.`
+                  : `Manage your subscription, connect Stripe, and keep this ${
+                      selectedAudience === "organizer" ? "organizer" : "studio"
+                    } workspace ready for payments.`}
               </p>
             </div>
 
             <div className="flex flex-wrap gap-3">
-              {(effectiveSubscriptionStatus === "active" ||
-                effectiveSubscriptionStatus === "trialing") && studio.stripe_customer_id ? (
+              {hasManagedSubscription && studio.stripe_customer_id ? (
                 <form action="/api/billing/portal" method="post">
                   <button
                     type="submit"
@@ -552,16 +603,18 @@ export default async function BillingSettingsPage({
                 </form>
               ) : null}
 
-              <Link
-                href={getPostTrialDashboardPath(selectedAudience)}
-                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-              >
-                Go to Workspace
-              </Link>
+              {showWorkspaceButton ? (
+                <Link
+                  href={getPostTrialDashboardPath(selectedAudience)}
+                  className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+                >
+                  Go to Workspace
+                </Link>
+              ) : null}
             </div>
           </div>
 
-          {entryMode === "trial-complete" ? (
+          {isTrialCompleteEntry && !hasManagedSubscription ? (
             <div
               className={`mt-8 rounded-2xl border p-4 text-sm ${
                 selectedAudience === "organizer"
@@ -570,8 +623,20 @@ export default async function BillingSettingsPage({
               }`}
             >
               {selectedAudience === "organizer"
-                ? "You are in the organizer trial setup flow. Complete billing to begin your organizer trial and continue into event operations."
-                : "You are in the studio trial setup flow. Complete billing to begin your studio trial and continue into the studio workspace."}
+                ? "Complete billing first to begin your organizer trial. Payout setup comes after your subscription is started."
+                : "Complete billing first to begin your studio trial. Payout setup comes after your subscription is started."}
+            </div>
+          ) : entryMode === "trial-complete" ? (
+            <div
+              className={`mt-8 rounded-2xl border p-4 text-sm ${
+                selectedAudience === "organizer"
+                  ? "border-violet-200 bg-violet-50 text-violet-800"
+                  : "border-sky-200 bg-sky-50 text-sky-800"
+              }`}
+            >
+              {selectedAudience === "organizer"
+                ? "Your organizer trial is active. You can manage billing, continue into the workspace, and complete payouts when needed."
+                : "Your studio trial is active. You can manage billing, continue into the workspace, and complete payouts when needed."}
             </div>
           ) : null}
 
@@ -609,9 +674,9 @@ export default async function BillingSettingsPage({
               icon={CreditCard}
             />
             <InfoCard
-              label="Payout setup"
-              value={connectStatus.label}
-              icon={Wallet}
+              label={showPayoutsCard ? "Payout setup" : "Next step"}
+              value={showPayoutsCard ? connectStatus.label : "Complete billing"}
+              icon={showPayoutsCard ? Wallet : ArrowRight}
             />
           </div>
         </div>
@@ -627,7 +692,8 @@ export default async function BillingSettingsPage({
                     Subscription
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                    Choose the right {selectedAudience === "organizer" ? "organizer" : "studio"} plan
+                    Choose the right{" "}
+                    {selectedAudience === "organizer" ? "organizer" : "studio"} plan
                   </h2>
                   <p className="mt-2 text-sm leading-7 text-slate-600">
                     {selectedAudience === "organizer"
@@ -647,9 +713,22 @@ export default async function BillingSettingsPage({
 
               {currentPlan ? (
                 <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                  Current plan: <span className="font-semibold text-slate-950">{currentPlan.label}</span>
+                  Current plan:{" "}
+                  <span className="font-semibold text-slate-950">{currentPlan.label}</span>
                 </div>
               ) : null}
+
+              {hasManagedSubscription ? (
+                <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800">
+                  This workspace already has a subscription. Choosing another plan will
+                  take you to subscription management instead of creating a second
+                  subscription.
+                </div>
+              ) : (
+                <div className="mt-4 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
+                  Start billing first. Workspace access and payout setup should come after the subscription is active.
+                </div>
+              )}
 
               <div className="mt-6 grid gap-6 lg:grid-cols-2">
                 {visiblePlans.map((plan) => (
@@ -660,76 +739,82 @@ export default async function BillingSettingsPage({
                     isCurrent={currentPlan?.code === plan.code}
                     isRecommended={recommendedPlan?.code === plan.code}
                     entryMode={entryMode}
+                    hasManagedSubscription={hasManagedSubscription}
                   />
                 ))}
               </div>
             </div>
 
-            <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
-              <div className="flex items-start gap-3">
-                <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-                  <ShieldCheck className="h-5 w-5" />
+            {showPayoutsCard ? (
+              <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+                    <ShieldCheck className="h-5 w-5" />
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                      Stripe Payouts
+                    </p>
+                    <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                      Connect payout details
+                    </h2>
+                    <p className="mt-2 text-sm leading-7 text-slate-600">
+                      {connectStatus.description}
+                    </p>
+                  </div>
                 </div>
 
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Stripe Payouts
-                  </p>
-                  <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                    Connect payout details
-                  </h2>
-                  <p className="mt-2 text-sm leading-7 text-slate-600">
-                    {connectStatus.description}
-                  </p>
+                <div className="mt-6 flex flex-wrap items-center gap-3">
+                  <span
+                    className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses(
+                      connectStatus.tone
+                    )}`}
+                  >
+                    {connectStatus.label}
+                  </span>
+
+                  <a
+                    href="/api/stripe/connect/onboarding"
+                    className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+                  >
+                    <span>{connectStatus.buttonLabel}</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </a>
                 </div>
+
+                {connectReadiness.disabledReason ? (
+                  <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                    Stripe disabled reason:{" "}
+                    {formatStripeRequirementLabel(connectReadiness.disabledReason)}
+                  </div>
+                ) : null}
+
+                {connectReadiness.currentlyDue.length > 0 ? (
+                  <div className="mt-5">
+                    <p className="text-sm font-semibold text-slate-900">Currently due</p>
+                    <ul className="mt-2 space-y-2 text-sm text-slate-600">
+                      {connectReadiness.currentlyDue.slice(0, 8).map((item) => (
+                        <li key={item}>• {formatStripeRequirementLabel(item)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {connectReadiness.pendingVerification.length > 0 ? (
+                  <div className="mt-5">
+                    <p className="text-sm font-semibold text-slate-900">
+                      Pending verification
+                    </p>
+                    <ul className="mt-2 space-y-2 text-sm text-slate-600">
+                      {connectReadiness.pendingVerification.slice(0, 8).map((item) => (
+                        <li key={item}>• {formatStripeRequirementLabel(item)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </div>
-
-              <div className="mt-6 flex flex-wrap items-center gap-3">
-                <span
-                  className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses(
-                    connectStatus.tone
-                  )}`}
-                >
-                  {connectStatus.label}
-                </span>
-
-                <a
-                  href="/api/stripe/connect/onboarding"
-                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  <span>{connectStatus.buttonLabel}</span>
-                  <ArrowRight className="h-4 w-4" />
-                </a>
-              </div>
-
-              {connectReadiness.disabledReason ? (
-                <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                  Stripe disabled reason: {formatStripeRequirementLabel(connectReadiness.disabledReason)}
-                </div>
-              ) : null}
-
-              {connectReadiness.currentlyDue.length > 0 ? (
-                <div className="mt-5">
-                  <p className="text-sm font-semibold text-slate-900">Currently due</p>
-                  <ul className="mt-2 space-y-2 text-sm text-slate-600">
-                    {connectReadiness.currentlyDue.slice(0, 8).map((item) => (
-                      <li key={item}>• {formatStripeRequirementLabel(item)}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-
-              {connectReadiness.pendingVerification.length > 0 ? (
-                <div className="mt-5">
-                  <p className="text-sm font-semibold text-slate-900">Pending verification</p>
-                  <ul className="mt-2 space-y-2 text-sm text-slate-600">
-                    {connectReadiness.pendingVerification.slice(0, 8).map((item) => (
-                      <li key={item}>• {formatStripeRequirementLabel(item)}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-            </div>
+            ) : null}
           </div>
 
           <div className="space-y-8">
@@ -761,26 +846,34 @@ export default async function BillingSettingsPage({
                 Next Step
               </p>
               <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                Continue into the correct workspace
+                {showWorkspaceButton
+                  ? "Continue into the correct workspace"
+                  : "Finish billing to unlock the workspace"}
               </h2>
 
               <p className="mt-3 text-sm leading-7 text-slate-600">
-                {selectedAudience === "organizer"
-                  ? "After billing, continue into event operations rather than the studio CRM."
-                  : "After billing, continue into the studio dashboard and daily operations."}
+                {showWorkspaceButton
+                  ? selectedAudience === "organizer"
+                    ? "Your organizer trial is active. Continue into event operations and complete payouts when needed."
+                    : "Your studio trial is active. Continue into the studio dashboard and complete payouts when needed."
+                  : selectedAudience === "organizer"
+                    ? "Start billing first. After checkout begins your trial, organizer workspace access should follow."
+                    : "Start billing first. After checkout begins your trial, studio workspace access should follow."}
               </p>
 
-              <Link
-                href={getPostTrialDashboardPath(selectedAudience)}
-                className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-              >
-                <span>
-                  {selectedAudience === "organizer"
-                    ? "Go to Organizer Workspace"
-                    : "Go to Studio Workspace"}
-                </span>
-                <ArrowRight className="h-4 w-4" />
-              </Link>
+              {showWorkspaceButton ? (
+                <Link
+                  href={getPostTrialDashboardPath(selectedAudience)}
+                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+                >
+                  <span>
+                    {selectedAudience === "organizer"
+                      ? "Go to Organizer Workspace"
+                      : "Go to Studio Workspace"}
+                  </span>
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              ) : null}
             </div>
           </div>
         </div>

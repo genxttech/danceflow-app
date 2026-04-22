@@ -21,6 +21,11 @@ type PlanRow = {
   stripe_price_id_yearly: string | null;
 };
 
+type BillingCustomerRow = {
+  id: string;
+  stripe_customer_id: string | null;
+};
+
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -82,7 +87,8 @@ function isOrganizerWorkspaceName(value: string | null | undefined) {
   return (
     normalized.endsWith(" organizer") ||
     normalized.includes(" organizer ") ||
-    normalized.endsWith(" events")
+    normalized.endsWith(" events") ||
+    normalized.includes(" festival")
   );
 }
 
@@ -107,6 +113,28 @@ function buildBillingReturnPath(params: {
 
 function buildSourceValue(audience: PlanAudience) {
   return audience === "organizer" ? "organizer_subscription" : "studio_subscription";
+}
+
+function isManagedSubscriptionStatus(status: string | null | undefined) {
+  return ["active", "trialing", "past_due", "unpaid"].includes(status ?? "");
+}
+
+async function getManagedStripeSubscription(params: {
+  stripeCustomerId: string;
+}) {
+  const stripe = getStripe();
+
+  const subscriptions = await stripe.subscriptions.list({
+    customer: params.stripeCustomerId,
+    status: "all",
+    limit: 20,
+  });
+
+  return (
+    subscriptions.data.find((subscription) =>
+      isManagedSubscriptionStatus(subscription.status)
+    ) ?? null
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -215,7 +243,7 @@ export async function POST(request: NextRequest) {
         .from("studio_billing_customers")
         .select("id, stripe_customer_id")
         .eq("studio_id", studioId)
-        .maybeSingle(),
+        .maybeSingle<BillingCustomerRow>(),
     ]);
 
     if (studioError || !studio) {
@@ -327,17 +355,29 @@ export async function POST(request: NextRequest) {
 
     const appUrl = buildAppUrl(request);
 
+    const stripeManagedSubscription = stripeCustomerId
+      ? await getManagedStripeSubscription({
+          stripeCustomerId,
+        })
+      : null;
+
     const hasManagedSubscription =
-      Boolean(studio.stripe_subscription_id) &&
-      ["active", "trialing", "past_due", "unpaid"].includes(
-        studio.subscription_status ?? ""
-      );
+      Boolean(stripeManagedSubscription) ||
+      (Boolean(studio.stripe_subscription_id) &&
+        isManagedSubscriptionStatus(studio.subscription_status));
 
     if (stripeCustomerId && hasManagedSubscription) {
+      const successCode =
+        stripeManagedSubscription?.items.data.some(
+          (item) => item.price.id === stripePriceId
+        ) || studio.subscription_status === "trialing" || studio.subscription_status === "active"
+          ? "current_plan"
+          : "manage_subscription";
+
       const portalSession = await stripe.billingPortal.sessions.create({
         customer: stripeCustomerId,
         return_url: `${appUrl}${buildBillingReturnPath({
-          success: "manage_subscription",
+          success: successCode,
           path: audience,
           entry: entryMode,
           recommended: planCode,

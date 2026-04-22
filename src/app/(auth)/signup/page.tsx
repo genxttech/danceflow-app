@@ -1,7 +1,7 @@
 import Link from "next/link";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
-import { signupAction } from "../actions";
+import { loginAction } from "../actions";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -19,52 +19,167 @@ function normalizeIntent(value: string | undefined) {
   return "public";
 }
 
-export default async function SignupPage({
+function normalizeMode(value: string | undefined) {
+  if (
+    value === "resume-signup" ||
+    value === "check-email" ||
+    value === "existing-account" ||
+    value === "verify-email"
+  ) {
+    return value;
+  }
+
+  return "default";
+}
+
+export default async function LoginPage({
   searchParams,
 }: {
   searchParams?: SearchParams;
 }) {
   const resolvedSearchParams = (await searchParams) ?? {};
 
-  const signupIntent = normalizeIntent(
+  const nextPath = getSingleSearchParam(resolvedSearchParams.next) ?? "";
+  const loginIntent = normalizeIntent(
     getSingleSearchParam(resolvedSearchParams.intent)
   );
   const selectedPlan = getSingleSearchParam(resolvedSearchParams.plan) ?? "";
-  const nextPath = getSingleSearchParam(resolvedSearchParams.next) ?? "";
+  const emailHint = getSingleSearchParam(resolvedSearchParams.email) ?? "";
+  const mode = normalizeMode(getSingleSearchParam(resolvedSearchParams.mode));
+  const legacyCheckEmail = getSingleSearchParam(resolvedSearchParams["check-email"]);
+  const legacySignupState = getSingleSearchParam(resolvedSearchParams.signup);
 
-  async function submitSignup(formData: FormData) {
+  async function submitLogin(formData: FormData) {
     "use server";
-    await signupAction(formData);
+    await loginAction(formData);
   }
 
-  const isPaidPath = signupIntent === "studio" || signupIntent === "organizer";
-  const eyebrow =
-    signupIntent === "studio"
-      ? "Create Studio Account"
-      : signupIntent === "organizer"
-        ? "Create Organizer Account"
-        : "Create Free Account";
+  const isPaidPath = loginIntent === "studio" || loginIntent === "organizer";
+  const effectiveMode =
+    mode !== "default"
+      ? mode
+      : legacyCheckEmail === "1" || legacySignupState === "check-email"
+        ? "check-email"
+        : "default";
 
-  const title =
-    signupIntent === "studio"
-      ? "Start your studio account with a magic link"
-      : signupIntent === "organizer"
-        ? "Start your organizer account with a magic link"
-        : "Start with a magic link";
+  const pageEyebrow =
+    loginIntent === "studio"
+      ? "Studio Login"
+      : loginIntent === "organizer"
+        ? "Organizer Login"
+        : "Log In";
 
-  const description =
-    signupIntent === "studio"
-      ? "Create your account first, then continue into studio trial setup and billing."
-      : signupIntent === "organizer"
-        ? "Create your account first, then continue into organizer trial setup and billing."
-        : "For public discovery users, your free account should be fast and easy. Enter your info and we’ll email you a secure magic link. No password needed.";
+  const pageTitle =
+    effectiveMode === "resume-signup"
+      ? loginIntent === "studio"
+        ? "Your studio account already exists"
+        : loginIntent === "organizer"
+          ? "Your organizer account already exists"
+          : "Your account already exists"
+      : effectiveMode === "verify-email"
+        ? "Verify your email to continue"
+        : loginIntent === "studio"
+          ? "Continue your studio trial setup"
+          : loginIntent === "organizer"
+            ? "Continue your organizer trial setup"
+            : "Log in to DanceFlow";
 
-  const primaryButton =
-    signupIntent === "studio"
-      ? "Email Me My Studio Magic Link"
-      : signupIntent === "organizer"
-        ? "Email Me My Organizer Magic Link"
-        : "Email Me a Magic Link";
+  const pageDescription =
+    effectiveMode === "resume-signup"
+      ? loginIntent === "studio"
+        ? "That email already has a studio account. Sign in below to continue your studio setup instead of creating a second account."
+        : loginIntent === "organizer"
+          ? "That email already has an organizer account. Sign in below to continue your organizer setup instead of creating a second account."
+          : "That email already has an account. Sign in below to continue."
+      : effectiveMode === "verify-email"
+        ? "Your account was created, but email verification still needs to be completed before password login can continue."
+        : loginIntent === "studio"
+          ? "Use your password or a magic link to continue studio onboarding and billing."
+          : loginIntent === "organizer"
+            ? "Use your password or a magic link to continue organizer onboarding and billing."
+            : "Sign in to your free account, studio portal, or organizer workspace.";
+
+  const magicLinkTitle =
+    loginIntent === "studio"
+      ? "Email me my studio sign-in link"
+      : loginIntent === "organizer"
+        ? "Email me my organizer sign-in link"
+        : "Email me a sign-in link";
+
+  const magicLinkDescription =
+    effectiveMode === "resume-signup"
+      ? "Best if you started account creation already and just need a fast, reliable way back into setup."
+      : loginIntent === "studio"
+        ? "Best if you started studio onboarding already and want to return to trial setup quickly."
+        : loginIntent === "organizer"
+          ? "Best if you started organizer onboarding already and want to return to trial setup quickly."
+          : "Best for dancers and free discovery accounts. Enter your email and we’ll send you a secure sign-in link.";
+
+  const passwordTitle =
+    loginIntent === "studio"
+      ? "Sign in to your studio account"
+      : loginIntent === "organizer"
+        ? "Sign in to your organizer account"
+        : "Sign in with password";
+
+  const passwordDescription =
+    effectiveMode === "resume-signup"
+      ? "Use the password you created earlier. If you do not want to use a password, the magic link option on the left is a reliable recovery path."
+      : effectiveMode === "verify-email"
+        ? "If password login does not work yet, verify your email first or use a magic link after confirmation."
+        : loginIntent === "studio"
+          ? "Best for studio users who already use a password-based login flow."
+          : loginIntent === "organizer"
+            ? "Best for organizer users who already use a password-based login flow."
+            : "Use your email and password if you already have a password-based account.";
+
+  const defaultPaidNext = nextPath || "/get-started/complete";
+  const magicLinkDefaultNext = nextPath || (isPaidPath ? defaultPaidNext : "/account");
+  const passwordDefaultNext = nextPath || (isPaidPath ? defaultPaidNext : "/account");
+
+  const resumeBox =
+    effectiveMode === "resume-signup" ? (
+      <div className="mt-6 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+        <p className="text-sm font-medium text-slate-900">Account already created</p>
+        <p className="mt-2 text-sm leading-7 text-slate-600">
+          We found an existing account for{" "}
+          <span className="font-medium text-slate-900">
+            {emailHint || "this email address"}
+          </span>
+          . Sign in below to continue setup instead of trying to register again.
+        </p>
+      </div>
+    ) : null;
+
+  const verifyEmailBox =
+    effectiveMode === "verify-email" ? (
+      <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <p className="text-sm font-medium text-slate-900">
+          Check your inbox before password login
+        </p>
+        <p className="mt-2 text-sm leading-7 text-slate-600">
+          Your account was created for{" "}
+          <span className="font-medium text-slate-900">
+            {emailHint || "your email address"}
+          </span>
+          . Open the verification email first. After that, return here and sign in to continue setup.
+        </p>
+      </div>
+    ) : null;
+
+  const checkEmailBox =
+    effectiveMode === "check-email" ? (
+      <div className="mt-6 rounded-2xl border border-sky-200 bg-sky-50 p-4">
+        <p className="text-sm font-medium text-slate-900">Check your email</p>
+        <p className="mt-2 text-sm leading-7 text-slate-600">
+          We sent a sign-in link to{" "}
+          <span className="font-medium text-slate-900">
+            {emailHint || "your email address"}
+          </span>
+          . Open it on this device to continue.
+        </p>
+      </div>
+    ) : null;
 
   return (
     <>
@@ -72,73 +187,69 @@ export default async function SignupPage({
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_18%,#f8fafc_100%)]">
         <section className="mx-auto max-w-6xl px-6 py-14 lg:px-8">
-          <div className="grid gap-8 lg:grid-cols-[1.05fr_0.95fr] lg:items-start">
-            <div className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="mb-8 rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+              {pageEyebrow}
+            </p>
+
+            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
+              {pageTitle}
+            </h1>
+
+            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
+              {pageDescription}
+            </p>
+
+            {resumeBox}
+            {verifyEmailBox}
+            {checkEmailBox}
+
+            {isPaidPath ? (
+              <div className="mt-6 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                <p className="text-sm font-medium text-slate-900">
+                  Setup continuation is preserved
+                </p>
+                <ul className="mt-2 space-y-1 text-sm text-slate-600">
+                  <li>• Intent: {loginIntent}</li>
+                  <li>• Plan: {selectedPlan || "not specified"}</li>
+                  <li>• Return path: {defaultPaidNext}</li>
+                </ul>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="grid gap-8 lg:grid-cols-2 lg:items-start">
+            <section className="rounded-[32px] border border-orange-200 bg-white p-8 shadow-sm">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-                {eyebrow}
+                Email Link Login
               </p>
 
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-                {title}
-              </h1>
+              <h2 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
+                {magicLinkTitle}
+              </h2>
 
               <p className="mt-4 text-base leading-7 text-slate-600">
-                {description}
+                {magicLinkDescription}
               </p>
 
-              {isPaidPath ? (
-                <div className="mt-6 rounded-2xl border border-violet-200 bg-violet-50 p-4">
-                  <p className="text-sm font-medium text-slate-900">
-                    Trial setup will continue after signup
-                  </p>
-                  <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                    <li>• We’ll send you a secure magic link</li>
-                    <li>• After login, you’ll return to trial setup automatically</li>
-                    <li>• Billing is completed before entering the dashboard</li>
-                  </ul>
-                </div>
-              ) : null}
-
-              <form action={submitSignup} className="mt-8 space-y-5">
-                <input
-                  type="hidden"
-                  name="signupMode"
-                  value={isPaidPath ? "magic_link_paid_path" : "magic_link_public"}
-                />
-                <input type="hidden" name="signupIntent" value={signupIntent} />
-                <input type="hidden" name="selectedPlan" value={selectedPlan} />
-                <input type="hidden" name="nextPath" value={nextPath} />
+              <form action={submitLogin} className="mt-8 space-y-5">
+                <input type="hidden" name="loginMode" value="magic_link" />
+                <input type="hidden" name="next" value={magicLinkDefaultNext} />
 
                 <div>
                   <label
-                    htmlFor="fullName"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    Full Name
-                  </label>
-                  <input
-                    id="fullName"
-                    name="fullName"
-                    type="text"
-                    required
-                    autoComplete="name"
-                    className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
-                  />
-                </div>
-
-                <div>
-                  <label
-                    htmlFor="email"
+                    htmlFor="magic-email"
                     className="mb-1.5 block text-sm font-medium text-slate-800"
                   >
                     Email
                   </label>
                   <input
-                    id="email"
+                    id="magic-email"
                     name="email"
                     type="email"
                     required
                     autoComplete="email"
+                    defaultValue={emailHint}
                     placeholder="you@example.com"
                     className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
                   />
@@ -148,98 +259,125 @@ export default async function SignupPage({
                   type="submit"
                   className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
                 >
-                  {primaryButton}
+                  {magicLinkTitle}
                 </button>
               </form>
 
-              {!isPaidPath ? (
-                <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-4">
-                  <p className="text-sm font-medium text-slate-900">
-                    What happens next
-                  </p>
-                  <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                    <li>• Your free discovery account is created automatically.</li>
-                    <li>• You can save favorite studios and events.</li>
-                    <li>• You can track events you register for.</li>
-                  </ul>
-                </div>
-              ) : (
-                <div className="mt-6 rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                  <p className="text-sm font-medium text-slate-900">
-                    What happens next
-                  </p>
-                  <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                    <li>• You sign in through the magic link</li>
-                    <li>• DanceFlow returns you to your trial-complete step</li>
-                    <li>• You start your free trial with billing</li>
-                  </ul>
-                </div>
-              )}
-
-              <p className="mt-6 text-sm text-slate-600">
-                Already have an account?{" "}
-                <Link href="/login" className="font-medium text-slate-900 underline">
-                  Log in
-                </Link>
-              </p>
-            </div>
-
-            <div className="space-y-6">
-              <section
-                className={`rounded-[32px] p-7 shadow-sm ${
-                  isPaidPath
-                    ? "border border-violet-200 bg-violet-50"
-                    : "border border-slate-200 bg-white"
-                }`}
-              >
-                <p
-                  className={`text-sm font-semibold uppercase tracking-[0.16em] ${
-                    isPaidPath ? "text-violet-700" : "text-slate-500"
-                  }`}
-                >
-                  {isPaidPath ? "Paid Path Onboarding" : "Free Discovery Path"}
+              <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                <p className="text-sm font-medium text-slate-900">
+                  Best recovery path if setup was interrupted
                 </p>
-
-                <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
-                  {signupIntent === "studio"
-                    ? "Studios continue into pricing-backed trial setup"
-                    : signupIntent === "organizer"
-                      ? "Organizers continue into pricing-backed trial setup"
-                      : "Public users stay on the free discovery path"}
-                </h2>
-
-                <p className="mt-3 text-sm leading-7 text-slate-600">
-                  {signupIntent === "studio"
-                    ? "This signup keeps your studio onboarding flow intact so you return to trial setup instead of getting dumped into the wrong part of the app."
-                    : signupIntent === "organizer"
-                      ? "This signup keeps your organizer onboarding flow intact so you return to trial setup before entering the organizer side."
-                      : "Public users can move quickly into discovery, favorites, and event tracking without needing a paid-path setup flow."}
-                </p>
-
-                <div className="mt-5 rounded-2xl border border-white/60 bg-white p-4">
-                  <p className="text-sm font-medium text-slate-900">
-                    Current path details
-                  </p>
-                  <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                    <li>• Intent: {signupIntent}</li>
-                    <li>• Plan: {selectedPlan || "none selected"}</li>
-                    <li>
-                      • Return step: {nextPath || "default account destination"}
-                    </li>
-                  </ul>
-                </div>
-              </section>
-
-              <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Why this is better
-                </p>
-                <ul className="mt-4 space-y-3 text-sm leading-7 text-slate-600">
-                  <li>• Keeps the studio and organizer onboarding flow intact</li>
-                  <li>• Preserves the selected plan and return step</li>
-                  <li>• Still gives public users a fast magic-link signup</li>
+                <ul className="mt-2 space-y-1 text-sm text-slate-600">
+                  <li>• No password reset friction</li>
+                  <li>• Works well for trial continuation</li>
+                  <li>• Returns you to the right next step</li>
                 </ul>
-              </section>
+              </div>
+            </section>
+
+            <section className="rounded-[32px] border border-violet-200 bg-white p-8 shadow-sm">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-700">
+                Password Login
+              </p>
+
+              <h2 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
+                {passwordTitle}
+              </h2>
+
+              <p className="mt-4 text-base leading-7 text-slate-600">
+                {passwordDescription}
+              </p>
+
+              <form action={submitLogin} className="mt-8 space-y-5">
+                <input type="hidden" name="loginMode" value="password" />
+                <input type="hidden" name="next" value={passwordDefaultNext} />
+
+                <div>
+                  <label
+                    htmlFor="password-email"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    Email
+                  </label>
+                  <input
+                    id="password-email"
+                    name="email"
+                    type="email"
+                    required
+                    autoComplete="email"
+                    defaultValue={emailHint}
+                    placeholder={
+                      loginIntent === "public"
+                        ? "you@example.com"
+                        : "business@example.com"
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="password"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    Password
+                  </label>
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    required
+                    autoComplete="current-password"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-medium text-white hover:bg-violet-700"
+                >
+                  {passwordTitle}
+                </button>
+              </form>
+
+              <div className="mt-6 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                <p className="text-sm font-medium text-slate-900">
+                  Best for returning business users
+                </p>
+                <ul className="mt-2 space-y-1 text-sm text-slate-600">
+                  <li>• Works for established studio and organizer accounts</li>
+                  <li>• Preserves the selected next step</li>
+                  <li>• Gives a stable return path into setup</li>
+                </ul>
+              </div>
+            </section>
+          </div>
+
+          <div className="mt-8 rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Need an account first?
+            </p>
+
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link
+                href={
+                  loginIntent === "studio" || loginIntent === "organizer"
+                    ? `/signup?intent=${encodeURIComponent(loginIntent)}${
+                        selectedPlan ? `&plan=${encodeURIComponent(selectedPlan)}` : ""
+                      }${nextPath ? `&next=${encodeURIComponent(nextPath)}` : ""}`
+                    : "/signup"
+                }
+                className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
+              >
+                Create Account
+              </Link>
+
+              <Link
+                href="/get-started"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Back to Get Started
+              </Link>
             </div>
           </div>
         </section>

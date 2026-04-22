@@ -77,9 +77,13 @@ function validatePaidIntent(params: {
 }
 
 function normalizeWorkspaceName(
+  preferredName: string | null | undefined,
   fullName: string | null | undefined,
   kind: PaidIntent
 ) {
+  const preferred = (preferredName || "").trim();
+  if (preferred) return preferred;
+
   const base = (fullName || "My").trim() || "My";
   return kind === "studio" ? `${base} Studio` : `${base} Organizer`;
 }
@@ -109,7 +113,9 @@ function workspaceMatchesIntent(
   const looksOrganizer =
     normalized.endsWith(" organizer") ||
     normalized.includes(" organizer ") ||
-    normalized.endsWith(" events");
+    normalized.endsWith(" events") ||
+    normalized.includes(" festival") ||
+    normalized.includes(" event");
 
   if (kind === "organizer") {
     return looksOrganizer;
@@ -181,6 +187,14 @@ function getCurrentUserFullName(user: {
       : null;
 }
 
+function getCurrentUserWorkspaceName(user: {
+  user_metadata?: Record<string, unknown> | null;
+}) {
+  return typeof user.user_metadata?.workspace_name === "string"
+    ? user.user_metadata.workspace_name
+    : null;
+}
+
 async function getActiveWorkspacesForUser(userId: string) {
   const supabase = await createClient();
 
@@ -248,11 +262,21 @@ function pickExistingWorkspaceForIntent(
   return null;
 }
 
-async function createWorkspaceForCurrentUser(kind: PaidIntent) {
+async function createWorkspaceForCurrentUser(params: {
+  kind: PaidIntent;
+  workspaceName?: string | null;
+}) {
   const { supabase, user } = await getCurrentUser();
 
   const fullName = getCurrentUserFullName(user);
-  const workspaceName = normalizeWorkspaceName(fullName, kind);
+  const metadataWorkspaceName = getCurrentUserWorkspaceName(user);
+
+  const workspaceName = normalizeWorkspaceName(
+    params.workspaceName ?? metadataWorkspaceName,
+    fullName,
+    params.kind
+  );
+
   const workspaceSlug = await buildUniqueStudioSlug(workspaceName);
 
   const { data: studio, error: studioError } = await supabase
@@ -277,6 +301,17 @@ async function createWorkspaceForCurrentUser(kind: PaidIntent) {
     throw new Error(settingsError.message);
   }
 
+  const { error: profileUpsertError } = await supabase.from("profiles").upsert(
+    {
+      id: user.id,
+    },
+    { onConflict: "id" }
+  );
+
+  if (profileUpsertError) {
+    throw new Error(profileUpsertError.message);
+  }
+
   const { error: roleError } = await supabase.from("user_studio_roles").insert({
     studio_id: studio.id,
     user_id: user.id,
@@ -291,7 +326,10 @@ async function createWorkspaceForCurrentUser(kind: PaidIntent) {
   return studio.id;
 }
 
-async function ensureWorkspaceForCurrentUser(kind: PaidIntent) {
+async function ensureWorkspaceForCurrentUser(params: {
+  kind: PaidIntent;
+  workspaceName?: string | null;
+}) {
   const { user } = await getCurrentUser();
 
   const [roles, selectedWorkspaceId] = await Promise.all([
@@ -302,7 +340,7 @@ async function ensureWorkspaceForCurrentUser(kind: PaidIntent) {
   const existingWorkspace = pickExistingWorkspaceForIntent(
     roles,
     selectedWorkspaceId,
-    kind
+    params.kind
   );
 
   if (existingWorkspace?.studio_id) {
@@ -310,7 +348,11 @@ async function ensureWorkspaceForCurrentUser(kind: PaidIntent) {
     return existingWorkspace.studio_id;
   }
 
-  const createdStudioId = await createWorkspaceForCurrentUser(kind);
+  const createdStudioId = await createWorkspaceForCurrentUser({
+    kind: params.kind,
+    workspaceName: params.workspaceName,
+  });
+
   await setSelectedWorkspaceCookie(createdStudioId);
   return createdStudioId;
 }
@@ -382,6 +424,11 @@ export async function beginPaidTrialCheckoutAction(formData: FormData) {
       ? String(formData.get("intent"))
       : "";
 
+  const workspaceName =
+    typeof formData.get("workspaceName") === "string"
+      ? String(formData.get("workspaceName")).trim()
+      : "";
+
   const validated = validatePaidIntent({
     planCodeRaw,
     intentRaw,
@@ -391,7 +438,10 @@ export async function beginPaidTrialCheckoutAction(formData: FormData) {
     redirect("/get-started");
   }
 
-  await ensureWorkspaceForCurrentUser(validated.intent);
+  await ensureWorkspaceForCurrentUser({
+    kind: validated.intent,
+    workspaceName: workspaceName || null,
+  });
 
   redirect(
     `/app/settings/billing?recommended=${encodeURIComponent(

@@ -27,8 +27,8 @@ type StudioRow = {
 type EventRow = {
   id: string;
   slug: string | null;
-  title: string;
-  starts_at: string | null;
+  name: string;
+  start_date: string | null;
   city: string | null;
   state: string | null;
 };
@@ -180,10 +180,10 @@ export default async function AccountPage() {
           .in("id", favoriteStudioIds)
       : Promise.resolve({ data: [], error: null }),
 
-    allEventIds.length
+        allEventIds.length
       ? supabase
           .from("events")
-          .select("id, slug, title, starts_at, city, state")
+          .select("id, slug, name, start_date, city, state")
           .in("id", allEventIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
@@ -536,9 +536,9 @@ export default async function AccountPage() {
                     href={event.slug ? `/events/${event.slug}` : "/discover/events"}
                     className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm transition hover:bg-white"
                   >
-                    <p className="text-lg font-semibold text-slate-950">{event.title}</p>
+                    <p className="text-lg font-semibold text-slate-950">{event.name}</p>
                     <p className="mt-1 text-sm text-slate-600">
-                      {formatDate(event.starts_at)} • {getEventLocation(event)}
+                      {formatDate(event.start_date)} • {getEventLocation(event)}
                     </p>
                     <p className="mt-4 text-sm text-slate-600">
                       Open the public event page.
@@ -581,9 +581,9 @@ export default async function AccountPage() {
                   >
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
-                        <p className="text-lg font-semibold text-slate-950">{event.title}</p>
+                        <p className="text-lg font-semibold text-slate-950">{event.name}</p>
                         <p className="mt-1 text-sm text-slate-600">
-                          {formatDate(event.starts_at)} • {getEventLocation(event)}
+                          {formatDate(event.start_date)} • {getEventLocation(event)}
                         </p>
                       </div>
 

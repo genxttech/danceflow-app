@@ -98,10 +98,97 @@ function normalizeNavLabel(item: NavItem) {
   return item.label;
 }
 
-function normalizeSections(input: unknown): NavSectionType[] {
+function isOrganizerLikeRole(role: string) {
+  const normalized = role.trim().toLowerCase();
+  return (
+    normalized.includes("organizer") ||
+    normalized.includes("event") ||
+    normalized.includes("promoter")
+  );
+}
+
+function hasNavLink(sections: NavSectionType[], href: string) {
+  return sections.some((section) =>
+    section.items.some((item) => item.href === href)
+  );
+}
+
+function looksLikeOrganizerNavigation(sections: NavSectionType[], role: string) {
+  if (isOrganizerLikeRole(role)) return true;
+
+  const flatItems = sections.flatMap((section) => section.items);
+
+  const hasEvents = flatItems.some((item) => item.href.startsWith("/app/events"));
+  const hasSchedule = flatItems.some((item) => item.href.startsWith("/app/schedule"));
+  const hasClients = flatItems.some((item) => item.href.startsWith("/app/clients"));
+
+  return hasEvents && !hasSchedule && !hasClients;
+}
+
+function injectOrganizerEventHubs(
+  sections: NavSectionType[],
+  role: string
+): NavSectionType[] {
+  if (!looksLikeOrganizerNavigation(sections, role)) {
+    return sections;
+  }
+
+  const hasRegistrationsHub = hasNavLink(sections, "/app/events/registrations");
+  const hasCheckInHub = hasNavLink(sections, "/app/events/checkin");
+
+  return sections.map((section) => {
+    const hasEventsLink = section.items.some((item) => item.href === "/app/events");
+
+    if (!hasEventsLink) {
+      return section;
+    }
+
+    const nextItems: NavItem[] = [];
+
+    for (const item of section.items) {
+      const isEventSpecificRegistrations = item.href.includes("/registrations");
+      const isEventSpecificCheckIn = item.href.includes("/checkin");
+
+      if (isEventSpecificRegistrations || isEventSpecificCheckIn) {
+        continue;
+      }
+
+      nextItems.push(item);
+
+      const isEventsAnchor =
+        item.href === "/app/events" ||
+        item.label.trim().toLowerCase() === "events";
+
+      if (isEventsAnchor) {
+        if (!hasRegistrationsHub) {
+          nextItems.push({
+            label: "Registrations",
+            href: "/app/events/registrations",
+            icon: "clients",
+          });
+        }
+
+        if (!hasCheckInHub) {
+          nextItems.push({
+            label: "Check-In",
+            href: "/app/events/checkin",
+            icon: "checkin",
+          });
+        }
+      }
+    }
+
+    return {
+      ...section,
+      items: nextItems,
+    };
+  });
+}
+
+function normalizeSections(input: unknown, role: string): NavSectionType[] {
   if (!Array.isArray(input)) return [];
 
-  return input
+  const normalized = input
     .map((section) => {
       const rawSection = section as Partial<NavSectionType> | null | undefined;
       const title =
@@ -145,6 +232,8 @@ function normalizeSections(input: unknown): NavSectionType[] {
       } satisfies NavSectionType;
     })
     .filter((section) => section.items.length > 0);
+
+    return injectOrganizerEventHubs(normalized, role);
 }
 
 function prettyRole(role: string) {
@@ -414,7 +503,10 @@ export default function AppSidebarShell({
     ? recentNotifications
     : [];
 
-  const normalizedSections = useMemo(() => normalizeSections(sections), [sections]);
+  const normalizedSections = useMemo(
+    () => normalizeSections(sections, safeRole),
+    [sections, safeRole]
+  );
 
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[320px_minmax(0,1fr)]">

@@ -1,14 +1,16 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  ArrowRight,
   Bell,
   CalendarDays,
+  CheckCircle2,
+  ClipboardList,
   Globe2,
   Sparkles,
   Star,
   Ticket,
   Users,
-  ArrowRight,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { syncStudioNotifications } from "@/lib/notifications/sync";
@@ -53,16 +55,21 @@ type NotificationRow = {
   created_at: string;
 };
 
-function isOrganizerWorkspaceName(value: string | null | undefined) {
-  const normalized = (value ?? "").trim().toLowerCase();
+type RegistrationRow = {
+  id: string;
+  event_id: string;
+  payment_status: string | null;
+};
 
-  if (!normalized) return false;
+type AttendanceRow = {
+  id: string;
+  event_registration_id: string;
+  status: string;
+};
 
-  return (
-    normalized.endsWith(" organizer") ||
-    normalized.includes(" organizer ") ||
-    normalized.endsWith(" events")
-  );
+function isOrganizerRole(role: string | null | undefined) {
+  const normalized = (role ?? "").trim().toLowerCase();
+  return normalized.startsWith("organizer_");
 }
 
 function fmtDateTime(value: string) {
@@ -184,6 +191,7 @@ export default async function AppDashboardPage() {
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
   const accessibleStudios = await getAccessibleStudios();
+  const organizerWorkspace = isOrganizerRole(context.studioRole);
 
   const currentWorkspace =
     accessibleStudios.find((workspace) => workspace.studioId === studioId) ??
@@ -197,6 +205,7 @@ export default async function AppDashboardPage() {
     { data: events, error: eventsError },
     { data: organizers, error: organizersError },
     { data: notifications, error: notificationsError },
+    { data: registrations, error: registrationsError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -244,6 +253,15 @@ export default async function AppDashboardPage() {
       .eq("studio_id", studioId)
       .order("created_at", { ascending: false })
       .limit(6),
+
+    supabase
+      .from("event_registrations")
+      .select(`
+        id,
+        event_id,
+        payment_status
+      `)
+      .eq("studio_id", studioId),
   ]);
 
   if (workspaceError) {
@@ -262,10 +280,34 @@ export default async function AppDashboardPage() {
     throw new Error(`Failed to load dashboard notifications: ${notificationsError.message}`);
   }
 
-  const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
+  if (registrationsError) {
+    throw new Error(`Failed to load dashboard registrations: ${registrationsError.message}`);
+  }
+
   const typedEvents = (events ?? []) as EventRow[];
   const typedOrganizers = (organizers ?? []) as OrganizerRow[];
   const typedNotifications = (notifications ?? []) as NotificationRow[];
+  const typedRegistrations = (registrations ?? []) as RegistrationRow[];
+
+  const registrationIds = typedRegistrations.map((row) => row.id);
+
+  let typedAttendance: AttendanceRow[] = [];
+  if (registrationIds.length > 0) {
+    const { data: attendanceRows, error: attendanceError } = await supabase
+      .from("event_attendance")
+      .select(`
+        id,
+        event_registration_id,
+        status
+      `)
+      .in("event_registration_id", registrationIds);
+
+    if (attendanceError) {
+      throw new Error(`Failed to load dashboard attendance: ${attendanceError.message}`);
+    }
+
+    typedAttendance = (attendanceRows ?? []) as AttendanceRow[];
+  }
 
   const totalEvents = typedEvents.length;
   const publishedCount = typedEvents.filter(
@@ -282,6 +324,19 @@ export default async function AppDashboardPage() {
   const activeOrganizerCount = typedOrganizers.filter((item) => item.active).length;
   const primaryOrganizer = typedOrganizers[0] ?? null;
 
+  const paidRegistrationsCount = typedRegistrations.filter(
+    (row) => row.payment_status === "paid" || row.payment_status === "partial"
+  ).length;
+
+  const checkedInRegistrationIds = new Set(
+    typedAttendance
+      .filter((row) => row.status === "checked_in")
+      .map((row) => row.event_registration_id)
+  );
+
+  const checkedInCount = checkedInRegistrationIds.size;
+  const pendingCheckInCount = Math.max(typedRegistrations.length - checkedInCount, 0);
+
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
@@ -289,17 +344,19 @@ export default async function AppDashboardPage() {
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                {organizerWorkspace ? "DanceFlow Organizer Dashboard" : "DanceFlow Workspace Dashboard"}
+                {organizerWorkspace
+                  ? "DanceFlow Organizer Dashboard"
+                  : "DanceFlow Studio Dashboard"}
               </p>
 
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                {organizerWorkspace ? "Organizer Dashboard" : "Dashboard"}
+                {organizerWorkspace ? "Organizer Dashboard" : "Studio Dashboard"}
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
                 {organizerWorkspace
-                  ? "See the health of your organizer workspace at a glance, including event publishing, organizer profile status, discovery readiness, and recent alerts."
-                  : "See the health of your current workspace at a glance, including events, organizers, and recent alerts."}
+                  ? "Run your organizer operations from one place, including events, registrations, check-in, organizer profile status, and recent alerts."
+                  : "See the health of your current studio workspace at a glance, including clients, schedule, events, and recent alerts."}
               </p>
 
               {currentWorkspace ? (
@@ -309,74 +366,78 @@ export default async function AppDashboardPage() {
                     {currentWorkspace.studioName}
                   </span>
                 </p>
+              ) : workspace?.name ? (
+                <p className="mt-4 text-sm text-white/75">
+                  Current workspace:{" "}
+                  <span className="font-medium text-white">{workspace.name}</span>
+                </p>
               ) : null}
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <Link
-                href="/app/events"
-                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-              >
-                View Events
-              </Link>
-
               {organizerWorkspace ? (
-                primaryOrganizer ? (
+                <>
                   <Link
-                    href={`/app/organizers/${primaryOrganizer.id}`}
+                    href="/app/events/new"
+                    className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                  >
+                    Create Event
+                  </Link>
+                  <Link
+                    href="/app/events/registrations"
                     className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
                   >
-                    View Organizer
+                    View Registrations
                   </Link>
-                ) : (
-                  <Link
-                    href="/app/organizers/new"
-                    className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
-                  >
-                    Create Organizer
-                  </Link>
-                )
+                </>
               ) : (
-                <Link
-                  href="/app/notifications"
-                  className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
-                >
-                  View Notifications
-                </Link>
+                <>
+                  <Link
+                    href="/app/schedule"
+                    className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                  >
+                    Open Schedule
+                  </Link>
+                  <Link
+                    href="/app/notifications"
+                    className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+                  >
+                    View Notifications
+                  </Link>
+                </>
               )}
             </div>
           </div>
         </div>
 
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-            <StatCard
-              label="Events"
-              value={totalEvents}
-              icon={CalendarDays}
-              subtext="Current loaded event set"
-            />
-            <StatCard
-              label="Published / Open"
-              value={publishedCount}
-              icon={Ticket}
-            />
-            <StatCard
-              label="Public"
-              value={publicCount}
-              icon={Globe2}
-            />
-            <StatCard
-              label="Discovery Ready"
-              value={discoveryReadyCount}
-              icon={Star}
-            />
-            <StatCard
-              label="Unread Notifications"
-              value={unreadCount}
-              icon={Bell}
-            />
-          </div>
+          {organizerWorkspace ? (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <StatCard
+                label="Events"
+                value={totalEvents}
+                icon={CalendarDays}
+                subtext="Current loaded event set"
+              />
+              <StatCard label="Published / Open" value={publishedCount} icon={Ticket} />
+              <StatCard label="Registrations" value={typedRegistrations.length} icon={ClipboardList} />
+              <StatCard label="Checked In" value={checkedInCount} icon={CheckCircle2} />
+              <StatCard label="Unread Notifications" value={unreadCount} icon={Bell} />
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+              <StatCard
+                label="Events"
+                value={totalEvents}
+                icon={CalendarDays}
+                subtext="Current loaded event set"
+              />
+              <StatCard label="Published / Open" value={publishedCount} icon={Ticket} />
+              <StatCard label="Public" value={publicCount} icon={Globe2} />
+              <StatCard label="Discovery Ready" value={discoveryReadyCount} icon={Star} />
+              <StatCard label="Unread Notifications" value={unreadCount} icon={Bell} />
+            </div>
+          )}
         </div>
       </section>
 
@@ -524,87 +585,195 @@ export default async function AppDashboardPage() {
             )}
           </SectionCard>
 
-          <SectionCard
-            title="Recent Notifications"
-            subtitle="Latest workspace alerts."
-            action={
-              <Link
-                href="/app/notifications"
-                className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
-              >
-                Open Notifications
-              </Link>
-            }
-          >
-            {typedNotifications.length === 0 ? (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                No recent notifications.
+          {organizerWorkspace ? (
+            <SectionCard
+              title="Registration & Check-In"
+              subtitle="Today’s organizer operations at a glance."
+              action={
+                <Link
+                  href="/app/events/registrations"
+                  className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
+                >
+                  Open Registrations
+                </Link>
+              }
+            >
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm text-slate-500">Registrations</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">
+                    {typedRegistrations.length}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm text-slate-500">Paid</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">
+                    {paidRegistrationsCount}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-sm text-slate-500">Still to Check In</p>
+                  <p className="mt-2 text-2xl font-semibold text-slate-950">
+                    {pendingCheckInCount}
+                  </p>
+                </div>
               </div>
-            ) : (
-              <div className="space-y-3">
-                {typedNotifications.slice(0, 4).map((notification) => (
-                  <div
-                    key={notification.id}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-medium text-slate-900">
-                            {notification.title}
-                          </p>
-                          {!notification.read_at ? (
-                            <span className="inline-flex rounded-full bg-slate-900 px-2 py-0.5 text-[11px] font-medium text-white">
-                              Unread
-                            </span>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <Link
+                  href="/app/events/registrations"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  View Registration Hub
+                </Link>
+                <Link
+                  href="/app/events/checkin"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Open Check-In Hub
+                </Link>
+              </div>
+            </SectionCard>
+          ) : (
+            <SectionCard
+              title="Recent Notifications"
+              subtitle="Latest workspace alerts."
+              action={
+                <Link
+                  href="/app/notifications"
+                  className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
+                >
+                  Open Notifications
+                </Link>
+              }
+            >
+              {typedNotifications.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  No recent notifications.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {typedNotifications.slice(0, 4).map((notification) => (
+                    <div
+                      key={notification.id}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-slate-900">
+                              {notification.title}
+                            </p>
+                            {!notification.read_at ? (
+                              <span className="inline-flex rounded-full bg-slate-900 px-2 py-0.5 text-[11px] font-medium text-white">
+                                Unread
+                              </span>
+                            ) : null}
+                          </div>
+                          {notification.body ? (
+                            <p className="mt-1 text-sm text-slate-600">
+                              {notification.body}
+                            </p>
                           ) : null}
-                        </div>
-                        {notification.body ? (
-                          <p className="mt-1 text-sm text-slate-600">
-                            {notification.body}
+                          <p className="mt-2 text-xs text-slate-500">
+                            {fmtDateTime(notification.created_at)}
                           </p>
-                        ) : null}
-                        <p className="mt-2 text-xs text-slate-500">
-                          {fmtDateTime(notification.created_at)}
-                        </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </SectionCard>
+                  ))}
+                </div>
+              )}
+            </SectionCard>
+          )}
 
           <SectionCard
             title="Quick Actions"
-            subtitle="Common organizer workflow shortcuts."
+            subtitle={
+              organizerWorkspace
+                ? "Common organizer workflow shortcuts."
+                : "Common studio workflow shortcuts."
+            }
           >
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Link
-                href="/app/events/new"
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-              >
-                New Event
-              </Link>
-              <Link
-                href="/app/events"
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-              >
-                Manage Events
-              </Link>
-              <Link
-                href="/app/organizers"
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-              >
-                Organizer Profile
-              </Link>
-              <Link
-                href="/app/notifications"
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-              >
-                Notifications
-              </Link>
-            </div>
+            {organizerWorkspace ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Link
+                  href="/app/events/new"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  New Event
+                </Link>
+                <Link
+                  href="/app/events"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Manage Events
+                </Link>
+                <Link
+                  href="/app/events/registrations"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Registration Hub
+                </Link>
+                <Link
+                  href="/app/events/checkin"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Check-In Hub
+                </Link>
+                <Link
+                  href="/app/organizers"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Organizer Profile
+                </Link>
+                <Link
+                  href="/app/notifications"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Notifications
+                </Link>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Link
+                  href="/app/schedule"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Open Schedule
+                </Link>
+                <Link
+                  href="/app/clients"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Manage Clients
+                </Link>
+                <Link
+                  href="/app/leads"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Lead Inbox
+                </Link>
+                <Link
+                  href="/app/events"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Events
+                </Link>
+                <Link
+                  href="/app/payments"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Payments
+                </Link>
+                <Link
+                  href="/app/notifications"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
+                >
+                  Notifications
+                </Link>
+              </div>
+            )}
           </SectionCard>
         </div>
       </section>
