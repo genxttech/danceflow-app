@@ -133,33 +133,28 @@ function injectOrganizerEventHubs(
     return sections;
   }
 
-  const hasRegistrationsHub = hasNavLink(sections, "/app/events/registrations");
-  const hasCheckInHub = hasNavLink(sections, "/app/events/checkin");
+  let inserted = false;
 
-  return sections.map((section) => {
+  const nextSections = sections.map((section) => {
     const hasEventsLink = section.items.some((item) => item.href === "/app/events");
 
     if (!hasEventsLink) {
       return section;
     }
 
+    const hasRegistrationsHub = section.items.some(
+      (item) => item.href === "/app/events/registrations"
+    );
+    const hasCheckInHub = section.items.some(
+      (item) => item.href === "/app/events/checkin"
+    );
+
     const nextItems: NavItem[] = [];
 
     for (const item of section.items) {
-      const isEventSpecificRegistrations = item.href.includes("/registrations");
-      const isEventSpecificCheckIn = item.href.includes("/checkin");
-
-      if (isEventSpecificRegistrations || isEventSpecificCheckIn) {
-        continue;
-      }
-
       nextItems.push(item);
 
-      const isEventsAnchor =
-        item.href === "/app/events" ||
-        item.label.trim().toLowerCase() === "events";
-
-      if (isEventsAnchor) {
+      if (item.href === "/app/events") {
         if (!hasRegistrationsHub) {
           nextItems.push({
             label: "Registrations",
@@ -175,6 +170,8 @@ function injectOrganizerEventHubs(
             icon: "checkin",
           });
         }
+
+        inserted = true;
       }
     }
 
@@ -183,6 +180,39 @@ function injectOrganizerEventHubs(
       items: nextItems,
     };
   });
+
+  if (inserted) {
+    return nextSections;
+  }
+
+  return [
+    {
+      title: "Organizer Operations",
+      items: [
+        {
+          label: "Dashboard",
+          href: "/app",
+          icon: "dashboard",
+        },
+        {
+          label: "Events",
+          href: "/app/events",
+          icon: "events",
+        },
+        {
+          label: "Registrations",
+          href: "/app/events/registrations",
+          icon: "clients",
+        },
+        {
+          label: "Check-In",
+          href: "/app/events/checkin",
+          icon: "checkin",
+        },
+      ],
+    },
+    ...sections,
+  ];
 }
 
 function normalizeSections(input: unknown, role: string): NavSectionType[] {

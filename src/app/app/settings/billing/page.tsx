@@ -64,6 +64,14 @@ function parseSingleSearchParam(
   return typeof value === "string" ? value : undefined;
 }
 
+function getBillingReason(value?: string) {
+  if (value === "access_paused") {
+    return value;
+  }
+
+  return "default";
+}
+
 function isPlanCode(value: string | undefined): value is PlanCode {
   return (
     value === "starter" ||
@@ -469,9 +477,10 @@ export default async function BillingSettingsPage({
     .maybeSingle<SubscriptionRow>();
 
   const successParam = parseSingleSearchParam(resolvedSearchParams.success);
-  const errorParam = parseSingleSearchParam(resolvedSearchParams.error);
+const errorParam = parseSingleSearchParam(resolvedSearchParams.error);
+const entryParam = parseSingleSearchParam(resolvedSearchParams.entry);
+const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
   const pathParam = parseSingleSearchParam(resolvedSearchParams.path);
-  const entryParam = parseSingleSearchParam(resolvedSearchParams.entry);
   const recommendedParam = parseSingleSearchParam(resolvedSearchParams.recommended);
 
   const inferredAudience: PlanAudience = isOrganizerWorkspaceName(studio.name)
@@ -504,7 +513,9 @@ export default async function BillingSettingsPage({
   );
 
   const isTrialCompleteEntry = entryMode === "trial-complete";
-  const showWorkspaceButton = hasManagedSubscription;
+  const billingReason = getBillingReason(reasonParam);
+  const isAccessPaused = billingReason === "access_paused";
+  const showWorkspaceButton = hasManagedSubscription && !isAccessPaused;
   const showPayoutsCard = !isTrialCompleteEntry || hasManagedSubscription;
 
   const visiblePlans = BILLING_PLANS.filter((plan) => plan.audience === selectedAudience);
@@ -640,6 +651,16 @@ export default async function BillingSettingsPage({
             </div>
           ) : null}
 
+          {isAccessPaused ? (
+            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+              <p className="font-semibold">Workspace access paused</p>
+              <p className="mt-1">
+                Billing must be resolved before access to this workspace is restored.
+                Update your subscription or payment method below to regain access.
+              </p>
+            </div>
+          ) : null}
+
           {successMessage ? (
             <div
               className={`mt-6 rounded-2xl border p-4 text-sm ${
@@ -692,7 +713,7 @@ export default async function BillingSettingsPage({
                     Subscription
                   </p>
                   <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                    Choose the right{" "}
+                    Choose the right {" "}
                     {selectedAudience === "organizer" ? "organizer" : "studio"} plan
                   </h2>
                   <p className="mt-2 text-sm leading-7 text-slate-600">
@@ -744,7 +765,9 @@ export default async function BillingSettingsPage({
                 ))}
               </div>
             </div>
+          </div>
 
+          <div className="space-y-8">
             {showPayoutsCard ? (
               <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
                 <div className="flex items-start gap-3">
@@ -815,9 +838,7 @@ export default async function BillingSettingsPage({
                 ) : null}
               </div>
             ) : null}
-          </div>
 
-          <div className="space-y-8">
             <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
                 Workspace Fit
@@ -846,25 +867,18 @@ export default async function BillingSettingsPage({
                 Next Step
               </p>
               <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                {showWorkspaceButton
-                  ? "Continue into the correct workspace"
-                  : "Finish billing to unlock the workspace"}
+                Continue into the correct workspace
               </h2>
-
               <p className="mt-3 text-sm leading-7 text-slate-600">
-                {showWorkspaceButton
-                  ? selectedAudience === "organizer"
-                    ? "Your organizer trial is active. Continue into event operations and complete payouts when needed."
-                    : "Your studio trial is active. Continue into the studio dashboard and complete payouts when needed."
-                  : selectedAudience === "organizer"
-                    ? "Start billing first. After checkout begins your trial, organizer workspace access should follow."
-                    : "Start billing first. After checkout begins your trial, studio workspace access should follow."}
+                {selectedAudience === "organizer"
+                  ? "Your organizer trial is active. Continue into event operations and complete payouts when needed."
+                  : "Your studio trial is active. Continue into the workspace and finish billing setup as needed."}
               </p>
 
-              {showWorkspaceButton ? (
+              <div className="mt-6">
                 <Link
-                  href={getPostTrialDashboardPath(selectedAudience)}
-                  className="mt-6 inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+                  href="/app"
+                  className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
                 >
                   <span>
                     {selectedAudience === "organizer"
@@ -873,7 +887,7 @@ export default async function BillingSettingsPage({
                   </span>
                   <ArrowRight className="h-4 w-4" />
                 </Link>
-              ) : null}
+              </div>
             </div>
           </div>
         </div>

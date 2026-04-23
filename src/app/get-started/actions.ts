@@ -312,10 +312,12 @@ async function createWorkspaceForCurrentUser(params: {
     throw new Error(profileUpsertError.message);
   }
 
+  const ownerRole = params.kind === "organizer" ? "organizer_owner" : "studio_owner";
+
   const { error: roleError } = await supabase.from("user_studio_roles").insert({
     studio_id: studio.id,
     user_id: user.id,
-    role: "studio_owner",
+    role: ownerRole,
     active: true,
   });
 
@@ -443,11 +445,14 @@ export async function beginPaidTrialCheckoutAction(formData: FormData) {
     workspaceName: workspaceName || null,
   });
 
-  redirect(
-    `/app/settings/billing?recommended=${encodeURIComponent(
-      validated.plan.code
-    )}&entry=trial-complete&path=${encodeURIComponent(validated.intent)}`
-  );
+  const search = new URLSearchParams({
+    planCode: validated.plan.code,
+    path: validated.intent,
+    entry: "trial-complete",
+    billingInterval: "month",
+  });
+
+  redirect(`/api/billing/checkout?${search.toString()}`);
 }
 
 export async function continueExplorerIntoDiscoveryAction() {

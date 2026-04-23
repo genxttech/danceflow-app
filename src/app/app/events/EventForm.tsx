@@ -58,6 +58,10 @@ type EventFormProps = {
   organizerWorkspace?: boolean;
 };
 
+function RequiredAsterisk() {
+  return <span className="ml-1 text-red-500">*</span>;
+}
+
 const EVENT_TYPE_OPTIONS = [
   { value: "group_class", label: "Group Class" },
   { value: "social_dance", label: "Social Dance" },
@@ -313,20 +317,10 @@ export default function EventForm({
 </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:min-w-[280px]">
-            <button
-              type="submit"
-              disabled={pending}
-              className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
-            >
-              {pending
-                ? mode === "edit"
-                  ? "Saving..."
-                  : "Creating..."
-                : mode === "edit"
-                ? "Save Event"
-                : "Create Event"}
-            </button>
+          <div className="grid grid-cols-1 gap-3 lg:min-w-[280px]">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Required fields are marked with an asterisk (*).
+            </div>
 
             <Link
               href={
@@ -343,7 +337,7 @@ export default function EventForm({
 
         {state.error ? (
           <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {state.error}
+            {state.error} Check required fields marked with * and try again.
           </div>
         ) : null}
       </div>

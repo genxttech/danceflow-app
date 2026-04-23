@@ -22,6 +22,7 @@ import {
 type WorkspaceRow = {
   id: string;
   name: string | null;
+  stripe_connected_account_id: string | null;
 };
 
 type EventRow = {
@@ -209,7 +210,7 @@ export default async function AppDashboardPage() {
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name")
+      .select("id, name, stripe_connected_account_id")
       .eq("id", studioId)
       .maybeSingle<WorkspaceRow>(),
 
@@ -336,6 +337,7 @@ export default async function AppDashboardPage() {
 
   const checkedInCount = checkedInRegistrationIds.size;
   const pendingCheckInCount = Math.max(typedRegistrations.length - checkedInCount, 0);
+  const payoutsReady = Boolean(workspace?.stripe_connected_account_id);
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -535,6 +537,27 @@ export default async function AppDashboardPage() {
         </SectionCard>
 
         <div className="space-y-8">
+          {organizerWorkspace && !payoutsReady ? (
+            <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="max-w-xl">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+                    Enable payouts
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-amber-900">
+                    Connect payouts before taking paid registrations so DanceFlow can route ticket revenue to your organizer business.
+                  </p>
+                </div>
+                <Link
+                  href="/app/settings/billing"
+                  className="inline-flex items-center justify-center rounded-xl bg-amber-900 px-4 py-3 text-sm font-medium text-white hover:bg-amber-800"
+                >
+                  Billing &amp; Payments
+                </Link>
+              </div>
+            </div>
+          ) : null}
+
           <SectionCard
             title="Organizer Profile"
             subtitle={

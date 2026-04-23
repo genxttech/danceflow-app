@@ -26,6 +26,13 @@ type BillingCustomerRow = {
   stripe_customer_id: string | null;
 };
 
+type CheckoutInput = {
+  planCodeRaw: string;
+  requestedPath: PlanAudience | undefined;
+  entryMode: string;
+  billingInterval: "month" | "year";
+};
+
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -51,15 +58,16 @@ function billingRedirect(request: NextRequest, path: string) {
   return NextResponse.redirect(new URL(path, request.url), { status: 303 });
 }
 
-function parseAudience(value: FormDataEntryValue | null): PlanAudience | undefined {
+function parseAudienceValue(value: string | null | undefined): PlanAudience | undefined {
   if (typeof value !== "string") return undefined;
   const normalized = value.trim().toLowerCase();
+
   return normalized === "studio" || normalized === "organizer"
     ? normalized
     : undefined;
 }
 
-function parseEntry(value: FormDataEntryValue | null) {
+function parseEntryValue(value: string | null | undefined) {
   if (typeof value !== "string") return "default";
   const normalized = value.trim().toLowerCase();
 
@@ -74,7 +82,7 @@ function parseEntry(value: FormDataEntryValue | null) {
   return "default";
 }
 
-function parseBillingInterval(value: FormDataEntryValue | null) {
+function parseBillingIntervalValue(value: string | null | undefined) {
   if (typeof value !== "string") return "month";
   const normalized = value.trim().toLowerCase();
   return normalized === "year" ? "year" : "month";
@@ -119,9 +127,7 @@ function isManagedSubscriptionStatus(status: string | null | undefined) {
   return ["active", "trialing", "past_due", "unpaid"].includes(status ?? "");
 }
 
-async function getManagedStripeSubscription(params: {
-  stripeCustomerId: string;
-}) {
+async function getManagedStripeSubscription(params: { stripeCustomerId: string }) {
   const stripe = getStripe();
 
   const subscriptions = await stripe.subscriptions.list({
@@ -137,7 +143,21 @@ async function getManagedStripeSubscription(params: {
   );
 }
 
-export async function POST(request: NextRequest) {
+async function readCheckoutInput(request: NextRequest): Promise<CheckoutInput> {
+  if (request.method === "GET") {
+    const searchParams = request.nextUrl.searchParams;
+
+    const planCodeRaw =
+      (searchParams.get("planKey") ?? searchParams.get("planCode") ?? "").trim();
+
+    return {
+      planCodeRaw,
+      requestedPath: parseAudienceValue(searchParams.get("path")),
+      entryMode: parseEntryValue(searchParams.get("entry")),
+      billingInterval: parseBillingIntervalValue(searchParams.get("billingInterval")),
+    };
+  }
+
   const formData = await request.formData();
 
   const planCodeRaw =
@@ -147,9 +167,26 @@ export async function POST(request: NextRequest) {
         ? String(formData.get("planCode")).trim()
         : "";
 
-  const requestedPath = parseAudience(formData.get("path"));
-  const entryMode = parseEntry(formData.get("entry"));
-  const billingInterval = parseBillingInterval(formData.get("billingInterval"));
+  return {
+    planCodeRaw,
+    requestedPath: parseAudienceValue(
+      typeof formData.get("path") === "string" ? String(formData.get("path")) : null
+    ),
+    entryMode: parseEntryValue(
+      typeof formData.get("entry") === "string" ? String(formData.get("entry")) : null
+    ),
+    billingInterval: parseBillingIntervalValue(
+      typeof formData.get("billingInterval") === "string"
+        ? String(formData.get("billingInterval"))
+        : null
+    ),
+  };
+}
+
+async function handleCheckout(request: NextRequest) {
+  const { planCodeRaw, requestedPath, entryMode, billingInterval } =
+    await readCheckoutInput(request);
+
   const planCode = planCodeRaw.toLowerCase();
 
   if (!planCode) {
@@ -356,9 +393,7 @@ export async function POST(request: NextRequest) {
     const appUrl = buildAppUrl(request);
 
     const stripeManagedSubscription = stripeCustomerId
-      ? await getManagedStripeSubscription({
-          stripeCustomerId,
-        })
+      ? await getManagedStripeSubscription({ stripeCustomerId })
       : null;
 
     const hasManagedSubscription =
@@ -370,7 +405,9 @@ export async function POST(request: NextRequest) {
       const successCode =
         stripeManagedSubscription?.items.data.some(
           (item) => item.price.id === stripePriceId
-        ) || studio.subscription_status === "trialing" || studio.subscription_status === "active"
+        ) ||
+        studio.subscription_status === "trialing" ||
+        studio.subscription_status === "active"
           ? "current_plan"
           : "manage_subscription";
 
@@ -387,19 +424,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.redirect(portalSession.url, { status: 303 });
     }
 
-    const successPath = buildBillingReturnPath({
-      success: "subscription_checkout_started",
-      path: audience,
-      entry: entryMode,
-      recommended: planCode,
-    });
+    const successPath =
+      entryMode === "trial-complete"
+        ? `/get-started/complete?mode=success&intent=${encodeURIComponent(
+            audience
+          )}&plan=${encodeURIComponent(sharedPlan.code)}`
+        : buildBillingReturnPath({
+            success: "subscription_updated",
+            path: audience,
+            entry: entryMode,
+            recommended: planCode,
+          });
 
-    const cancelPath = buildBillingReturnPath({
-      error: "checkout_cancelled",
-      path: audience,
-      entry: entryMode,
-      recommended: planCode,
-    });
+    const cancelPath =
+  entryMode === "trial-complete"
+    ? `/get-started/complete?intent=${encodeURIComponent(
+        audience
+      )}&plan=${encodeURIComponent(sharedPlan.code)}&cancelled=1`
+    : buildBillingReturnPath({
+        error: "checkout_cancelled",
+        path: audience,
+        entry: entryMode,
+        recommended: planCode,
+      });
 
     const metadata = {
       source: buildSourceValue(audience),
@@ -460,4 +507,12 @@ export async function POST(request: NextRequest) {
       })
     );
   }
+}
+
+export async function GET(request: NextRequest) {
+  return handleCheckout(request);
+}
+
+export async function POST(request: NextRequest) {
+  return handleCheckout(request);
 }

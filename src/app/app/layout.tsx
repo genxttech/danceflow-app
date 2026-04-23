@@ -3,7 +3,12 @@ import { redirect } from "next/navigation";
 import { headers, cookies } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { isPlatformAdmin } from "@/lib/auth/platform";
-import { getCurrentStudioContext } from "@/lib/auth/studio";
+import {
+  getAccessibleStudios,
+  getCurrentStudioContext,
+  getCurrentWorkspaceAccessState,
+  isOrganizerRole,
+} from "@/lib/auth/studio";
 import { clearStudioContextAction } from "@/app/platform/actions";
 import AppSidebarShell from "./AppSidebarShell";
 
@@ -20,27 +25,6 @@ type NotificationItem = {
   appointment_id: string | null;
 };
 
-type WorkspaceItem = {
-  studioId: string;
-  studioRole: string;
-  studioName: string;
-  studioSlug: string | null;
-  studioPublicName: string | null;
-  isSelected: boolean;
-};
-
-type RoleRow = {
-  studio_id: string;
-  role: string;
-};
-
-type StudioRow = {
-  id: string;
-  name: string;
-  slug: string | null;
-  public_name: string | null;
-};
-
 type ProfileRow = {
   id: string;
   first_name: string | null;
@@ -49,45 +33,53 @@ type ProfileRow = {
   email: string | null;
 };
 
-function isOrganizerWorkspaceName(value: string | null | undefined) {
-  const normalized = (value ?? "").trim().toLowerCase();
+type StudioRow = {
+  id: string;
+  name: string | null;
+};
 
-  if (!normalized) return false;
+function buildDisplayName(profile: ProfileRow | null, fallbackEmail: string | null) {
+  const fullName = profile?.full_name?.trim();
+  if (fullName) return fullName;
 
-  return (
-    normalized.endsWith(" organizer") ||
-    normalized.includes(" organizer ") ||
-    normalized.endsWith(" events")
-  );
+  const combined = [profile?.first_name ?? "", profile?.last_name ?? ""]
+    .join(" ")
+    .trim();
+
+  if (combined) return combined;
+
+  return fallbackEmail ?? "Unknown User";
 }
 
 function formatRoleLabel(role: string | null | undefined) {
   return (role ?? "").replaceAll("_", " ").trim();
 }
 
-function buildDisplayName(params: {
-  profile: ProfileRow | null;
-  fallbackEmail: string | null | undefined;
-}) {
-  const { profile, fallbackEmail } = params;
-
-  const fullName = profile?.full_name?.trim();
-  if (fullName) return fullName;
-
-  const firstLast = [profile?.first_name ?? "", profile?.last_name ?? ""]
-    .join(" ")
-    .trim();
-
-  if (firstLast) return firstLast;
-
-  return fallbackEmail ?? "Unknown User";
+function getBillingLockMessage(status: string | null | undefined) {
+  switch (status) {
+    case "canceled":
+      return "This workspace is canceled. Update billing to restore access.";
+    case "unpaid":
+      return "This workspace is unpaid. Resolve billing to restore access.";
+    case "incomplete":
+    case "incomplete_expired":
+      return "This workspace setup is incomplete. Complete billing to continue.";
+    case "past_due":
+      return "This workspace is past due. Resolve billing to regain access.";
+    case "inactive":
+      return "This workspace is inactive. Billing must be resolved before access is restored.";
+    case "suspended":
+      return "This workspace is suspended. Billing must be resolved before access is restored.";
+    default:
+      return "This workspace is paused until billing is resolved.";
+  }
 }
 
 function buildStudioSections(params: {
-  leadsBadgeCount: number;
   unreadNotificationsCount: number;
+  leadsBadgeCount: number;
 }) {
-  const { leadsBadgeCount, unreadNotificationsCount } = params;
+  const { unreadNotificationsCount, leadsBadgeCount } = params;
 
   return [
     {
@@ -127,11 +119,7 @@ function buildStudioSections(params: {
           href: "/app/packages/client-balances",
           icon: "balances",
         },
-        {
-          label: "Package Templates",
-          href: "/app/packages",
-          icon: "packages",
-        },
+        { label: "Package Templates", href: "/app/packages", icon: "packages" },
         {
           label: "Membership Plans",
           href: "/app/memberships",
@@ -152,14 +140,19 @@ function buildStudioSections(params: {
     },
     {
       title: "Admin",
-      items: [{ label: "Settings", href: "/app/settings", icon: "settings" }],
+      items: [
+        { label: "Settings", href: "/app/settings", icon: "settings" },
+        {
+          label: "Billing & Payouts",
+          href: "/app/settings/billing",
+          icon: "payments",
+        },
+      ],
     },
   ];
 }
 
-function buildOrganizerSections(params: {
-  unreadNotificationsCount: number;
-}) {
+function buildOrganizerSections(params: { unreadNotificationsCount: number }) {
   const { unreadNotificationsCount } = params;
 
   return [
@@ -168,6 +161,8 @@ function buildOrganizerSections(params: {
       items: [
         { label: "Dashboard", href: "/app", icon: "dashboard" },
         { label: "Events", href: "/app/events", icon: "events" },
+        { label: "Registrations", href: "/app/events/registrations", icon: "clients" },
+        { label: "Check-In", href: "/app/events/checkin", icon: "checkin" },
         { label: "Organizer Profile", href: "/app/organizers", icon: "settings" },
         {
           label: "Notifications",
@@ -178,17 +173,17 @@ function buildOrganizerSections(params: {
       ],
     },
     {
-  title: "Revenue",
-  items: [
-    {
-      label: "Billing & Payouts",
-      href: "/app/settings/billing",
-      icon: "payments",
+      title: "Revenue",
+      items: [
+        {
+          label: "Billing & Payouts",
+          href: "/app/settings/billing",
+          icon: "payments",
+        },
+        { label: "Payment History", href: "/app/payments", icon: "payments" },
+        { label: "Reports", href: "/app/reports", icon: "reports" },
+      ],
     },
-    { label: "Payment History", href: "/app/payments", icon: "payments" },
-    { label: "Reports", href: "/app/reports", icon: "reports" },
-  ],
-},
     {
       title: "Admin",
       items: [{ label: "Settings", href: "/app/settings", icon: "settings" }],
@@ -214,6 +209,13 @@ export default async function AppLayout({
   }
 
   const context = await getCurrentStudioContext();
+  const accessState = await getCurrentWorkspaceAccessState();
+  const billingPath = "/app/settings/billing";
+  const isBillingRoute = pathname.startsWith(billingPath);
+
+  if (!context.isPlatformAdmin && accessState.blocked && !isBillingRoute) {
+    redirect(`${billingPath}?reason=access_paused`);
+  }
 
   async function switchWorkspaceAction(formData: FormData) {
     "use server";
@@ -259,11 +261,11 @@ export default async function AppLayout({
     { data: profile },
     { data: notifications },
     { count: openLeadCount },
-    { data: accessibleRoles },
+    accessibleStudios,
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, slug, public_name")
+      .select("id, name")
       .eq("id", context.studioId)
       .maybeSingle<StudioRow>(),
 
@@ -288,85 +290,36 @@ export default async function AppLayout({
       .eq("studio_id", context.studioId)
       .eq("status", "lead"),
 
-    supabase
-      .from("user_studio_roles")
-      .select("studio_id, role")
-      .eq("user_id", user.id)
-      .eq("active", true),
+    getAccessibleStudios(),
   ]);
-
-  const currentStudio = studio ?? null;
-  const currentStudioName = currentStudio?.name ?? "Workspace";
-  const organizerWorkspace = isOrganizerWorkspaceName(currentStudioName);
-
-  const roleRows = ((accessibleRoles ?? []) as RoleRow[]) || [];
-  const accessibleStudioIds = Array.from(
-    new Set(roleRows.map((row) => row.studio_id).filter(Boolean))
-  );
-
-  let accessibleStudios: WorkspaceItem[] = [];
-
-  if (accessibleStudioIds.length > 0) {
-    const { data: studiosForSwitcher } = await supabase
-      .from("studios")
-      .select("id, name, slug, public_name")
-      .in("id", accessibleStudioIds);
-
-    const studioById = new Map(
-      (((studiosForSwitcher ?? []) as StudioRow[]) || []).map((item) => [
-        item.id,
-        item,
-      ])
-    );
-
-    accessibleStudios = roleRows
-      .map((row) => {
-        const matchedStudio = studioById.get(row.studio_id);
-        if (!matchedStudio) return null;
-
-        return {
-          studioId: matchedStudio.id,
-          studioRole: row.role,
-          studioName: matchedStudio.name,
-          studioSlug: matchedStudio.slug,
-          studioPublicName: matchedStudio.public_name,
-          isSelected: matchedStudio.id === context.studioId,
-        } satisfies WorkspaceItem;
-      })
-      .filter((value): value is WorkspaceItem => Boolean(value));
-  }
 
   const safeNotifications = ((notifications ?? []) as NotificationItem[]) || [];
   const unreadNotificationsCount = safeNotifications.filter(
     (item) => !item.read_at
   ).length;
+  const leadsBadgeCount = openLeadCount ?? 0;
 
-  const leadsBadgeCount = organizerWorkspace ? 0 : (openLeadCount ?? 0);
-
-  const studioName = organizerWorkspace ? currentStudioName : currentStudioName;
-  const userName = buildDisplayName({
-    profile: profile ?? null,
-    fallbackEmail: user.email,
-  });
+  const studioName = studio?.name ?? "Workspace";
+  const userName = buildDisplayName(profile ?? null, user.email ?? null);
   const userEmail = profile?.email ?? user.email ?? "";
-
-  const baseRoleLabel = context.isPlatformAdmin
+  const roleLabel = context.isPlatformAdmin
     ? "Platform Admin"
     : formatRoleLabel(context.studioRole);
 
-  const roleLabel =
-    organizerWorkspace && !context.isPlatformAdmin
-      ? `${baseRoleLabel || "organizer"} • organizer workspace`
-      : baseRoleLabel;
+  const organizerWorkspace =
+  isOrganizerRole(context.studioRole) ||
+  studioName.trim().toLowerCase().includes("organizer") ||
+  studioName.trim().toLowerCase().includes("event") ||
+  studioName.trim().toLowerCase().includes("festival");
 
-  const sections = organizerWorkspace
-    ? buildOrganizerSections({
-        unreadNotificationsCount,
-      })
-    : buildStudioSections({
-        leadsBadgeCount,
-        unreadNotificationsCount,
-      });
+const sections = organizerWorkspace
+  ? buildOrganizerSections({
+      unreadNotificationsCount,
+    })
+  : buildStudioSections({
+      unreadNotificationsCount,
+      leadsBadgeCount,
+    });
 
   let studioBanner: React.ReactNode = null;
 
@@ -401,6 +354,27 @@ export default async function AppLayout({
             </form>
           </div>
         </div>
+      </div>
+    );
+  }
+
+  if (!context.isPlatformAdmin && accessState.blocked && isBillingRoute) {
+    return (
+      <div className="min-h-screen bg-slate-50">
+        {studioBanner}
+
+        <div className="border-b border-rose-200 bg-rose-50">
+          <div className="mx-auto max-w-7xl px-6 py-4">
+            <p className="text-sm font-semibold text-rose-900">
+              Workspace access paused
+            </p>
+            <p className="mt-1 text-sm text-rose-800">
+              {getBillingLockMessage(accessState.status)}
+            </p>
+          </div>
+        </div>
+
+        <div className="mx-auto max-w-7xl px-6 py-8">{children}</div>
       </div>
     );
   }

@@ -21,6 +21,10 @@ type EventCountRow = {
   count: number;
 };
 
+type StudioBillingRow = {
+  stripe_connected_account_id: string | null;
+};
+
 function activeBadgeClass(active: boolean) {
   return active
     ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
@@ -78,6 +82,7 @@ export default async function OrganizersPage() {
   const [
     { data: organizers, error: organizersError },
     { data: eventCountRows, error: eventCountError },
+    { data: billingStudio, error: billingStudioError },
   ] = await Promise.all([
     supabase
       .from("organizers")
@@ -100,6 +105,12 @@ export default async function OrganizersPage() {
       .select("organizer_id")
       .eq("studio_id", studioId)
       .not("organizer_id", "is", null),
+
+    supabase
+      .from("studios")
+      .select("stripe_connected_account_id")
+      .eq("id", studioId)
+      .maybeSingle<StudioBillingRow>(),
   ]);
 
   if (organizersError) {
@@ -108,6 +119,10 @@ export default async function OrganizersPage() {
 
   if (eventCountError) {
     throw new Error(`Failed to load organizer event counts: ${eventCountError.message}`);
+  }
+
+  if (billingStudioError) {
+    throw new Error(`Failed to load billing readiness: ${billingStudioError.message}`);
   }
 
   const typedOrganizers = (organizers ?? []) as OrganizerRow[];
@@ -132,6 +147,8 @@ export default async function OrganizersPage() {
     (sum, count) => sum + count,
     0
   );
+
+  const payoutsReady = Boolean(billingStudio?.stripe_connected_account_id);
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -202,6 +219,28 @@ export default async function OrganizersPage() {
           </div>
         </div>
       </section>
+
+      {!payoutsReady ? (
+        <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="max-w-2xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+                Payout setup needed
+              </p>
+              <p className="mt-2 text-sm leading-7 text-amber-900">
+                Connect payouts before taking paid registrations so ticket money can be routed correctly to your organizer business.
+              </p>
+            </div>
+
+            <Link
+              href="/app/settings/billing"
+              className="inline-flex items-center justify-center rounded-xl bg-amber-900 px-4 py-3 text-sm font-medium text-white hover:bg-amber-800"
+            >
+              Billing &amp; Payments
+            </Link>
+          </div>
+        </section>
+      ) : null}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total Organizers" value={typedOrganizers.length} icon={Users} />

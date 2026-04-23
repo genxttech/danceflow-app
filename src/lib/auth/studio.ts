@@ -26,6 +26,10 @@ type StudioRoleRow = {
     | null;
 };
 
+type StudioStatusRow = {
+  subscription_status: string | null;
+};
+
 export type StudioWorkspace = {
   studioId: string;
   studioRole: string;
@@ -41,6 +45,13 @@ export type StudioContext = {
   isPlatformAdmin: boolean;
   userId: string;
   email: string | null;
+};
+
+export type WorkspaceAccessState = {
+  studioId: string;
+  status: string | null;
+  allowed: boolean;
+  blocked: boolean;
 };
 
 async function getCookieValue(name: string) {
@@ -59,6 +70,48 @@ function getStudioFromJoin(
     }
   | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function workspaceLooksLikeOrganizer(
+  studio:
+    | {
+        id: string;
+        name: string;
+        slug: string | null;
+        public_name: string | null;
+      }
+    | null
+) {
+  const normalized = (studio?.name ?? "").trim().toLowerCase();
+
+  if (!normalized) return false;
+
+  return (
+    normalized.endsWith(" organizer") ||
+    normalized.includes(" organizer ") ||
+    normalized.endsWith(" events") ||
+    normalized.includes(" festival") ||
+    normalized.includes(" event")
+  );
+}
+
+function normalizeWorkspaceRole(row: StudioRoleRow) {
+  const studio = getStudioFromJoin(row.studios);
+  const rawRole = (row.role ?? "").trim().toLowerCase();
+
+  if (!workspaceLooksLikeOrganizer(studio)) {
+    return row.role;
+  }
+
+  if (rawRole === "studio_owner") {
+    return "organizer_owner";
+  }
+
+  if (rawRole === "studio_admin") {
+    return "organizer_admin";
+  }
+
+  return row.role;
 }
 
 async function getAccessibleStudioRolesForUser(userId: string) {
@@ -102,6 +155,14 @@ function pickSelectedWorkspace(
   return roles[0];
 }
 
+export function isOrganizerRole(role: string | null | undefined) {
+  return (role ?? "").trim().toLowerCase().startsWith("organizer_");
+}
+
+export function isWorkspaceAccessAllowedStatus(status: string | null | undefined) {
+  return status === "active" || status === "trialing";
+}
+
 export async function getSelectedPlatformStudioIdFromCookie() {
   return getCookieValue(PLATFORM_STUDIO_COOKIE);
 }
@@ -123,7 +184,7 @@ export async function getAccessibleStudios(): Promise<StudioWorkspace[]> {
 
       return {
         studioId: row.studio_id,
-        studioRole: row.role,
+        studioRole: normalizeWorkspaceRole(row),
         studioName: studio.name,
         studioSlug: studio.slug,
         studioPublicName: studio.public_name,
@@ -145,8 +206,9 @@ export async function getCurrentStudioRole() {
 
   return {
     studio_id: selected.studio_id,
-    role: selected.role,
+    role: normalizeWorkspaceRole(selected),
     active: selected.active,
+    studios: selected.studios,
   } as StudioRoleRow;
 }
 
@@ -210,11 +272,52 @@ export async function getStudioContextForStudio(
 
   return {
     studioId,
-    studioRole: matchingRole.role,
+    studioRole: normalizeWorkspaceRole(matchingRole),
     isPlatformAdmin: false,
     userId: profile.id,
     email: profile.email,
   };
+}
+
+export async function getWorkspaceAccessStateForStudio(
+  studioId: string
+): Promise<WorkspaceAccessState> {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("studios")
+    .select("subscription_status")
+    .eq("id", studioId)
+    .maybeSingle<StudioStatusRow>();
+
+  if (error) {
+    throw new Error(`Failed to load workspace access status: ${error.message}`);
+  }
+
+  const status = data?.subscription_status ?? null;
+  const allowed = isWorkspaceAccessAllowedStatus(status);
+
+  return {
+    studioId,
+    status,
+    allowed,
+    blocked: !allowed,
+  };
+}
+
+export async function getCurrentWorkspaceAccessState(): Promise<WorkspaceAccessState> {
+  const context = await getCurrentStudioContext();
+
+  if (context.isPlatformAdmin) {
+    return {
+      studioId: context.studioId,
+      status: "platform_admin",
+      allowed: true,
+      blocked: false,
+    };
+  }
+
+  return getWorkspaceAccessStateForStudio(context.studioId);
 }
 
 export async function requireStudioRole(allowedRoles: string[]) {
@@ -248,5 +351,10 @@ export async function canManageEventOperationsForStudio(studioId: string) {
     return true;
   }
 
-  return ["studio_owner", "studio_admin"].includes(context.studioRole ?? "");
+  return [
+    "studio_owner",
+    "studio_admin",
+    "organizer_owner",
+    "organizer_admin",
+  ].includes(context.studioRole ?? "");
 }
