@@ -260,7 +260,7 @@ export default async function MyFloorRentalsPage({
   );
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.35)_0%,rgba(255,255,255,0)_22%)] p-1">
       {banner ? (
         <div
           className={`rounded-2xl border px-4 py-3 text-sm ${
@@ -273,19 +273,19 @@ export default async function MyFloorRentalsPage({
         </div>
       ) : null}
 
-      <section className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(135deg,#ecfdf5_0%,#ffffff_45%,#f8fafc_100%)] p-8 shadow-sm sm:p-10">
+      <section className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-8 shadow-sm sm:p-10">
         <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">
-              {studioLabel}
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-white/70">
+              DanceFlow Floor Rentals
             </p>
-            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
               My Rentals
             </h1>
-            <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
-              Review upcoming and recent floor rentals, keep track of your running rental balance, and pay unpaid rentals in one checkout.
+            <p className="mt-4 max-w-3xl text-sm leading-7 text-white/85 sm:text-base">
+              See your upcoming and past floor rentals, keep track of what is still due, and pay open rental fees in one place.
             </p>
-            <p className="mt-3 text-sm text-slate-500">Signed in as {fullName}</p>
+            <p className="mt-3 text-sm text-white/75">Signed in as {fullName}</p>
 
             <div className="mt-8 grid gap-4 sm:grid-cols-3">
               <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
@@ -311,12 +311,12 @@ export default async function MyFloorRentalsPage({
 
           <div className="rounded-[28px] border border-slate-200 bg-white/90 p-6 shadow-sm">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Balance Actions
+              Rental Balance
             </p>
 
             <div className="mt-5 space-y-4">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-                <p className="text-sm text-slate-500">Current Rental Balance</p>
+                <p className="text-sm text-slate-500">Balance due right now</p>
                 <p className="mt-2 text-3xl font-semibold text-slate-950">
                   {formatCurrency(balanceDue)}
                 </p>
@@ -332,7 +332,7 @@ export default async function MyFloorRentalsPage({
                   disabled={balanceDue <= 0}
                   className="w-full rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Pay Balance
+                  Pay Open Balance
                 </button>
               </form>
 
@@ -343,7 +343,7 @@ export default async function MyFloorRentalsPage({
                 >
                   <p className="font-medium text-slate-900">Book Floor Space</p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Reserve additional studio time.
+                    Book another floor rental.
                   </p>
                 </Link>
 
@@ -353,7 +353,7 @@ export default async function MyFloorRentalsPage({
                 >
                   <p className="font-medium text-slate-900">Portal Home</p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Return to your instructor dashboard.
+                    Go back to your portal home.
                   </p>
                 </Link>
               </div>
@@ -370,18 +370,18 @@ export default async function MyFloorRentalsPage({
                 Upcoming Rentals
               </p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                Scheduled studio time
+                Upcoming floor rentals
               </h2>
               <p className="mt-3 text-sm leading-7 text-slate-600">
-                Upcoming rentals stay visible individually, but unpaid ones roll into one running balance.
+                Upcoming rentals show one by one here. Unpaid rentals are grouped into one running balance to keep checkout simple.
               </p>
             </div>
 
             {upcoming.length === 0 ? (
               <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-                <p className="text-lg font-medium text-slate-900">No upcoming floor rentals</p>
+                <p className="text-lg font-medium text-slate-900">No upcoming rentals</p>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
-                  New rentals will appear here after booking.
+                  When you book more studio time, it will show here.
                 </p>
               </div>
             ) : (
@@ -523,7 +523,7 @@ export default async function MyFloorRentalsPage({
         <div className="space-y-8">
           <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-orange-600">
-              Payment Notes
+              Helpful to know
             </p>
             <ul className="mt-5 space-y-3 text-sm leading-7 text-slate-700">
               <li>Unpaid rentals are grouped into one running balance.</li>
@@ -535,7 +535,7 @@ export default async function MyFloorRentalsPage({
 
           <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">
-              Quick Snapshot
+              Quick look
             </p>
 
             <div className="mt-5 space-y-3 text-sm text-slate-700">

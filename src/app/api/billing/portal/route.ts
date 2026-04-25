@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/payments/stripe";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 
 function buildAppUrl(request: NextRequest) {
   return (
@@ -9,9 +10,20 @@ function buildAppUrl(request: NextRequest) {
   );
 }
 
+function canManageBilling(role: string | null | undefined, isPlatformAdminRole: boolean) {
+  if (isPlatformAdminRole) return true;
+  return role === "studio_owner" || role === "organizer_owner";
+}
+
+async function createClientFromRequest() {
+  const { createClient } = await import("@/lib/supabase/server");
+  return createClient();
+}
+
 export async function POST(request: NextRequest) {
   try {
-    const supabase = await createClientFromRequest(request);
+    const supabase = await createClientFromRequest();
+
     const {
       data: { user },
     } = await supabase.auth.getUser();
@@ -20,19 +32,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.redirect(new URL("/login", request.url));
     }
 
-    const { data: roleRow, error: roleError } = await supabase
-      .from("user_studio_roles")
-      .select("studio_id")
-      .eq("user_id", user.id)
-      .eq("active", true)
-      .limit(1)
-      .single();
+    const context = await getCurrentStudioContext();
 
-    if (roleError || !roleRow) {
-      return NextResponse.redirect(new URL("/login", request.url));
+    if (!context?.studioId) {
+      return NextResponse.redirect(new URL("/app", request.url));
     }
 
-    const studioId = roleRow.studio_id as string;
+    if (!canManageBilling(context.studioRole, context.isPlatformAdmin)) {
+      return NextResponse.redirect(new URL("/app", request.url));
+    }
+
+    const studioId = context.studioId;
 
     const { data: billingCustomer, error: billingCustomerError } = await supabase
       .from("studio_billing_customers")
@@ -64,9 +74,4 @@ export async function POST(request: NextRequest) {
       new URL("/app/settings/billing?error=billing_portal_failed", request.url)
     );
   }
-}
-
-async function createClientFromRequest(request: NextRequest) {
-  const { createClient } = await import("@/lib/supabase/server");
-  return createClient();
 }

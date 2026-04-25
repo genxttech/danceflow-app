@@ -68,6 +68,29 @@ async function getStudioClientOrRedirect(params: {
   return client;
 }
 
+async function deactivateHostWorkspaceIndependentInstructorRole(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  userId: string | null | undefined;
+}) {
+  const { supabase, studioId, userId } = params;
+
+  if (!userId) return;
+
+  const { error } = await supabase
+    .from("user_studio_roles")
+    .update({
+      active: false,
+    })
+    .eq("studio_id", studioId)
+    .eq("user_id", userId)
+    .eq("role", "independent_instructor");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 async function getBaseUrl() {
   const configuredBaseUrl =
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
@@ -103,7 +126,7 @@ export async function updateIndependentInstructorSettingsAction(
   const { supabase, studioId } = await getEditableStudioContext(returnTo);
   const linkedInstructorId = linkedInstructorIdRaw || null;
 
-  await getStudioClientOrRedirect({
+  const client = await getStudioClientOrRedirect({
     supabase,
     studioId,
     clientId,
@@ -133,6 +156,16 @@ export async function updateIndependentInstructorSettingsAction(
     .eq("studio_id", studioId);
 
   if (updateError) {
+    redirectWithResult(returnTo, "error", "independent_instructor_update_failed");
+  }
+
+  try {
+    await deactivateHostWorkspaceIndependentInstructorRole({
+      supabase,
+      studioId,
+      userId: client.portal_user_id,
+    });
+  } catch {
     redirectWithResult(returnTo, "error", "independent_instructor_update_failed");
   }
 
@@ -279,6 +312,16 @@ export async function linkPortalAccessAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "portal_link_failed");
   }
 
+  try {
+    await deactivateHostWorkspaceIndependentInstructorRole({
+      supabase,
+      studioId,
+      userId: profile.id,
+    });
+  } catch {
+    redirectWithResult(returnTo, "error", "portal_link_failed");
+  }
+
   redirectWithResult(returnTo, "success", "portal_linked");
 }
 
@@ -292,12 +335,22 @@ export async function unlinkPortalAccessAction(formData: FormData) {
 
   const { supabase, studioId } = await getEditableStudioContext(returnTo);
 
-  await getStudioClientOrRedirect({
+  const client = await getStudioClientOrRedirect({
     supabase,
     studioId,
     clientId,
     returnTo,
   });
+
+  try {
+    await deactivateHostWorkspaceIndependentInstructorRole({
+      supabase,
+      studioId,
+      userId: client.portal_user_id,
+    });
+  } catch {
+    redirectWithResult(returnTo, "error", "portal_unlink_failed");
+  }
 
   const { error: updateError } = await supabase
     .from("clients")
@@ -337,6 +390,18 @@ export async function sendPortalInviteAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "portal_email_required");
   }
 
+  if (client.portal_user_id) {
+    try {
+      await deactivateHostWorkspaceIndependentInstructorRole({
+        supabase,
+        studioId,
+        userId: client.portal_user_id,
+      });
+    } catch {
+      redirectWithResult(returnTo, "error", "portal_invite_failed");
+    }
+  }
+
   const { data: studio, error: studioError } = await supabase
     .from("studios")
     .select("id, slug")
@@ -356,7 +421,9 @@ export async function sendPortalInviteAction(formData: FormData) {
     email,
     options: {
       shouldCreateUser: true,
-      emailRedirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+      emailRedirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent(
+        nextPath
+      )}`,
       data: {
         full_name: fullName,
       },

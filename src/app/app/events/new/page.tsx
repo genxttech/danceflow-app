@@ -16,16 +16,24 @@ type WorkspaceRow = {
   public_name: string | null;
 };
 
-function isOrganizerWorkspaceName(value: string | null | undefined) {
-  const normalized = (value ?? "").trim().toLowerCase();
+function isOrganizerWorkspaceRole(role: string | null | undefined) {
+  return role === "organizer_owner" || role === "organizer_admin";
+}
 
-  if (!normalized) return false;
+function canManageEvents(role: string | null | undefined, isPlatformAdminRole: boolean) {
+  if (isPlatformAdminRole) return true;
 
   return (
-    normalized.endsWith(" organizer") ||
-    normalized.includes(" organizer ") ||
-    normalized.endsWith(" events")
+    role === "studio_owner" ||
+    role === "studio_admin" ||
+    role === "organizer_owner" ||
+    role === "organizer_admin"
   );
+}
+
+function canManageOrganizers(role: string | null | undefined, isPlatformAdminRole: boolean) {
+  if (isPlatformAdminRole) return true;
+  return role === "organizer_owner" || role === "organizer_admin";
 }
 
 export default async function NewEventPage() {
@@ -41,6 +49,10 @@ export default async function NewEventPage() {
 
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
+
+  if (!canManageEvents(context.studioRole, context.isPlatformAdmin)) {
+    redirect("/app/events");
+  }
 
   const [
     { data: workspace, error: workspaceError },
@@ -68,7 +80,12 @@ export default async function NewEventPage() {
     throw new Error(`Failed to load organizers: ${organizersError.message}`);
   }
 
-  const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
+  const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
+  const canCreateOrganizer = canManageOrganizers(
+    context.studioRole,
+    context.isPlatformAdmin
+  );
+
   const typedOrganizers = (organizers ?? []) as OrganizerOption[];
   const singleOrganizer = typedOrganizers[0] ?? null;
 
@@ -126,14 +143,16 @@ export default async function NewEventPage() {
             Public events in the dance directory must belong to an organizer.
           </p>
 
-          <div className="mt-6">
-            <Link
-              href="/app/organizers/new"
-              className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
-            >
-              Create Organizer
-            </Link>
-          </div>
+          {canCreateOrganizer ? (
+            <div className="mt-6">
+              <Link
+                href="/app/organizers/new"
+                className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
+              >
+                Create Organizer
+              </Link>
+            </div>
+          ) : null}
         </div>
       ) : (
         <div className="space-y-6">

@@ -39,8 +39,7 @@ export async function createRoomAction(
       description: description || null,
       capacity,
       active: true,
-      created_by: user.id,
-    });
+      });
 
     if (error) {
       return { error: `Room creation failed: ${error.message}` };

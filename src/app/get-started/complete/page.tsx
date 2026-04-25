@@ -1,756 +1,320 @@
-"use client";
-
-import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import {
-  LayoutDashboard,
-  Users,
-  UserRoundPlus,
-  CalendarDays,
-  GraduationCap,
-  DoorOpen,
-  Package,
-  CreditCard,
-  BarChart3,
-  Settings,
-  Menu,
-  X,
-  LogOut,
-  Wallet,
-  Bell,
-  ClipboardCheck,
-  ChevronsUpDown,
-  Check,
-  Building2,
-} from "lucide-react";
-import NotificationMenu from "@/components/ui/NotificationMenu";
+  beginPaidTrialCheckoutAction,
+} from "../actions";
+import {
+  formatPlanMoney,
+  getBillingPlan,
+  type PlanAudience,
+} from "@/lib/billing/plans";
+import PublicSiteHeader from "@/components/public/PublicSiteHeader";
+import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 
-type NavItem = {
-  label: string;
-  href: string;
-  icon: string;
-  badge?: number | null;
+type CompletePageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
-type NavSectionType = {
-  title: string;
-  items: NavItem[];
-};
-
-type NotificationItem = {
-  id: string;
-  type: string;
-  title: string;
-  body: string | null;
-  read_at: string | null;
-  created_at: string;
-  client_id: string | null;
-  appointment_id: string | null;
-};
-
-type WorkspaceItem = {
-  studioId: string;
-  studioRole: string;
-  studioName: string;
-  studioSlug: string | null;
-  studioPublicName: string | null;
-  isSelected: boolean;
-};
-
-function isActivePath(pathname: string, href: string) {
-  if (href === "/app") return pathname === "/app";
-  return pathname === href || pathname.startsWith(`${href}/`);
+function readSingle(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
 }
 
-function getIcon(icon: string) {
-  if (icon === "dashboard") return LayoutDashboard;
-  if (icon === "leads") return UserRoundPlus;
-  if (icon === "clients") return Users;
-  if (icon === "schedule") return CalendarDays;
-  if (icon === "events") return CalendarDays;
-  if (icon === "checkin") return ClipboardCheck;
-  if (icon === "instructors") return GraduationCap;
-  if (icon === "rooms") return DoorOpen;
-  if (icon === "packages") return Package;
-  if (icon === "memberships") return CreditCard;
-  if (icon === "balances") return Wallet;
-  if (icon === "payments") return CreditCard;
-  if (icon === "reports") return BarChart3;
-  if (icon === "settings") return Settings;
-  if (icon === "notifications") return Bell;
-  return LayoutDashboard;
-}
-
-function normalizeNavLabel(item: NavItem) {
-  const lower = item.label.trim().toLowerCase();
-
-  if (
-    item.href === "/app/settings/billing" ||
-    lower === "payments" ||
-    lower === "billing" ||
-    lower === "billing & payouts" ||
-    lower === "payment settings"
-  ) {
-    return "Billing & Payouts";
+function parseAudience(value: string | undefined): PlanAudience | null {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (normalized === "studio" || normalized === "organizer") {
+    return normalized;
   }
-
-  return item.label;
+  return null;
 }
 
-function isOrganizerLikeRole(role: string) {
-  const normalized = role.trim().toLowerCase();
-  return (
-    normalized.includes("organizer") ||
-    normalized.includes("event") ||
-    normalized.includes("promoter")
-  );
-}
-
-function hasNavLink(sections: NavSectionType[], href: string) {
-  return sections.some((section) =>
-    section.items.some((item) => item.href === href)
-  );
-}
-
-function looksLikeOrganizerNavigation(sections: NavSectionType[], role: string) {
-  if (isOrganizerLikeRole(role)) return true;
-
-  const flatItems = sections.flatMap((section) => section.items);
-
-  const hasEvents = flatItems.some((item) => item.href.startsWith("/app/events"));
-  const hasSchedule = flatItems.some((item) => item.href.startsWith("/app/schedule"));
-  const hasClients = flatItems.some((item) => item.href.startsWith("/app/clients"));
-  const hasOrganizerProfile = flatItems.some((item) => {
-    const lowerLabel = item.label.trim().toLowerCase();
-    const lowerHref = item.href.trim().toLowerCase();
-    return lowerLabel.includes("organizer") || lowerHref.includes("organizer");
-  });
-
-  return hasOrganizerProfile || (hasEvents && !hasSchedule && !hasClients);
-}
-
-function injectOrganizerEventHubs(
-  sections: NavSectionType[],
-  role: string
-): NavSectionType[] {
-  if (!looksLikeOrganizerNavigation(sections, role)) {
-    return sections;
-  }
-
-  const hasRegistrationsHub = hasNavLink(sections, "/app/events/registrations");
-  const hasCheckInHub = hasNavLink(sections, "/app/events/checkin");
-
-  let inserted = false;
-
-  const nextSections = sections.map((section) => {
-    const hasEventsLink = section.items.some((item) => item.href === "/app/events");
-
-    if (!hasEventsLink) {
-      return section;
-    }
-
-    const nextItems: NavItem[] = [];
-
-    for (const item of section.items) {
-      const isEventSpecificRegistrations = item.href.includes("/registrations");
-      const isEventSpecificCheckIn = item.href.includes("/checkin");
-
-      if (isEventSpecificRegistrations || isEventSpecificCheckIn) {
-        continue;
-      }
-
-      nextItems.push(item);
-
-      if (item.href === "/app/events") {
-        if (!hasRegistrationsHub) {
-          nextItems.push({
-            label: "Registrations",
-            href: "/app/events/registrations",
-            icon: "clients",
-          });
-        }
-
-        if (!hasCheckInHub) {
-          nextItems.push({
-            label: "Check-In",
-            href: "/app/events/checkin",
-            icon: "checkin",
-          });
-        }
-
-        inserted = true;
-      }
-    }
-
+function getAudienceLabels(audience: PlanAudience) {
+  if (audience === "organizer") {
     return {
-      ...section,
-      items: nextItems,
+      eyebrow: "Organizer setup",
+      heading: "Finish your organizer trial setup",
+      subheading:
+        "Confirm your plan, name your organizer workspace, and continue into secure billing to activate your free trial.",
+      workspaceLabel: "Organizer workspace name",
+      workspacePlaceholder: "Example: Country Spark Events",
+      buttonLabel: "Continue to Organizer Billing",
+      pricingHref: "/get-started/organizer",
+      pricingLabel: "Back to Organizer Pricing",
+      appHref: "/app",
+      successHeading: "Your organizer trial is active",
+      successCopy:
+        "Your organizer workspace is ready. Continue into your dashboard to finish setup, connect payouts, and start building events.",
     };
-  });
-
-  if (inserted) {
-    return nextSections;
   }
 
-  return [
-    {
-      title: "Daily Operations",
-      items: [
-        {
-          label: "Dashboard",
-          href: "/app",
-          icon: "dashboard",
-        },
-        {
-          label: "Events",
-          href: "/app/events",
-          icon: "events",
-        },
-        {
-          label: "Registrations",
-          href: "/app/events/registrations",
-          icon: "clients",
-        },
-        {
-          label: "Check-In",
-          href: "/app/events/checkin",
-          icon: "checkin",
-        },
-      ],
-    },
-    ...nextSections,
-  ];
+  return {
+    eyebrow: "Studio setup",
+    heading: "Finish your studio trial setup",
+    subheading:
+      "Confirm your plan, name your studio workspace, and continue into secure billing to activate your free trial.",
+    workspaceLabel: "Studio workspace name",
+    workspacePlaceholder: "Example: DanceFlow Academy",
+    buttonLabel: "Continue to Studio Billing",
+    pricingHref: "/get-started/studio",
+    pricingLabel: "Back to Studio Pricing",
+    appHref: "/app",
+    successHeading: "Your studio trial is active",
+    successCopy:
+      "Your studio workspace is ready. Continue into your dashboard to finish setup, review billing, and start building your studio operations.",
+  };
 }
 
-function normalizeSections(input: unknown, role: string): NavSectionType[] {
-  if (!Array.isArray(input)) return [];
+export default async function GetStartedCompletePage({
+  searchParams,
+}: CompletePageProps) {
+  const resolvedSearchParams = (await searchParams) ?? {};
 
-  const normalized = input
-    .map((section) => {
-      const rawSection = section as Partial<NavSectionType> | null | undefined;
-      const title =
-        typeof rawSection?.title === "string" && rawSection.title.trim()
-          ? rawSection.title
-          : "Section";
+  const intent = parseAudience(readSingle(resolvedSearchParams.intent));
+  const planCode = (readSingle(resolvedSearchParams.plan) ?? "")
+    .trim()
+    .toLowerCase();
+  const mode = (readSingle(resolvedSearchParams.mode) ?? "").trim().toLowerCase();
+  const cancelled =
+    (readSingle(resolvedSearchParams.cancelled) ?? "").trim().toLowerCase() === "1";
 
-      const items = Array.isArray(rawSection?.items)
-        ? rawSection.items
-            .filter((item) => item && typeof item === "object")
-            .map((item) => {
-              const rawItem = item as Partial<NavItem>;
+  if (!intent || !planCode) {
+    redirect("/get-started");
+  }
 
-              const normalizedItem = {
-                label:
-                  typeof rawItem.label === "string" && rawItem.label.trim()
-                    ? rawItem.label
-                    : "Item",
-                href:
-                  typeof rawItem.href === "string" && rawItem.href.trim()
-                    ? rawItem.href
-                    : "/app",
-                icon:
-                  typeof rawItem.icon === "string" && rawItem.icon.trim()
-                    ? rawItem.icon
-                    : "dashboard",
-                badge:
-                  typeof rawItem.badge === "number" ? rawItem.badge : undefined,
-              } satisfies NavItem;
+  const plan = getBillingPlan(planCode);
 
-              return {
-                ...normalizedItem,
-                label: normalizeNavLabel(normalizedItem),
-              } satisfies NavItem;
-            })
-        : [];
+  if (!plan || plan.audience !== intent) {
+    redirect(intent === "studio" ? "/get-started/studio" : "/get-started/organizer");
+  }
 
-      return {
-        title,
-        items,
-      } satisfies NavSectionType;
-    })
-    .filter((section) => section.items.length > 0);
+  const labels = getAudienceLabels(intent);
 
-    return injectOrganizerEventHubs(normalized, role);
-}
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
 
-function prettyRole(role: string) {
-  return role.replaceAll("_", " ");
-}
+  if (!user) {
+    const next = `/get-started/complete?intent=${encodeURIComponent(
+      intent
+    )}&plan=${encodeURIComponent(plan.code)}`;
 
-function WorkspaceSwitcher({
-  workspaces,
-  currentStudioId,
-  switchWorkspaceAction,
-  mobile = false,
-}: {
-  workspaces: WorkspaceItem[];
-  currentStudioId?: string;
-  switchWorkspaceAction: (formData: FormData) => void | Promise<void>;
-  mobile?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
+    redirect(
+      `/signup?intent=${encodeURIComponent(intent)}&plan=${encodeURIComponent(
+        plan.code
+      )}&next=${encodeURIComponent(next)}`
+    );
+  }
 
-  if (!workspaces.length) return null;
+  const suggestedWorkspaceName =
+    typeof user.user_metadata?.workspace_name === "string" &&
+    user.user_metadata.workspace_name.trim()
+      ? user.user_metadata.workspace_name.trim()
+      : typeof user.user_metadata?.full_name === "string" &&
+          user.user_metadata.full_name.trim()
+        ? intent === "studio"
+          ? `${user.user_metadata.full_name.trim()} Studio`
+          : `${user.user_metadata.full_name.trim()} Organizer`
+        : "";
 
-  const currentWorkspace =
-    workspaces.find((workspace) => workspace.studioId === currentStudioId) ??
-    workspaces.find((workspace) => workspace.isSelected) ??
-    workspaces[0];
-
-  const wrapperClass = mobile
-    ? "rounded-2xl border border-[var(--brand-border)] bg-white p-4"
-    : "rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur";
-
-  const labelClass = mobile ? "text-[var(--brand-muted)]" : "text-white/50";
-  const titleClass = mobile ? "text-[var(--brand-text)]" : "text-white";
-  const subtitleClass = mobile
-    ? "text-[var(--brand-accent-dark)]"
-    : "text-[#FFDCA9]";
-  const buttonClass = mobile
-    ? "border-[var(--brand-border)] bg-white text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
-    : "border-white/10 bg-white/8 text-white hover:bg-white/12";
-
-  const dropdownClass = mobile
-    ? "border-[var(--brand-border)] bg-white shadow-xl"
-    : "border-white/10 bg-[#111b45] shadow-2xl";
-
-  const itemClass = mobile
-    ? "hover:bg-[var(--brand-primary-soft)] text-[var(--brand-text)]"
-    : "hover:bg-white/8 text-white";
-
-  const roleClass = mobile
-    ? "text-[var(--brand-accent-dark)]"
-    : "text-[#FFDCA9]";
+  const showSuccess = mode === "success";
 
   return (
-    <div className={wrapperClass}>
-      <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${labelClass}`}>
-        Workspace
-      </p>
+    <>
+      <PublicSiteHeader currentPath="pricing" isAuthenticated />
 
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        className={`mt-3 flex w-full items-center justify-between rounded-xl border px-3 py-3 text-left transition ${buttonClass}`}
-      >
-        <div className="min-w-0">
-          <p className={`truncate font-medium ${titleClass}`}>
-            {currentWorkspace.studioPublicName?.trim() || currentWorkspace.studioName}
-          </p>
-          <p className={`mt-1 truncate text-xs ${subtitleClass}`}>
-            {prettyRole(currentWorkspace.studioRole)}
-          </p>
-        </div>
-
-        <ChevronsUpDown className="h-4 w-4 shrink-0" />
-      </button>
-
-      {open ? (
-        <div className={`mt-3 overflow-hidden rounded-2xl border ${dropdownClass}`}>
-          <div className="max-h-72 overflow-y-auto p-2">
-            {workspaces.map((workspace) => {
-              const active = workspace.studioId === currentWorkspace.studioId;
-
-              return (
-                <form
-                  key={workspace.studioId}
-                  action={async (formData) => {
-                    await switchWorkspaceAction(formData);
-                    setOpen(false);
-                  }}
-                >
-                  <input type="hidden" name="studioId" value={workspace.studioId} />
-                  <button
-                    type="submit"
-                    className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left transition ${itemClass}`}
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate font-medium">
-                        {workspace.studioPublicName?.trim() || workspace.studioName}
-                      </p>
-                      <p className={`mt-1 truncate text-xs ${roleClass}`}>
-                        {prettyRole(workspace.studioRole)}
-                      </p>
-                    </div>
-
-                    {active ? (
-                      <Check className="h-4 w-4 shrink-0" />
-                    ) : (
-                      <Building2 className="h-4 w-4 shrink-0 opacity-60" />
-                    )}
-                  </button>
-                </form>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function DesktopNavSection({
-  title,
-  items,
-  pathname,
-}: {
-  title: string;
-  items: NavItem[];
-  pathname: string;
-}) {
-  return (
-    <div>
-      <p className="px-3 text-xs font-semibold uppercase tracking-[0.18em] text-white/50">
-        {title}
-      </p>
-
-      <div className="mt-3 space-y-1">
-        {items.map((item) => {
-          const active = isActivePath(pathname, item.href);
-          const Icon = getIcon(item.icon);
-
-          return (
-            <Link
-              key={`${title}-${item.label}-${item.href}`}
-              href={item.href}
-              className={[
-                "flex items-center justify-between rounded-xl px-3 py-2 text-sm transition",
-                active ? "brand-nav-active" : "brand-nav-idle",
-              ].join(" ")}
-            >
-              <span className="flex items-center gap-3">
-                <Icon className="h-4 w-4 shrink-0" />
-                <span>{item.label}</span>
-              </span>
-
-              {typeof item.badge === "number" && item.badge > 0 ? (
-                <span
-                  className={[
-                    "inline-flex min-w-[1.5rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium",
-                    active
-                      ? "bg-white/15 text-white"
-                      : "bg-[rgba(216,138,45,0.18)] text-[#FFDCA9]",
-                  ].join(" ")}
-                >
-                  {item.badge}
-                </span>
-              ) : null}
-            </Link>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function MobileNavSection({
-  title,
-  items,
-  pathname,
-  onNavigate,
-}: {
-  title: string;
-  items: NavItem[];
-  pathname: string;
-  onNavigate?: () => void;
-}) {
-  return (
-    <div>
-      <p className="px-1 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-primary)]/70">
-        {title}
-      </p>
-
-      <div className="mt-2 space-y-1">
-        {items.map((item) => {
-          const active = isActivePath(pathname, item.href);
-          const Icon = getIcon(item.icon);
-
-          return (
-            <Link
-              key={`${title}-${item.label}-${item.href}`}
-              href={item.href}
-              onClick={onNavigate}
-              className={[
-                "flex items-center justify-between rounded-xl px-3 py-3 text-sm transition",
-                active
-                  ? "bg-[var(--brand-primary)] text-white"
-                  : "text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]",
-              ].join(" ")}
-            >
-              <span className="flex items-center gap-3">
-                <Icon className="h-5 w-5 shrink-0" />
-                <span className="text-[15px]">{item.label}</span>
-              </span>
-
-              {typeof item.badge === "number" && item.badge > 0 ? (
-                <span
-                  className={[
-                    "inline-flex min-w-[1.6rem] items-center justify-center rounded-full px-2 py-0.5 text-xs font-medium",
-                    active
-                      ? "bg-white/15 text-white"
-                      : "bg-[var(--brand-accent-soft)] text-[var(--brand-accent-dark)]",
-                  ].join(" ")}
-                >
-                  {item.badge}
-                </span>
-              ) : null}
-            </Link>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-export default function AppSidebarShell({
-  pathname,
-  studioName,
-  userName,
-  userEmail,
-  role,
-  sections,
-  unreadNotificationsCount = 0,
-  recentNotifications = [],
-  workspaces = [],
-  currentStudioId,
-  switchWorkspaceAction,
-  children,
-}: {
-  pathname?: string;
-  studioName?: string;
-  userName?: string;
-  userEmail?: string;
-  role?: string;
-  sections?: unknown;
-  unreadNotificationsCount?: number;
-  recentNotifications?: NotificationItem[];
-  workspaces?: WorkspaceItem[];
-  currentStudioId?: string;
-  switchWorkspaceAction: (formData: FormData) => void | Promise<void>;
-  children: React.ReactNode;
-}) {
-  const [mobileOpen, setMobileOpen] = useState(false);
-
-  const safePathname = pathname || "/app";
-  const safeStudioName = studioName || "Workspace";
-  const safeUserName = userName || "Unknown User";
-  const safeUserEmail = userEmail || "";
-  const safeRole = role || "";
-  const safeNotifications = Array.isArray(recentNotifications)
-    ? recentNotifications
-    : [];
-
-  const normalizedSections = useMemo(
-    () => normalizeSections(sections, safeRole),
-    [sections, safeRole]
-  );
-
-  return (
-    <div className="min-h-screen lg:grid lg:grid-cols-[320px_minmax(0,1fr)]">
-      <div className="border-b border-[var(--brand-border)] bg-white px-4 py-3 lg:hidden">
-        <div className="flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => setMobileOpen(true)}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--brand-border)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
-            aria-label="Open navigation"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-[var(--brand-text)]">
-              {safeStudioName}
-            </p>
-            <p className="truncate text-xs text-[var(--brand-muted)]">
-              {safeUserName}
-            </p>
-          </div>
-
-          <NotificationMenu
-            unreadCount={unreadNotificationsCount}
-            notifications={safeNotifications}
-          />
-        </div>
-      </div>
-
-      <aside className="hidden lg:sticky lg:top-0 lg:block lg:h-screen">
-        <div className="brand-sidebar flex h-full flex-col border-r border-white/10">
-          <div className="border-b border-white/10 px-5 py-5">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="flex items-center gap-3">
-                  <div className="relative h-16 w-16 overflow-hidden rounded-2xl bg-white/8 p-1 ring-1 ring-white/10">
-                    <Image
-                      src="/brand/danceflow-logo.png"
-                      alt="DanceFlow logo"
-                      fill
-                      sizes="64px"
-                      className="object-contain"
-                    />
-                  </div>
-
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/50">
-                      Workspace
-                    </p>
-                    <h1 className="mt-1 truncate text-2xl font-semibold text-white">
-                      {safeStudioName}
-                    </h1>
-                    <p className="mt-1 text-sm text-[#FFDCA9]">DanceFlow</p>
-                  </div>
-                </div>
-              </div>
-
-              <NotificationMenu
-                unreadCount={unreadNotificationsCount}
-                notifications={safeNotifications}
-              />
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-4 py-5">
-            <div className="space-y-6">
-              {workspaces.length > 1 ? (
-                <WorkspaceSwitcher
-                  workspaces={workspaces}
-                  currentStudioId={currentStudioId}
-                  switchWorkspaceAction={switchWorkspaceAction}
-                />
-              ) : null}
-
-              {normalizedSections.map((section) => (
-                <DesktopNavSection
-                  key={section.title}
-                  title={section.title}
-                  items={section.items}
-                  pathname={safePathname}
-                />
-              ))}
-            </div>
-
-            <div className="mt-10 rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-white/50">
-                Signed in as
+      <main className="min-h-screen bg-[linear-gradient(180deg,#f5f3ff_0%,#ffffff_24%,#f8fafc_100%)]">
+        <section className="border-b border-slate-200/70">
+          <div className="mx-auto max-w-5xl px-6 py-14 lg:px-8 lg:py-20">
+            <div className="mx-auto max-w-3xl text-center">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-600">
+                {labels.eyebrow}
               </p>
-              <p className="mt-2 font-medium text-white">{safeUserName}</p>
-              <p className="text-sm text-white/75">{safeUserEmail}</p>
-              <p className="mt-2 text-xs text-[#FFDCA9]">{safeRole}</p>
+
+              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
+                {showSuccess ? labels.successHeading : labels.heading}
+              </h1>
+
+              <p className="mt-4 text-lg leading-8 text-slate-600">
+                {showSuccess ? labels.successCopy : labels.subheading}
+              </p>
             </div>
-          </div>
 
-          <div className="border-t border-white/10 px-5 py-4">
-            <form action="/auth/logout" method="post">
-              <button className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/8 px-4 py-2 text-white hover:bg-white/12">
-                <LogOut className="h-4 w-4" />
-                <span>Log Out</span>
-              </button>
-            </form>
-          </div>
-        </div>
-      </aside>
+            {showSuccess ? (
+              <div className="mx-auto mt-10 max-w-3xl rounded-[32px] border border-emerald-200 bg-white p-8 shadow-sm">
+                <div className="rounded-2xl bg-emerald-50 px-5 py-4">
+                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                    Trial activated
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-slate-600">
+                    Your {plan.label} trial is active. Billing is attached to this
+                    workspace and you can continue into the app now.
+                  </p>
+                </div>
 
-      <main className="min-w-0">{children}</main>
+                <div className="mt-8 grid gap-4 sm:grid-cols-2">
+                  <Link
+                    href={labels.appHref}
+                    className="inline-flex items-center justify-center rounded-xl bg-violet-600 px-4 py-3 text-sm font-medium text-white hover:bg-violet-700"
+                  >
+                    Go to Dashboard
+                  </Link>
 
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-50 lg:hidden">
-          <button
-            type="button"
-            onClick={() => setMobileOpen(false)}
-            className="absolute inset-0 bg-slate-900/45"
-            aria-label="Close navigation backdrop"
-          />
-
-          <div className="absolute inset-y-0 left-0 w-full max-w-sm bg-[var(--brand-surface)] shadow-xl">
-            <div className="flex h-full flex-col">
-              <div className="border-b border-[var(--brand-border)] bg-white px-5 py-5">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-4">
-                      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border border-[var(--brand-border)] bg-white p-2 shadow-sm">
-                        <Image
-                          src="/brand/danceflow-logo.png"
-                          alt="DanceFlow logo"
-                          fill
-                          sizes="80px"
-                          className="object-contain p-1"
-                        />
+                  <Link
+                    href="/app/settings/billing"
+                    className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    View Billing &amp; Payouts
+                  </Link>
+                </div>
+              </div>
+            ) : (
+              <div className="mx-auto mt-10 grid max-w-5xl gap-6 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+                <section className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
+                  <div className="rounded-2xl bg-violet-50 px-5 py-4">
+                    <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
+                      Selected plan
+                    </p>
+                    <div className="mt-3 flex flex-wrap items-end justify-between gap-4">
+                      <div>
+                        <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                          {plan.label}
+                        </h2>
+                        <p className="mt-2 text-sm leading-7 text-slate-600">
+                          {plan.description}
+                        </p>
                       </div>
 
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-muted)]">
-                          Workspace
+                      <div className="text-right">
+                        <p className="text-3xl font-semibold tracking-tight text-slate-950">
+                          {formatPlanMoney(plan.amountMonthlyCents)}
+                          <span className="text-base font-medium text-slate-500">
+                            /mo
+                          </span>
                         </p>
-                        <h2 className="mt-1 truncate text-2xl font-semibold text-[var(--brand-text)]">
-                          {safeStudioName}
-                        </h2>
-                        <p className="mt-1 text-base font-medium text-[var(--brand-accent-dark)]">
-                          DanceFlow
+                        <p className="mt-2 text-sm font-medium text-violet-700">
+                          Includes a {plan.trialDays}-day free trial
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setMobileOpen(false)}
-                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--brand-border)] text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
-                    aria-label="Close navigation"
-                  >
-                    <X className="h-5 w-5" />
-                  </button>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto px-5 py-5">
-                <div className="space-y-6">
-                  {workspaces.length > 1 ? (
-                    <WorkspaceSwitcher
-                      workspaces={workspaces}
-                      currentStudioId={currentStudioId}
-                      switchWorkspaceAction={switchWorkspaceAction}
-                      mobile
-                    />
+                  {cancelled ? (
+                    <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4">
+                      <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-700">
+                        Checkout cancelled
+                      </p>
+                      <p className="mt-2 text-sm leading-7 text-slate-600">
+                        Your workspace setup is still here. Review your details below
+                        and continue when you are ready.
+                      </p>
+                    </div>
                   ) : null}
 
-                  {normalizedSections.map((section) => (
-                    <MobileNavSection
-                      key={section.title}
-                      title={section.title}
-                      items={section.items}
-                      pathname={safePathname}
-                      onNavigate={() => setMobileOpen(false)}
-                    />
-                  ))}
-                </div>
+                  <form action={beginPaidTrialCheckoutAction} className="mt-8 space-y-6">
+                    <input type="hidden" name="planCode" value={plan.code} />
+                    <input type="hidden" name="intent" value={intent} />
 
-                <div className="mt-8 rounded-2xl border border-[var(--brand-border)] bg-white p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-muted)]">
+                    <div>
+                      <label
+                        htmlFor="workspaceName"
+                        className="block text-sm font-medium text-slate-700"
+                      >
+                        {labels.workspaceLabel}
+                      </label>
+                      <input
+                        id="workspaceName"
+                        name="workspaceName"
+                        type="text"
+                        defaultValue={suggestedWorkspaceName}
+                        placeholder={labels.workspacePlaceholder}
+                        className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-violet-500"
+                      />
+                      <p className="mt-2 text-xs leading-6 text-slate-500">
+                        This creates the initial workspace name used for billing and
+                        onboarding. You can refine branding later.
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-4">
+                      <p className="text-sm font-medium text-slate-900">
+                        What happens next
+                      </p>
+                      <ul className="mt-3 space-y-2 text-sm leading-7 text-slate-600">
+                        <li>• Your workspace will be created or reused for this account.</li>
+                        <li>• You will continue into secure Stripe checkout.</li>
+                        <li>• Your free trial begins when checkout is completed.</li>
+                        <li>• After that, you will land back here and continue into the app.</li>
+                      </ul>
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-medium text-white hover:bg-violet-700"
+                    >
+                      {labels.buttonLabel}
+                    </button>
+                  </form>
+                </section>
+
+                <aside className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
                     Signed in as
                   </p>
-                  <p className="mt-2 font-medium text-[var(--brand-text)]">
-                    {safeUserName}
-                  </p>
-                  <p className="text-sm text-[var(--brand-muted)]">{safeUserEmail}</p>
-                  <p className="mt-2 text-xs text-[var(--brand-accent-dark)]">
-                    {safeRole}
-                  </p>
-                </div>
-              </div>
+                  <h2 className="mt-3 text-2xl font-semibold text-slate-950">
+                    {user.user_metadata?.full_name?.toString().trim() || user.email}
+                  </h2>
+                  <p className="mt-2 text-sm text-slate-600">{user.email}</p>
 
-              <div className="border-t border-[var(--brand-border)] bg-white px-5 py-4">
-                <form action="/auth/logout" method="post">
-                  <button className="brand-button-primary flex w-full items-center justify-center gap-2 rounded-xl px-4 py-2">
-                    <LogOut className="h-4 w-4" />
-                    <span>Log Out</span>
-                  </button>
-                </form>
+                  <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <p className="text-sm font-medium text-slate-900">Plan summary</p>
+                    <dl className="mt-3 space-y-3 text-sm">
+                      <div className="flex items-start justify-between gap-4">
+                        <dt className="text-slate-500">Plan</dt>
+                        <dd className="font-medium text-slate-900">{plan.label}</dd>
+                      </div>
+                      <div className="flex items-start justify-between gap-4">
+                        <dt className="text-slate-500">Audience</dt>
+                        <dd className="font-medium capitalize text-slate-900">
+                          {intent}
+                        </dd>
+                      </div>
+                      <div className="flex items-start justify-between gap-4">
+                        <dt className="text-slate-500">Trial</dt>
+                        <dd className="font-medium text-slate-900">
+                          {plan.trialDays} days
+                        </dd>
+                      </div>
+                      <div className="flex items-start justify-between gap-4">
+                        <dt className="text-slate-500">Billing</dt>
+                        <dd className="font-medium text-slate-900">Monthly</dd>
+                      </div>
+                    </dl>
+                  </div>
+
+                  <div className="mt-6 space-y-3">
+                    <Link
+                      href={labels.pricingHref}
+                      className="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      {labels.pricingLabel}
+                    </Link>
+
+                    <Link
+                      href="/get-started"
+                      className="inline-flex w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Back to Path Chooser
+                    </Link>
+                  </div>
+                </aside>
               </div>
-            </div>
+            )}
           </div>
-        </div>
-      ) : null}
-    </div>
+        </section>
+      </main>
+
+      <PublicSiteFooter />
+    </>
   );
 }

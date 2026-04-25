@@ -27,22 +27,24 @@ export default async function StudioPricingPage() {
               </p>
 
               <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                Pricing built for dance studios
+                Pricing built for dance studios and independent instructors
               </h1>
 
               <p className="mt-4 text-lg leading-8 text-slate-600">
-                Compare studio plans, see features clearly, and choose the trial that
-                matches your operation now and where you want to grow next.
+                Choose a trial for your own DanceFlow workspace. If your email is
+                already linked to a host studio portal, you can still use the same
+                account to create your own subscribed workspace here.
               </p>
 
-              <div className="mt-8 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4">
+              <div className="mt-8 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left">
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
-                  Start with pricing, then create your account
+                  Existing account friendly
                 </p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Studios should be able to review pricing before signing up. When you
-                  click Start Trial, DanceFlow will guide you into account creation if
-                  needed.
+                <p className="mt-2 text-sm leading-7 text-violet-950">
+                  Already have an account because a studio linked you as an independent
+                  instructor? Log in when prompted and DanceFlow will continue this flow
+                  by creating a separate workspace for your own business. Your host
+                  studio portal access stays separate.
                 </p>
               </div>
             </div>
@@ -53,7 +55,7 @@ export default async function StudioPricingPage() {
                   key={plan.code}
                   className={`rounded-[32px] border bg-white p-7 shadow-sm ${
                     plan.code === "growth"
-                      ? "border-violet-400 ring-2 ring-violet-200"
+                      ? "border-violet-300 ring-2 ring-violet-100"
                       : "border-slate-200"
                   }`}
                 >
@@ -90,6 +92,7 @@ export default async function StudioPricingPage() {
 
                   <form action={startPaidPathAction} className="mt-8">
                     <input type="hidden" name="planCode" value={plan.code} />
+                    <input type="hidden" name="intent" value="studio" />
                     <button
                       type="submit"
                       className={`w-full rounded-xl px-4 py-3 text-sm font-medium text-white ${

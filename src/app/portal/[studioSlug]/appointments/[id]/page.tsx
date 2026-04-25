@@ -249,19 +249,18 @@ export default async function PortalAppointmentDetailPage({
     formatAppointmentType(typedAppointment.appointment_type);
 
   return (
-    <div className="space-y-8">
-      <section className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_42%,#f8fafc_100%)] p-8 shadow-sm sm:p-10">
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.35)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-8 shadow-sm sm:p-10">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-orange-600">
-              {studioLabel}
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-white/70">
+              DanceFlow Lesson Details
             </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
               {appointmentLabel}
             </h1>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
-              Lesson details for {getClientName(typedClient)}. Review the recap,
-              practice notes, next focus, and any shared media your studio has made available.
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-white/85 sm:text-base">
+              See the details your studio shared for this lesson, including recap notes, practice ideas, next steps, and any shared media.
             </p>
 
             <div className="mt-6 flex flex-wrap items-center gap-2">
@@ -288,13 +287,13 @@ export default async function PortalAppointmentDetailPage({
           <div className="flex flex-wrap gap-3">
             <Link
               href={`/portal/${encodeURIComponent(studioSlug)}`}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
             >
               Back to Portal
             </Link>
             <Link
               href={`/portal/${encodeURIComponent(studioSlug)}/profile`}
-              className="rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
             >
               My Profile
             </Link>
@@ -306,20 +305,20 @@ export default async function PortalAppointmentDetailPage({
         <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
-              Lesson Recap
+              Lesson What was covered
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-              What your studio shared
+              What was shared for this lesson
             </h2>
           </div>
 
           {!recapVisible || !recap ? (
             <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
               <p className="text-lg font-medium text-slate-900">
-                No recap available yet
+                Nothing has been shared yet
               </p>
               <p className="mt-2 text-sm leading-7 text-slate-600">
-                Your studio has not shared a visible lesson recap for this appointment yet.
+                Your studio has not added a visible lesson summary for this appointment yet.
               </p>
             </div>
           ) : (
@@ -329,38 +328,38 @@ export default async function PortalAppointmentDetailPage({
                   Summary
                 </p>
                 <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
-                  {recap.summary?.trim() || "No summary was added for this lesson."}
+                  {recap.summary?.trim() || "No lesson summary was added."}
                 </p>
               </div>
 
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Homework
+                    Practice ideas
                   </p>
                   <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
-                    {recap.homework?.trim() || "No homework was added."}
+                    {recap.homework?.trim() || "No practice ideas were added."}
                   </p>
                 </div>
 
                 <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Next Focus
+                    Next lesson focus
                   </p>
                   <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
-                    {recap.next_focus?.trim() || "No next-focus note was added."}
+                    {recap.next_focus?.trim() || "No next-step note was added."}
                   </p>
                 </div>
               </div>
 
               <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-6 shadow-sm">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                  Shared Media
+                  Shared video or audio
                 </p>
 
                 {mediaWithUrls.length === 0 ? (
                   <p className="mt-3 text-sm leading-7 text-slate-700">
-                    No media was attached to this lesson recap.
+                    No video or audio was attached to this lesson.
                   </p>
                 ) : (
                   <div className="mt-4 space-y-4">
@@ -424,7 +423,7 @@ export default async function PortalAppointmentDetailPage({
         <section className="space-y-8">
           <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
-              Appointment Details
+              Lesson Details
             </p>
 
             <div className="mt-6 space-y-4">
@@ -442,7 +441,7 @@ export default async function PortalAppointmentDetailPage({
                   Instructor
                 </p>
                 <p className="mt-2 text-sm text-slate-800">
-                  Studio Staff
+                  Your studio team
                 </p>
               </div>
 
@@ -479,10 +478,10 @@ export default async function PortalAppointmentDetailPage({
 
           <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-orange-600">
-              Need help?
+              Need help with this lesson?
             </p>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              Reach out to your studio directly if you expected a recap, video, or other lesson details that are not visible here yet.
+              If you expected lesson notes, media, or other details that are not showing here yet, reach out to your studio.
             </p>
           </div>
         </section>
@@ -490,4 +489,6 @@ export default async function PortalAppointmentDetailPage({
     </div>
   );
 }
+
+
 

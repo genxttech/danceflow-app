@@ -240,6 +240,13 @@ type PackageHealth =
   | "expired"
   | "unknown";
 
+  type HostStudioPortalLink = {
+  client_id: string;
+  studio_id: string;
+  studio_name: string;
+  studio_slug: string;
+};
+
 function usageLabel(value: string) {
   if (value === "private_lesson") return "Private Lessons";
   if (value === "group_class") return "Group Classes";
@@ -929,10 +936,14 @@ export default async function ClientDetailPage({
 
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
+
+  
   const studioId = context.studioId;
   const role = context.studioRole ?? "";
   const nowIso = new Date().toISOString();
   const returnTo = `/app/clients/${id}`;
+
+  
 
   if (notificationId) {
     await supabase
@@ -2455,8 +2466,8 @@ export default async function ClientDetailPage({
           </SectionCard>
 
           <SectionCard
-  title="Portal & Independent Instructor Access"
-  subtitle="Manage whether this client is linked to portal access and whether they should have the limited independent instructor floor-rental workflow."
+  title="Portal Access"
+  subtitle="Connect this client to their login account so they can use the client portal. Independent instructors will also see floor-rental tools when that option is enabled on their client profile."
   action={
     canEditClients(role) ? (
       <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-dark)]">
@@ -2467,49 +2478,50 @@ export default async function ClientDetailPage({
 >
   <div className="grid gap-4 sm:grid-cols-3">
     <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-      <p className="text-sm text-slate-500">Portal Access</p>
+      <p className="text-sm text-slate-500">Portal Account</p>
       <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
         {hasPortalLogin ? "Linked" : "Not Linked"}
       </p>
       <p className="mt-1 text-xs text-slate-500">
-        {typedClient.portal_user_id ? typedClient.portal_user_id : "No linked portal account"}
+        {hasPortalLogin ? "Client has login access" : "No linked portal account"}
       </p>
     </div>
 
     <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-      <p className="text-sm text-slate-500">Independent Instructor</p>
+      <p className="text-sm text-slate-500">Client Type</p>
       <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
-        {isIndependentInstructor ? "Enabled" : "Disabled"}
+        {isIndependentInstructor ? "Independent Instructor" : "Standard Client"}
       </p>
       <p className="mt-1 text-xs text-slate-500">
         {isIndependentInstructor
-          ? "Client has limited instructor portal access"
+          ? "Floor-rental tools are available in the portal"
           : "Client uses the standard portal experience"}
       </p>
     </div>
 
     <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-      <p className="text-sm text-slate-500">Linked Instructor</p>
+      <p className="text-sm text-slate-500">Teaching Profile</p>
       <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
         {linkedInstructorName}
       </p>
       <p className="mt-1 text-xs text-slate-500">
         {isIndependentInstructor
           ? "Used for rental and schedule tracking"
-          : "Optional unless independent instructor access is enabled"}
+          : "No teaching profile required for standard clients"}
       </p>
     </div>
   </div>
 
   <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
-    <p className="text-sm font-medium text-blue-800">Portal entry</p>
+    <p className="text-sm font-medium text-blue-800">Portal Link</p>
     <p className="mt-1 break-all text-sm text-blue-900">
-      /portal/{typedStudio.slug}
+      Portal home: /portal/{typedStudio.slug}
     </p>
-    <p className="mt-2 text-xs text-blue-700">
-      Portal linking currently matches the client email to an existing account and sets
-      <code className="mx-1 rounded bg-blue-100 px-1.5 py-0.5 text-[11px]">portal_user_id</code>.
-      If no account exists yet, the user must create one first.
+    <p className="mt-2 text-xs leading-6 text-blue-700">
+      Use portal access to connect this client to an existing login account or
+      invite them to create one. If this client is marked as an independent
+      instructor, their portal includes floor-space booking, rental history, and
+      rental payment tools.
     </p>
   </div>
 
@@ -2532,69 +2544,82 @@ export default async function ClientDetailPage({
       <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
         <p className="text-sm text-indigo-700">Portal Mode</p>
         <p className="mt-2 text-sm font-semibold text-indigo-900">
-          Client + Limited Instructor Access
+          Client + Floor-Rental Access
         </p>
       </div>
     </div>
   ) : null}
 
   {canEditClients(role) ? (
-    <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
-  <h3 className="text-base font-semibold text-[var(--brand-text)]">
-    Portal Access
-  </h3>
-  <p className="mt-1 text-sm text-slate-600">
-    Link this client to an existing account or send a portal invite to their email.
-  </p>
+    <div className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+      <h3 className="text-base font-semibold text-[var(--brand-text)]">
+        Portal Access
+      </h3>
+      <p className="mt-1 text-sm text-slate-600">
+        Connect this client to their login account. If they do not have one yet,
+        send an invite to create portal access.
+      </p>
 
-  <div className="mt-4 space-y-3">
-    <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-        Client Email
-      </p>
-      <p className="mt-1 text-sm font-medium text-[var(--brand-text)]">
-        {typedClient.email || "No email on file"}
-      </p>
+      <div className="mt-4 space-y-3">
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Client Email
+          </p>
+          <p className="mt-1 text-sm font-medium text-[var(--brand-text)]">
+            {typedClient.email || "No email on file"}
+          </p>
+        </div>
+
+        {hasPortalLogin ? (
+          <form action={unlinkPortalAccessAction}>
+            <input type="hidden" name="clientId" value={typedClient.id} />
+            <input
+              type="hidden"
+              name="returnTo"
+              value={`/app/clients/${typedClient.id}`}
+            />
+            <button
+              type="submit"
+              className="w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 hover:bg-red-100"
+            >
+              Unlink Portal Access
+            </button>
+          </form>
+        ) : (
+          <form action={linkPortalAccessAction}>
+            <input type="hidden" name="clientId" value={typedClient.id} />
+            <input
+              type="hidden"
+              name="returnTo"
+              value={`/app/clients/${typedClient.id}`}
+            />
+            <button
+              type="submit"
+              className="w-full rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-3 text-sm font-medium text-white hover:brightness-105"
+            >
+              Link Existing Account
+            </button>
+          </form>
+        )}
+
+        {typedClient.email ? (
+          <form action={sendPortalInviteAction}>
+            <input type="hidden" name="clientId" value={typedClient.id} />
+            <input
+              type="hidden"
+              name="returnTo"
+              value={`/app/clients/${typedClient.id}`}
+            />
+            <button
+              type="submit"
+              className="w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+            >
+              Send Portal Invite
+            </button>
+          </form>
+        ) : null}
+      </div>
     </div>
-
-    {hasPortalLogin ? (
-      <form action={unlinkPortalAccessAction}>
-        <input type="hidden" name="clientId" value={typedClient.id} />
-        <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}`} />
-        <button
-          type="submit"
-          className="w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 hover:bg-red-100"
-        >
-          Unlink Portal Access
-        </button>
-      </form>
-    ) : (
-      <form action={linkPortalAccessAction}>
-        <input type="hidden" name="clientId" value={typedClient.id} />
-        <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}`} />
-        <button
-          type="submit"
-          className="w-full rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-3 text-sm font-medium text-white hover:brightness-105"
-        >
-          Link Existing Portal Account
-        </button>
-      </form>
-    )}
-
-    {typedClient.email ? (
-      <form action={sendPortalInviteAction}>
-        <input type="hidden" name="clientId" value={typedClient.id} />
-        <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}`} />
-        <button
-          type="submit"
-          className="w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
-        >
-          Send Portal Invite
-        </button>
-      </form>
-    ) : null}
-  </div>
-</div>
   ) : null}
 </SectionCard>
 

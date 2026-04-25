@@ -36,6 +36,19 @@ type ProfileRow = {
 type StudioRow = {
   id: string;
   name: string | null;
+  slug: string | null;
+};
+
+type NavItem = {
+  label: string;
+  href: string;
+  icon: string;
+  badge?: number;
+};
+
+type NavSection = {
+  title: string;
+  items: NavItem[];
 };
 
 function buildDisplayName(profile: ProfileRow | null, fallbackEmail: string | null) {
@@ -52,7 +65,11 @@ function buildDisplayName(profile: ProfileRow | null, fallbackEmail: string | nu
 }
 
 function formatRoleLabel(role: string | null | undefined) {
-  return (role ?? "").replaceAll("_", " ").trim();
+  if (!role) return "";
+
+  if (role === "studio_admin") return "Studio Manager";
+
+  return role.replaceAll("_", " ").trim();
 }
 
 function getBillingLockMessage(status: string | null | undefined) {
@@ -75,25 +92,49 @@ function getBillingLockMessage(status: string | null | undefined) {
   }
 }
 
+function compactSections(sections: NavSection[]) {
+  return sections.filter((section) => section.items.length > 0);
+}
+
 function buildStudioSections(params: {
   unreadNotificationsCount: number;
   leadsBadgeCount: number;
+  role: string | null | undefined;
+  isPlatformAdmin: boolean;
+  portalHref: string | null;
 }) {
-  const { unreadNotificationsCount, leadsBadgeCount } = params;
+  const { unreadNotificationsCount, leadsBadgeCount, role, isPlatformAdmin, portalHref } = params;
 
-  return [
+  const isOwner = isPlatformAdmin || role === "studio_owner";
+  const isStudioAdmin = isOwner || role === "studio_admin";
+  const isFrontDesk = isStudioAdmin || role === "front_desk";
+  const isInstructor = role === "instructor";
+  const isIndependentInstructor = role === "independent_instructor";
+  const isAnyInstructor = isInstructor || isIndependentInstructor;
+
+  return compactSections([
     {
       title: "Daily Operations",
       items: [
         { label: "Dashboard", href: "/app", icon: "dashboard" },
         { label: "Schedule", href: "/app/schedule", icon: "schedule" },
-        { label: "Clients", href: "/app/clients", icon: "clients" },
-        {
-          label: "Leads",
-          href: "/app/leads",
-          icon: "leads",
-          badge: leadsBadgeCount,
-        },
+        ...(isIndependentInstructor && portalHref
+          ? [{ label: "My Portal", href: portalHref, icon: "clients" as const }]
+          : []),
+        ...(isFrontDesk || isStudioAdmin || isOwner
+          ? [{ label: "Clients", href: "/app/clients", icon: "clients" as const }]
+          : []),
+        ...(isFrontDesk || isStudioAdmin || isOwner
+          ? [
+              {
+                label: "Leads",
+                href: "/app/leads",
+                icon: "leads" as const,
+                badge: leadsBadgeCount,
+              },
+            ]
+          : []),
+            
         {
           label: "Notifications",
           href: "/app/notifications",
@@ -105,35 +146,84 @@ function buildStudioSections(params: {
     {
       title: "Programs & Staff",
       items: [
-        { label: "Events", href: "/app/events", icon: "events" },
-        { label: "Instructors", href: "/app/instructors", icon: "instructors" },
-        { label: "Rooms", href: "/app/rooms", icon: "rooms" },
+        ...(isFrontDesk || isStudioAdmin || isOwner || isAnyInstructor
+          ? [{ label: "Events", href: "/app/events", icon: "events" as const }]
+          : []),
+        ...(isStudioAdmin || isOwner
+          ? [{ label: "Instructors", href: "/app/instructors", icon: "instructors" as const }]
+          : []),
+        ...(isStudioAdmin || isOwner
+          ? [{ label: "Rooms", href: "/app/rooms", icon: "rooms" as const }]
+          : []),
       ],
     },
     {
       title: "Sales & Billing",
       items: [
-        { label: "Payments", href: "/app/payments", icon: "payments" },
-        {
-          label: "Client Balances",
-          href: "/app/packages/client-balances",
-          icon: "balances",
-        },
-        { label: "Package Templates", href: "/app/packages", icon: "packages" },
-        {
-          label: "Membership Plans",
-          href: "/app/memberships",
-          icon: "memberships",
-        },
-        { label: "Reports", href: "/app/reports", icon: "reports" },
+        ...(isFrontDesk || isStudioAdmin || isOwner || isIndependentInstructor
+          ? [{ label: "Payments", href: "/app/payments", icon: "payments" as const }]
+          : []),
+        ...(isFrontDesk || isStudioAdmin || isOwner
+          ? [
+                            {
+                label: "Sell Packages",
+                href: "/app/packages/sell",
+                icon: "packages" as const,
+              },
+              {
+                label: "Sell Memberships",
+                href: "/app/memberships/sell",
+                icon: "memberships" as const,
+              },
+              {
+                label: "Client Balances",
+                href: "/app/packages/client-balances",
+                icon: "balances" as const,
+              },
+            ]
+          : []),
+        ...(isStudioAdmin || isOwner
+          ? [{ label: "Package Templates", href: "/app/packages", icon: "packages" as const }]
+          : []),
+        ...(isStudioAdmin || isOwner
+          ? [
+              {
+                label: "Membership Plans",
+                href: "/app/memberships",
+                icon: "memberships" as const,
+              },
+            ]
+          : []),
+        ...(isStudioAdmin || isOwner
+          ? [{ label: "Reports", href: "/app/reports", icon: "reports" as const }]
+          : []),
       ],
     },
     {
       title: "Public Growth",
       items: [
+        ...(isStudioAdmin || isOwner
+          ? [
+              {
+                label: "Public Profile",
+                href: "/app/settings/public-profile",
+                icon: "settings" as const,
+              },
+            ]
+          : []),
+      ],
+    },
         {
-          label: "Public Profile",
-          href: "/app/settings/public-profile",
+      title: "Support",
+      items: [
+        {
+          label: "Help",
+          href: "/app/help",
+          icon: "settings",
+        },
+        {
+          label: "Knowledgebase",
+          href: "/knowledgebase",
           icon: "settings",
         },
       ],
@@ -141,29 +231,66 @@ function buildStudioSections(params: {
     {
       title: "Admin",
       items: [
-        { label: "Settings", href: "/app/settings", icon: "settings" },
-        {
-          label: "Billing & Payouts",
-          href: "/app/settings/billing",
-          icon: "payments",
-        },
+        ...(isStudioAdmin || isOwner
+          ? [{ label: "Settings", href: "/app/settings", icon: "settings" as const }]
+          : []),
+        ...(isOwner
+          ? [
+              {
+                label: "Team & Permissions",
+                href: "/app/settings/team",
+                icon: "settings" as const,
+              },
+            ]
+          : []),
+        ...(isOwner
+          ? [
+              {
+                label: "Billing & Payouts",
+                href: "/app/settings/billing",
+                icon: "payments" as const,
+              },
+            ]
+          : []),
       ],
     },
-  ];
+  ]);
 }
 
-function buildOrganizerSections(params: { unreadNotificationsCount: number }) {
-  const { unreadNotificationsCount } = params;
+function buildOrganizerSections(params: {
+  unreadNotificationsCount: number;
+  role: string | null | undefined;
+  isPlatformAdmin: boolean;
+}) {
+  const { unreadNotificationsCount, role, isPlatformAdmin } = params;
 
-  return [
+  const isOwner = isPlatformAdmin || role === "organizer_owner";
+  const isOrganizerAdmin = isOwner || role === "organizer_admin";
+
+  return compactSections([
     {
       title: "Organizer Operations",
       items: [
         { label: "Dashboard", href: "/app", icon: "dashboard" },
-        { label: "Events", href: "/app/events", icon: "events" },
-        { label: "Registrations", href: "/app/events/registrations", icon: "clients" },
-        { label: "Check-In", href: "/app/events/checkin", icon: "checkin" },
-        { label: "Organizer Profile", href: "/app/organizers", icon: "settings" },
+        ...(isOrganizerAdmin
+          ? [{ label: "Events", href: "/app/events", icon: "events" as const }]
+          : []),
+        ...(isOrganizerAdmin
+          ? [
+              {
+                label: "Registrations",
+                href: "/app/events/registrations",
+                icon: "clients" as const,
+              },
+            ]
+          : []),
+        ...(isOrganizerAdmin
+          ? [{ label: "Check-In", href: "/app/events/checkin", icon: "checkin" as const }]
+          : []),
+        ...(isOrganizerAdmin
+          ? [{ label: "Organizer Profile", href: "/app/organizers", icon: "settings" as const }]
+          : []),
+                
         {
           label: "Notifications",
           href: "/app/notifications",
@@ -175,20 +302,56 @@ function buildOrganizerSections(params: { unreadNotificationsCount: number }) {
     {
       title: "Revenue",
       items: [
+        ...(isOwner
+          ? [
+              {
+                label: "Billing & Payouts",
+                href: "/app/settings/billing",
+                icon: "payments" as const,
+              },
+            ]
+          : []),
+        ...(isOrganizerAdmin
+          ? [{ label: "Payment History", href: "/app/payments", icon: "payments" as const }]
+          : []),
+        ...(isOrganizerAdmin
+          ? [{ label: "Reports", href: "/app/reports", icon: "reports" as const }]
+          : []),
+      ],
+    },
         {
-          label: "Billing & Payouts",
-          href: "/app/settings/billing",
-          icon: "payments",
+      title: "Support",
+      items: [
+        {
+          label: "Help",
+          href: "/app/help",
+          icon: "settings",
         },
-        { label: "Payment History", href: "/app/payments", icon: "payments" },
-        { label: "Reports", href: "/app/reports", icon: "reports" },
+        {
+          label: "Knowledgebase",
+          href: "/knowledgebase",
+          icon: "settings",
+        },
       ],
     },
     {
       title: "Admin",
-      items: [{ label: "Settings", href: "/app/settings", icon: "settings" }],
+      items: [
+        ...(isOrganizerAdmin
+          ? [{ label: "Settings", href: "/app/settings", icon: "settings" as const }]
+          : []),
+        ...(isOwner
+          ? [
+              {
+                label: "Team & Permissions",
+                href: "/app/settings/team",
+                icon: "settings" as const,
+              },
+            ]
+          : []),
+      ],
     },
-  ];
+  ]);
 }
 
 export default async function AppLayout({
@@ -265,7 +428,7 @@ export default async function AppLayout({
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name")
+      .select("id, name, slug")
       .eq("id", context.studioId)
       .maybeSingle<StudioRow>(),
 
@@ -300,26 +463,28 @@ export default async function AppLayout({
   const leadsBadgeCount = openLeadCount ?? 0;
 
   const studioName = studio?.name ?? "Workspace";
+  const portalHref = studio?.slug ? `/portal/${studio.slug}` : null;
   const userName = buildDisplayName(profile ?? null, user.email ?? null);
   const userEmail = profile?.email ?? user.email ?? "";
   const roleLabel = context.isPlatformAdmin
     ? "Platform Admin"
     : formatRoleLabel(context.studioRole);
 
-  const organizerWorkspace =
-  isOrganizerRole(context.studioRole) ||
-  studioName.trim().toLowerCase().includes("organizer") ||
-  studioName.trim().toLowerCase().includes("event") ||
-  studioName.trim().toLowerCase().includes("festival");
+  const organizerWorkspace = isOrganizerRole(context.studioRole);
 
-const sections = organizerWorkspace
-  ? buildOrganizerSections({
-      unreadNotificationsCount,
-    })
-  : buildStudioSections({
-      unreadNotificationsCount,
-      leadsBadgeCount,
-    });
+  const sections = organizerWorkspace
+    ? buildOrganizerSections({
+        unreadNotificationsCount,
+        role: context.studioRole,
+        isPlatformAdmin: context.isPlatformAdmin,
+      })
+    : buildStudioSections({
+        unreadNotificationsCount,
+        leadsBadgeCount,
+        role: context.studioRole,
+        isPlatformAdmin: context.isPlatformAdmin,
+        portalHref,
+      });
 
   let studioBanner: React.ReactNode = null;
 

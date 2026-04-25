@@ -35,7 +35,8 @@ function parseSlotsJson(raw: string): RentalSlot[] {
     return parsed
       .map((item) => ({
         date: typeof item?.date === "string" ? item.date.trim() : "",
-        startTime: typeof item?.startTime === "string" ? item.startTime.trim() : "",
+        startTime:
+          typeof item?.startTime === "string" ? item.startTime.trim() : "",
         endTime: typeof item?.endTime === "string" ? item.endTime.trim() : "",
         priceAmount:
           typeof item?.priceAmount === "string"
@@ -65,8 +66,12 @@ function appointmentTypeLabel(value: string) {
   if (value === "coaching") return "Coaching";
   if (value === "practice_party") return "Practice Party";
   if (value === "floor_space_rental") return "Floor Space Rental";
+  if (value === "room_unavailable") return "Room Unavailable";
   if (value === "event") return "Event";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 async function requireIndependentInstructorPortalAccess(studioSlug: string) {
@@ -100,17 +105,21 @@ async function requireIndependentInstructorPortalAccess(studioSlug: string) {
     .single();
 
   if (clientError || !client) {
-    throw new Error("No portal-linked instructor profile was found for this studio.");
+    throw new Error(
+      "No portal-linked instructor profile was found for this studio."
+    );
   }
 
   if (!client.is_independent_instructor) {
-    throw new Error("This account is not enabled for floor space rental booking.");
+    throw new Error(
+      "This account is not enabled for floor space rental booking."
+    );
   }
 
   return { supabase, user, studio, client };
 }
 
-async function getRoomOverlapWarning(params: {
+async function getFloorSpaceUnavailableWarning(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
   roomId: string | null;
@@ -119,46 +128,44 @@ async function getRoomOverlapWarning(params: {
 }) {
   const { supabase, studioId, roomId, startsAt, endsAt } = params;
 
-  if (!roomId) {
-    return { hasConflict: false as const };
-  }
-
-  const { data, error } = await supabase
+  let query = supabase
     .from("appointments")
-    .select(`
-      id,
-      title,
-      appointment_type,
-      starts_at,
-      ends_at,
-      clients ( first_name, last_name )
-    `)
+    .select("id, title, appointment_type, starts_at, ends_at, room_id")
     .eq("studio_id", studioId)
-    .eq("room_id", roomId)
+    .eq("appointment_type", "room_unavailable")
     .neq("status", "cancelled")
     .lt("starts_at", endsAt)
     .gt("ends_at", startsAt)
     .limit(1);
 
+  if (roomId) {
+    query = query.or(`room_id.eq.${roomId},room_id.is.null`);
+  } else {
+    query = query.is("room_id", null);
+  }
+
+  const { data, error } = await query;
+
   if (error) {
-    throw new Error(`Failed to check room overlap: ${error.message}`);
+    throw new Error(`Failed to check floor space availability: ${error.message}`);
   }
 
   const match = data?.[0];
+
   if (!match) {
-    return { hasConflict: false as const };
+    return {
+      hasConflict: false as const,
+      message: "",
+    };
   }
-
-  const client = Array.isArray(match.clients) ? match.clients[0] : match.clients;
-  const clientName = client
-    ? `${client.first_name} ${client.last_name}`
-    : "another client";
-
-  const label = match.title || appointmentTypeLabel(match.appointment_type);
 
   return {
     hasConflict: true as const,
-    message: `Selected room already has an overlapping ${label} for ${clientName}. Check override room conflict warning to continue.`,
+    message:
+      match.title ||
+      `${appointmentTypeLabel(
+        match.appointment_type
+      )}: this floor space is marked unavailable during the selected time.`,
   };
 }
 
@@ -192,6 +199,7 @@ async function getClientOverlapWarning(params: {
   }
 
   const match = data?.[0];
+
   if (!match) {
     return { hasConflict: false as const };
   }
@@ -212,7 +220,6 @@ export async function createFloorSpaceRentalAction(
   const notes = getString(formData, "notes");
   const roomIdRaw = getString(formData, "roomId");
   const slotsJson = getString(formData, "slotsJson");
-  const overrideRoomConflict = formData.get("overrideRoomConflict") === "on";
   const roomId = roomIdRaw || null;
 
   if (!studioSlug) {
@@ -302,7 +309,7 @@ export async function createFloorSpaceRentalAction(
         };
       }
 
-      const roomWarning = await getRoomOverlapWarning({
+      const unavailableWarning = await getFloorSpaceUnavailableWarning({
         supabase,
         studioId: studio.id,
         roomId,
@@ -310,16 +317,16 @@ export async function createFloorSpaceRentalAction(
         endsAt,
       });
 
-      if (roomWarning.hasConflict && !overrideRoomConflict) {
+      if (unavailableWarning.hasConflict) {
         return {
           error:
-            roomWarning.message ??
-            "Selected room has an overlapping booking. Check override room conflict warning to continue.",
+            unavailableWarning.message ||
+            "This floor space is marked unavailable during the selected time.",
           success: "",
         };
       }
 
-            const priceAmount = Number(slot.priceAmount);
+      const priceAmount = Number(slot.priceAmount);
 
       if (!Number.isFinite(priceAmount) || priceAmount <= 0) {
         return {
@@ -347,7 +354,9 @@ export async function createFloorSpaceRentalAction(
       });
     }
 
-    const { error: insertError } = await supabase.from("appointments").insert(rows);
+    const { error: insertError } = await supabase
+      .from("appointments")
+      .insert(rows);
 
     if (insertError) {
       return {
@@ -363,7 +372,9 @@ export async function createFloorSpaceRentalAction(
   }
 
   redirect(
-    `/portal/${encodeURIComponent(studioSlug)}/floor-space?success=floor_rentals_booked`
+    `/portal/${encodeURIComponent(
+      studioSlug
+    )}/floor-space?success=floor_rentals_booked`
   );
 }
 

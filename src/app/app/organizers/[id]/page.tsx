@@ -104,6 +104,22 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function canManageOrganizers(role: string | null | undefined, isPlatformAdminRole: boolean) {
+  if (isPlatformAdminRole) return true;
+  return role === "organizer_owner" || role === "organizer_admin";
+}
+
+function canManageEvents(role: string | null | undefined, isPlatformAdminRole: boolean) {
+  if (isPlatformAdminRole) return true;
+
+  return (
+    role === "studio_owner" ||
+    role === "studio_admin" ||
+    role === "organizer_owner" ||
+    role === "organizer_admin"
+  );
+}
+
 function StatCard({
   label,
   value,
@@ -137,6 +153,10 @@ export default async function OrganizerDetailPage({
   }
 
   const context = await getCurrentStudioContext();
+
+  if (!canManageOrganizers(context.studioRole, context.isPlatformAdmin)) {
+    redirect("/app");
+  }
 
   const { data: organizer, error: organizerError } = await supabase
     .from("organizers")
@@ -200,6 +220,8 @@ export default async function OrganizerDetailPage({
       event.visibility === "public" &&
       (event.status === "published" || event.status === "open")
   ).length;
+
+  const showCreateEvent = canManageEvents(context.studioRole, context.isPlatformAdmin);
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -403,15 +425,17 @@ export default async function OrganizerDetailPage({
                 organizer branding.
               </p>
 
-              <div className="mt-6">
-                <Link
-                  href="/app/events/new"
-                  className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-white hover:opacity-95"
-                >
-                  <span>Create Event</span>
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </div>
+              {showCreateEvent ? (
+                <div className="mt-6">
+                  <Link
+                    href="/app/events/new"
+                    className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-white hover:opacity-95"
+                  >
+                    <span>Create Event</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="divide-y divide-slate-200">

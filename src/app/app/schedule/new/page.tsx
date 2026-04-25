@@ -1,5 +1,7 @@
 import AppointmentCreateForm from "./AppointmentCreateForm";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 
 type SearchParams = Promise<{
@@ -74,14 +76,37 @@ type ClientMembershipRow = {
   billing_interval_snapshot: string | null;
 };
 
+type LinkedHostStudioRoomRow = {
+  id: string;
+  name: string;
+  active: boolean | null;
+};
+
+type LinkedHostStudioRow = {
+  id: string;
+  slug: string;
+  name: string | null;
+  public_name: string | null;
+  rooms: LinkedHostStudioRoomRow[];
+};
+
 export default async function NewAppointmentPage({
   searchParams,
 }: {
   searchParams?: SearchParams;
 }) {
-  const { studioId } = await getCurrentStudioContext();
+  const context = await getCurrentStudioContext();
+  const { studioId } = context;
   const supabase = await createClient();
   const resolvedSearchParams = (await searchParams) ?? {};
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
 
   const requestedClientId =
     typeof resolvedSearchParams.clientId === "string"
@@ -173,9 +198,7 @@ export default async function NewAppointmentPage({
   }
 
   if (clientPackagesError) {
-    throw new Error(
-      `Failed to load client packages: ${clientPackagesError.message}`
-    );
+    throw new Error(`Failed to load client packages: ${clientPackagesError.message}`);
   }
 
   if (clientMembershipsError) {
@@ -254,9 +277,14 @@ export default async function NewAppointmentPage({
     clientPackagesByClientId[clientPackage.client_id].push(clientPackage);
   }
 
-  const hydratedClientMembershipsByClientId: Record<string, Array<ClientMembershipRow & {
-    membership_plan_benefits: MembershipBenefit[];
-  }>> = {};
+  const hydratedClientMembershipsByClientId: Record<
+    string,
+    Array<
+      ClientMembershipRow & {
+        membership_plan_benefits: MembershipBenefit[];
+      }
+    >
+  > = {};
 
   for (const client of availableClients) {
     hydratedClientMembershipsByClientId[client.id] = [];
@@ -299,21 +327,157 @@ export default async function NewAppointmentPage({
     }
   }
 
+  let linkedHostStudios: LinkedHostStudioRow[] = [];
+
+const userEmail = user.email?.trim().toLowerCase() ?? "";
+
+const hostClientQuery = supabase
+  .from("clients")
+  .select("studio_id")
+  .eq("is_independent_instructor", true)
+  .neq("studio_id", studioId);
+
+const { data: hostClientRows, error: hostClientRowsError } = userEmail
+  ? await hostClientQuery.or(
+      `portal_user_id.eq.${user.id},email.eq.${userEmail}`
+    )
+  : await hostClientQuery.eq("portal_user_id", user.id);
+
+if (hostClientRowsError) {
+  throw new Error(
+    `Failed to load linked host studios: ${hostClientRowsError.message}`
+  );
+}
+
+const hostStudioIds = Array.from(
+  new Set(
+    (hostClientRows ?? [])
+      .map((row) => row.studio_id as string | null)
+      .filter((value): value is string => Boolean(value))
+  )
+);
+
+if (hostStudioIds.length > 0) {
+  /*
+    The independent instructor is allowed to see these host studios because
+    the portal-linked client record matched this signed-in user.
+
+    They should not have app workspace access to the host studio, so host
+    studio rooms are loaded with the admin client after that link is validated.
+  */
+  const adminSupabase = createAdminClient();
+
+  const { data: hostStudios, error: hostStudiosError } = await adminSupabase
+    .from("studios")
+    .select("id, slug, name, public_name")
+    .in("id", hostStudioIds)
+    .order("name", { ascending: true });
+
+  if (hostStudiosError) {
+    throw new Error(
+      `Failed to load host studio details: ${hostStudiosError.message}`
+    );
+  }
+
+  const hostRoomsByStudioId: Record<string, LinkedHostStudioRoomRow[]> = {};
+
+  const { data: hostRooms, error: hostRoomsError } = await adminSupabase
+    .from("rooms")
+    .select("id, studio_id, name, active")
+    .in("studio_id", hostStudioIds)
+    .eq("active", true)
+    .order("name", { ascending: true });
+
+  if (hostRoomsError) {
+    throw new Error(
+      `Failed to load host studio rooms: ${hostRoomsError.message}`
+    );
+  }
+
+  for (const room of hostRooms ?? []) {
+    const studioRoomId = room.studio_id as string | null;
+    if (!studioRoomId) continue;
+
+    hostRoomsByStudioId[studioRoomId] ??= [];
+    hostRoomsByStudioId[studioRoomId].push({
+      id: room.id as string,
+      name: room.name as string,
+      active: room.active as boolean | null,
+    });
+  }
+
+  linkedHostStudios = (hostStudios ?? []).map((studio) => ({
+    id: studio.id as string,
+    slug: studio.slug as string,
+    name: studio.name as string | null,
+    public_name: studio.public_name as string | null,
+    rooms: hostRoomsByStudioId[studio.id as string] ?? [],
+  }));
+}
+
+  const canBookHostStudioFloorSpace = linkedHostStudios.length > 0;
+
   return (
-    <div className="space-y-6">
-      <div className="rounded-3xl border bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+              DanceFlow Scheduling
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
               New Appointment
             </h1>
-            <p className="mt-2 text-slate-600">
-              Schedule a private lesson, intro lesson, coaching session, event,
-              group class, practice party, or floor space rental.
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+              Use this page to book a lesson, coaching session, floor rental, class,
+              party, or other appointment.
             </p>
           </div>
         </div>
-      </div>
+
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+              <h2 className="text-lg font-semibold text-sky-950">
+                Pick the right appointment type
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-sky-900">
+                Choose the option that best matches what you are booking so the schedule
+                and payment details stay accurate.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+              <h2 className="text-lg font-semibold text-violet-950">
+                Use a room and instructor when needed
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-violet-900">
+                Adding the room and instructor helps avoid double-booking and keeps everyone on the same page.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <h2 className="text-lg font-semibold text-amber-950">
+                Check packages and memberships
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-amber-900">
+                If the client has lessons or membership benefits available, use them here so the appointment is recorded the right way.
+              </p>
+            </div>
+          </div>
+
+          {canBookHostStudioFloorSpace ? (
+            <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+              <h2 className="text-lg font-semibold text-emerald-950">
+                Floor space booking is available
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-emerald-900">
+                You can also book floor space at a linked host studio from this scheduling flow when needed.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </section>
 
       <AppointmentCreateForm
         clients={availableClients as any}
@@ -323,7 +487,10 @@ export default async function NewAppointmentPage({
         clientMembershipsByClientId={hydratedClientMembershipsByClientId as any}
         initialClientId={validInitialClientId}
         linkedPartnersByClientId={linkedPartnersByClientId as any}
+        canBookHostStudioFloorSpace={canBookHostStudioFloorSpace}
+        linkedHostStudios={linkedHostStudios}
       />
     </div>
   );
 }
+

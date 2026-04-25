@@ -96,6 +96,10 @@ function isFloorSpaceRental(appointmentType: string) {
   return appointmentType === "floor_space_rental";
 }
 
+function isUnavailableBlock(appointmentType: string | null | undefined) {
+  return appointmentType === "room_unavailable";
+}
+
 function parseSlotsJson(raw: string): FloorRentalSlot[] {
   if (!raw) return [];
 
@@ -127,6 +131,14 @@ function normalizeAppointmentRelations(params: {
   if (isFloorSpaceRental(appointmentType)) {
     return {
       instructor_id: instructorId,
+      room_id: roomId,
+      client_package_id: null,
+    };
+  }
+
+  if (isUnavailableBlock(appointmentType)) {
+    return {
+      instructor_id: null,
       room_id: roomId,
       client_package_id: null,
     };
@@ -497,6 +509,268 @@ async function validateFloorRentalClient(params: {
   }
 
   return { ok: true };
+}
+
+async function getHostFloorSpaceUnavailableWarning(params: {
+  supabase: SupabaseClient;
+  hostStudioId: string;
+  hostRoomId: string | null;
+  startsAt: string;
+  endsAt: string;
+}) {
+  const { supabase, hostStudioId, hostRoomId, startsAt, endsAt } = params;
+
+  let query = supabase
+    .from("appointments")
+    .select("id, title, room_id")
+    .eq("studio_id", hostStudioId)
+    .eq("appointment_type", "room_unavailable")
+    .neq("status", "cancelled")
+    .lt("starts_at", endsAt)
+    .gt("ends_at", startsAt)
+    .limit(1);
+
+  if (hostRoomId) {
+    query = query.or(`room_id.eq.${hostRoomId},room_id.is.null`);
+  } else {
+    query = query.is("room_id", null);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    return {
+      hasConflict: true as const,
+      message: `Could not check host studio floor availability: ${error.message}`,
+    };
+  }
+
+  const match = data?.[0];
+
+  if (!match) {
+    return { hasConflict: false as const, message: "" };
+  }
+
+  return {
+    hasConflict: true as const,
+    message:
+      match.title ||
+      "The selected host studio floor space is marked unavailable during this time.",
+  };
+}
+
+async function validateHostStudioFloorRentalLink(params: {
+  supabase: SupabaseClient;
+  currentStudioId: string;
+  hostStudioId: string | null;
+  hostRoomId: string | null;
+  userId: string;
+  userEmail: string | null;
+}): Promise<
+  | {
+      ok: true;
+      hostStudio: {
+        id: string;
+        slug: string | null;
+        name: string | null;
+        public_name: string | null;
+      };
+      hostClientId: string;
+      hostRoomId: string | null;
+    }
+  | {
+      ok: false;
+      error: string;
+    }
+> {
+  const { supabase, currentStudioId, hostStudioId, hostRoomId, userId, userEmail } =
+    params;
+
+  if (!hostStudioId) {
+    return {
+      ok: false,
+      error: "Choose a host studio for the floor space booking.",
+    };
+  }
+
+  if (hostStudioId === currentStudioId) {
+    return {
+      ok: false,
+      error: "Choose a linked host studio that is different from this workspace.",
+    };
+  }
+
+  const email = userEmail?.trim().toLowerCase();
+
+  let query = supabase
+    .from("clients")
+    .select("id, studio_id, is_independent_instructor, email, portal_user_id")
+    .eq("studio_id", hostStudioId)
+    .eq("is_independent_instructor", true)
+    .limit(1);
+
+  if (email) {
+    query = query.or(`portal_user_id.eq.${userId},email.eq.${email}`);
+  } else {
+    query = query.eq("portal_user_id", userId);
+  }
+
+  const { data: hostClient, error: hostClientError } = await query.maybeSingle();
+
+  if (hostClientError) {
+    return {
+      ok: false,
+      error: `Could not validate host studio access: ${hostClientError.message}`,
+    };
+  }
+
+  if (!hostClient) {
+    return {
+      ok: false,
+      error:
+        "You are not linked as an independent instructor at the selected host studio.",
+    };
+  }
+
+  const { data: hostStudio, error: hostStudioError } = await supabase
+    .from("studios")
+    .select("id, slug, name, public_name")
+    .eq("id", hostStudioId)
+    .single();
+
+  if (hostStudioError || !hostStudio) {
+    return {
+      ok: false,
+      error: "Selected host studio could not be found.",
+    };
+  }
+
+  if (hostRoomId) {
+    const { data: hostRoom, error: hostRoomError } = await supabase
+      .from("rooms")
+      .select("id, studio_id, active")
+      .eq("id", hostRoomId)
+      .eq("studio_id", hostStudioId)
+      .single();
+
+    if (hostRoomError || !hostRoom || hostRoom.active !== true) {
+      return {
+        ok: false,
+        error: "Selected host studio room could not be found or is inactive.",
+      };
+    }
+  }
+
+  return {
+    ok: true,
+    hostStudio,
+    hostClientId: hostClient.id as string,
+    hostRoomId: hostRoomId || null,
+  };
+}
+
+async function createHostStudioFloorRentalForAppointment(params: {
+  supabase: Awaited<ReturnType<typeof requireAppointmentCreateAccess>>["supabase"];
+  hostStudioId: string;
+  hostClientId: string;
+  hostRoomId: string | null;
+  sourceStudioId: string;
+  sourceAppointmentId: string;
+  startsAt: string;
+  endsAt: string;
+  title: string;
+  notes: string;
+  createdBy: string;
+}) {
+  const {
+    supabase,
+    hostStudioId,
+    hostClientId,
+    hostRoomId,
+    sourceStudioId,
+    sourceAppointmentId,
+    startsAt,
+    endsAt,
+    title,
+    notes,
+    createdBy,
+  } = params;
+
+  const conflict = await validateAppointmentConflicts({
+    studioId: hostStudioId,
+    startsAt,
+    endsAt,
+    instructorId: null,
+    roomId: null,
+    clientId: hostClientId,
+  });
+
+  if (conflict?.hasConflict) {
+    return {
+      ok: false,
+      error: `Host studio floor space conflict: ${getConflictErrorMessage(conflict)}`,
+    };
+  }
+
+  const unavailableWarning = await getHostFloorSpaceUnavailableWarning({
+    supabase,
+    hostStudioId,
+    hostRoomId,
+    startsAt,
+    endsAt,
+  });
+
+  if (unavailableWarning.hasConflict) {
+    return {
+      ok: false,
+      error: unavailableWarning.message,
+    };
+  }
+
+  const rentalNotes = [
+    "Auto-created from linked independent instructor appointment.",
+    `Source studio ID: ${sourceStudioId}`,
+    `Source appointment ID: ${sourceAppointmentId}`,
+    notes ? `Appointment notes: ${notes}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const { data: rental, error: rentalError } = await supabase
+    .from("appointments")
+    .insert({
+      studio_id: hostStudioId,
+      client_id: hostClientId,
+      partner_client_id: null,
+      title: title || "Linked Floor Space Rental",
+      appointment_type: "floor_space_rental",
+      starts_at: startsAt,
+      ends_at: endsAt,
+      status: "scheduled",
+      notes: rentalNotes,
+      instructor_id: null,
+      room_id: hostRoomId,
+      client_package_id: null,
+      price_amount: null,
+      payment_status: "unpaid",
+      created_by: createdBy,
+    })
+    .select("id")
+    .single();
+
+  if (rentalError || !rental) {
+    return {
+      ok: false,
+      error: `Could not create host studio floor rental: ${
+        rentalError?.message ?? "Unknown error."
+      }`,
+    };
+  }
+
+  return {
+    ok: true,
+    rentalId: rental.id as string,
+  };
 }
 
 async function validateAppointmentConflicts(params: {
@@ -907,9 +1181,20 @@ export async function createAppointmentAction(
     const priceAmount = getNumberOrNull(getString(formData, "priceAmount"));
     const paymentStatus = getNullableString(formData, "paymentStatus");
     const overrideRoomConflict = getBoolean(formData, "overrideRoomConflict");
+    const alsoBookFloorSpace = getBoolean(formData, "alsoBookFloorSpace");
+    const hostStudioId = getNullableString(formData, "hostStudioId");
+    const hostRoomId = getNullableString(formData, "hostRoomId");
+    const shouldBookHostStudioFloorSpace =
+      alsoBookFloorSpace &&
+      !isFloorSpaceRental(appointmentType) &&
+      !isUnavailableBlock(appointmentType);
 
-    if (!clientId || !appointmentType) {
-      return { error: "Client and appointment type are required." };
+    if (!appointmentType) {
+      return { error: "Appointment type is required." };
+    }
+
+    if (!clientId && !isUnavailableBlock(appointmentType)) {
+      return { error: "Client is required." };
     }
 
     if (partnerClientId && partnerClientId === clientId) {
@@ -1018,6 +1303,56 @@ export async function createAppointmentAction(
       redirect(`/app/schedule/${insertedRows[0].id}`);
     }
 
+    if (isUnavailableBlock(appointmentType)) {
+      const startsAt =
+        toIsoFromLocalDateTime(getString(formData, "startsAt")) ??
+        toIsoDateTime(getString(formData, "date"), getString(formData, "startTime"));
+      const endsAt =
+        toIsoFromLocalDateTime(getString(formData, "endsAt")) ??
+        toIsoDateTime(getString(formData, "date"), getString(formData, "endTime"));
+
+      if (!startsAt || !endsAt) {
+        return { error: "Start and end time are required for unavailable blocks." };
+      }
+
+      if (new Date(endsAt) <= new Date(startsAt)) {
+        return { error: "Unavailable block must end after it starts." };
+      }
+
+      const { data: appointment, error: insertError } = await supabase
+        .from("appointments")
+        .insert({
+          studio_id: studioId,
+          client_id: null,
+          partner_client_id: null,
+          title: title || "Room / Floor Unavailable",
+          appointment_type: "room_unavailable",
+          starts_at: startsAt,
+          ends_at: endsAt,
+          status,
+          notes: notes || null,
+          instructor_id: null,
+          room_id: relations.room_id,
+          client_package_id: null,
+          price_amount: null,
+          payment_status: "waived",
+          created_by: user.id,
+        })
+        .select("id")
+        .single();
+
+      if (insertError || !appointment) {
+        return {
+          error: `Could not create unavailable block: ${
+            insertError?.message ?? "Unknown error."
+          }`,
+        };
+      }
+
+      revalidatePath("/app/schedule");
+      redirect(`/app/schedule/${appointment.id}`);
+    }
+
     const packageValidation = await validateClientPackageForBooking({
       supabase,
       studioId,
@@ -1042,6 +1377,67 @@ export async function createAppointmentAction(
 
     if (new Date(endsAt) <= new Date(startsAt)) {
       return { error: "Appointment must end after it starts." };
+    }
+
+    let hostStudioFloorRentalLink:
+      | {
+          hostStudio: {
+            id: string;
+            slug: string | null;
+            name: string | null;
+            public_name: string | null;
+          };
+          hostClientId: string;
+          hostRoomId: string | null;
+        }
+      | null = null;
+
+    if (shouldBookHostStudioFloorSpace) {
+      const hostValidation = await validateHostStudioFloorRentalLink({
+        supabase,
+        currentStudioId: studioId,
+        hostStudioId,
+        hostRoomId,
+        userId: user.id,
+        userEmail: user.email ?? null,
+      });
+
+      if (!hostValidation.ok) {
+        return { error: hostValidation.error ?? "Invalid host studio link." };
+      }
+
+      hostStudioFloorRentalLink = {
+        hostStudio: hostValidation.hostStudio,
+        hostClientId: hostValidation.hostClientId,
+        hostRoomId: hostValidation.hostRoomId,
+      };
+
+      const hostConflict = await validateAppointmentConflicts({
+        studioId: hostValidation.hostStudio.id,
+        startsAt,
+        endsAt,
+        instructorId: null,
+        roomId: null,
+        clientId: hostValidation.hostClientId,
+      });
+
+      if (hostConflict?.hasConflict) {
+        return {
+          error: `Host studio floor space conflict: ${getConflictErrorMessage(hostConflict)}`,
+        };
+      }
+
+      const hostUnavailableWarning = await getHostFloorSpaceUnavailableWarning({
+        supabase,
+        hostStudioId: hostValidation.hostStudio.id,
+        hostRoomId: hostValidation.hostRoomId,
+        startsAt,
+        endsAt,
+      });
+
+      if (hostUnavailableWarning.hasConflict) {
+        return { error: hostUnavailableWarning.message };
+      }
     }
 
     const isRecurring = getBoolean(formData, "isRecurring");
@@ -1114,6 +1510,34 @@ export async function createAppointmentAction(
         appointmentId: appointment.id,
         reason: "confirmed",
       });
+
+      if (hostStudioFloorRentalLink) {
+        const hostRentalResult = await createHostStudioFloorRentalForAppointment({
+          supabase,
+          hostStudioId: hostStudioFloorRentalLink.hostStudio.id,
+          hostClientId: hostStudioFloorRentalLink.hostClientId,
+          hostRoomId: hostStudioFloorRentalLink.hostRoomId,
+          sourceStudioId: studioId,
+          sourceAppointmentId: appointment.id,
+          startsAt,
+          endsAt,
+          title: title || "Linked Floor Space Rental",
+          notes,
+          createdBy: user.id,
+        });
+
+        if (!hostRentalResult.ok) {
+          return {
+            error:
+              hostRentalResult.error ??
+              "The appointment was created, but the host studio floor rental could not be created.",
+          };
+        }
+
+        if (hostStudioFloorRentalLink.hostStudio.slug) {
+          revalidatePath(`/portal/${hostStudioFloorRentalLink.hostStudio.slug}`);
+        }
+      }
 
       revalidatePath("/app/schedule");
       revalidatePath(`/app/clients/${clientId}`);
@@ -1213,6 +1637,41 @@ export async function createAppointmentAction(
         appointmentId: String(row.id),
         status,
       });
+
+      if (hostStudioFloorRentalLink) {
+        const occurrenceStart = String(row.starts_at);
+        const occurrenceEnd = new Date(
+          new Date(occurrenceStart).getTime() + durationMs
+        )
+          .toISOString()
+          .slice(0, 19);
+
+        const hostRentalResult = await createHostStudioFloorRentalForAppointment({
+          supabase,
+          hostStudioId: hostStudioFloorRentalLink.hostStudio.id,
+          hostClientId: hostStudioFloorRentalLink.hostClientId,
+          hostRoomId: hostStudioFloorRentalLink.hostRoomId,
+          sourceStudioId: studioId,
+          sourceAppointmentId: String(row.id),
+          startsAt: occurrenceStart,
+          endsAt: occurrenceEnd,
+          title: title || "Linked Floor Space Rental",
+          notes,
+          createdBy: user.id,
+        });
+
+        if (!hostRentalResult.ok) {
+          return {
+            error:
+              hostRentalResult.error ??
+              "The recurring appointment was created, but one host studio floor rental could not be created.",
+          };
+        }
+      }
+    }
+
+    if (hostStudioFloorRentalLink?.hostStudio.slug) {
+      revalidatePath(`/portal/${hostStudioFloorRentalLink.hostStudio.slug}`);
     }
 
     revalidatePath("/app/schedule");

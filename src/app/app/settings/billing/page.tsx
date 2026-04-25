@@ -85,15 +85,15 @@ function isAudience(value: string | undefined): value is PlanAudience {
   return value === "studio" || value === "organizer";
 }
 
-function isOrganizerWorkspaceName(value: string | null | undefined) {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (!normalized) return false;
+function canManageBilling(role: string | null | undefined, isPlatformAdminRole: boolean) {
+  if (isPlatformAdminRole) return true;
+  return role === "studio_owner" || role === "organizer_owner";
+}
 
-  return (
-    normalized.endsWith(" organizer") ||
-    normalized.includes(" organizer ") ||
-    normalized.endsWith(" events")
-  );
+function getAudienceFromRole(role: string | null | undefined): PlanAudience {
+  return role === "organizer_owner" || role === "organizer_admin"
+    ? "organizer"
+    : "studio";
 }
 
 function formatStripeRequirementLabel(value: string) {
@@ -438,7 +438,63 @@ export default async function BillingSettingsPage({
     redirect("/account");
   }
 
+  const canAccessBilling = canManageBilling(
+    context.studioRole,
+    context.isPlatformAdmin
+  );
+
   const studioId = context.studioId;
+
+  if (!canAccessBilling) {
+    const workspaceAudience: PlanAudience = getAudienceFromRole(context.studioRole);
+
+    return (
+      <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+        <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+          <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                {workspaceAudience === "organizer" ? "DanceFlow Organizer Billing" : "DanceFlow Studio Billing"}
+              </p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                Billing &amp; Payouts
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+                This page is reserved for the account owner so billing, payouts, and subscription changes stay protected.
+              </p>
+            </div>
+          </div>
+
+          <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <h2 className="text-lg font-semibold text-amber-950">
+                You do not have access to billing settings
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-amber-900">
+                Billing and payout controls are limited to the workspace owner. Please ask the studio owner or organizer owner to make billing changes for this account.
+              </p>
+
+              <div className="mt-5 flex flex-wrap gap-3">
+                <Link
+                  href="/app"
+                  className="rounded-xl bg-amber-900 px-4 py-2 text-sm font-medium text-white hover:bg-amber-800"
+                >
+                  Back to Dashboard
+                </Link>
+
+                <Link
+                  href="/app/notifications"
+                  className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
+                >
+                  Open Notifications
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
@@ -483,9 +539,7 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
   const pathParam = parseSingleSearchParam(resolvedSearchParams.path);
   const recommendedParam = parseSingleSearchParam(resolvedSearchParams.recommended);
 
-  const inferredAudience: PlanAudience = isOrganizerWorkspaceName(studio.name)
-    ? "organizer"
-    : "studio";
+  const inferredAudience: PlanAudience = getAudienceFromRole(context.studioRole);
 
   const selectedAudience: PlanAudience =
     (isAudience(pathParam) ? pathParam : undefined) ?? inferredAudience;

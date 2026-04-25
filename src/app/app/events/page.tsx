@@ -60,16 +60,29 @@ type WorkspaceRow = {
   public_name: string | null;
 };
 
-function isOrganizerWorkspaceName(value: string | null | undefined) {
-  const normalized = (value ?? "").trim().toLowerCase();
+function isOrganizerWorkspaceRole(role: string | null | undefined) {
+  return role === "organizer_owner" || role === "organizer_admin";
+}
 
-  if (!normalized) return false;
+function canManageEvents(role: string | null | undefined, isPlatformAdminRole: boolean) {
+  if (isPlatformAdminRole) return true;
 
   return (
-    normalized.endsWith(" organizer") ||
-    normalized.includes(" organizer ") ||
-    normalized.endsWith(" events")
+    role === "studio_owner" ||
+    role === "studio_admin" ||
+    role === "organizer_owner" ||
+    role === "organizer_admin"
   );
+}
+
+function canManageOrganizerProfile(role: string | null | undefined, isPlatformAdminRole: boolean) {
+  if (isPlatformAdminRole) return true;
+  return role === "organizer_owner" || role === "organizer_admin";
+}
+
+function canManageBilling(role: string | null | undefined, isPlatformAdminRole: boolean) {
+  if (isPlatformAdminRole) return true;
+  return role === "studio_owner" || role === "organizer_owner";
 }
 
 function statusBadgeClass(status: string) {
@@ -286,7 +299,13 @@ export default async function EventsPage() {
   }
 
   const workspaceName = workspace?.public_name?.trim() || workspace?.name?.trim() || "Workspace";
-  const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
+  const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
+  const showCreateEvent = canManageEvents(context.studioRole, context.isPlatformAdmin);
+  const showOrganizerProfile = canManageOrganizerProfile(
+    context.studioRole,
+    context.isPlatformAdmin
+  );
+  const showBilling = canManageBilling(context.studioRole, context.isPlatformAdmin);
 
   const typedEvents = (events ?? []) as EventRow[];
   const eventIds = typedEvents.map((event) => event.id);
@@ -406,19 +425,23 @@ export default async function EventsPage() {
             <div className="flex flex-wrap gap-3">
               {organizerWorkspace ? (
                 <>
-                  <Link
-                    href="/app/organizers"
-                    className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-                  >
-                    Organizer Profile
-                  </Link>
+                  {showOrganizerProfile ? (
+                    <Link
+                      href="/app/organizers"
+                      className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                    >
+                      Organizer Profile
+                    </Link>
+                  ) : null}
 
-                  <Link
-                    href="/app/settings/billing"
-                    className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-                  >
-                    Billing & Payouts
-                  </Link>
+                  {showBilling ? (
+                    <Link
+                      href="/app/settings/billing"
+                      className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                    >
+                      Billing & Payouts
+                    </Link>
+                  ) : null}
                 </>
               ) : (
                 <Link
@@ -429,12 +452,14 @@ export default async function EventsPage() {
                 </Link>
               )}
 
-              <Link
-                href="/app/events/new"
-                className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
-              >
-                New Event
-              </Link>
+              {showCreateEvent ? (
+                <Link
+                  href="/app/events/new"
+                  className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+                >
+                  New Event
+                </Link>
+              ) : null}
             </div>
           </div>
         </div>
@@ -575,15 +600,17 @@ export default async function EventsPage() {
               and special events.
             </p>
 
-            <div className="mt-6">
-              <Link
-                href="/app/events/new"
-                className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-white hover:opacity-95"
-              >
-                <span>Create Event</span>
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
+            {showCreateEvent ? (
+              <div className="mt-6">
+                <Link
+                  href="/app/events/new"
+                  className="inline-flex items-center gap-2 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-white hover:opacity-95"
+                >
+                  <span>Create Event</span>
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </div>
+            ) : null}
           </div>
         ) : (
           <div className="divide-y divide-slate-200">

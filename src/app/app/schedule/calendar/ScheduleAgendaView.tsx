@@ -11,7 +11,78 @@ import {
 import ScheduleEventDrawer, {
   type DrawerAppointment,
 } from "./ScheduleEventDrawer";
-import type { CalendarItem } from "./page";
+
+type CalendarItem = {
+  kind: "appointment" | "event";
+  id: string;
+  studio_id?: string | null;
+  client_id?: string | null;
+  instructor_id?: string | null;
+  room_id?: string | null;
+  appointment_type?: string | null;
+  event_type?: string | null;
+  title?: string | null;
+  status: string;
+  starts_at: string;
+  ends_at: string;
+  display_date?: string;
+  is_all_day?: boolean;
+  is_recurring?: boolean | null;
+  notes?: string | null;
+  price_amount?: number | null;
+  payment_status?: string | null;
+  clients?:
+    | {
+        first_name: string;
+        last_name: string;
+      }
+    | {
+        first_name: string;
+        last_name: string;
+      }[]
+    | null;
+  partner_client?:
+    | {
+        first_name: string;
+        last_name: string;
+      }
+    | {
+        first_name: string;
+        last_name: string;
+      }[]
+    | null;
+  instructors?:
+    | {
+        first_name: string;
+        last_name: string;
+      }
+    | {
+        first_name: string;
+        last_name: string;
+      }[]
+    | null;
+  rooms?:
+    | {
+        name: string;
+      }
+    | {
+        name: string;
+      }[]
+    | null;
+  organizers?:
+    | {
+        name: string;
+      }
+    | {
+        name: string;
+      }[]
+    | null;
+  name?: string | null;
+  slug?: string | null;
+  venue_name?: string | null;
+  city?: string | null;
+  state?: string | null;
+};
 
 type InstructorOption = {
   id: string;

@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { createAppointmentAction } from "../actions";
-import { useEffect } from "react";
 
 type InstructorOption = {
   id: string;
@@ -63,6 +62,20 @@ type ClientMembershipOption = {
   membership_plan_benefits: MembershipBenefitOption[];
 };
 
+type LinkedHostStudioRoomOption = {
+  id: string;
+  name: string;
+  active: boolean | null;
+};
+
+type LinkedHostStudioOption = {
+  id: string;
+  slug: string;
+  name: string | null;
+  public_name: string | null;
+  rooms?: LinkedHostStudioRoomOption[];
+};
+
 type AppointmentCreateFormProps = {
   instructors: InstructorOption[];
   rooms: RoomOption[];
@@ -71,6 +84,8 @@ type AppointmentCreateFormProps = {
   clientMembershipsByClientId: Record<string, ClientMembershipOption[]>;
   linkedPartnersByClientId: Record<string, LinkedPartnerOption[]>;
   initialClientId?: string;
+  canBookHostStudioFloorSpace?: boolean;
+  linkedHostStudios?: LinkedHostStudioOption[];
 };
 
 type FormState = {
@@ -105,6 +120,8 @@ function appointmentTypeLabel(value: string) {
       return "Event";
     case "floor_space_rental":
       return "Floor Space Rental";
+    case "room_unavailable":
+      return "Room / Floor Unavailable";
     default:
       return "Appointment";
   }
@@ -345,6 +362,8 @@ export default function AppointmentCreateForm({
   clientMembershipsByClientId,
   linkedPartnersByClientId,
   initialClientId = "",
+  canBookHostStudioFloorSpace = false,
+  linkedHostStudios = [],
 }: AppointmentCreateFormProps) {
   const [state, formAction, pending] = useActionState(
     createAppointmentAction,
@@ -356,12 +375,6 @@ export default function AppointmentCreateForm({
   const [partnerClientId, setPartnerClientId] = useState("");
   const [linkedPackageId, setLinkedPackageId] = useState("");
   const [overrideRoomConflict, setOverrideRoomConflict] = useState(false);
-
-useEffect(() => {
-  setPartnerClientId("");
-  setLinkedPackageId("");
-}, [clientId]);
-
   const [priceAmount, setPriceAmount] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("unpaid");
   const [slotDraft, setSlotDraft] = useState<FloorRentalSlot>({
@@ -370,6 +383,38 @@ useEffect(() => {
     endTime: "",
   });
   const [floorRentalSlots, setFloorRentalSlots] = useState<FloorRentalSlot[]>([]);
+  const [alsoBookFloorSpace, setAlsoBookFloorSpace] = useState(false);
+  const [hostStudioId, setHostStudioId] = useState("");
+  const [hostRoomId, setHostRoomId] = useState("");
+
+  useEffect(() => {
+    setPartnerClientId("");
+    setLinkedPackageId("");
+  }, [clientId]);
+
+  useEffect(() => {
+    if (appointmentType === "floor_space_rental" || appointmentType === "room_unavailable") {
+      setAlsoBookFloorSpace(false);
+      setHostStudioId("");
+      setHostRoomId("");
+    }
+
+    if (appointmentType === "room_unavailable") {
+      setClientId("");
+      setPartnerClientId("");
+      setLinkedPackageId("");
+      setPriceAmount("");
+      setPaymentStatus("unpaid");
+      setFloorRentalSlots([]);
+    }
+  }, [appointmentType]);
+
+  const selectedHostStudio = useMemo(
+    () => linkedHostStudios.find((studio) => studio.id === hostStudioId) ?? null,
+    [hostStudioId, linkedHostStudios]
+  );
+
+  const selectedHostStudioRooms = selectedHostStudio?.rooms ?? [];
 
   const selectedPackages = useMemo(() => {
   if (!clientId) return [];
@@ -411,10 +456,16 @@ useEffect(() => {
   const matchingBenefits = applicableBenefits.filter((benefit) => benefit.summary.applies);
 
   const isFloorRental = appointmentType === "floor_space_rental";
-  const showPackageSection = !["group_class", "practice_party", "event", "floor_space_rental"].includes(
-    appointmentType
-  );
-  const showPartnerSection = appointmentType === "private_lesson";
+  const isUnavailableBlock = appointmentType === "room_unavailable";
+  const requiresClient = !isUnavailableBlock;
+  const showPackageSection = ![
+    "group_class",
+    "practice_party",
+    "event",
+    "floor_space_rental",
+    "room_unavailable",
+  ].includes(appointmentType);
+  const showPartnerSection = appointmentType === "private_lesson" && !isUnavailableBlock;
 
   function addFloorRentalSlot() {
     if (!slotDraft.date || !slotDraft.startTime || !slotDraft.endTime) {
@@ -451,6 +502,14 @@ useEffect(() => {
         value={showPartnerSection ? partnerClientId : ""}
       />
 
+            <input
+        type="hidden"
+        name="alsoBookFloorSpace"
+        value={alsoBookFloorSpace ? "true" : "false"}
+      />
+      <input type="hidden" name="hostStudioId" value={hostStudioId} />
+      <input type="hidden" name="hostRoomId" value={hostRoomId} />
+
       <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -474,6 +533,8 @@ useEffect(() => {
                 ? "Saving..."
                 : isFloorRental
                 ? "Create Floor Rentals"
+                : isUnavailableBlock
+                ? "Block Floor Space"
                 : "Create Appointment"}
             </button>
 
@@ -522,6 +583,7 @@ useEffect(() => {
                   <option value="practice_party">Practice Party</option>
                   <option value="event">Event</option>
                   <option value="floor_space_rental">Floor Space Rental</option>
+                  <option value="room_unavailable">Room / Floor Unavailable</option>
                 </select>
               </div>
 
@@ -534,27 +596,33 @@ useEffect(() => {
                   name="title"
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                   placeholder={
-                    isFloorRental ? "Optional rental title" : "Optional custom title"
+                    isUnavailableBlock
+                      ? "Example: Showcase setup, private event, floor maintenance"
+                      : isFloorRental
+                        ? "Optional rental title"
+                        : "Optional custom title"
                   }
                 />
               </div>
 
               <div>
                 <label htmlFor="clientId" className="mb-1.5 block text-sm font-medium">
-                  Client
+                  Client {requiresClient ? "*" : ""}
                 </label>
                 <select
                   id="clientId"
                   name="clientId"
                   value={clientId}
+                  required={requiresClient}
+                  disabled={isUnavailableBlock}
                   onChange={(e) => {
                     setClientId(e.target.value);
                     setPartnerClientId("");
                     setLinkedPackageId("");
                   }}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 >
-                  <option value="">Select client</option>
+                  <option value="">{isUnavailableBlock ? "Not needed for unavailable blocks" : "Select client"}</option>
                   {clients.map((client) => (
                     <option key={client.id} value={client.id}>
                       {client.first_name} {client.last_name}
@@ -601,9 +669,10 @@ useEffect(() => {
                 <select
                   id="instructorId"
                   name="instructorId"
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                  disabled={isUnavailableBlock}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 >
-                  <option value="">Select instructor</option>
+                  <option value="">{isUnavailableBlock ? "Not needed for unavailable blocks" : "Select instructor"}</option>
                   {instructors.map((instructor) => (
                     <option key={instructor.id} value={instructor.id}>
                       {instructor.first_name} {instructor.last_name}
@@ -621,7 +690,7 @@ useEffect(() => {
                   name="roomId"
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 >
-                  <option value="">Select room</option>
+                  <option value="">{isUnavailableBlock ? "Block whole studio floor" : "Select room"}</option>
                   {rooms.map((room) => (
                     <option key={room.id} value={room.id}>
                       {room.name}
@@ -659,6 +728,20 @@ useEffect(() => {
               </div>
             </div>
           </section>
+
+          {isUnavailableBlock ? (
+            <section className="rounded-[32px] border border-amber-200 bg-amber-50 p-6 shadow-sm md:p-7">
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-700">
+                Availability Block
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-amber-950">
+                Block floor space from portal rentals
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-amber-900">
+                Use this when the studio needs to prevent independent instructors from booking floor space during a specific time. Choose a room to block one room or leave the room blank to block the whole studio floor.
+              </p>
+            </section>
+          ) : null}
 
           {isFloorRental ? (
             <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
@@ -763,6 +846,109 @@ useEffect(() => {
               </div>
             </section>
           ) : null}
+
+                {!isUnavailableBlock && canBookHostStudioFloorSpace ? (
+        <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm md:p-7">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">
+              Optional Host Studio Booking
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-emerald-950">
+              Also book floor space at a host studio
+            </h2>
+            <p className="mt-2 text-sm leading-7 text-emerald-900">
+              Turn this on when this appointment also needs rented floor space at a linked host studio.
+            </p>
+          </div>
+
+          <div className="mt-6 space-y-5">
+            <label className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-white p-4">
+              <input
+                type="checkbox"
+                checked={alsoBookFloorSpace}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setAlsoBookFloorSpace(checked);
+
+                  if (!checked) {
+                    setHostStudioId("");
+                    setHostRoomId("");
+                  }
+                }}
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+              />
+              <div>
+                <p className="text-sm font-semibold text-slate-950">
+                  Book floor space with this appointment
+                </p>
+                <p className="mt-1 text-sm leading-7 text-slate-600">
+                  Use this when the lesson also needs studio floor space at a linked host studio.
+                </p>
+              </div>
+            </label>
+
+            {alsoBookFloorSpace ? (
+              <div className="grid gap-5 md:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="hostStudioIdVisible"
+                    className="block text-sm font-medium text-slate-700"
+                  >
+                    Host studio
+                  </label>
+                  <select
+                    id="hostStudioIdVisible"
+                    value={hostStudioId}
+                    onChange={(event) => {
+                      setHostStudioId(event.target.value);
+                      setHostRoomId("");
+                    }}
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-violet-500"
+                  >
+                    <option value="">Choose a host studio</option>
+                    {linkedHostStudios.map((studio) => (
+                      <option key={studio.id} value={studio.id}>
+                        {studio.public_name?.trim() || studio.name || "Unnamed Studio"}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="hostRoomIdVisible"
+                    className="block text-sm font-medium text-slate-700"
+                  >
+                    Room / Floor / Area
+                  </label>
+                  <select
+                    id="hostRoomIdVisible"
+                    value={hostRoomId}
+                    onChange={(event) => setHostRoomId(event.target.value)}
+                    disabled={!hostStudioId}
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-violet-500 disabled:bg-slate-100 disabled:text-slate-400"
+                  >
+                    <option value="">
+                      {hostStudioId
+                        ? "General floor space / no specific room"
+                        : "Choose a host studio first"}
+                    </option>
+                    {selectedHostStudioRooms.map((room) => (
+                      <option key={room.id} value={room.id}>
+                        {room.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                    Optional. Choose a room or floor area when the host studio uses
+                    rooms for availability blocks. Leave blank for general floor space.
+                  </p>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
 
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
             {showPackageSection ? (
@@ -904,7 +1090,9 @@ useEffect(() => {
                   ? "Saving..."
                   : isFloorRental
                   ? "Create Floor Rentals"
-                  : "Create Appointment"}
+                  : isUnavailableBlock
+                    ? "Block Floor Space"
+                    : "Create Appointment"}
               </button>
             </div>
           </section>
@@ -983,7 +1171,11 @@ useEffect(() => {
               appointment type.
             </p>
 
-            {!clientId ? (
+            {isUnavailableBlock ? (
+              <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
+                Membership benefits are not used for room or floor unavailable blocks.
+              </div>
+            ) : !clientId ? (
               <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
                 Select a client to review membership coverage.
               </div>

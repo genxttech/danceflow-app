@@ -87,7 +87,6 @@ function normalizeNavLabel(item: NavItem) {
 
   if (
     item.href === "/app/settings/billing" ||
-    lower === "payments" ||
     lower === "billing" ||
     lower === "billing & payouts" ||
     lower === "payment settings"

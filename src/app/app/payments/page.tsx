@@ -3,6 +3,14 @@ import { redirect } from "next/navigation";
 import { canViewPayments } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import Link from "next/link";
+import {
+  BadgeDollarSign,
+  CreditCard,
+  Filter,
+  Landmark,
+  Receipt,
+  RotateCcw,
+} from "lucide-react";
 
 type SearchParams = Promise<{
   q?: string;
@@ -40,6 +48,30 @@ type PaymentRow = {
     | { first_name: string; last_name: string }[]
     | null;
 };
+
+function StatCard({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: string | number;
+  icon: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm text-slate-500">{label}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
+        </div>
+        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+          <Icon className="h-5 w-5" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function fmtCurrency(value: number, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
@@ -286,66 +318,77 @@ export default async function PaymentsPage({
   const manualCount = typedPayments.filter((p) => (p.source ?? "manual") === "manual").length;
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight">Payments</h2>
-          <p className="mt-2 text-slate-600">
-            Review manual and Stripe payment activity, filter transactions, and monitor totals.
-          </p>
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                DanceFlow Payments
+              </p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                Payment Activity Workspace
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+                Review Stripe and manual activity, monitor payment flow, and search transaction history with a branded finance view.
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
+
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+              <h2 className="text-lg font-semibold text-sky-950">Operational payment visibility</h2>
+              <p className="mt-2 text-sm leading-7 text-sky-900">
+                Give staff and owners a clear view of transaction flow without making finance pages feel disconnected from the rest of the product.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+              <h2 className="text-lg font-semibold text-violet-950">Stripe and manual in one place</h2>
+              <p className="mt-2 text-sm leading-7 text-violet-900">
+                Track card charges, manual entries, refunds, memberships, package sales, and floor-rental payments from one page.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <h2 className="text-lg font-semibold text-amber-950">Role-aware financial clarity</h2>
+              <p className="mt-2 text-sm leading-7 text-amber-900">
+                Keep the page useful for daily operations while still respecting who should and should not see owner-level billing controls.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Visible Payments</p>
-          <p className="mt-2 text-3xl font-semibold">{typedPayments.length}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Lifetime Total Payments</p>
-          <p className="mt-2 text-3xl font-semibold">{paymentsCount ?? 0}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">This Month</p>
-          <p className="mt-2 text-3xl font-semibold">{fmtCurrency(monthlyRevenue)}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Average Visible Payment</p>
-          <p className="mt-2 text-3xl font-semibold">{fmtCurrency(averagePayment)}</p>
-        </div>
+        <StatCard label="Visible Payments" value={typedPayments.length} icon={Receipt} />
+        <StatCard label="Lifetime Total Payments" value={paymentsCount ?? 0} icon={BadgeDollarSign} />
+        <StatCard label="This Month" value={fmtCurrency(monthlyRevenue)} icon={CreditCard} />
+        <StatCard label="Average Visible Payment" value={fmtCurrency(averagePayment)} icon={Landmark} />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-5">
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Paid</p>
-          <p className="mt-2 text-3xl font-semibold">{paidCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Pending</p>
-          <p className="mt-2 text-3xl font-semibold">{pendingCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Refunded</p>
-          <p className="mt-2 text-3xl font-semibold">{refundedCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Stripe</p>
-          <p className="mt-2 text-3xl font-semibold">{stripeCount}</p>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Manual</p>
-          <p className="mt-2 text-3xl font-semibold">{manualCount}</p>
-        </div>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <StatCard label="Paid" value={paidCount} icon={CreditCard} />
+        <StatCard label="Pending" value={pendingCount} icon={Receipt} />
+        <StatCard label="Refunded" value={refundedCount} icon={RotateCcw} />
+        <StatCard label="Stripe" value={stripeCount} icon={CreditCard} />
+        <StatCard label="Manual" value={manualCount} icon={Landmark} />
       </div>
 
-      <form className="rounded-2xl border bg-white p-5">
+      <form className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex items-start gap-3">
+          <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+            <Filter className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-slate-900">Filter payment activity</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Search by client, transaction reference, source, type, or narrow the visible payment window.
+            </p>
+          </div>
+        </div>
         <div className="grid gap-4 xl:grid-cols-[1.4fr_repeat(5,minmax(0,1fr))]">
           <div>
             <label htmlFor="q" className="mb-1 block text-sm font-medium">
@@ -468,8 +511,11 @@ export default async function PaymentsPage({
 
       <div className="space-y-4">
         {typedPayments.length === 0 ? (
-          <div className="rounded-2xl border bg-white p-8 text-center text-slate-500">
-            No payments match your current filters.
+          <div className="rounded-[28px] border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-sm">
+            <p className="text-base font-medium text-slate-900">No payments match your current filters.</p>
+            <p className="mt-2 text-sm text-slate-500">
+              Adjust the filters above to broaden the payment view.
+            </p>
           </div>
         ) : (
           typedPayments.map((payment) => {

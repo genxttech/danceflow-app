@@ -41,6 +41,16 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function canManageOrganizers(role: string | null | undefined, isPlatformAdminRole: boolean) {
+  if (isPlatformAdminRole) return true;
+  return role === "organizer_owner" || role === "organizer_admin";
+}
+
+function canManageBilling(role: string | null | undefined, isPlatformAdminRole: boolean) {
+  if (isPlatformAdminRole) return true;
+  return role === "organizer_owner";
+}
+
 function StatCard({
   label,
   value,
@@ -77,6 +87,11 @@ export default async function OrganizersPage() {
   }
 
   const context = await getCurrentStudioContext();
+
+  if (!canManageOrganizers(context.studioRole, context.isPlatformAdmin)) {
+    redirect("/app");
+  }
+
   const studioId = context.studioId;
 
   const [
@@ -149,6 +164,7 @@ export default async function OrganizersPage() {
   );
 
   const payoutsReady = Boolean(billingStudio?.stripe_connected_account_id);
+  const showBilling = canManageBilling(context.studioRole, context.isPlatformAdmin);
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -220,7 +236,7 @@ export default async function OrganizersPage() {
         </div>
       </section>
 
-      {!payoutsReady ? (
+      {!payoutsReady && showBilling ? (
         <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 shadow-sm">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="max-w-2xl">

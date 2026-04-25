@@ -1,6 +1,6 @@
-import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import FloorSpaceRentalForm from "./FloorSpaceRentalForm";
 
 type Params = Promise<{
@@ -29,41 +29,38 @@ type UpcomingRentalRow = {
 };
 
 function getBanner(search: { success?: string; error?: string }) {
-  if (
-    search.success === "floor_rentals_booked" ||
-    search.success === "booked"
-  ) {
+  if (search.success === "floor_rentals_booked" || search.success === "booked") {
     return {
       kind: "success" as const,
-      message: "Floor rentals booked successfully.",
+      message: "Your floor rental was booked.",
     };
   }
 
   if (search.error === "cancel_failed") {
     return {
       kind: "error" as const,
-      message: "Could not cancel the floor rental.",
+      message: "We could not cancel that floor rental.",
     };
   }
 
   if (search.error === "missing_appointment") {
     return {
       kind: "error" as const,
-      message: "Missing floor rental selection.",
+      message: "Please choose a floor rental first.",
     };
   }
 
   if (search.error === "not_found") {
     return {
       kind: "error" as const,
-      message: "Floor rental not found.",
+      message: "We could not find that floor rental.",
     };
   }
 
   if (search.error === "unauthorized") {
     return {
       kind: "error" as const,
-      message: "You are not allowed to manage that floor rental.",
+      message: "You do not have access to manage that floor rental.",
     };
   }
 
@@ -77,7 +74,7 @@ function getBanner(search: { success?: string; error?: string }) {
   if (search.error === "past_rental") {
     return {
       kind: "error" as const,
-      message: "Past floor rentals cannot be cancelled here.",
+      message: "Past rentals cannot be cancelled here.",
     };
   }
 
@@ -110,8 +107,8 @@ function getRoomName(value: { name: string } | { name: string }[] | null) {
 
 function statusBadgeClass(status: string) {
   if (status === "scheduled") return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
-  if (status === "cancelled") return "bg-red-50 text-red-700 ring-1 ring-red-100";
-  if (status === "attended") return "bg-green-50 text-green-700 ring-1 ring-green-100";
+  if (status === "cancelled") return "bg-rose-50 text-rose-700 ring-1 ring-rose-100";
+  if (status === "attended") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100";
   if (status === "no_show") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
@@ -162,33 +159,36 @@ export default async function FloorSpacePage({
     redirect(`/portal/${encodeURIComponent(studioSlug)}`);
   }
 
+  
   const nowIso = new Date().toISOString();
 
-  const [{ data: rooms, error: roomsError }, { data: upcomingRentals, error: upcomingError }] =
-    await Promise.all([
-      supabase
-        .from("rooms")
-        .select("id, name")
-        .eq("studio_id", studio.id)
-        .eq("active", true)
-        .order("name", { ascending: true }),
+  const [
+    { data: rooms, error: roomsError },
+    { data: upcomingRentals, error: upcomingError },
+  ] = await Promise.all([
+    supabase
+      .from("rooms")
+      .select("id, name")
+      .eq("studio_id", studio.id)
+      .eq("active", true)
+      .order("name", { ascending: true }),
 
-      supabase
-        .from("appointments")
-        .select(`
-          id,
-          starts_at,
-          ends_at,
-          status,
-          rooms ( name )
-        `)
-        .eq("studio_id", studio.id)
-        .eq("client_id", client.id)
-        .eq("appointment_type", "floor_space_rental")
-        .gte("starts_at", nowIso)
-        .order("starts_at", { ascending: true })
-        .limit(3),
-    ]);
+    supabase
+      .from("appointments")
+      .select(`
+        id,
+        starts_at,
+        ends_at,
+        status,
+        rooms ( name )
+      `)
+      .eq("studio_id", studio.id)
+      .eq("client_id", client.id)
+      .eq("appointment_type", "floor_space_rental")
+      .gte("starts_at", nowIso)
+      .order("starts_at", { ascending: true })
+      .limit(3),
+  ]);
 
   if (roomsError) {
     throw new Error(`Failed to load rooms: ${roomsError.message}`);
@@ -207,91 +207,81 @@ export default async function FloorSpacePage({
   return (
     <div className="space-y-8">
       {banner ? (
-        <div
-          className={`rounded-2xl border px-4 py-3 text-sm ${
+        <section
+          className={`rounded-[28px] border p-5 shadow-sm ${
             banner.kind === "success"
-              ? "border-green-200 bg-green-50 text-green-700"
-              : "border-red-200 bg-red-50 text-red-700"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-rose-200 bg-rose-50 text-rose-800"
           }`}
         >
-          {banner.message}
-        </div>
+          <p className="text-sm font-semibold uppercase tracking-[0.16em]">
+            {banner.kind === "success" ? "Rental Updated" : "Rental Problem"}
+          </p>
+          <p className="mt-2 text-sm leading-7">{banner.message}</p>
+        </section>
       ) : null}
 
-      <section className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(135deg,#ecfdf5_0%,#ffffff_45%,#f8fafc_100%)] p-8 shadow-sm sm:p-10">
-        <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">
-              {studioLabel}
-            </p>
-            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-              Floor Space Rental
-            </h1>
-            <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
-              Reserve studio time for practice, floor rental sessions, or instructor use.
-              Room selection is optional when your studio allows it.
-            </p>
-            <p className="mt-3 text-sm text-slate-500">Signed in as {fullName}</p>
-
-            <div className="mt-8 grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
-                <p className="text-sm text-slate-500">Available Rooms</p>
-                <p className="mt-2 text-3xl font-semibold text-slate-950">
-                  {typedRooms.length}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-sky-100 bg-white p-5 shadow-sm">
-                <p className="text-sm text-slate-500">Upcoming Rentals</p>
-                <p className="mt-2 text-3xl font-semibold text-slate-950">
-                  {typedUpcomingRentals.length}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-violet-100 bg-white p-5 shadow-sm">
-                <p className="text-sm text-slate-500">Portal Access</p>
-                <p className="mt-2 text-xl font-semibold text-slate-950">
-                  Independent Instructor
-                </p>
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                DanceFlow Portal
+              </p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                Book Floor Space
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+                Reserve studio time for practice or floor rental sessions and keep your upcoming rentals in one place.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3 text-sm text-white/80">
+                <span>
+                  Studio: <span className="font-medium text-white">{studioLabel}</span>
+                </span>
+                <span>
+                  Signed in as: <span className="font-medium text-white">{fullName}</span>
+                </span>
               </div>
             </div>
+
+            <div className="flex flex-wrap gap-3">
+  <Link
+    href={`/portal/${encodeURIComponent(studioSlug)}`}
+    className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+  >
+    Portal Home
+  </Link>
+</div>
           </div>
+        </div>
 
-          <div className="rounded-[28px] border border-slate-200 bg-white/90 p-6 shadow-sm">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Quick Actions
-            </p>
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+              <h2 className="text-lg font-semibold text-sky-950">
+                Pick your time carefully
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-sky-900">
+                Choose the date and time you need so your rental matches your actual studio use.
+              </p>
+            </div>
 
-            <div className="mt-5 grid gap-3">
-              <Link
-                href={`/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals`}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
-              >
-                <p className="font-medium text-slate-900">My Rentals</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Review upcoming rentals and recent rental history.
-                </p>
-              </Link>
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+              <h2 className="text-lg font-semibold text-violet-950">
+                Add a room when needed
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-violet-900">
+                If your studio uses rooms, choose the right one so your rental is easier to track.
+              </p>
+            </div>
 
-              <Link
-                href={`/portal/${encodeURIComponent(studioSlug)}`}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
-              >
-                <p className="font-medium text-slate-900">Portal Home</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Return to your instructor dashboard.
-                </p>
-              </Link>
-
-              <Link
-                href={`/portal/${encodeURIComponent(studioSlug)}/profile`}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
-              >
-                <p className="font-medium text-slate-900">My Profile</p>
-                <p className="mt-1 text-sm text-slate-600">
-                  Review your linked instructor portal profile.
-                </p>
-              </Link>
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <h2 className="text-lg font-semibold text-amber-950">
+                Check upcoming rentals
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-amber-900">
+                Use the upcoming rentals panel to review what is already booked before adding more time.
+              </p>
             </div>
           </div>
         </div>
@@ -307,7 +297,7 @@ export default async function FloorSpacePage({
               Choose your studio time
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-600">
-              Add one or more future time slots, optionally choose a room, and review conflicts before submitting.
+              Add one or more future time slots, choose a room if needed, and send your request.
             </p>
           </div>
 
@@ -326,7 +316,7 @@ export default async function FloorSpacePage({
               <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center">
                 <p className="text-lg font-medium text-slate-900">No rentals booked yet</p>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Your next rentals will appear here once you book them.
+                  Your next rentals will show here after you book them.
                 </p>
               </div>
             ) : (
@@ -374,14 +364,14 @@ export default async function FloorSpacePage({
 
           <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-orange-600">
-              Before You Book
+              Helpful Tips
             </p>
 
             <ul className="mt-5 space-y-3 text-sm leading-7 text-slate-700">
-              <li>Book only the time you need.</li>
-              <li>Floor rentals do not deduct from lesson packages.</li>
+              <li>Book only the time you plan to use.</li>
+              <li>Floor rentals are separate from lesson packages.</li>
               <li>Only future rentals can be cancelled from the rentals page.</li>
-              <li>Room selection may be optional depending on studio setup.</li>
+              <li>Room choice may be optional depending on studio setup.</li>
             </ul>
           </section>
         </div>

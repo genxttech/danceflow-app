@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { canExportWithOverride } from "@/lib/auth/permissions";
 
 type RouteContext = {
   params: Promise<{
@@ -93,10 +95,6 @@ function getTicketKind(
   return ticket?.ticket_kind ?? "";
 }
 
-function normalize(value: string | null | undefined) {
-  return (value ?? "").trim().toLowerCase();
-}
-
 export async function GET(request: Request, context: RouteContext) {
   const { id } = await context.params;
   const { searchParams } = new URL(request.url);
@@ -116,19 +114,44 @@ export async function GET(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { data: roleRow, error: roleError } = await supabase
-    .from("user_studio_roles")
-    .select("studio_id")
-    .eq("user_id", user.id)
-    .eq("active", true)
-    .limit(1)
-    .single();
+  const workspace = await getCurrentStudioContext();
 
-  if (roleError || !roleRow) {
+  if (!workspace?.studioId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const studioId = roleRow.studio_id as string;
+  let exportOverrideAllowed: boolean | undefined = undefined;
+
+  if (!workspace.isPlatformAdmin) {
+    const { data: overrideRow, error: overrideError } = await supabase
+      .from("role_permission_overrides")
+      .select("allowed")
+      .eq("studio_id", workspace.studioId)
+      .eq("user_id", user.id)
+      .eq("permission_key", "export_events")
+      .maybeSingle();
+
+    if (overrideError) {
+      return NextResponse.json({ error: overrideError.message }, { status: 500 });
+    }
+
+    exportOverrideAllowed =
+      typeof overrideRow?.allowed === "boolean" ? overrideRow.allowed : undefined;
+  }
+
+  const canExportEvents =
+    workspace.isPlatformAdmin ||
+    canExportWithOverride({
+      role: workspace.studioRole,
+      permission: "export_events",
+      overrideAllowed: exportOverrideAllowed,
+    });
+
+  if (!canExportEvents) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const studioId = workspace.studioId;
 
   const { data: event, error: eventError } = await supabase
     .from("events")

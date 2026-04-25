@@ -28,26 +28,73 @@ async function getBaseUrl() {
   return `${proto}://${host}`;
 }
 
-async function hasActiveStudioRole(userId: string) {
+function getPostLoginPath(hasWorkspaceRole: boolean) {
+  return hasWorkspaceRole ? "/app" : "/account";
+}
+
+async function hasActiveWorkspaceRole(userId: string): Promise<boolean> {
   const supabase = await createClient();
 
-  const { data: roleRow, error: roleError } = await supabase
+  const { data: workspaceRole, error } = await supabase
     .from("user_studio_roles")
-    .select("studio_id")
+    .select("studio_id, role")
     .eq("user_id", userId)
     .eq("active", true)
+    .eq("role", "studio_owner")
     .limit(1)
     .maybeSingle();
 
-  if (roleError) {
-    throw new Error(`Could not determine account access: ${roleError.message}`);
+  if (error) {
+    return false;
   }
 
-  return !!roleRow?.studio_id;
+  return !!workspaceRole?.studio_id;
 }
 
-function getPostLoginPath(hasStudioRole: boolean) {
-  return hasStudioRole ? "/app" : "/account";
+async function getPortalRedirectPath(userId: string): Promise<string | null> {
+  const supabase = await createClient();
+
+  const { data: portalClient, error } = await supabase
+    .from("clients")
+    .select("studio_id, studios(slug)")
+    .eq("portal_user_id", userId)
+    .eq("is_independent_instructor", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !portalClient) {
+    return null;
+  }
+
+  const studiosRelation = (portalClient as {
+    studios?: { slug?: string | null } | { slug?: string | null }[] | null;
+  }).studios;
+
+  const studio = Array.isArray(studiosRelation)
+    ? studiosRelation[0]
+    : studiosRelation;
+
+  if (!studio?.slug) {
+    return null;
+  }
+
+  return `/portal/${studio.slug}`;
+}
+
+async function getPostLoginRedirectPath(userId: string): Promise<string> {
+  const hasWorkspaceRole = await hasActiveWorkspaceRole(userId);
+
+  if (hasWorkspaceRole) {
+    return getPostLoginPath(true);
+  }
+
+  const portalPath = await getPortalRedirectPath(userId);
+
+  if (portalPath) {
+    return portalPath;
+  }
+
+  return getPostLoginPath(false);
 }
 
 function buildSignupRedirectPath(params: {
@@ -211,6 +258,7 @@ export async function signupAction(formData: FormData) {
   }
 
   const supabase = await createClient();
+
   const redirectPath = buildSignupRedirectPath({
     signupIntent,
     selectedPlan,
@@ -354,7 +402,7 @@ export async function loginAction(formData: FormData) {
     redirect(
       buildLoginRedirectPath({
         email,
-        loginIntent: "public",
+        loginIntent,
         nextPath: redirectTo,
         mode: "check-email",
       })
@@ -399,17 +447,12 @@ export async function loginAction(formData: FormData) {
     };
   }
 
-  if (next) {
-    redirect(next);
-  }
+  if (next && next !== "/account") {
+  redirect(next);
+}
 
-  const hasStudioRole = await hasActiveStudioRole(user.id);
-
-  if (loginIntent === "studio" || loginIntent === "organizer") {
-    redirect("/app");
-  }
-
-  redirect(getPostLoginPath(hasStudioRole));
+const redirectPath = await getPostLoginRedirectPath(user.id);
+redirect(redirectPath);
 }
 
 export async function requestPasswordResetAction(formData: FormData) {
@@ -449,7 +492,7 @@ export async function requestPasswordResetAction(formData: FormData) {
 export async function logoutAction() {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  redirect("/");
+  redirect("/login");
 }
 
 export async function signOutAction() {

@@ -119,6 +119,25 @@ async function attachPortalAccessForEmail(params: {
   }
 }
 
+async function acceptTeamInvitationsForEmail(params: {
+  supabase: ReturnType<typeof createServerClient>;
+  email: string;
+}) {
+  const { supabase, email } = params;
+
+  if (!email) return 0;
+
+  const { data, error } = await supabase.rpc("accept_pending_team_invitations", {
+    p_email: email,
+  });
+
+  if (error) {
+    throw new Error(`Team invitation acceptance failed: ${error.message}`);
+  }
+
+  return typeof data === "number" ? data : 0;
+}
+
 function normalizeLocalNextPath(value: string | null) {
   if (!value) return null;
   if (!value.startsWith("/")) return null;
@@ -285,6 +304,8 @@ export async function GET(request: NextRequest) {
 
   const email = user.email?.trim().toLowerCase() ?? "";
 
+      let acceptedTeamInvitationCount = 0;
+
   try {
     await upsertProfile({
       supabase,
@@ -301,6 +322,11 @@ export async function GET(request: NextRequest) {
     await attachPortalAccessForEmail({
       supabase,
       userId: user.id,
+      email,
+    });
+
+    acceptedTeamInvitationCount = await acceptTeamInvitationsForEmail({
+      supabase,
       email,
     });
   } catch (syncError) {
@@ -339,13 +365,22 @@ export async function GET(request: NextRequest) {
     fallbackNextPath,
   });
 
-  const destination = getPostAuthAppDestination({
+    const destination = getPostAuthAppDestination({
     requestedNextPath,
     fallbackNextPath,
     selectedWorkspace,
   });
 
-  const finalResponse = NextResponse.redirect(new URL(destination, request.url));
+  const destinationUrl = new URL(destination, request.url);
+
+  if (acceptedTeamInvitationCount > 0) {
+    destinationUrl.searchParams.set(
+      "team_invite_accepted",
+      String(acceptedTeamInvitationCount)
+    );
+  }
+
+  const finalResponse = NextResponse.redirect(destinationUrl);
 
   for (const cookie of response.cookies.getAll()) {
     finalResponse.cookies.set(cookie);

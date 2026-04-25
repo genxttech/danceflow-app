@@ -3,6 +3,11 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
+import {
+  isOrganizerOwner,
+  isPlatformAdmin,
+} from "@/lib/auth/permissions";
 
 type ActionState = {
   error: string;
@@ -40,11 +45,28 @@ async function getOrganizerWorkspaceContext() {
   }
 
   const context = await getCurrentStudioContext();
+  const capabilities = await getCurrentWorkspaceCapabilitiesForUser();
+
+  if (!capabilities || capabilities.studioId !== context.studioId) {
+    throw new Error("Could not load workspace access.");
+  }
+
+  if (!capabilities.isActive || capabilities.planCode !== "organizer") {
+    throw new Error("Organizer features require an active Organizer plan.");
+  }
+
+  if (
+    !isOrganizerOwner(context.studioRole) &&
+    !isPlatformAdmin(context.studioRole)
+  ) {
+    throw new Error("Only the organizer owner can create or manage the organizer profile.");
+  }
 
   return {
     supabase,
     userId: user.id,
     studioId: context.studioId,
+    studioRole: context.studioRole,
   };
 }
 
@@ -53,15 +75,12 @@ function humanizeOrganizerInsertError(message: string) {
 
   if (
     normalized.includes("organizers_one_per_workspace_idx") ||
-    normalized.includes("duplicate key") && normalized.includes("studio_id")
+    (normalized.includes("duplicate key") && normalized.includes("studio_id"))
   ) {
     return "This organizer account already has an organizer profile. Only one organizer profile is allowed per account.";
   }
 
-  if (
-    normalized.includes("duplicate key") &&
-    normalized.includes("slug")
-  ) {
+  if (normalized.includes("duplicate key") && normalized.includes("slug")) {
     return "That organizer slug is already in use. Please choose a different slug.";
   }
 

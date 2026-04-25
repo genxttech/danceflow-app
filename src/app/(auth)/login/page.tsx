@@ -93,9 +93,56 @@ export default async function LoginPage({
               {title}
             </h1>
 
-            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
+                        <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
               {description}
             </p>
+
+            <div className="mt-6 grid gap-3 md:grid-cols-3">
+              <Link
+                href="/login?intent=studio"
+                className={[
+                  "rounded-2xl border p-4 text-left transition",
+                  loginIntent === "studio"
+                    ? "border-violet-300 bg-violet-50"
+                    : "border-slate-200 bg-slate-50 hover:bg-slate-100",
+                ].join(" ")}
+              >
+                <p className="text-sm font-semibold text-slate-950">Studio Login</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Owners, studio admins, front desk, and instructors
+                </p>
+              </Link>
+
+              <Link
+                href="/login?intent=organizer"
+                className={[
+                  "rounded-2xl border p-4 text-left transition",
+                  loginIntent === "organizer"
+                    ? "border-violet-300 bg-violet-50"
+                    : "border-slate-200 bg-slate-50 hover:bg-slate-100",
+                ].join(" ")}
+              >
+                <p className="text-sm font-semibold text-slate-950">Organizer Login</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Organizers and event admin staff
+                </p>
+              </Link>
+
+              <Link
+                href="/login?intent=public"
+                className={[
+                  "rounded-2xl border p-4 text-left transition",
+                  loginIntent === "public"
+                    ? "border-violet-300 bg-violet-50"
+                    : "border-slate-200 bg-slate-50 hover:bg-slate-100",
+                ].join(" ")}
+              >
+                <p className="text-sm font-semibold text-slate-950">Public Login</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Dancers, clients, and general account access
+                </p>
+              </Link>
+            </div>
 
             {mode === "check-email" ? (
               <div className="mt-6 rounded-2xl border border-sky-200 bg-sky-50 p-4">
