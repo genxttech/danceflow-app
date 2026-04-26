@@ -40,6 +40,7 @@ type EventRow = {
   postal_code: string | null;
   latitude: number | null;
   longitude: number | null;
+  created_at: string | null;
 };
 
 type StudioRow = {
@@ -256,7 +257,8 @@ export default async function DiscoverEventsPage({
         registration_required,
         postal_code,
         latitude,
-        longitude
+        longitude,
+        created_at
       `)
       .eq("visibility", "public")
       .eq("public_directory_enabled", true)
@@ -458,6 +460,14 @@ export default async function DiscoverEventsPage({
       return aDate - bDate;
     });
 
+  const newlyAddedEvents = [...filteredEvents]
+    .sort((a, b) => {
+      const aTime = a.event.created_at ? new Date(a.event.created_at).getTime() : 0;
+      const bTime = b.event.created_at ? new Date(b.event.created_at).getTime() : 0;
+      return bTime - aTime;
+    })
+    .slice(0, 3);
+
   return (
     <>
       <PublicSiteHeader currentPath="events" isAuthenticated={!!user} />
@@ -524,7 +534,78 @@ export default async function DiscoverEventsPage({
         </section>
 
         <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-          <form className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm">
+          <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="overflow-hidden rounded-[2rem] border border-violet-200 bg-white shadow-sm">
+              <div className="bg-[linear-gradient(135deg,#f5f3ff_0%,#ffffff_55%,#fff7ed_100%)] p-6">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                    Coming Soon
+                  </span>
+                  <span className="rounded-full border border-violet-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                    Future placement space
+                  </span>
+                </div>
+                <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
+                  Featured Events
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Highlighted event placements are coming soon. This space is reserved for
+                  promoted workshops, socials, competitions, and special events that help dancers find what is next.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">
+                    Newly Added
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                    Newly Added Events
+                  </h2>
+                  <p className="mt-2 text-sm text-slate-600">
+                    Recently published event listings from studios and organizers.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-3">
+                {newlyAddedEvents.length > 0 ? (
+                  newlyAddedEvents.map(({ event, studio, organizer }) => (
+                    <Link
+                      key={event.id}
+                      href={`/events/${event.slug}`}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-white hover:shadow-sm"
+                    >
+                      <p className="font-medium text-slate-950">{event.name}</p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {formatDateRange(event.start_date, event.end_date)} · {organizer?.name || hostStudioName(studio)}
+                      </p>
+                    </Link>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+                    Newly added events will appear here as public events go live.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <form className="mt-8 overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm">
+            <div className="border-b border-slate-100 bg-[linear-gradient(135deg,#f8fafc_0%,#f5f3ff_100%)] px-6 py-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
+                Event Search
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                Find your next dance event
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Search by location, style, date-friendly details, and beginner-friendly options.
+              </p>
+            </div>
+            <div className="p-6">
             <input
               id="search-location-mode"
               type="hidden"
@@ -657,6 +738,7 @@ export default async function DiscoverEventsPage({
               />
               Beginner-friendly only
             </label>
+            </div>
           </form>
 
           <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -821,3 +903,4 @@ export default async function DiscoverEventsPage({
     </>
   );
 }
+

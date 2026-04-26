@@ -23,6 +23,8 @@ type LeadRow = {
   dance_interests: string | null;
   referral_source: string | null;
   created_at: string;
+  is_independent_instructor: boolean | null;
+  portal_user_id: string | null;
 };
 
 type FollowUpClient =
@@ -368,7 +370,9 @@ export default async function LeadsPage({
           status,
           dance_interests,
           referral_source,
-          created_at
+          created_at,
+          is_independent_instructor,
+          portal_user_id
         `
       )
       .eq("studio_id", studioId)
@@ -463,9 +467,16 @@ export default async function LeadsPage({
     throw new Error(`Failed to load completed follow-ups: ${completedError.message}`);
   }
 
-  const allLeads = ((leads ?? []) as LeadRow[]).filter(
-    (lead) => sourceFilterMatches(source, lead.referral_source) && leadSearchMatches(lead, q)
-  );
+  const allLeads = ((leads ?? []) as LeadRow[]).filter((lead) => {
+    const isActivatedIndependentInstructor =
+      lead.is_independent_instructor === true && Boolean(lead.portal_user_id);
+
+    return (
+      !isActivatedIndependentInstructor &&
+      sourceFilterMatches(source, lead.referral_source) &&
+      leadSearchMatches(lead, q)
+    );
+  });
 
   const filteredOverdue = ((overdueFollowUps ?? []) as FollowUpRow[]).filter((item) => {
     return (
@@ -538,30 +549,64 @@ export default async function LeadsPage({
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Leads</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Front-desk lead queue prioritized by source, follow-up urgency, and fastest next step.
-          </p>
+    <div className="space-y-6 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                DanceFlow
+              </p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                Leads
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+                Track interested dancers, follow-up status, and next steps so prospects do not slip through the cracks.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/app/clients/new"
+                className="inline-flex items-center rounded-xl border border-white/25 bg-white/10 px-4 py-2 text-sm font-medium text-white backdrop-blur hover:bg-white/20"
+              >
+                Add Lead
+              </Link>
+              <Link
+                href="/app/activity/new"
+                className="inline-flex items-center rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+              >
+                Add Follow-Up
+              </Link>
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href="/app/clients/new"
-            className="inline-flex items-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Add lead
-          </Link>
-          <Link
-            href="/app/activity/new"
-            className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-          >
-            Add follow-up
-          </Link>
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+              <h2 className="text-lg font-semibold text-sky-950">Follow-Up Pipeline</h2>
+              <p className="mt-2 text-sm leading-7 text-sky-900">
+                See where every lead stands and what needs attention next.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+              <h2 className="text-lg font-semibold text-violet-950">Turn Interest Into Clients</h2>
+              <p className="mt-2 text-sm leading-7 text-violet-900">
+                Keep contact details, source, notes, and follow-up timing in one place.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <h2 className="text-lg font-semibold text-amber-950">Front Desk Friendly</h2>
+              <p className="mt-2 text-sm leading-7 text-amber-900">
+                Give staff a clear way to update statuses without digging through spreadsheets.
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
 
       {banner ? (
         <div

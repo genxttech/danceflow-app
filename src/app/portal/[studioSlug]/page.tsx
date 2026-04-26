@@ -52,6 +52,57 @@ type RentalSummaryRow = {
   room_id: string | null;
 };
 
+type PendingPaymentRow = {
+  id: string;
+  amount: number | null;
+  currency: string | null;
+  payment_type: string | null;
+  notes: string | null;
+  created_at: string;
+  client_package_id: string | null;
+  client_membership_id: string | null;
+};
+
+type ClientPackageItemRow = {
+  usage_type: string | null;
+  quantity_total: number | string | null;
+  quantity_used: number | string | null;
+  quantity_remaining: number | string | null;
+  is_unlimited: boolean | null;
+};
+
+type ClientPackageRow = {
+  id: string;
+  name_snapshot: string;
+  active: boolean;
+  expiration_date: string | null;
+  sold_price: number | null;
+  price_snapshot: number | null;
+  client_package_items: ClientPackageItemRow[] | null;
+};
+
+type PaymentHistoryRow = {
+  id: string;
+  amount: number | null;
+  currency: string | null;
+  payment_type: string | null;
+  payment_method: string | null;
+  status: string;
+  notes: string | null;
+  paid_at: string | null;
+  created_at: string;
+};
+
+type LessonRecapRow = {
+  id: string;
+  appointment_id: string;
+  summary: string | null;
+  homework: string | null;
+  next_focus: string | null;
+  visible_to_client: boolean | null;
+  updated_at: string;
+};
+
 type UpcomingItem = {
   id: string;
   kind: "appointment" | "rental";
@@ -102,7 +153,37 @@ function appointmentTypeLabel(value: string) {
   if (value === "intro_lesson") return "Intro Lesson";
   if (value === "floor_space_rental") return "Floor Space Rental";
   if (value === "party") return "Party";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function paymentTypeLabel(value: string | null) {
+  if (value === "package_sale") return "Package Payment";
+  if (value === "membership") return "Membership Payment";
+  if (value === "floor_rental") return "Floor Rental Payment";
+  if (value === "event_registration") return "Event Registration Payment";
+  return "Payment Request";
+}
+
+function packageUsageTypeLabel(value: string | null) {
+  if (value === "private_lesson") return "Private Lessons";
+  if (value === "group_class") return "Group Classes";
+  if (value === "practice_party") return "Practice Parties";
+  return "Credits";
+}
+
+function toNumber(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function paymentMethodLabel(value: string | null) {
+  if (!value) return "Payment";
+  return value
+    .replaceAll("_", " ")
+    .replace(/\w/g, (char) => char.toUpperCase());
 }
 
 function statusLabel(value: string) {
@@ -113,17 +194,26 @@ function statusLabel(value: string) {
   if (value === "active") return "Active";
   if (value === "trialing") return "Trial";
   if (value === "past_due") return "Past Due";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function statusBadgeClass(status: string) {
-  if (status === "scheduled") return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
-  if (status === "attended") return "bg-green-50 text-green-700 ring-1 ring-green-100";
-  if (status === "cancelled") return "bg-red-50 text-red-700 ring-1 ring-red-100";
-  if (status === "no_show") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
-  if (status === "active") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100";
-  if (status === "trialing") return "bg-violet-50 text-violet-700 ring-1 ring-violet-100";
-  if (status === "past_due") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
+  if (status === "scheduled")
+    return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
+  if (status === "attended")
+    return "bg-green-50 text-green-700 ring-1 ring-green-100";
+  if (status === "cancelled")
+    return "bg-red-50 text-red-700 ring-1 ring-red-100";
+  if (status === "no_show")
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
+  if (status === "active")
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100";
+  if (status === "trialing")
+    return "bg-violet-50 text-violet-700 ring-1 ring-violet-100";
+  if (status === "past_due")
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
@@ -153,7 +243,9 @@ function CardShell({
   return (
     <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
       <div className="max-w-2xl">
-        <p className={`text-sm font-semibold uppercase tracking-[0.16em] ${accentMap[accent]}`}>
+        <p
+          className={`text-sm font-semibold uppercase tracking-[0.16em] ${accentMap[accent]}`}
+        >
           {title}
         </p>
         {subtitle ? (
@@ -185,18 +277,17 @@ function ActionTile({
   };
 
   return (
-    <Link href={href} className={`rounded-2xl border p-5 transition ${classes[tone]}`}>
+    <Link
+      href={href}
+      className={`rounded-2xl border p-5 transition ${classes[tone]}`}
+    >
       <p className="font-medium text-slate-900">{title}</p>
       <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
     </Link>
   );
 }
 
-export default async function PortalHomePage({
-  params,
-}: {
-  params: Params;
-}) {
+export default async function PortalHomePage({ params }: { params: Params }) {
   const { studioSlug } = await params;
   const supabase = await createClient();
 
@@ -237,13 +328,14 @@ export default async function PortalHomePage({
   if (linkedClient) {
     typedClient = linkedClient as ClientRow;
   } else if (user.email) {
-    const { data: emailMatchedClient, error: emailMatchedClientError } = await supabase
-      .from("clients")
-      .select("id, first_name, last_name, email, is_independent_instructor")
-      .eq("studio_id", typedStudio.id)
-      .eq("email", user.email)
-      .eq("is_independent_instructor", true)
-      .maybeSingle();
+    const { data: emailMatchedClient, error: emailMatchedClientError } =
+      await supabase
+        .from("clients")
+        .select("id, first_name, last_name, email, is_independent_instructor")
+        .eq("studio_id", typedStudio.id)
+        .eq("email", user.email)
+        .eq("is_independent_instructor", true)
+        .maybeSingle();
 
     if (emailMatchedClientError) {
       throw emailMatchedClientError;
@@ -289,10 +381,14 @@ export default async function PortalHomePage({
     { data: membership },
     { data: appointments, error: appointmentsError },
     { data: rentals, error: rentalsError },
+    { data: pendingPayments, error: pendingPaymentsError },
+    { data: packages, error: packagesError },
+    { data: paymentHistory, error: paymentHistoryError },
   ] = await Promise.all([
     supabase
       .from("client_memberships")
-      .select(`
+      .select(
+        `
         id,
         status,
         starts_on,
@@ -304,7 +400,8 @@ export default async function PortalHomePage({
         name_snapshot,
         price_snapshot,
         billing_interval_snapshot
-      `)
+      `,
+      )
       .eq("studio_id", typedStudio.id)
       .eq("client_id", typedClient.id)
       .in("status", ["active", "trialing", "past_due"])
@@ -314,19 +411,21 @@ export default async function PortalHomePage({
 
     supabase
       .from("appointments")
-      .select(`
+      .select(
+        `
         id,
         starts_at,
         ends_at,
         status,
         appointment_type,
         title
-      `)
+      `,
+      )
       .eq("studio_id", typedStudio.id)
       .eq("client_id", typedClient.id)
       .in("appointment_type", ["private_lesson", "intro_lesson", "group_class"])
       .order("starts_at", { ascending: false })
-      .limit(8),
+      .limit(20),
 
     isInstructorPortal
       ? supabase
@@ -339,9 +438,56 @@ export default async function PortalHomePage({
           .order("starts_at", { ascending: true })
           .limit(5)
       : Promise.resolve({ data: [], error: null }),
+
+    supabase
+      .from("payments")
+      .select(
+        "id, amount, currency, payment_type, notes, created_at, client_package_id, client_membership_id",
+      )
+      .eq("studio_id", typedStudio.id)
+      .eq("client_id", typedClient.id)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(10),
+
+    supabase
+      .from("client_packages")
+      .select(
+        `
+        id,
+        name_snapshot,
+        active,
+        expiration_date,
+        sold_price,
+        price_snapshot,
+        client_package_items (
+          usage_type,
+          quantity_total,
+          quantity_used,
+          quantity_remaining,
+          is_unlimited
+        )
+      `,
+      )
+      .eq("studio_id", typedStudio.id)
+      .eq("client_id", typedClient.id)
+      .eq("active", true)
+      .order("created_at", { ascending: false })
+      .limit(6),
+
+    supabase
+      .from("payments")
+      .select(
+        "id, amount, currency, payment_type, payment_method, status, notes, paid_at, created_at",
+      )
+      .eq("studio_id", typedStudio.id)
+      .eq("client_id", typedClient.id)
+      .neq("status", "pending")
+      .order("paid_at", { ascending: false, nullsFirst: false })
+      .limit(8),
   ]);
 
-  if (appointmentsError) {
+   if (appointmentsError) {
     throw appointmentsError;
   }
 
@@ -349,9 +495,49 @@ export default async function PortalHomePage({
     throw rentalsError;
   }
 
+  if (pendingPaymentsError) {
+    throw pendingPaymentsError;
+  }
+
+  if (packagesError) {
+    throw packagesError;
+  }
+
+  if (paymentHistoryError) {
+    throw paymentHistoryError;
+  }
+
   const typedMembership = (membership ?? null) as ActiveMembership | null;
   const typedAppointments = (appointments ?? []) as AppointmentSummaryRow[];
   const typedRentals = (rentals ?? []) as RentalSummaryRow[];
+  const typedPendingPayments = (pendingPayments ?? []) as PendingPaymentRow[];
+  const typedPackages = (packages ?? []) as ClientPackageRow[];
+  const typedPaymentHistory = (paymentHistory ?? []) as PaymentHistoryRow[];
+
+  const recapAppointmentIds = typedAppointments
+    .filter((item) => item.status === "attended")
+    .map((item) => item.id);
+
+  let typedLessonRecaps: LessonRecapRow[] = [];
+
+  if (recapAppointmentIds.length) {
+    const { data: lessonRecaps, error: lessonRecapsError } = await supabase
+      .from("lesson_recaps")
+      .select(
+        "id, appointment_id, summary, homework, next_focus, visible_to_client, updated_at",
+      )
+      .eq("studio_id", typedStudio.id)
+      .in("appointment_id", recapAppointmentIds)
+      .eq("visible_to_client", true)
+      .order("updated_at", { ascending: false })
+      .limit(5);
+
+    if (lessonRecapsError) {
+      throw lessonRecapsError;
+    }
+
+    typedLessonRecaps = (lessonRecaps ?? []) as LessonRecapRow[];
+  }
 
   const upcomingAppointments = typedAppointments
     .filter((item) => item.starts_at >= nowIso)
@@ -396,7 +582,9 @@ export default async function PortalHomePage({
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
               <div className="max-w-3xl">
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                  {isInstructorPortal ? "DanceFlow Instructor Portal" : "DanceFlow Client Portal"}
+                  {isInstructorPortal
+                    ? "DanceFlow Instructor Portal"
+                    : "DanceFlow Client Portal"}
                 </p>
                 <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
                   Welcome back, {getClientFirstName(typedClient)}
@@ -408,7 +596,10 @@ export default async function PortalHomePage({
                 </p>
                 <div className="mt-4 flex flex-wrap gap-3 text-sm text-white/80">
                   <span>
-                    Studio: <span className="font-medium text-white">{studioLabel}</span>
+                    Studio:{" "}
+                    <span className="font-medium text-white">
+                      {studioLabel}
+                    </span>
                   </span>
                   <span>
                     Portal:{" "}
@@ -436,13 +627,13 @@ export default async function PortalHomePage({
                 </Link>
 
                 <form action="/auth/logout" method="post">
-  <button
-    type="submit"
-    className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-  >
-    Log Out
-  </button>
-</form>
+                  <button
+                    type="submit"
+                    className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                  >
+                    Log Out
+                  </button>
+                </form>
               </div>
             </div>
 
@@ -451,7 +642,9 @@ export default async function PortalHomePage({
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/75">
                   {isInstructorPortal ? "Coming Up" : "Upcoming Appointments"}
                 </p>
-                <p className="mt-3 text-3xl font-semibold text-white">{upcomingCount}</p>
+                <p className="mt-3 text-3xl font-semibold text-white">
+                  {upcomingCount}
+                </p>
               </div>
 
               <div className="rounded-[28px] border border-white/15 bg-white/10 p-5 backdrop-blur-sm">
@@ -465,9 +658,11 @@ export default async function PortalHomePage({
 
               <div className="rounded-[28px] border border-white/15 bg-white/10 p-5 backdrop-blur-sm">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/75">
-                  Studio
+                  Active Packages
                 </p>
-                <p className="mt-3 text-lg font-semibold text-white">{studioLabel}</p>
+                <p className="mt-3 text-3xl font-semibold text-white">
+                  {typedPackages.length}
+                </p>
               </div>
             </div>
           </div>
@@ -477,7 +672,9 @@ export default async function PortalHomePage({
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
               <h2 className="text-lg font-semibold text-sky-950">
-                {isInstructorPortal ? "See your schedule quickly" : "See your appointments quickly"}
+                {isInstructorPortal
+                  ? "See your schedule quickly"
+                  : "See your appointments quickly"}
               </h2>
               <p className="mt-2 text-sm leading-7 text-sky-900">
                 {isInstructorPortal
@@ -488,7 +685,9 @@ export default async function PortalHomePage({
 
             <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
               <h2 className="text-lg font-semibold text-violet-950">
-                {isInstructorPortal ? "Use the links you need most" : "Keep your membership in view"}
+                {isInstructorPortal
+                  ? "Use the links you need most"
+                  : "Keep your membership in view"}
               </h2>
               <p className="mt-2 text-sm leading-7 text-violet-900">
                 {isInstructorPortal
@@ -499,7 +698,9 @@ export default async function PortalHomePage({
 
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
               <h2 className="text-lg font-semibold text-amber-950">
-                {isInstructorPortal ? "Stay on top of rentals" : "Stay ready for your next visit"}
+                {isInstructorPortal
+                  ? "Stay on top of rentals"
+                  : "Stay ready for your next visit"}
               </h2>
               <p className="mt-2 text-sm leading-7 text-amber-900">
                 {isInstructorPortal
@@ -517,7 +718,7 @@ export default async function PortalHomePage({
         subtitle={
           isInstructorPortal
             ? "Use these links to move between your schedule, rentals, account details, and workspace access."
-            : "Use these links to move between your schedule, account details, and membership tools."
+            : "Use these links to view your schedule, packages, payments, and account details."
         }
       >
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -549,6 +750,14 @@ export default async function PortalHomePage({
               tone="emerald"
             />
           ) : null}
+          {!isInstructorPortal ? (
+            <ActionTile
+              href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
+              title="Packages & Credits"
+              description="Check remaining lesson, group, and party credits."
+              tone="emerald"
+            />
+          ) : null}
           <ActionTile
             href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
             title="My Account"
@@ -569,6 +778,140 @@ export default async function PortalHomePage({
       <div className="grid gap-8 xl:grid-cols-[1.25fr_0.95fr]">
         <div className="space-y-8">
           <CardShell
+            title="Pending Payments"
+            accent="orange"
+            subtitle="Any unpaid payment requests from the studio will appear here. Use Pay Now when you are ready to complete the purchase."
+          >
+            {typedPendingPayments.length ? (
+              <div className="space-y-3">
+                {typedPendingPayments.map((payment) => (
+                  <div
+                    key={payment.id}
+                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+                  >
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-100">
+                            Pending
+                          </span>
+                          <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                            {paymentTypeLabel(payment.payment_type)}
+                          </span>
+                        </div>
+                        <p className="mt-3 text-2xl font-semibold text-slate-950">
+                          {formatCurrency(payment.amount)}
+                        </p>
+                        {payment.notes ? (
+                          <p className="mt-1 text-sm leading-6 text-slate-600">
+                            {payment.notes}
+                          </p>
+                        ) : null}
+                      </div>
+                      <Link
+                        href={
+                          "/api/stripe/client-checkout?paymentId=" +
+                          encodeURIComponent(payment.id) +
+                          "&returnTo=" +
+                          encodeURIComponent(`/portal/${typedStudio.slug}`) +
+                          "&cancelTo=" +
+                          encodeURIComponent(
+                            `/portal/${typedStudio.slug}?error=payment_cancelled`,
+                          )
+                        }
+                        className="inline-flex items-center justify-center rounded-2xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-medium text-white hover:opacity-95"
+                      >
+                        Pay Now
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">
+                  No pending payment requests right now.
+                </p>
+              </div>
+            )}
+          </CardShell>
+
+          <CardShell
+            title="Packages & Credits"
+            accent="emerald"
+            subtitle="See active packages and the credits you have available for lessons, groups, and parties."
+          >
+            {typedPackages.length ? (
+              <div className="space-y-4">
+                {typedPackages.map((clientPackage) => (
+                  <div
+                    key={clientPackage.id}
+                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+                  >
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
+                            Active
+                          </span>
+                          {clientPackage.expiration_date ? (
+                            <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                              Expires{" "}
+                              {formatDate(clientPackage.expiration_date)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-3 text-lg font-semibold text-slate-950">
+                          {clientPackage.name_snapshot}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {formatCurrency(
+                            clientPackage.sold_price ??
+                              clientPackage.price_snapshot,
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      {(clientPackage.client_package_items ?? []).map(
+                        (item) => (
+                          <div
+                            key={`${clientPackage.id}-${item.usage_type}`}
+                            className="rounded-2xl border border-white bg-white p-4"
+                          >
+                            <p className="text-sm font-medium text-slate-900">
+                              {packageUsageTypeLabel(item.usage_type)}
+                            </p>
+                            <p className="mt-2 text-2xl font-semibold text-slate-950">
+                              {item.is_unlimited
+                                ? "Unlimited"
+                                : toNumber(item.quantity_remaining)}
+                            </p>
+                            {!item.is_unlimited ? (
+                              <p className="mt-1 text-xs text-slate-500">
+                                {toNumber(item.quantity_used)} used of{" "}
+                                {toNumber(item.quantity_total)}
+                              </p>
+                            ) : null}
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">
+                  No active packages are linked to this portal profile right
+                  now.
+                </p>
+              </div>
+            )}
+          </CardShell>
+
+          <CardShell
             title={isInstructorPortal ? "My Membership" : "Membership Snapshot"}
             accent="violet"
             subtitle={
@@ -585,7 +928,8 @@ export default async function PortalHomePage({
                     {typedMembership.name_snapshot}
                   </p>
                   <p className="mt-2 text-sm text-slate-600">
-                    {formatCurrency(typedMembership.price_snapshot)} / {typedMembership.billing_interval_snapshot || "period"}
+                    {formatCurrency(typedMembership.price_snapshot)} /{" "}
+                    {typedMembership.billing_interval_snapshot || "period"}
                   </p>
                 </div>
 
@@ -595,7 +939,9 @@ export default async function PortalHomePage({
                     {statusLabel(typedMembership.status)}
                   </p>
                   <p className="mt-2 text-sm text-slate-600">
-                    Current period: {formatDate(typedMembership.current_period_start)} – {formatDate(typedMembership.current_period_end)}
+                    Current period:{" "}
+                    {formatDate(typedMembership.current_period_start)} –{" "}
+                    {formatDate(typedMembership.current_period_end)}
                   </p>
                 </div>
 
@@ -613,14 +959,19 @@ export default async function PortalHomePage({
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
                 <p className="text-sm text-slate-600">
-                  No active membership is linked to this portal profile right now.
+                  No active membership is linked to this portal profile right
+                  now.
                 </p>
               </div>
             )}
           </CardShell>
 
           <CardShell
-            title={isInstructorPortal ? "Recent Lesson Activity" : "Recent Appointments"}
+            title={
+              isInstructorPortal
+                ? "Recent Lesson Activity"
+                : "Recent Appointments"
+            }
             accent="emerald"
             subtitle={
               isInstructorPortal
@@ -637,7 +988,8 @@ export default async function PortalHomePage({
                   >
                     <div>
                       <p className="font-medium text-slate-950">
-                        {item.title?.trim() || appointmentTypeLabel(item.appointment_type)}
+                        {item.title?.trim() ||
+                          appointmentTypeLabel(item.appointment_type)}
                       </p>
                       <p className="mt-1 text-sm text-slate-600">
                         {formatDateTime(item.starts_at)}
@@ -656,7 +1008,71 @@ export default async function PortalHomePage({
               </div>
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">No recent appointment history yet.</p>
+                <p className="text-sm text-slate-600">
+                  No recent appointment history yet.
+                </p>
+              </div>
+            )}
+          </CardShell>
+
+          <CardShell
+            title="Lesson Recaps"
+            accent="violet"
+            subtitle="When your instructor shares a lesson recap, you can review notes, homework, and next focus areas here."
+          >
+            {typedLessonRecaps.length ? (
+              <div className="space-y-3">
+                {typedLessonRecaps.map((recap) => (
+                  <div
+                    key={recap.id}
+                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 ring-1 ring-violet-100">
+                        Shared by instructor
+                      </span>
+                      <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                        Updated {formatDate(recap.updated_at.slice(0, 10))}
+                      </span>
+                    </div>
+                    {recap.summary ? (
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Summary
+                        </p>
+                        <p className="mt-2 text-sm leading-7 text-slate-700">
+                          {recap.summary}
+                        </p>
+                      </div>
+                    ) : null}
+                    {recap.homework ? (
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Homework
+                        </p>
+                        <p className="mt-2 text-sm leading-7 text-slate-700">
+                          {recap.homework}
+                        </p>
+                      </div>
+                    ) : null}
+                    {recap.next_focus ? (
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Next Focus
+                        </p>
+                        <p className="mt-2 text-sm leading-7 text-slate-700">
+                          {recap.next_focus}
+                        </p>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">
+                  No shared lesson recaps yet.
+                </p>
               </div>
             )}
           </CardShell>
@@ -691,15 +1107,23 @@ export default async function PortalHomePage({
                       </span>
                     </div>
 
-                    <p className="mt-3 font-medium text-slate-950">{item.title}</p>
-                    <p className="mt-1 text-sm text-slate-600">{formatDateTime(item.starts_at)}</p>
-                    <p className="mt-1 text-sm text-slate-500">{formatTimeRange(item.starts_at, item.ends_at)}</p>
+                    <p className="mt-3 font-medium text-slate-950">
+                      {item.title}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {formatDateTime(item.starts_at)}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {formatTimeRange(item.starts_at, item.ends_at)}
+                    </p>
                   </div>
                 ))}
               </div>
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">No upcoming schedule items right now.</p>
+                <p className="text-sm text-slate-600">
+                  No upcoming schedule items right now.
+                </p>
               </div>
             )}
 
@@ -711,6 +1135,55 @@ export default async function PortalHomePage({
                 Open Full Schedule
               </Link>
             </div>
+          </CardShell>
+
+          <CardShell
+            title="Payment History"
+            accent="slate"
+            subtitle="Review recent completed payments recorded by the studio."
+          >
+            {typedPaymentHistory.length ? (
+              <div className="space-y-3">
+                {typedPaymentHistory.map((payment) => (
+                  <div
+                    key={payment.id}
+                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="font-medium text-slate-950">
+                          {paymentTypeLabel(payment.payment_type)}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {payment.paid_at
+                            ? formatDateTime(payment.paid_at)
+                            : formatDateTime(payment.created_at)}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {paymentMethodLabel(payment.payment_method)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-slate-950">
+                          {formatCurrency(payment.amount)}
+                        </p>
+                        <span
+                          className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(payment.status)}`}
+                        >
+                          {statusLabel(payment.status)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">
+                  No payment history is available yet.
+                </p>
+              </div>
+            )}
           </CardShell>
 
           {isInstructorPortal ? (
@@ -752,9 +1225,15 @@ export default async function PortalHomePage({
                             {statusLabel(item.status)}
                           </span>
                         </div>
-                        <p className="mt-3 font-medium text-slate-950">Floor Space Rental</p>
-                        <p className="mt-1 text-sm text-slate-600">{formatDateTime(item.starts_at)}</p>
-                        <p className="mt-1 text-sm text-slate-500">{formatTimeRange(item.starts_at, item.ends_at)}</p>
+                        <p className="mt-3 font-medium text-slate-950">
+                          Floor Space Rental
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {formatDateTime(item.starts_at)}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {formatTimeRange(item.starts_at, item.ends_at)}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -773,6 +1252,3 @@ export default async function PortalHomePage({
     </div>
   );
 }
-
-
-

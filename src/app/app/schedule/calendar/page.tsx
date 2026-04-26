@@ -1,184 +1,318 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
-import {
-  ArrowRight,
-  Bell,
-  CalendarDays,
-  CheckCircle2,
-  ClipboardList,
-  Globe2,
-  Sparkles,
-  Star,
-  Ticket,
-  Users,
-} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
-import { syncStudioNotifications } from "@/lib/notifications/sync";
-import {
-  getAccessibleStudios,
-  getCurrentStudioContext,
-} from "@/lib/auth/studio";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
+import ScheduleCalendarView from "./ScheduleCalendarView";
+import ScheduleAgendaView from "./ScheduleAgendaView";
 
-type WorkspaceRow = {
+type SearchParams = Promise<{
+  view?: string;
+  date?: string;
+  instructor?: string;
+  instructorId?: string;
+  room?: string;
+  roomId?: string;
+  appointmentType?: string;
+  type?: string;
+  status?: string;
+  source?: string;
+  groupBy?: string;
+}>;
+
+type ClientRelation =
+  | { first_name: string; last_name: string }
+  | { first_name: string; last_name: string }[]
+  | null;
+
+type InstructorRelation =
+  | { first_name: string; last_name: string }
+  | { first_name: string; last_name: string }[]
+  | null;
+
+type RoomRelation = { name: string } | { name: string }[] | null;
+
+type OrganizerRelation = { name: string } | { name: string }[] | null;
+
+type AppointmentRow = {
+  kind?: "appointment";
   id: string;
-  name: string | null;
-  stripe_connected_account_id: string | null;
+  studio_id: string | null;
+  client_id: string | null;
+  instructor_id: string | null;
+  room_id: string | null;
+  appointment_type: string | null;
+  title: string | null;
+  status: string;
+  starts_at: string;
+  ends_at: string;
+  is_recurring: boolean | null;
+  notes: string | null;
+  price_amount: number | null;
+  payment_status: string | null;
+  clients: ClientRelation;
+  partner_client?: ClientRelation;
+  instructors: InstructorRelation;
+  rooms: RoomRelation;
 };
 
 type EventRow = {
   id: string;
-  name: string;
-  slug: string;
-  event_type: string;
+  name: string | null;
+  slug: string | null;
+  event_type: string | null;
+  status: string;
   start_date: string;
   end_date: string;
   start_time: string | null;
   end_time: string | null;
-  visibility: string;
-  status: string;
-  featured: boolean;
-  public_directory_enabled: boolean;
+  venue_name: string | null;
+  city: string | null;
+  state: string | null;
+  organizers: OrganizerRelation;
 };
 
-type OrganizerRow = {
+type CalendarItem = {
+  kind: "appointment" | "event";
+  id: string;
+  studio_id?: string | null;
+  client_id?: string | null;
+  instructor_id?: string | null;
+  room_id?: string | null;
+  appointment_type?: string | null;
+  event_type?: string | null;
+  title?: string | null;
+  status: string;
+  starts_at: string;
+  ends_at: string;
+  display_date?: string;
+  is_all_day?: boolean;
+  is_recurring?: boolean | null;
+  notes?: string | null;
+  price_amount?: number | null;
+  payment_status?: string | null;
+  clients?: ClientRelation;
+  partner_client?: ClientRelation;
+  instructors?: InstructorRelation;
+  rooms?: RoomRelation;
+  organizers?: OrganizerRelation;
+  name?: string | null;
+  slug?: string | null;
+  venue_name?: string | null;
+  city?: string | null;
+  state?: string | null;
+};
+
+type InstructorOption = {
+  id: string;
+  first_name: string;
+  last_name: string;
+};
+
+type RoomOption = {
   id: string;
   name: string;
-  slug: string;
-  active: boolean;
 };
 
-type NotificationRow = {
-  id: string;
-  type: string;
-  title: string;
-  body: string | null;
-  read_at: string | null;
-  created_at: string;
-};
-
-type RegistrationRow = {
-  id: string;
-  event_id: string;
-  payment_status: string | null;
-};
-
-type AttendanceRow = {
-  id: string;
-  event_registration_id: string;
-  status: string;
-};
-
-function isOrganizerRole(role: string | null | undefined) {
-  const normalized = (role ?? "").trim().toLowerCase();
-  return normalized.startsWith("organizer_");
+function addDays(date: Date, amount: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + amount);
+  return next;
 }
 
-function fmtDateTime(value: string) {
-  return new Date(value).toLocaleString([], {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function getBaseDate(raw?: string) {
+  if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  return new Date().toISOString().slice(0, 10);
 }
 
-function fmtDateRange(startDate: string, endDate: string) {
-  const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
-
-  const startText = start.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-
-  const endText = end.toLocaleDateString([], {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-
-  return startDate === endDate ? startText : `${startText} - ${endText}`;
+function isoDate(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
-function eventTypeLabel(value: string) {
-  if (value === "group_class") return "Group Class";
-  if (value === "practice_party") return "Practice Party";
-  if (value === "workshop") return "Workshop";
-  if (value === "social_dance") return "Social Dance";
-  if (value === "competition") return "Competition";
-  if (value === "showcase") return "Showcase";
-  if (value === "festival") return "Festival";
-  if (value === "special_event") return "Special Event";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+function startOfLocalDate(date: string) {
+  return new Date(`${date}T00:00:00`);
 }
 
-function statusBadgeClass(status: string) {
-  if (status === "published" || status === "open") {
-    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
-  }
-  if (status === "draft") {
-    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-  }
-  if (status === "cancelled") {
-    return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
-  }
-  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
-}
+function buildDays(baseDate: string, view: "day" | "week" | "agenda") {
+  const start = startOfLocalDate(baseDate);
+  const dayCount = view === "day" ? 1 : 7;
 
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  subtext,
-}: {
-  label: string;
-  value: string | number;
-  icon: React.ComponentType<{ className?: string }>;
-  subtext?: string;
-}) {
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm text-slate-500">{label}</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
-          {subtext ? <p className="mt-2 text-sm text-slate-500">{subtext}</p> : null}
-        </div>
-        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-    </div>
+  return Array.from({ length: dayCount }, (_, index) =>
+    isoDate(addDays(start, index)),
   );
 }
 
-function SectionCard({
-  title,
-  subtitle,
-  action,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  action?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold text-slate-950">{title}</h2>
-          {subtitle ? <p className="mt-1 text-sm text-slate-500">{subtitle}</p> : null}
-        </div>
-        {action}
-      </div>
-      <div className="mt-5">{children}</div>
-    </div>
-  );
+function normalizeView(value?: string): "day" | "week" | "agenda" {
+  if (value === "day") return "day";
+  if (value === "agenda") return "agenda";
+  return "week";
 }
 
-export default async function AppDashboardPage() {
+function normalizeSource(value?: string): "all" | "appointments" | "events" {
+  if (value === "appointments" || value === "events") return value;
+  return "all";
+}
+
+function normalizeGroupBy(value?: string): "none" | "instructor" {
+  return value === "instructor" ? "instructor" : "none";
+}
+
+function safeFilter(value?: string) {
+  if (!value || value === "all") return undefined;
+  return value;
+}
+
+function getDateInTimeZone(value: string, timeZone: string) {
+  const date = new Date(value);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function getEventDateTime(
+  date: string,
+  time: string | null,
+  fallbackTime: string,
+) {
+  return `${date}T${time || fallbackTime}`;
+}
+
+async function getStudioTimezone(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+}) {
+  const { supabase, studioId } = params;
+
+  const { data, error } = await supabase
+    .from("studio_settings")
+    .select("timezone")
+    .eq("studio_id", studioId)
+    .maybeSingle<{ timezone: string | null }>();
+
+  if (error) {
+    console.error(
+      "Could not load studio timezone for calendar:",
+      error.message,
+    );
+  }
+
+  return data?.timezone || "America/New_York";
+}
+
+function eventOverlapsDays(event: EventRow, days: string[]) {
+  const firstDay = days[0];
+  const lastDay = days[days.length - 1];
+
+  return event.start_date <= lastDay && event.end_date >= firstDay;
+}
+
+function expandEventForDays(event: EventRow, days: string[]): CalendarItem[] {
+  return days
+    .filter((day) => event.start_date <= day && event.end_date >= day)
+    .map((day) => ({
+      kind: "event" as const,
+      id: event.id,
+      event_type: event.event_type,
+      title: event.name,
+      status: event.status,
+      starts_at: getEventDateTime(day, event.start_time, "00:00:00"),
+      ends_at: getEventDateTime(day, event.end_time, "23:59:59"),
+      display_date: day,
+      is_all_day: !event.start_time && !event.end_time,
+      name: event.name,
+      slug: event.slug,
+      venue_name: event.venue_name,
+      city: event.city,
+      state: event.state,
+      organizers: event.organizers,
+    }));
+}
+
+function toCalendarAppointment(
+  row: AppointmentRow,
+  displayDate: string,
+): CalendarItem {
+  return {
+    kind: "appointment",
+    id: row.id,
+    studio_id: row.studio_id,
+    client_id: row.client_id,
+    instructor_id: row.instructor_id,
+    room_id: row.room_id,
+    appointment_type: row.appointment_type,
+    title: row.title,
+    status: row.status,
+    starts_at: row.starts_at,
+    ends_at: row.ends_at,
+    display_date: displayDate,
+    is_recurring: row.is_recurring,
+    notes: row.notes,
+    price_amount: row.price_amount,
+    payment_status: row.payment_status,
+    clients: row.clients,
+    partner_client: row.partner_client,
+    instructors: row.instructors,
+    rooms: row.rooms,
+  };
+}
+
+function sortCalendarItems(items: CalendarItem[]) {
+  return [...items].sort((a, b) => {
+    const aKey = a.starts_at || `${a.display_date ?? ""}T00:00:00`;
+    const bKey = b.starts_at || `${b.display_date ?? ""}T00:00:00`;
+    return aKey.localeCompare(bKey);
+  });
+}
+
+function CompactScheduleHeader() {
+  const labels = ["Private lessons", "Floor rentals", "Room unavailable", "Agenda-ready"];
+
+  return (
+    <section className="overflow-hidden rounded-[28px] border border-[var(--brand-border)] bg-white shadow-sm">
+      <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-5 py-5 text-white md:px-6">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+          DanceFlow Schedule
+        </p>
+        <div className="mt-2 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Calendar &amp; Agenda
+            </h1>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-white/80">
+              Plan lessons, floor rentals, unavailable room blocks, and studio
+              activity from one clean view.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {labels.map((label) => (
+              <span
+                key={label}
+                className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium text-white"
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+export default async function ScheduleCalendarPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const params = await searchParams;
   const supabase = await createClient();
 
   const {
@@ -191,615 +325,230 @@ export default async function AppDashboardPage() {
 
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
-  const accessibleStudios = await getAccessibleStudios();
-  const organizerWorkspace = isOrganizerRole(context.studioRole);
+  const studioTimezone = await getStudioTimezone({ supabase, studioId });
 
-  const currentWorkspace =
-    accessibleStudios.find((workspace) => workspace.studioId === studioId) ??
-    accessibleStudios.find((workspace) => workspace.isSelected) ??
-    null;
+  const view = normalizeView(params.view);
+  const baseDate = getBaseDate(params.date);
+  const days = buildDays(baseDate, view);
+  const selectedInstructorId = safeFilter(
+    params.instructorId ?? params.instructor,
+  );
+  const selectedRoomId = safeFilter(params.roomId ?? params.room);
+  const selectedAppointmentType = safeFilter(
+    params.appointmentType ?? params.type,
+  );
+  const selectedStatus = safeFilter(params.status);
+  const selectedSource = normalizeSource(params.source);
+  const groupBy = normalizeGroupBy(params.groupBy);
 
-  await syncStudioNotifications(studioId);
+  const rangeStart = addDays(startOfLocalDate(days[0]), -1).toISOString();
+  const rangeEnd = addDays(
+    startOfLocalDate(days[days.length - 1]),
+    2,
+  ).toISOString();
+
+  let appointmentsQuery = supabase
+    .from("appointments")
+    .select(
+      `
+      id,
+      studio_id,
+      client_id,
+      instructor_id,
+      room_id,
+      appointment_type,
+      title,
+      status,
+      starts_at,
+      ends_at,
+      is_recurring,
+      notes,
+      price_amount,
+      payment_status,
+      clients:clients!appointments_client_id_fkey ( first_name, last_name ),
+      partner_client:clients!appointments_partner_client_id_fkey ( first_name, last_name ),
+      instructors ( first_name, last_name ),
+      rooms ( name )
+    `,
+    )
+    .eq("studio_id", studioId)
+    .gte("starts_at", rangeStart)
+    .lt("starts_at", rangeEnd)
+    .order("starts_at", { ascending: true });
+
+  if (selectedInstructorId) {
+    appointmentsQuery = appointmentsQuery.eq(
+      "instructor_id",
+      selectedInstructorId,
+    );
+  }
+
+  if (selectedRoomId) {
+    appointmentsQuery = appointmentsQuery.eq("room_id", selectedRoomId);
+  }
+
+  if (selectedAppointmentType) {
+    appointmentsQuery = appointmentsQuery.eq(
+      "appointment_type",
+      selectedAppointmentType,
+    );
+  }
+
+  if (selectedStatus) {
+    appointmentsQuery = appointmentsQuery.eq("status", selectedStatus);
+  }
+
+  let eventsQuery = supabase
+    .from("events")
+    .select(
+      `
+      id,
+      name,
+      slug,
+      event_type,
+      status,
+      start_date,
+      end_date,
+      start_time,
+      end_time,
+      venue_name,
+      city,
+      state,
+      organizers ( name )
+    `,
+    )
+    .eq("studio_id", studioId)
+    .in("status", ["draft", "published"])
+    .lte("start_date", days[days.length - 1])
+    .gte("end_date", days[0])
+    .order("start_date", { ascending: true });
+
+  if (selectedStatus) {
+    if (
+      ["scheduled", "attended", "cancelled", "no_show", "rescheduled"].includes(
+        selectedStatus,
+      )
+    ) {
+      eventsQuery = eventsQuery.eq("id", "__no_event_match__");
+    } else {
+      eventsQuery = eventsQuery.eq("status", selectedStatus);
+    }
+  }
 
   const [
-    { data: workspace, error: workspaceError },
+    { data: appointments, error: appointmentsError },
     { data: events, error: eventsError },
-    { data: organizers, error: organizersError },
-    { data: notifications, error: notificationsError },
-    { data: registrations, error: registrationsError },
+    { data: instructors, error: instructorsError },
+    { data: rooms, error: roomsError },
   ] = await Promise.all([
+    selectedSource === "events"
+      ? Promise.resolve({ data: [], error: null })
+      : appointmentsQuery,
+    selectedSource === "appointments" ||
+    selectedInstructorId ||
+    selectedRoomId ||
+    selectedAppointmentType
+      ? Promise.resolve({ data: [], error: null })
+      : eventsQuery,
     supabase
-      .from("studios")
-      .select("id, name, stripe_connected_account_id")
-      .eq("id", studioId)
-      .maybeSingle<WorkspaceRow>(),
-
-    supabase
-      .from("events")
-      .select(`
-        id,
-        name,
-        slug,
-        event_type,
-        start_date,
-        end_date,
-        start_time,
-        end_time,
-        visibility,
-        status,
-        featured,
-        public_directory_enabled
-      `)
+      .from("instructors")
+      .select("id, first_name, last_name")
       .eq("studio_id", studioId)
-      .order("start_date", { ascending: true })
-      .order("start_time", { ascending: true })
-      .limit(8),
-
+      .eq("active", true)
+      .order("first_name", { ascending: true }),
     supabase
-      .from("organizers")
-      .select("id, name, slug, active")
+      .from("rooms")
+      .select("id, name")
       .eq("studio_id", studioId)
+      .eq("active", true)
       .order("name", { ascending: true }),
-
-    supabase
-      .from("notifications")
-      .select(`
-        id,
-        type,
-        title,
-        body,
-        read_at,
-        created_at
-      `)
-      .eq("studio_id", studioId)
-      .order("created_at", { ascending: false })
-      .limit(6),
-
-    supabase
-      .from("event_registrations")
-      .select(`
-        id,
-        event_id,
-        payment_status
-      `)
-      .eq("studio_id", studioId),
   ]);
 
-  if (workspaceError) {
-    throw new Error(`Failed to load workspace: ${workspaceError.message}`);
+  if (appointmentsError) {
+    throw new Error(
+      `Failed to load calendar appointments: ${appointmentsError.message}`,
+    );
   }
 
   if (eventsError) {
-    throw new Error(`Failed to load dashboard events: ${eventsError.message}`);
+    throw new Error(`Failed to load calendar events: ${eventsError.message}`);
   }
 
-  if (organizersError) {
-    throw new Error(`Failed to load dashboard organizers: ${organizersError.message}`);
+  if (instructorsError) {
+    throw new Error(`Failed to load instructors: ${instructorsError.message}`);
   }
 
-  if (notificationsError) {
-    throw new Error(`Failed to load dashboard notifications: ${notificationsError.message}`);
+  if (roomsError) {
+    throw new Error(`Failed to load rooms: ${roomsError.message}`);
   }
 
-  if (registrationsError) {
-    throw new Error(`Failed to load dashboard registrations: ${registrationsError.message}`);
+  const groupedAppointments: Record<string, CalendarItem[]> =
+    Object.fromEntries(days.map((day) => [day, []]));
+
+  ((appointments ?? []) as AppointmentRow[]).forEach((appointment) => {
+    const displayDate = getDateInTimeZone(
+      appointment.starts_at,
+      studioTimezone,
+    );
+
+    if (!groupedAppointments[displayDate]) return;
+
+    groupedAppointments[displayDate].push(
+      toCalendarAppointment(appointment, displayDate),
+    );
+  });
+
+  ((events ?? []) as EventRow[])
+    .filter((event) => eventOverlapsDays(event, days))
+    .flatMap((event) => expandEventForDays(event, days))
+    .forEach((eventItem) => {
+      const displayDate = eventItem.display_date;
+      if (!displayDate || !groupedAppointments[displayDate]) return;
+      groupedAppointments[displayDate].push(eventItem);
+    });
+
+  Object.keys(groupedAppointments).forEach((day) => {
+    groupedAppointments[day] = sortCalendarItems(groupedAppointments[day]);
+  });
+
+  if (view === "agenda") {
+    return (
+      <div className="space-y-6">
+        <CompactScheduleHeader />
+        <ScheduleAgendaView
+          baseDate={baseDate}
+          days={days}
+          groupedAppointments={groupedAppointments}
+          instructors={(instructors ?? []) as InstructorOption[]}
+          rooms={(rooms ?? []) as RoomOption[]}
+          selectedInstructorId={selectedInstructorId}
+          selectedRoomId={selectedRoomId}
+          selectedAppointmentType={selectedAppointmentType}
+          selectedStatus={selectedStatus}
+          selectedSource={selectedSource}
+          groupBy={groupBy}
+        />
+      </div>
+    );
   }
-
-  const typedEvents = (events ?? []) as EventRow[];
-  const typedOrganizers = (organizers ?? []) as OrganizerRow[];
-  const typedNotifications = (notifications ?? []) as NotificationRow[];
-  const typedRegistrations = (registrations ?? []) as RegistrationRow[];
-
-  const registrationIds = typedRegistrations.map((row) => row.id);
-
-  let typedAttendance: AttendanceRow[] = [];
-  if (registrationIds.length > 0) {
-    const { data: attendanceRows, error: attendanceError } = await supabase
-      .from("event_attendance")
-      .select(`
-        id,
-        event_registration_id,
-        status
-      `)
-      .in("event_registration_id", registrationIds);
-
-    if (attendanceError) {
-      throw new Error(`Failed to load dashboard attendance: ${attendanceError.message}`);
-    }
-
-    typedAttendance = (attendanceRows ?? []) as AttendanceRow[];
-  }
-
-  const totalEvents = typedEvents.length;
-  const publishedCount = typedEvents.filter(
-    (event) => event.status === "published" || event.status === "open"
-  ).length;
-  const publicCount = typedEvents.filter((event) => event.visibility === "public").length;
-  const discoveryReadyCount = typedEvents.filter(
-    (event) =>
-      event.public_directory_enabled &&
-      event.visibility === "public" &&
-      (event.status === "published" || event.status === "open")
-  ).length;
-  const unreadCount = typedNotifications.filter((item) => !item.read_at).length;
-  const activeOrganizerCount = typedOrganizers.filter((item) => item.active).length;
-  const primaryOrganizer = typedOrganizers[0] ?? null;
-
-  const paidRegistrationsCount = typedRegistrations.filter(
-    (row) => row.payment_status === "paid" || row.payment_status === "partial"
-  ).length;
-
-  const checkedInRegistrationIds = new Set(
-    typedAttendance
-      .filter((row) => row.status === "checked_in")
-      .map((row) => row.event_registration_id)
-  );
-
-  const checkedInCount = checkedInRegistrationIds.size;
-  const pendingCheckInCount = Math.max(typedRegistrations.length - checkedInCount, 0);
-  const payoutsReady = Boolean(workspace?.stripe_connected_account_id);
 
   return (
-    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
-      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
-        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="max-w-3xl">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                {organizerWorkspace
-                  ? "DanceFlow Organizer Dashboard"
-                  : "DanceFlow Studio Dashboard"}
-              </p>
-
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                {organizerWorkspace ? "Organizer Dashboard" : "Studio Dashboard"}
-              </h1>
-
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                {organizerWorkspace
-                  ? "Run your organizer operations from one place, including events, registrations, check-in, organizer profile status, and recent alerts."
-                  : "See the health of your current studio workspace at a glance, including clients, schedule, events, and recent alerts."}
-              </p>
-
-              {currentWorkspace ? (
-                <p className="mt-4 text-sm text-white/75">
-                  Current workspace:{" "}
-                  <span className="font-medium text-white">
-                    {currentWorkspace.studioName}
-                  </span>
-                </p>
-              ) : workspace?.name ? (
-                <p className="mt-4 text-sm text-white/75">
-                  Current workspace:{" "}
-                  <span className="font-medium text-white">{workspace.name}</span>
-                </p>
-              ) : null}
-            </div>
-
-            <div className="flex flex-wrap gap-3">
-              {organizerWorkspace ? (
-                <>
-                  <Link
-                    href="/app/events/new"
-                    className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-                  >
-                    Create Event
-                  </Link>
-                  <Link
-                    href="/app/events/registrations"
-                    className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
-                  >
-                    View Registrations
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <Link
-                    href="/app/schedule"
-                    className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-                  >
-                    Open Schedule
-                  </Link>
-                  <Link
-                    href="/app/notifications"
-                    className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
-                  >
-                    View Notifications
-                  </Link>
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-          {organizerWorkspace ? (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <StatCard
-                label="Events"
-                value={totalEvents}
-                icon={CalendarDays}
-                subtext="Current loaded event set"
-              />
-              <StatCard label="Published / Open" value={publishedCount} icon={Ticket} />
-              <StatCard label="Registrations" value={typedRegistrations.length} icon={ClipboardList} />
-              <StatCard label="Checked In" value={checkedInCount} icon={CheckCircle2} />
-              <StatCard label="Unread Notifications" value={unreadCount} icon={Bell} />
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <StatCard
-                label="Events"
-                value={totalEvents}
-                icon={CalendarDays}
-                subtext="Current loaded event set"
-              />
-              <StatCard label="Published / Open" value={publishedCount} icon={Ticket} />
-              <StatCard label="Public" value={publicCount} icon={Globe2} />
-              <StatCard label="Discovery Ready" value={discoveryReadyCount} icon={Star} />
-              <StatCard label="Unread Notifications" value={unreadCount} icon={Bell} />
-            </div>
-          )}
-        </div>
-      </section>
-
-      <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
-        <SectionCard
-          title={organizerWorkspace ? "Event Snapshot" : "Workspace Snapshot"}
-          subtitle={
-            organizerWorkspace
-              ? "A quick organizer-first summary of event publishing and readiness."
-              : "A quick summary of events and workspace status."
-          }
-          action={
-            <Link
-              href="/app/events"
-              className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
-            >
-              Open Events
-            </Link>
-          }
-        >
-          {typedEvents.length === 0 ? (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600">
-              No events yet. Create your first event to begin publishing and discovery.
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {typedEvents.slice(0, 5).map((event) => (
-                <div
-                  key={event.id}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                >
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-base font-semibold text-slate-900">
-                          {event.name}
-                        </h3>
-
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                            event.status
-                          )}`}
-                        >
-                          {event.status}
-                        </span>
-
-                        <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                          {eventTypeLabel(event.event_type)}
-                        </span>
-                      </div>
-
-                      <p className="mt-2 text-sm text-slate-500">
-                        {fmtDateRange(event.start_date, event.end_date)}
-                      </p>
-
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {event.visibility === "public" ? (
-                          <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
-                            Public
-                          </span>
-                        ) : (
-                          <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                            {event.visibility}
-                          </span>
-                        )}
-
-                        {event.public_directory_enabled ? (
-                          <span className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 ring-1 ring-sky-200">
-                            Directory On
-                          </span>
-                        ) : null}
-
-                        {event.featured ? (
-                          <span className="inline-flex rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 ring-1 ring-indigo-200">
-                            Featured
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="shrink-0">
-                      <Link
-                        href={`/app/events/${event.id}`}
-                        className="inline-flex items-center gap-2 rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                      >
-                        <span>Open</span>
-                        <ArrowRight className="h-4 w-4" />
-                      </Link>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </SectionCard>
-
-        <div className="space-y-8">
-          {organizerWorkspace && !payoutsReady ? (
-            <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="max-w-xl">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
-                    Enable payouts
-                  </p>
-                  <p className="mt-2 text-sm leading-7 text-amber-900">
-                    Connect payouts before taking paid registrations so DanceFlow can route ticket revenue to your organizer business.
-                  </p>
-                </div>
-                <Link
-                  href="/app/settings/billing"
-                  className="inline-flex items-center justify-center rounded-xl bg-amber-900 px-4 py-3 text-sm font-medium text-white hover:bg-amber-800"
-                >
-                  Billing &amp; Payments
-                </Link>
-              </div>
-            </div>
-          ) : null}
-
-          <SectionCard
-            title="Organizer Profile"
-            subtitle={
-              organizerWorkspace
-                ? "One organizer profile per organizer account."
-                : "Organizer profiles available in this workspace."
-            }
-            action={
-              primaryOrganizer ? (
-                <Link
-                  href={`/app/organizers/${primaryOrganizer.id}`}
-                  className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
-                >
-                  View Organizer
-                </Link>
-              ) : (
-                <Link
-                  href="/app/organizers/new"
-                  className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
-                >
-                  Create Organizer
-                </Link>
-              )
-            }
-          >
-            {primaryOrganizer ? (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Primary organizer</p>
-                <p className="mt-2 text-lg font-semibold text-slate-900">
-                  {primaryOrganizer.name}
-                </p>
-                <p className="mt-2 text-sm text-slate-500">
-                  /organizers/{primaryOrganizer.slug}
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
-                    {primaryOrganizer.active ? "Active" : "Inactive"}
-                  </span>
-                  <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                    {activeOrganizerCount} organizer{activeOrganizerCount === 1 ? "" : "s"}
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                No organizer profile yet.
-              </div>
-            )}
-          </SectionCard>
-
-          {organizerWorkspace ? (
-            <SectionCard
-              title="Registration & Check-In"
-              subtitle="Today’s organizer operations at a glance."
-              action={
-                <Link
-                  href="/app/events/registrations"
-                  className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
-                >
-                  Open Registrations
-                </Link>
-              }
-            >
-              <div className="grid gap-3 sm:grid-cols-3">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Registrations</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {typedRegistrations.length}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Paid</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {paidRegistrationsCount}
-                  </p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">Still to Check In</p>
-                  <p className="mt-2 text-2xl font-semibold text-slate-950">
-                    {pendingCheckInCount}
-                  </p>
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <Link
-                  href="/app/events/registrations"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  View Registration Hub
-                </Link>
-                <Link
-                  href="/app/events/checkin"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Open Check-In Hub
-                </Link>
-              </div>
-            </SectionCard>
-          ) : (
-            <SectionCard
-              title="Recent Notifications"
-              subtitle="Latest workspace alerts."
-              action={
-                <Link
-                  href="/app/notifications"
-                  className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
-                >
-                  Open Notifications
-                </Link>
-              }
-            >
-              {typedNotifications.length === 0 ? (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                  No recent notifications.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {typedNotifications.slice(0, 4).map((notification) => (
-                    <div
-                      key={notification.id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <p className="font-medium text-slate-900">
-                              {notification.title}
-                            </p>
-                            {!notification.read_at ? (
-                              <span className="inline-flex rounded-full bg-slate-900 px-2 py-0.5 text-[11px] font-medium text-white">
-                                Unread
-                              </span>
-                            ) : null}
-                          </div>
-                          {notification.body ? (
-                            <p className="mt-1 text-sm text-slate-600">
-                              {notification.body}
-                            </p>
-                          ) : null}
-                          <p className="mt-2 text-xs text-slate-500">
-                            {fmtDateTime(notification.created_at)}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </SectionCard>
-          )}
-
-          <SectionCard
-            title="Quick Actions"
-            subtitle={
-              organizerWorkspace
-                ? "Common organizer workflow shortcuts."
-                : "Common studio workflow shortcuts."
-            }
-          >
-            {organizerWorkspace ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Link
-                  href="/app/events/new"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  New Event
-                </Link>
-                <Link
-                  href="/app/events"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Manage Events
-                </Link>
-                <Link
-                  href="/app/events/registrations"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Registration Hub
-                </Link>
-                <Link
-                  href="/app/events/checkin"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Check-In Hub
-                </Link>
-                <Link
-                  href="/app/organizers"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Organizer Profile
-                </Link>
-                <Link
-                  href="/app/notifications"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Notifications
-                </Link>
-              </div>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <Link
-                  href="/app/schedule"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Open Schedule
-                </Link>
-                <Link
-                  href="/app/clients"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Manage Clients
-                </Link>
-                <Link
-                  href="/app/leads"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Lead Inbox
-                </Link>
-                <Link
-                  href="/app/events"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Events
-                </Link>
-                <Link
-                  href="/app/payments"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Payments
-                </Link>
-                <Link
-                  href="/app/notifications"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm font-medium text-slate-800 hover:bg-slate-100"
-                >
-                  Notifications
-                </Link>
-              </div>
-            )}
-          </SectionCard>
-        </div>
-      </section>
+    <div className="space-y-6">
+      <CompactScheduleHeader />
+      <ScheduleCalendarView
+        view={view}
+        baseDate={baseDate}
+        days={days}
+        groupedAppointments={groupedAppointments}
+        instructors={(instructors ?? []) as InstructorOption[]}
+        rooms={(rooms ?? []) as RoomOption[]}
+        selectedInstructorId={selectedInstructorId}
+        selectedRoomId={selectedRoomId}
+        selectedAppointmentType={selectedAppointmentType}
+        selectedStatus={selectedStatus}
+        selectedSource={selectedSource}
+      />
     </div>
   );
 }
+

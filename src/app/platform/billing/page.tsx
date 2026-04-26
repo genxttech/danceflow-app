@@ -74,7 +74,7 @@ function statusBadgeClass(status: string) {
   if (status === "active") return "bg-green-50 text-green-700";
   if (status === "trialing") return "bg-blue-50 text-blue-700";
   if (status === "past_due") return "bg-amber-50 text-amber-700";
-  if (status === "cancelled") return "bg-red-50 text-red-700";
+  if (status === "cancelled" || status === "canceled") return "bg-red-50 text-red-700";
   if (status === "paid") return "bg-green-50 text-green-700";
   if (status === "open") return "bg-amber-50 text-amber-700";
   if (status === "draft") return "bg-slate-100 text-slate-700";
@@ -86,7 +86,7 @@ function statusLabel(status: string) {
   if (status === "trialing") return "Trialing";
   if (status === "active") return "Active";
   if (status === "past_due") return "Past Due";
-  if (status === "cancelled") return "Cancelled";
+  if (status === "cancelled" || status === "canceled") return "Canceled";
   if (status === "inactive") return "Inactive";
   if (status === "paid") return "Paid";
   if (status === "open") return "Open";
@@ -101,6 +101,16 @@ function daysUntil(dateValue: string | null) {
   const target = new Date(dateValue);
   const diffMs = target.getTime() - now.getTime();
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function hasActiveBillingAccess(status: string | null | undefined) {
+  return status === "active" || status === "trialing";
+}
+
+function hasPaidPlan(subscription: SubscriptionRow | undefined) {
+  if (!subscription) return false;
+  const plan = getPlan(subscription.subscription_plans);
+  return Boolean(plan?.code || plan?.name || subscription.stripe_subscription_id);
 }
 
 export default async function PlatformBillingPage() {
@@ -178,8 +188,19 @@ export default async function PlatformBillingPage() {
 
   const activeCount = typedSubscriptions.filter((s) => s.status === "active").length;
   const trialingCount = typedSubscriptions.filter((s) => s.status === "trialing").length;
-  const pastDueCount = typedSubscriptions.filter((s) => s.status === "past_due").length;
-  const cancelledCount = typedSubscriptions.filter((s) => s.status === "cancelled").length;
+const trialingWithoutEndDateCount = typedSubscriptions.filter(
+  (s) => s.status === "trialing" && !s.trial_ends_at
+).length;
+const nextTrialEnding = typedSubscriptions
+  .filter((s) => s.status === "trialing" && daysUntil(s.trial_ends_at) !== null)
+  .map((subscription) => ({
+    subscription,
+    days: daysUntil(subscription.trial_ends_at),
+  }))
+  .sort((a, b) => (a.days ?? 9999) - (b.days ?? 9999))[0];
+
+const pastDueCount = typedSubscriptions.filter((s) => s.status === "past_due").length;
+  const cancelledCount = typedSubscriptions.filter((s) => s.status === "cancelled" || s.status === "canceled").length;
 
   const monthlyCount = typedSubscriptions.filter((s) => s.billing_interval === "month").length;
   const yearlyCount = typedSubscriptions.filter((s) => s.billing_interval === "year").length;
@@ -208,7 +229,7 @@ export default async function PlatformBillingPage() {
     })
     .filter(({ subscription }) => {
       if (!subscription) return true;
-      return subscription.status === "past_due" || subscription.status === "cancelled";
+      return subscription.status === "past_due" || subscription.status === "cancelled" || subscription.status === "canceled";
     });
 
   const renewalsEndingSoon = typedSubscriptions
@@ -255,46 +276,139 @@ export default async function PlatformBillingPage() {
     )
     .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
 
+  const paidAccessWithoutActiveSubscription = typedStudios
+    .map((studio) => {
+      const subscription = subscriptionByStudioId.get(studio.id);
+      const plan = subscription ? getPlan(subscription.subscription_plans) : null;
+
+      return {
+        studio,
+        subscription,
+        plan,
+        status: subscription?.status ?? "no_subscription",
+      };
+    })
+    .filter(({ subscription }) => {
+      if (!hasPaidPlan(subscription)) return false;
+      return !hasActiveBillingAccess(subscription?.status);
+    });
+
   return (
     <div className="space-y-8">
-      <div className="rounded-3xl border bg-white p-6 shadow-sm">
-        <h1 className="text-3xl font-semibold tracking-tight text-slate-900">Billing</h1>
-        <p className="mt-2 text-slate-600">
-          Monitor SaaS subscriptions, invoice activity, billing issues, renewals, and plan mix across the platform.
-        </p>
-      </div>
-
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Active</p>
-          <p className="mt-2 text-3xl font-semibold">{activeCount}</p>
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+            DanceFlow Platform Admin
+          </p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+            Billing Oversight
+          </h1>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-white/85 md:text-base">
+            Monitor subscriptions, trial health, invoice activity, and paid-plan access so no studio or organizer uses paid features without an active subscription.
+          </p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Trialing</p>
-          <p className="mt-2 text-3xl font-semibold">{trialingCount}</p>
-        </div>
+        <div className="grid gap-4 border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 p-6 md:grid-cols-3 xl:grid-cols-6">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <p className="text-sm text-emerald-700">Active</p>
+            <p className="mt-2 text-3xl font-semibold text-emerald-950">{activeCount}</p>
+          </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Past Due</p>
-          <p className="mt-2 text-3xl font-semibold">{pastDueCount}</p>
-        </div>
+          <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+  <p className="text-sm text-sky-700">Trialing</p>
+  <p className="mt-2 text-3xl font-semibold text-sky-950">{trialingCount}</p>
+  <p className="mt-2 text-xs font-medium text-sky-700">
+    {nextTrialEnding?.days != null
+      ? nextTrialEnding.days < 0
+        ? "A trial is expired"
+        : nextTrialEnding.days === 0
+          ? "Next trial ends today"
+          : `Next trial ends in ${nextTrialEnding.days} day${nextTrialEnding.days === 1 ? "" : "s"}`
+      : trialingWithoutEndDateCount > 0
+        ? `${trialingWithoutEndDateCount} missing trial end date`
+        : "No trial end dates pending"}
+  </p>
+</div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Cancelled</p>
-          <p className="mt-2 text-3xl font-semibold">{cancelledCount}</p>
-        </div>
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <p className="text-sm text-amber-700">Past Due</p>
+            <p className="mt-2 text-3xl font-semibold text-amber-950">{pastDueCount}</p>
+          </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Monthly</p>
-          <p className="mt-2 text-3xl font-semibold">{monthlyCount}</p>
-        </div>
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
+            <p className="text-sm text-rose-700">Canceled</p>
+            <p className="mt-2 text-3xl font-semibold text-rose-950">{cancelledCount}</p>
+          </div>
 
-        <div className="rounded-2xl border bg-white p-5">
-          <p className="text-sm text-slate-500">Yearly</p>
-          <p className="mt-2 text-3xl font-semibold">{yearlyCount}</p>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <p className="text-sm text-slate-500">Monthly</p>
+            <p className="mt-2 text-3xl font-semibold text-slate-950">{monthlyCount}</p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-5">
+            <p className="text-sm text-slate-500">Yearly</p>
+            <p className="mt-2 text-3xl font-semibold text-slate-950">{yearlyCount}</p>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {paidAccessWithoutActiveSubscription.length > 0 ? (
+        <section className="rounded-[32px] border border-rose-200 bg-rose-50 p-6 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">
+                Launch Alert
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-rose-950">
+                Paid-plan access without active subscription
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-rose-800">
+                These accounts have a paid plan or Stripe subscription reference, but their subscription is not active or trialing. Review them before launch so paid workspaces are not being used for free.
+              </p>
+            </div>
+            <span className="rounded-full bg-rose-100 px-4 py-2 text-sm font-semibold text-rose-800 ring-1 ring-rose-200">
+              {paidAccessWithoutActiveSubscription.length} to review
+            </span>
+          </div>
+
+          <div className="mt-5 overflow-hidden rounded-2xl border border-rose-200 bg-white">
+            <table className="min-w-full divide-y divide-rose-100 text-sm">
+              <thead className="bg-rose-50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium text-rose-900">Account</th>
+                  <th className="px-4 py-3 text-left font-medium text-rose-900">Plan</th>
+                  <th className="px-4 py-3 text-left font-medium text-rose-900">Status</th>
+                  <th className="px-4 py-3 text-left font-medium text-rose-900">Stripe Subscription</th>
+                  <th className="px-4 py-3 text-left font-medium text-rose-900">Created</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-rose-100">
+                {paidAccessWithoutActiveSubscription.map(({ studio, subscription, plan, status }) => (
+                  <tr key={studio.id}>
+                    <td className="px-4 py-4">
+                      <Link href={`/platform/studios/${studio.id}`} className="font-medium text-slate-950 underline">
+                        {studio.name}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-4 text-slate-700">{plan?.name ?? "Paid plan"}</td>
+                    <td className="px-4 py-4">
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(status)}`}>
+                        {statusLabel(status)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-slate-700">{subscription?.stripe_subscription_id ?? "—"}</td>
+                    <td className="px-4 py-4 text-slate-700">{formatDate(studio.created_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : (
+        <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-800 shadow-sm">
+          No paid-plan access without an active or trialing subscription was detected.
+        </section>
+      )}
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <div className="rounded-2xl border bg-white p-6 shadow-sm">

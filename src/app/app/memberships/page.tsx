@@ -202,36 +202,21 @@ export default async function MembershipPlansPage({
 
   return (
     <div className="space-y-8">
-      <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,rgba(255,255,255,0.96)_0%,rgba(255,249,243,0.98)_100%)] p-6 shadow-sm">
+      <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
         <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-              Membership Operations
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-[var(--brand-text)] sm:text-4xl">
-              Memberships
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm text-slate-600">
-              Review active member billing states, track delinquency, and manage plan configuration from one place.
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Membership Plans</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
+              Create and manage recurring membership options for clients who train consistently.
             </p>
           </div>
-
           <div className="flex flex-wrap gap-3">
-            <Link
-              href="/app/memberships/sell"
-              className="rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-2 text-white hover:brightness-105"
-            >
-              Sell Membership
-            </Link>
-            <Link
-              href="/app/memberships/new"
-              className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-2 hover:bg-[var(--brand-primary-soft)]"
-            >
-              New Plan
-            </Link>
+            <Link href="/app/memberships/sell" className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white/90">Sell Membership</Link>
+            <Link href="/app/memberships/new" className="rounded-2xl border border-white/25 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15">New Plan</Link>
           </div>
         </div>
-      </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">

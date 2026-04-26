@@ -66,8 +66,29 @@ type HostStudioPortalLink = {
 type AppointmentRow = {
   id: string;
   title: string | null;
+  appointment_type: string | null;
+  client_id: string | null;
+  instructor_id: string | null;
+  room_id: string | null;
   starts_at: string;
   status: string | null;
+};
+
+type AppointmentClientRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+};
+
+type AppointmentInstructorRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+};
+
+type AppointmentRoomRow = {
+  id: string;
+  name: string | null;
 };
 
 type MembershipRow = {
@@ -125,6 +146,38 @@ function fmtDateTime(value: string) {
   });
 }
 
+function appointmentTypeLabel(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+
+  if (normalized === "private_lesson") return "Private Lesson";
+  if (normalized === "intro_lesson") return "Intro Lesson";
+  if (normalized === "coaching") return "Coaching";
+  if (normalized === "group_class") return "Group Class";
+  if (normalized === "practice_party") return "Practice Party";
+  if (normalized === "floor_space_rental") return "Floor Space Rental";
+  if (normalized === "room_unavailable") return "Room Unavailable";
+  if (normalized === "event") return "Event";
+
+  if (!normalized) return "Appointment";
+
+  return normalized
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function fullName(row?: { first_name: string | null; last_name: string | null } | null) {
+  const name = [row?.first_name, row?.last_name]
+    .map((part) => part?.trim())
+    .filter(Boolean)
+    .join(" ");
+
+  return name || null;
+}
+
+function compactList(parts: Array<string | null | undefined>) {
+  return parts.filter(Boolean).join(" • ");
+}
+
 function fmtDateRange(startDate: string, endDate: string) {
   const start = new Date(`${startDate}T00:00:00`);
   const end = new Date(`${endDate}T00:00:00`);
@@ -177,6 +230,59 @@ function planBadgeClass(planCode: string) {
     return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
   }
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function formatTrialEndDate(value: string | null) {
+  if (!value) return null;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function getTrialDaysLeft(value: string | null) {
+  if (!value) return null;
+
+  const now = new Date();
+  const trialEnd = new Date(value);
+  const diffMs = trialEnd.getTime() - now.getTime();
+
+  return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+}
+
+function getTrialDisplay(status: string | null | undefined, trialEndsAt: string | null) {
+  if (status !== "trialing") return null;
+
+  const daysLeft = getTrialDaysLeft(trialEndsAt);
+  const endDate = formatTrialEndDate(trialEndsAt);
+
+  if (daysLeft === null) {
+    return {
+      label: "Trial",
+      detail: "Trial end date unavailable",
+    };
+  }
+
+  if (daysLeft < 0) {
+    return {
+      label: "Trial expired",
+      detail: endDate ? `Ended ${endDate}` : "Trial end date unavailable",
+    };
+  }
+
+  if (daysLeft === 0) {
+    return {
+      label: "Trial ends today",
+      detail: endDate ? `Ends ${endDate}` : "Trial end date unavailable",
+    };
+  }
+
+  return {
+    label: `Trial — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`,
+    detail: endDate ? `Ends ${endDate}` : "Trial end date unavailable",
+  };
 }
 
 function SectionCard({
@@ -388,6 +494,12 @@ export default async function AppDashboardPage({
     ? "organizer"
     : (currentPlan?.code?.trim().toLowerCase() || "starter");
   const planLabel = organizerWorkspace ? "Organizer" : currentPlan?.name || "Starter";
+
+  const subscriptionTrialInfo = getTrialDisplay(
+  subscription?.status ?? null,
+  subscription?.trial_ends_at ?? null
+);
+
   const unreadCount = ((notifications ?? []) as NotificationRow[]).filter(
     (item) => !item.read_at
   ).length;
@@ -517,6 +629,12 @@ export default async function AppDashboardPage({
                   <span className="inline-flex rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium ring-1 ring-white/15">
                     {planLabel}
                   </span>
+                  {subscriptionTrialInfo ? (
+  <span className="inline-flex flex-col rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/15">
+    <span>{subscriptionTrialInfo.label}</span>
+    <span className="mt-0.5 text-white/70">{subscriptionTrialInfo.detail}</span>
+  </span>
+) : null}
                 </div>
               </div>
 
@@ -729,7 +847,7 @@ export default async function AppDashboardPage({
     supabase.from("clients").select("id").eq("studio_id", studioId),
     supabase
       .from("appointments")
-      .select("id, title, starts_at, status")
+      .select("id, title, appointment_type, client_id, instructor_id, room_id, starts_at, status")
       .eq("studio_id", studioId)
       .order("starts_at", { ascending: true })
       .limit(12),
@@ -758,6 +876,64 @@ export default async function AppDashboardPage({
   const typedAppointments = (appointments ?? []) as AppointmentRow[];
   const typedMemberships = (memberships ?? []) as MembershipRow[];
   const typedPackages = (packages ?? []) as PackageRow[];
+
+  const appointmentClientIds = Array.from(
+    new Set(typedAppointments.map((item) => item.client_id).filter(Boolean) as string[])
+  );
+  const appointmentInstructorIds = Array.from(
+    new Set(typedAppointments.map((item) => item.instructor_id).filter(Boolean) as string[])
+  );
+  const appointmentRoomIds = Array.from(
+    new Set(typedAppointments.map((item) => item.room_id).filter(Boolean) as string[])
+  );
+
+  const [
+    { data: appointmentClients, error: appointmentClientsError },
+    { data: appointmentInstructors, error: appointmentInstructorsError },
+    { data: appointmentRooms, error: appointmentRoomsError },
+  ] = await Promise.all([
+    appointmentClientIds.length > 0
+      ? supabase
+          .from("clients")
+          .select("id, first_name, last_name")
+          .eq("studio_id", studioId)
+          .in("id", appointmentClientIds)
+      : Promise.resolve({ data: [], error: null }),
+    appointmentInstructorIds.length > 0
+      ? supabase
+          .from("instructors")
+          .select("id, first_name, last_name")
+          .eq("studio_id", studioId)
+          .in("id", appointmentInstructorIds)
+      : Promise.resolve({ data: [], error: null }),
+    appointmentRoomIds.length > 0
+      ? supabase
+          .from("rooms")
+          .select("id, name")
+          .eq("studio_id", studioId)
+          .in("id", appointmentRoomIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (appointmentClientsError) {
+    throw new Error(`Failed to load dashboard appointment clients: ${appointmentClientsError.message}`);
+  }
+  if (appointmentInstructorsError) {
+    throw new Error(`Failed to load dashboard appointment instructors: ${appointmentInstructorsError.message}`);
+  }
+  if (appointmentRoomsError) {
+    throw new Error(`Failed to load dashboard appointment rooms: ${appointmentRoomsError.message}`);
+  }
+
+  const appointmentClientMap = new Map(
+    ((appointmentClients ?? []) as AppointmentClientRow[]).map((item) => [item.id, item])
+  );
+  const appointmentInstructorMap = new Map(
+    ((appointmentInstructors ?? []) as AppointmentInstructorRow[]).map((item) => [item.id, item])
+  );
+  const appointmentRoomMap = new Map(
+    ((appointmentRooms ?? []) as AppointmentRoomRow[]).map((item) => [item.id, item])
+  );
 
   const now = new Date();
   const upcomingAppointments = typedAppointments.filter((item) => {
@@ -926,14 +1102,21 @@ export default async function AppDashboardPage({
                 </span>
 
                 <span
-                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${planBadgeClass(
-                    planCode
-                  )}`}
-                >
-                  {planLabel}
-                </span>
+  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${planBadgeClass(
+    planCode
+  )}`}
+>
+  {planLabel}
+</span>
 
-                <span className="text-white/70">{planDescriptor}</span>
+{subscriptionTrialInfo ? (
+  <span className="inline-flex flex-col rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/15">
+    <span>{subscriptionTrialInfo.label}</span>
+    <span className="mt-0.5 text-white/70">{subscriptionTrialInfo.detail}</span>
+  </span>
+) : null}
+
+<span className="text-white/70">{planDescriptor}</span>
               </div>
             </div>
 
@@ -1029,27 +1212,47 @@ export default async function AppDashboardPage({
             </EmptyState>
           ) : (
             <div className="space-y-4">
-              {upcomingAppointments.slice(0, 6).map((item) => (
-                <div
-                  key={item.id}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="font-medium text-slate-900">
-                        {item.title?.trim() || "Appointment"}
-                      </p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {fmtDateTime(item.starts_at)}
-                      </p>
-                    </div>
+              {upcomingAppointments.slice(0, 6).map((item) => {
+                const appointmentLabel = appointmentTypeLabel(item.appointment_type);
+                const clientName = fullName(
+                  item.client_id ? appointmentClientMap.get(item.client_id) : null
+                );
+                const instructorName = fullName(
+                  item.instructor_id ? appointmentInstructorMap.get(item.instructor_id) : null
+                );
+                const roomName = item.room_id
+                  ? appointmentRoomMap.get(item.room_id)?.name?.trim() || null
+                  : null;
+                const fallbackTitle = clientName
+                  ? `${appointmentLabel} — ${clientName}`
+                  : roomName && item.appointment_type === "room_unavailable"
+                    ? `${appointmentLabel} — ${roomName}`
+                    : appointmentLabel;
+                const title = item.title?.trim() || fallbackTitle;
+                const detailLine = compactList([
+                  instructorName ? `Instructor: ${instructorName}` : null,
+                  roomName ? `Room: ${roomName}` : null,
+                  fmtDateTime(item.starts_at),
+                ]);
 
-                    <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                      {item.status || "scheduled"}
-                    </span>
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-900">{title}</p>
+                        <p className="mt-1 text-sm text-slate-500">{detailLine}</p>
+                      </div>
+
+                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                        {item.status || "scheduled"}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </SectionCard>

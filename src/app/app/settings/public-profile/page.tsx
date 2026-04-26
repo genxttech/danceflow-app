@@ -119,38 +119,23 @@ export default async function PublicProfileSettingsPage({
 
   return (
     <div className="mx-auto max-w-6xl space-y-8">
-      <div className="flex flex-col gap-4 rounded-3xl border bg-white p-6 shadow-sm lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <p className="text-sm font-medium uppercase tracking-[0.14em] text-slate-500">
-            Public Profile
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
-            Discovery and public-facing studio profile
-          </h1>
-          <p className="mt-3 max-w-3xl text-sm text-slate-600">
-            Control how your studio appears in public discovery, what people see
-            on your studio page, and how they contact you.
-          </p>
+      <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Public Profile</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
+              Control how your studio appears in DanceFlow discovery, including public details, photos, and lead-friendly contact information.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/discover/studios" className="inline-flex items-center rounded-2xl border border-white/25 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15">View directory</Link>
+            {studio.slug ? (
+              <Link href={`/studios/${studio.slug}`} className="inline-flex items-center rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white/90">View public page</Link>
+            ) : null}
+          </div>
         </div>
-
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href="/discover/studios"
-            className="inline-flex items-center rounded-xl border px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            View directory
-          </Link>
-
-          {studio.slug ? (
-            <Link
-              href={`/studios/${studio.slug}`}
-              className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-            >
-              View public page
-            </Link>
-          ) : null}
-        </div>
-      </div>
+      </section>
 
       {query.saved === "1" ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">

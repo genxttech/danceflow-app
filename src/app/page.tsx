@@ -1,6 +1,5 @@
 import Image from "next/image";
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserPlatformRole } from "@/lib/auth/platform";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
@@ -13,31 +12,37 @@ export default async function HomePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
+  let dashboardHref = "/login";
+  let dashboardLabel = "Log In";
+
   if (user) {
     const platformRole = await getCurrentUserPlatformRole();
 
     if (platformRole === "platform_admin") {
-      redirect("/platform");
+      dashboardHref = "/platform";
+      dashboardLabel = "Platform Dashboard";
+    } else {
+      const { data: studioRole } = await supabase
+        .from("user_studio_roles")
+        .select("studio_id")
+        .eq("user_id", user.id)
+        .eq("active", true)
+        .limit(1)
+        .maybeSingle();
+
+      if (studioRole) {
+        dashboardHref = "/app";
+        dashboardLabel = "Studio Dashboard";
+      } else {
+        dashboardHref = "/account";
+        dashboardLabel = "My Account";
+      }
     }
-
-    const { data: studioRole } = await supabase
-      .from("user_studio_roles")
-      .select("studio_id")
-      .eq("user_id", user.id)
-      .eq("active", true)
-      .limit(1)
-      .maybeSingle();
-
-    if (studioRole) {
-      redirect("/app");
-    }
-
-    redirect("/account");
   }
 
   return (
     <>
-      <PublicSiteHeader currentPath="home" isAuthenticated={false} />
+      <PublicSiteHeader currentPath="home" isAuthenticated={Boolean(user)} />
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_18%,#f8fafc_100%)]">
         <section className="relative overflow-hidden border-b border-slate-200/70">
@@ -296,28 +301,46 @@ export default async function HomePage() {
                   </p>
                 </div>
 
-                <div className="flex flex-wrap gap-3">
-                  <Link
-                    href="/login"
-                    className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-medium text-orange-700 hover:bg-orange-100"
-                  >
-                    Public Log In
-                  </Link>
+                {user ? (
+                  <div className="flex flex-wrap gap-3">
+                    <Link
+                      href={dashboardHref}
+                      className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
+                    >
+                      {dashboardLabel}
+                    </Link>
 
-                  <Link
-                    href="/login?intent=studio"
-                    className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-medium text-violet-700 hover:bg-violet-100"
-                  >
-                    Studio Log In
-                  </Link>
+                    <Link
+                      href="/account"
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      My Account
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-3">
+                    <Link
+                      href="/login"
+                      className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-medium text-orange-700 hover:bg-orange-100"
+                    >
+                      Public Log In
+                    </Link>
 
-                  <Link
-                    href="/login?intent=organizer"
-                    className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700 hover:bg-sky-100"
-                  >
-                    Organizer Log In
-                  </Link>
-                </div>
+                    <Link
+                      href="/login?intent=studio"
+                      className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-medium text-violet-700 hover:bg-violet-100"
+                    >
+                      Studio Log In
+                    </Link>
+
+                    <Link
+                      href="/login?intent=organizer"
+                      className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700 hover:bg-sky-100"
+                    >
+                      Organizer Log In
+                    </Link>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -413,10 +436,10 @@ export default async function HomePage() {
                 </Link>
 
                 <Link
-                  href="/login"
+                  href={dashboardHref}
                   className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800"
                 >
-                  Public Log In
+                  {dashboardLabel}
                 </Link>
               </div>
             </div>

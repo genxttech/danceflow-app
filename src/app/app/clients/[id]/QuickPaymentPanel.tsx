@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { createPaymentAction } from "@/app/app/payments/actions";
 
 const initialState = { error: "" };
@@ -13,7 +13,7 @@ type PackageOption = {
 type PackageTemplateOption = {
   id: string;
   name: string;
-  price?: number | null;
+  price?: number | string | null;
 };
 
 type MembershipBenefit = {
@@ -36,11 +36,23 @@ type ActiveMembership = {
   benefits: MembershipBenefit[];
 };
 
-function formatCurrency(value: number | null) {
+function formatCurrency(value: number | string | null | undefined) {
+  const amount = Number(value ?? 0);
+
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-  }).format(Number(value ?? 0));
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function formatMoneyInput(value: number | string | null | undefined) {
+  const amount = Number(value ?? 0);
+
+  if (!Number.isFinite(amount)) {
+    return "";
+  }
+
+  return amount.toFixed(2);
 }
 
 function formatShortDate(value: string) {
@@ -72,7 +84,13 @@ function getFloorRentalDiscount(benefits: MembershipBenefit[]) {
   };
 }
 
-function applyDiscount(baseAmount: number, discount: { discountPercent: number | null; discountAmount: number | null } | null) {
+function applyDiscount(
+  baseAmount: number,
+  discount: {
+    discountPercent: number | null;
+    discountAmount: number | null;
+  } | null
+) {
   if (!discount) return baseAmount;
 
   if (discount.discountPercent != null && discount.discountPercent > 0) {
@@ -90,13 +108,13 @@ function applyDiscount(baseAmount: number, discount: { discountPercent: number |
 export default function QuickPaymentPanel({
   clientId,
   returnTo,
-  packages,
+  packages = [],
   packageTemplates = [],
   activeMembership = null,
 }: {
   clientId: string;
   returnTo: string;
-  packages: PackageOption[];
+  packages?: PackageOption[];
   packageTemplates?: PackageTemplateOption[];
   activeMembership?: ActiveMembership | null;
 }) {
@@ -107,8 +125,21 @@ export default function QuickPaymentPanel({
 
   const [entryMode, setEntryMode] = useState("standalone_payment");
   const [serviceType, setServiceType] = useState("general");
+  const [selectedPackageTemplateId, setSelectedPackageTemplateId] =
+    useState("");
   const [salePrice, setSalePrice] = useState("");
   const [amount, setAmount] = useState("");
+  const [activePaymentAction, setActivePaymentAction] = useState<
+    "manual" | "charge_now" | "send_to_portal" | null
+  >(null);
+
+  const selectedPackageTemplate = useMemo(
+    () =>
+      packageTemplates.find(
+        (template) => template.id === selectedPackageTemplateId
+      ) ?? null,
+    [packageTemplates, selectedPackageTemplateId]
+  );
 
   const floorRentalDiscount = useMemo(() => {
     if (!activeMembership) return null;
@@ -126,6 +157,36 @@ export default function QuickPaymentPanel({
     return parsedSalePrice;
   }, [salePrice, serviceType, floorRentalDiscount]);
 
+  useEffect(() => {
+    if (entryMode !== "sell_package_and_pay") {
+      setSelectedPackageTemplateId("");
+      setSalePrice("");
+      setAmount("");
+    }
+  }, [entryMode]);
+
+  useEffect(() => {
+    if (!selectedPackageTemplate) return;
+
+    const templatePrice = formatMoneyInput(selectedPackageTemplate.price);
+
+    setSalePrice(templatePrice);
+    setAmount(templatePrice);
+  }, [selectedPackageTemplate]);
+
+  useEffect(() => {
+    if (suggestedAmount == null) return;
+    if (entryMode !== "sell_package_and_pay") return;
+
+    setAmount(formatMoneyInput(suggestedAmount));
+  }, [suggestedAmount, entryMode]);
+
+  useEffect(() => {
+    if (!pending) {
+      setActivePaymentAction(null);
+    }
+  }, [pending]);
+
   return (
     <form action={formAction} className="space-y-5">
       <input type="hidden" name="clientId" value={clientId} />
@@ -135,7 +196,9 @@ export default function QuickPaymentPanel({
       {activeMembership ? (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="font-medium text-slate-900">{activeMembership.name_snapshot}</p>
+            <p className="font-medium text-slate-900">
+              {activeMembership.name_snapshot}
+            </p>
             <span className="inline-flex rounded-full bg-green-50 px-2 py-1 text-xs font-medium text-green-700">
               Active Membership
             </span>
@@ -153,13 +216,12 @@ export default function QuickPaymentPanel({
 
           {floorRentalDiscount ? (
             <div className="mt-3 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-800">
-              Floor rental membership discount available:
-              {" "}
+              Floor rental membership discount available:{" "}
               {floorRentalDiscount.discountPercent != null
                 ? `${floorRentalDiscount.discountPercent}% off`
                 : floorRentalDiscount.discountAmount != null
-                ? `${formatCurrency(floorRentalDiscount.discountAmount)} off`
-                : "Discount available"}
+                  ? `${formatCurrency(floorRentalDiscount.discountAmount)} off`
+                  : "Discount available"}
             </div>
           ) : null}
         </div>
@@ -173,11 +235,13 @@ export default function QuickPaymentPanel({
           id="entryMode"
           name="entryMode"
           value={entryMode}
-          onChange={(e) => setEntryMode(e.target.value)}
+          onChange={(event) => setEntryMode(event.target.value)}
           className="w-full rounded-xl border border-slate-300 px-3 py-2"
         >
           <option value="standalone_payment">Standalone Payment</option>
-          <option value="existing_package_payment">Attach to Existing Package</option>
+          <option value="existing_package_payment">
+            Attach to Existing Package
+          </option>
           <option value="sell_package_and_pay">Sell Package + Payment</option>
         </select>
       </div>
@@ -189,7 +253,7 @@ export default function QuickPaymentPanel({
         <select
           id="serviceType"
           value={serviceType}
-          onChange={(e) => setServiceType(e.target.value)}
+          onChange={(event) => setServiceType(event.target.value)}
           className="w-full rounded-xl border border-slate-300 px-3 py-2"
         >
           <option value="general">General</option>
@@ -200,7 +264,10 @@ export default function QuickPaymentPanel({
 
       {entryMode === "existing_package_payment" ? (
         <div>
-          <label htmlFor="clientPackageId" className="mb-1 block text-sm font-medium">
+          <label
+            htmlFor="clientPackageId"
+            className="mb-1 block text-sm font-medium"
+          >
             Existing Package
           </label>
           <select
@@ -216,20 +283,33 @@ export default function QuickPaymentPanel({
               </option>
             ))}
           </select>
+
+          {packages.length === 0 ? (
+            <p className="mt-1 text-xs text-slate-500">
+              This client does not have any active packages yet.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
       {entryMode === "sell_package_and_pay" ? (
         <>
           <div>
-            <label htmlFor="packageTemplateId" className="mb-1 block text-sm font-medium">
+            <label
+              htmlFor="packageTemplateId"
+              className="mb-1 block text-sm font-medium"
+            >
               Package Template
             </label>
             <select
               id="packageTemplateId"
               name="packageTemplateId"
+              value={selectedPackageTemplateId}
+              onChange={(event) =>
+                setSelectedPackageTemplateId(event.target.value)
+              }
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
-              defaultValue=""
+              required={entryMode === "sell_package_and_pay"}
             >
               <option value="">Select package</option>
               {packageTemplates.map((pkg) => (
@@ -239,6 +319,21 @@ export default function QuickPaymentPanel({
                 </option>
               ))}
             </select>
+
+            {packageTemplates.length === 0 ? (
+              <p className="mt-1 text-xs text-slate-500">
+                No active package templates are available. Create a package
+                template first.
+              </p>
+            ) : null}
+
+            {selectedPackageTemplate ? (
+              <p className="mt-1 text-xs text-slate-500">
+                Package price: {formatCurrency(selectedPackageTemplate.price)}.
+                Payment Amount was filled automatically, but you can edit it for
+                a deposit or partial payment.
+              </p>
+            ) : null}
           </div>
 
           <div>
@@ -252,7 +347,20 @@ export default function QuickPaymentPanel({
               step="0.01"
               min="0"
               value={salePrice}
-              onChange={(e) => setSalePrice(e.target.value)}
+              onChange={(event) => {
+                setSalePrice(event.target.value);
+                setAmount(event.target.value);
+              }}
+              onBlur={() => {
+                if (!salePrice) return;
+
+                const parsed = Number(salePrice);
+                if (Number.isFinite(parsed)) {
+                  const formatted = parsed.toFixed(2);
+                  setSalePrice(formatted);
+                  setAmount(formatted);
+                }
+              }}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
               placeholder="Optional override"
             />
@@ -271,9 +379,18 @@ export default function QuickPaymentPanel({
           step="0.01"
           min="0"
           value={amount}
-          onChange={(e) => setAmount(e.target.value)}
+          onChange={(event) => setAmount(event.target.value)}
+          onBlur={() => {
+            if (!amount) return;
+
+            const parsed = Number(amount);
+            if (Number.isFinite(parsed)) {
+              setAmount(parsed.toFixed(2));
+            }
+          }}
           className="w-full rounded-xl border border-slate-300 px-3 py-2"
           placeholder="0.00"
+          required
         />
         {suggestedAmount != null ? (
           <p className="mt-1 text-xs text-slate-500">
@@ -284,7 +401,10 @@ export default function QuickPaymentPanel({
 
       <div className="grid gap-4 md:grid-cols-2">
         <div>
-          <label htmlFor="paymentMethod" className="mb-1 block text-sm font-medium">
+          <label
+            htmlFor="paymentMethod"
+            className="mb-1 block text-sm font-medium"
+          >
             Payment Method
           </label>
           <select
@@ -339,14 +459,52 @@ export default function QuickPaymentPanel({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800 disabled:opacity-60"
-        >
-          {pending ? "Saving..." : "Save Payment"}
-        </button>
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <p className="text-sm font-semibold text-slate-950">Choose how to collect this payment</p>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          Record Manual Payment saves a payment you already collected. Charge Now opens Stripe Checkout immediately. Submit to Client Portal creates a pending payment request the client can pay later.
+        </p>
+
+        <div className="mt-4 flex flex-wrap gap-3">
+          <button
+            type="submit"
+            name="paymentAction"
+            value="manual"
+            disabled={pending}
+            onClick={() => setActivePaymentAction("manual")}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800 disabled:opacity-60"
+          >
+            {pending && activePaymentAction === "manual"
+              ? "Saving..."
+              : "Record Manual Payment"}
+          </button>
+
+          <button
+            type="submit"
+            name="paymentAction"
+            value="charge_now"
+            disabled={pending}
+            onClick={() => setActivePaymentAction("charge_now")}
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-white hover:opacity-95 disabled:opacity-60"
+          >
+            {pending && activePaymentAction === "charge_now"
+              ? "Opening Stripe..."
+              : "Charge Now"}
+          </button>
+
+          <button
+            type="submit"
+            name="paymentAction"
+            value="send_to_portal"
+            disabled={pending}
+            onClick={() => setActivePaymentAction("send_to_portal")}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-slate-700 hover:bg-slate-100 disabled:opacity-60"
+          >
+            {pending && activePaymentAction === "send_to_portal"
+              ? "Sending..."
+              : "Submit to Client Portal"}
+          </button>
+        </div>
       </div>
     </form>
   );

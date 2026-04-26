@@ -42,20 +42,56 @@ export default async function InstructorsPage() {
   const inactiveCount = typedInstructors.filter((item) => !item.active).length;
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight">Instructors</h2>
-          <p className="mt-2 text-slate-600">Manage studio instructors.</p>
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                DanceFlow
+              </p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                Instructors
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+                Manage teaching staff, public profiles, specialties, and who can be scheduled for lessons.
+              </p>
+            </div>
+
+            <Link
+              href="/app/instructors/new"
+              className="inline-flex items-center rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+            >
+              New Instructor
+            </Link>
+          </div>
         </div>
 
-        <Link
-          href="/app/instructors/new"
-          className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
-        >
-          New Instructor
-        </Link>
-      </div>
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+              <h2 className="text-lg font-semibold text-sky-950">Bookable Team</h2>
+              <p className="mt-2 text-sm leading-7 text-sky-900">
+                Manage who can be assigned to private lessons, classes, and appointments.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+              <h2 className="text-lg font-semibold text-violet-950">Public Profiles</h2>
+              <p className="mt-2 text-sm leading-7 text-violet-900">
+                Control which instructors appear publicly and what dancers can see.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <h2 className="text-lg font-semibold text-amber-950">Schedule Clarity</h2>
+              <p className="mt-2 text-sm leading-7 text-amber-900">
+                Keep instructor details organized so scheduling is easier for the front desk.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border bg-white p-5">

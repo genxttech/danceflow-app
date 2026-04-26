@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
   cancelAppointmentAction,
+  deleteAppointmentAction,
   deleteLessonRecapAction,
   deleteLessonRecapVideoAction,
   markAppointmentAttendedAction,
@@ -478,6 +479,7 @@ export default async function AppointmentDetailPage({
   const canEdit = canEditAppointments(role);
   const canTakeAttendance = canMarkAttendance(role) && !isFloorRental;
   const showAttendanceActions = !isFinalStatus && canTakeAttendance;
+  const canDeleteAppointmentMistake = canEdit && !isFinalStatus;
 
   const canShowLessonRecapCard = isPrivateLesson;
   const canEditLessonRecap = canEdit && typedAppointment.status === "attended";
@@ -494,101 +496,119 @@ export default async function AppointmentDetailPage({
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-3xl font-semibold tracking-tight">
-              {isFloorRental ? "Floor Rental Detail" : "Appointment Detail"}
-            </h2>
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[28px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-5 py-5 text-white md:px-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                DanceFlow Schedule
+              </p>
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <h1 className="text-2xl font-semibold tracking-tight md:text-3xl">
+                  {isFloorRental ? "Floor Rental Details" : "Appointment Details"}
+                </h1>
 
-            <span
-              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                typedAppointment.status,
-              )}`}
-            >
-              {typedAppointment.status.replaceAll("_", " ")}
-            </span>
+                <span className="inline-flex rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-xs font-medium text-white">
+                  {typedAppointment.status.replaceAll("_", " ")}
+                </span>
 
-            <span
-              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${appointmentTypeBadgeClass(
-                typedAppointment.appointment_type,
-              )}`}
-            >
-              {isFloorRental
-                ? "Floor Rental"
-                : appointmentTypeLabel(typedAppointment.appointment_type)}
-            </span>
+                <span className="inline-flex rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-xs font-medium text-white">
+                  {isFloorRental
+                    ? "Floor Rental"
+                    : appointmentTypeLabel(typedAppointment.appointment_type)}
+                </span>
 
-            {typedAppointment.is_recurring ? (
-              <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                Recurring
-              </span>
-            ) : null}
+                {typedAppointment.is_recurring ? (
+                  <span className="inline-flex rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-xs font-medium text-white">
+                    Recurring
+                  </span>
+                ) : null}
+              </div>
 
-            {isPublicIntro ? (
-              <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
-                Public Intro
-              </span>
-            ) : null}
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80">
+                Review lesson, rental, package, payment, and attendance details from
+                one clean workspace.
+              </p>
+            </div>
 
-            {!isFloorRental && pkg && packageHealth ? (
-              <span
-                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${packageHealthClass(
-                  packageHealth,
-                )}`}
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/app/schedule"
+                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
               >
-                {packageHealthLabel(packageHealth)}
-              </span>
-            ) : null}
+                Back to Schedule
+              </Link>
 
-            {isFloorRental ? (
-              <span
-                className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${paymentStatusBadgeClass(
-                  effectivePaymentStatus,
-                )}`}
-              >
-                {paymentStatusLabel(effectivePaymentStatus)}
-              </span>
-            ) : null}
+              {typedAppointment.appointment_type === "group_class" ? (
+                <Link
+                  href={`/app/schedule/${typedAppointment.id}/attendance`}
+                  className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                >
+                  Attendance
+                </Link>
+              ) : null}
+
+              {!isFinalStatus && canEdit ? (
+                <Link
+                  href={`/app/schedule/${typedAppointment.id}/edit`}
+                  className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+                >
+                  {isFloorRental ? "Edit Rental" : "Edit Appointment"}
+                </Link>
+              ) : null}
+            </div>
           </div>
-
-          <p className="mt-2 text-slate-600">
-            {typedAppointment.title || appointmentTypeLabel(typedAppointment.appointment_type)}
-          </p>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href="/app/schedule"
-            className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-          >
-            Back to Schedule
-          </Link>
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-5 py-4 md:px-6">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                Client
+              </p>
+              <p className="mt-1 truncate text-sm font-semibold text-slate-950">
+                {clientName}
+              </p>
+            </div>
 
-          {typedAppointment.appointment_type === "group_class" ? (
-            <Link
-              href={`/app/schedule/${typedAppointment.id}/attendance`}
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              Attendance
-            </Link>
-          ) : null}
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                Time
+              </p>
+              <p className="mt-1 text-sm font-semibold text-slate-950">
+                {formatDateOnly(typedAppointment.starts_at)} · {formatTimeOnly(typedAppointment.starts_at)}
+              </p>
+            </div>
 
-          {!isFinalStatus && canEdit ? (
-            <Link
-              href={`/app/schedule/${typedAppointment.id}/edit`}
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              {isFloorRental ? "Edit Rental" : "Edit Appointment"}
-            </Link>
-          ) : null}
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                Instructor / Room
+              </p>
+              <p className="mt-1 truncate text-sm font-semibold text-slate-950">
+                {instructorName} · {roomName}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                {isFloorRental ? "Payment" : "Package"}
+              </p>
+              <p className="mt-1 text-sm font-semibold text-slate-950">
+                {isFloorRental
+                  ? paymentStatusLabel(effectivePaymentStatus)
+                  : pkg && packageHealth
+                    ? packageHealthLabel(packageHealth)
+                    : "No package linked"}
+              </p>
+            </div>
+          </div>
         </div>
-      </div>
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
         <div className="space-y-6">
-          <div className="rounded-2xl border bg-white p-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-xl font-semibold text-slate-900">Overview</h3>
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
@@ -686,7 +706,7 @@ export default async function AppointmentDetailPage({
           </div>
 
           {canShowLessonRecapCard ? (
-            <div className="rounded-2xl border bg-white p-6">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                   <h3 className="text-xl font-semibold text-slate-900">Lesson Recap</h3>
@@ -888,7 +908,7 @@ export default async function AppointmentDetailPage({
             </div>
           ) : null}
 
-          <div className="rounded-2xl border bg-white p-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-xl font-semibold text-slate-900">
               {isFloorRental ? "Floor Rental Rules" : "Workflow Notes"}
             </h3>
@@ -942,7 +962,7 @@ export default async function AppointmentDetailPage({
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-2xl border bg-white p-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-xl font-semibold text-slate-900">
               {isFloorRental ? "Package Impact" : "Package"}
             </h3>
@@ -994,7 +1014,7 @@ export default async function AppointmentDetailPage({
           </div>
 
           {isFloorRental ? (
-            <div className="rounded-2xl border bg-white p-6">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h3 className="text-xl font-semibold text-slate-900">Payment</h3>
@@ -1013,7 +1033,7 @@ export default async function AppointmentDetailPage({
               </div>
 
               <div className="mt-5 grid gap-4 sm:grid-cols-3">
-                <div className="rounded-xl border bg-slate-50 p-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-xs uppercase tracking-wide text-slate-400">
                     Rental Amount
                   </p>
@@ -1022,7 +1042,7 @@ export default async function AppointmentDetailPage({
                   </p>
                 </div>
 
-                <div className="rounded-xl border bg-slate-50 p-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-xs uppercase tracking-wide text-slate-400">
                     Paid
                   </p>
@@ -1031,7 +1051,7 @@ export default async function AppointmentDetailPage({
                   </p>
                 </div>
 
-                <div className="rounded-xl border bg-slate-50 p-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-xs uppercase tracking-wide text-slate-400">
                     Balance Due
                   </p>
@@ -1169,14 +1189,14 @@ export default async function AppointmentDetailPage({
             </div>
           ) : null}
 
-          <div className="rounded-2xl border bg-white p-6">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <h3 className="text-xl font-semibold text-slate-900">Actions</h3>
 
             <div className="mt-5 flex flex-wrap gap-3">
               {!isFinalStatus && canEdit ? (
                 <Link
                   href={`/app/schedule/${typedAppointment.id}/edit`}
-                  className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
                   {isFloorRental ? "Edit Rental" : "Edit Appointment"}
                 </Link>
@@ -1230,6 +1250,56 @@ export default async function AppointmentDetailPage({
               </p>
             ) : null}
           </div>
+
+          {canDeleteAppointmentMistake ? (
+            <details className="rounded-2xl border border-red-200 bg-red-50 p-6 shadow-sm">
+              <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-600">
+                    Danger Zone
+                  </p>
+                  <h3 className="mt-1 text-xl font-semibold text-red-950">
+                    Delete appointment created by mistake
+                  </h3>
+                  <p className="mt-2 max-w-3xl text-sm leading-6 text-red-800">
+                    Use delete only for front desk or scheduling mistakes. If the client,
+                    instructor, or studio actually cancelled the appointment, use Cancel
+                    Appointment so the history stays accurate.
+                  </p>
+                </div>
+
+                <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-red-700 ring-1 ring-red-200">
+                  <span className="group-open:hidden">Expand</span>
+                  <span className="hidden group-open:inline">Collapse</span>
+                </span>
+              </summary>
+
+              <form action={deleteAppointmentAction} className="mt-5 rounded-2xl border border-red-200 bg-white p-4">
+                <input type="hidden" name="appointmentId" value={typedAppointment.id} />
+                <input type="hidden" name="returnTo" value={returnTo} />
+
+                <label className="block text-sm font-semibold text-slate-900">
+                  Type DELETE to confirm
+                </label>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  The system will block deletion if this appointment already has payments,
+                  lesson transactions, lesson recaps, or attendance history attached.
+                </p>
+                <input
+                  name="confirmDeleteAppointment"
+                  placeholder="DELETE"
+                  className="mt-3 w-full max-w-xs rounded-xl border border-red-200 px-3 py-2 text-sm outline-none focus:border-red-500 focus:ring-2 focus:ring-red-100"
+                />
+
+                <button
+                  type="submit"
+                  className="mt-4 rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700"
+                >
+                  Delete Appointment
+                </button>
+              </form>
+            </details>
+          ) : null}
         </div>
       </div>
     </div>

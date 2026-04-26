@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { sellPackageToClientAction } from "./actions";
 
 const initialState = { error: "" };
@@ -45,6 +45,25 @@ function summarizePackageItems(
     .join(" | ");
 }
 
+function formatCurrency(value: number | string | null | undefined) {
+  const amount = Number(value ?? 0);
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function formatMoneyInput(value: number | string | null | undefined) {
+  const amount = Number(value ?? 0);
+
+  if (!Number.isFinite(amount)) {
+    return "";
+  }
+
+  return amount.toFixed(2);
+}
+
 export default function SellPackageForm({
   clients,
   packageTemplates,
@@ -59,6 +78,27 @@ export default function SellPackageForm({
 
   const today = new Date().toISOString().slice(0, 10);
 
+  const [selectedPackageTemplateId, setSelectedPackageTemplateId] =
+    useState("");
+  const [paymentAmount, setPaymentAmount] = useState("");
+
+  const selectedPackageTemplate = useMemo(
+    () =>
+      packageTemplates.find(
+        (pkg) => pkg.id === selectedPackageTemplateId
+      ) ?? null,
+    [packageTemplates, selectedPackageTemplateId]
+  );
+
+  useEffect(() => {
+    if (!selectedPackageTemplate) {
+      setPaymentAmount("");
+      return;
+    }
+
+    setPaymentAmount(formatMoneyInput(selectedPackageTemplate.price));
+  }, [selectedPackageTemplateId, selectedPackageTemplate]);
+
   return (
     <div className="max-w-3xl">
       <h2 className="text-3xl font-semibold tracking-tight">Sell Package</h2>
@@ -66,7 +106,10 @@ export default function SellPackageForm({
         Assign a mixed-use package to a client and record payment.
       </p>
 
-      <form action={formAction} className="mt-8 space-y-4 rounded-2xl border bg-white p-6">
+      <form
+        action={formAction}
+        className="mt-8 space-y-4 rounded-2xl border bg-white p-6"
+      >
         <div>
           <label htmlFor="clientId" className="mb-1 block text-sm font-medium">
             Client
@@ -87,32 +130,46 @@ export default function SellPackageForm({
         </div>
 
         <div>
-          <label htmlFor="packageTemplateId" className="mb-1 block text-sm font-medium">
+          <label
+            htmlFor="packageTemplateId"
+            className="mb-1 block text-sm font-medium"
+          >
             Package Template
           </label>
           <select
             id="packageTemplateId"
             name="packageTemplateId"
             required
+            value={selectedPackageTemplateId}
+            onChange={(event) => {
+              setSelectedPackageTemplateId(event.target.value);
+            }}
             className="w-full rounded-xl border border-slate-300 px-3 py-2"
           >
             <option value="">Select package</option>
             {packageTemplates.map((pkg) => (
               <option key={pkg.id} value={pkg.id}>
-                {pkg.name} —{" "}
-                {new Intl.NumberFormat("en-US", {
-                  style: "currency",
-                  currency: "USD",
-                }).format(Number(pkg.price))}{" "}
-                — {summarizePackageItems(pkg.package_template_items)}
+                {pkg.name} — {formatCurrency(pkg.price)} —{" "}
+                {summarizePackageItems(pkg.package_template_items)}
               </option>
             ))}
           </select>
+
+          {selectedPackageTemplate ? (
+            <p className="mt-2 text-xs text-slate-500">
+              Package price: {formatCurrency(selectedPackageTemplate.price)}.
+              Payment Amount was filled automatically, but you can edit it for a
+              deposit or partial payment.
+            </p>
+          ) : null}
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <div>
-            <label htmlFor="purchaseDate" className="mb-1 block text-sm font-medium">
+            <label
+              htmlFor="purchaseDate"
+              className="mb-1 block text-sm font-medium"
+            >
               Purchase Date
             </label>
             <input
@@ -126,23 +183,47 @@ export default function SellPackageForm({
           </div>
 
           <div>
-            <label htmlFor="amountPaid" className="mb-1 block text-sm font-medium">
-              Amount Paid
+            <label
+              htmlFor="paymentAmount"
+              className="mb-1 block text-sm font-medium"
+            >
+              Payment Amount
             </label>
             <input
-              id="amountPaid"
-              name="amountPaid"
+              id="paymentAmount"
+              name="paymentAmount"
               type="number"
               min="0"
               step="0.01"
               required
+              value={paymentAmount}
+              onChange={(event) => setPaymentAmount(event.target.value)}
+              onBlur={() => {
+                if (!paymentAmount) return;
+
+                const amount = Number(paymentAmount);
+                if (Number.isFinite(amount)) {
+                  setPaymentAmount(amount.toFixed(2));
+                }
+              }}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
             />
+
+            {/* Backward-compatible field in case the server action still reads amountPaid */}
+            <input type="hidden" name="amountPaid" value={paymentAmount} />
+
+            <p className="mt-1 text-xs text-slate-500">
+              Defaults to the package price. Change this for deposits or partial
+              payments.
+            </p>
           </div>
         </div>
 
         <div>
-          <label htmlFor="paymentMethod" className="mb-1 block text-sm font-medium">
+          <label
+            htmlFor="paymentMethod"
+            className="mb-1 block text-sm font-medium"
+          >
             Payment Method
           </label>
           <select

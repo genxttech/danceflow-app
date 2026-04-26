@@ -3,7 +3,7 @@ import Link from "next/link";
 export default function PublicSiteFooter() {
   return (
     <footer className="border-t border-slate-200 bg-white">
-      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.3fr_1fr_1fr] lg:px-8">
+      <div className="mx-auto grid max-w-7xl gap-8 px-4 py-10 sm:px-6 lg:grid-cols-[1.3fr_1fr_1fr_1fr] lg:px-8">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
             DanceFlow
@@ -17,7 +17,6 @@ export default function PublicSiteFooter() {
         <div>
           <p className="text-sm font-semibold text-slate-900">Explore</p>
           <div className="mt-3 grid gap-2 text-sm text-slate-600">
-            <Link href="/" className="hover:text-slate-900">Home</Link>
             <Link href="/discover/studios" className="hover:text-slate-900">Studios</Link>
             <Link href="/discover/events" className="hover:text-slate-900">Events</Link>
             <Link href="/get-started" className="hover:text-slate-900">Pricing</Link>
@@ -25,12 +24,21 @@ export default function PublicSiteFooter() {
         </div>
 
         <div>
-          <p className="text-sm font-semibold text-slate-900">Get Started</p>
+          <p className="text-sm font-semibold text-slate-900">Account</p>
           <div className="mt-3 grid gap-2 text-sm text-slate-600">
             <Link href="/signup" className="hover:text-slate-900">Create Free Account</Link>
             <Link href="/login" className="hover:text-slate-900">Log In</Link>
             <Link href="/account" className="hover:text-slate-900">Account</Link>
             <Link href="/favorites" className="hover:text-slate-900">Favorites</Link>
+          </div>
+        </div>
+
+        <div>
+          <p className="text-sm font-semibold text-slate-900">Support</p>
+          <div className="mt-3 grid gap-2 text-sm text-slate-600">
+            <Link href="/knowledgebase" className="hover:text-slate-900">Knowledgebase</Link>
+            <Link href="/app/help" className="hover:text-slate-900">Help</Link>
+            <Link href="/" className="hover:text-slate-900">Home</Link>
           </div>
         </div>
       </div>

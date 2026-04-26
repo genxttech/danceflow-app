@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import {
-  beginPaidTrialCheckoutAction,
-} from "../actions";
+import { startPaidPathAction } from "../actions";
 import {
   formatPlanMoney,
   getBillingPlan,
@@ -211,7 +209,7 @@ export default async function GetStartedCompletePage({
                     </div>
                   ) : null}
 
-                  <form action={beginPaidTrialCheckoutAction} className="mt-8 space-y-6">
+                  <form action={startPaidPathAction} className="mt-8 space-y-6">
                     <input type="hidden" name="planCode" value={plan.code} />
                     <input type="hidden" name="intent" value={intent} />
 

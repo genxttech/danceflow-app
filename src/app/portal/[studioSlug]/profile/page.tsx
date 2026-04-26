@@ -94,10 +94,11 @@ export default async function PortalProfilePage({
     .maybeSingle<WorkspaceRoleRow>();
 
   const canReturnToWorkspace = Boolean(workspaceRole);
+  const isIndependentInstructor = client.is_independent_instructor === true;
 
   const fullName = `${client.first_name} ${client.last_name}`.trim();
   const studioLabel = studio.public_name?.trim() || studio.name;
-  const accessType = client.is_independent_instructor
+  const accessType = isIndependentInstructor
     ? "Independent Instructor"
     : "Portal Member";
 
@@ -129,7 +130,7 @@ export default async function PortalProfilePage({
                 My Profile
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Keep your contact details up to date so the studio can reach you when needed.
+                Keep your contact details up to date so your studio can reach you when needed.
               </p>
               <div className="mt-4 flex flex-wrap gap-3 text-sm text-white/80">
                 <span>
@@ -164,29 +165,23 @@ export default async function PortalProfilePage({
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
           <div className="grid gap-4 md:grid-cols-3">
             <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
-              <h2 className="text-lg font-semibold text-sky-950">
-                Check your contact details
-              </h2>
+              <h2 className="text-lg font-semibold text-sky-950">Check your contact details</h2>
               <p className="mt-2 text-sm leading-7 text-sky-900">
                 Make sure your email and phone number are current so updates and reminders reach you.
               </p>
             </div>
 
             <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
-              <h2 className="text-lg font-semibold text-violet-950">
-                Your name stays locked
-              </h2>
+              <h2 className="text-lg font-semibold text-violet-950">Your schedule stays connected</h2>
               <p className="mt-2 text-sm leading-7 text-violet-900">
-                Name changes are managed by the studio so your portal and studio records stay in sync.
+                Use your portal to review appointments, recaps, packages, payments, and profile details.
               </p>
             </div>
 
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <h2 className="text-lg font-semibold text-amber-950">
-                Need more help?
-              </h2>
+              <h2 className="text-lg font-semibold text-amber-950">Need a change?</h2>
               <p className="mt-2 text-sm leading-7 text-amber-900">
-                Use the Help area in the workspace if something looks wrong or you cannot access the page you need.
+                Name changes are managed by the studio so your portal and studio records stay in sync.
               </p>
             </div>
           </div>
@@ -295,17 +290,10 @@ export default async function PortalProfilePage({
 
             <div className="mt-5 grid gap-3">
               <Link
-                href={`/portal/${encodeURIComponent(studio.slug)}/floor-space`}
+                href={`/portal/${encodeURIComponent(studio.slug)}/schedule`}
                 className="rounded-xl border border-slate-200 px-4 py-3 text-slate-700 hover:bg-slate-50"
               >
-                Book Floor Space
-              </Link>
-
-              <Link
-                href={`/portal/${encodeURIComponent(studio.slug)}/floor-space/my-rentals`}
-                className="rounded-xl border border-slate-200 px-4 py-3 text-slate-700 hover:bg-slate-50"
-              >
-                My Rentals
+                My Schedule
               </Link>
 
               <Link
@@ -314,6 +302,24 @@ export default async function PortalProfilePage({
               >
                 Portal Home
               </Link>
+
+              {isIndependentInstructor ? (
+                <>
+                  <Link
+                    href={`/portal/${encodeURIComponent(studio.slug)}/floor-space`}
+                    className="rounded-xl border border-slate-200 px-4 py-3 text-slate-700 hover:bg-slate-50"
+                  >
+                    Book Floor Space
+                  </Link>
+
+                  <Link
+                    href={`/portal/${encodeURIComponent(studio.slug)}/floor-space/my-rentals`}
+                    className="rounded-xl border border-slate-200 px-4 py-3 text-slate-700 hover:bg-slate-50"
+                  >
+                    My Rentals
+                  </Link>
+                </>
+              ) : null}
             </div>
 
             <form action="/auth/logout" method="post" className="mt-6">

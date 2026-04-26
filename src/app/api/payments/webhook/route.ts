@@ -381,6 +381,7 @@ async function syncStudioBillingSnapshot(params: {
   stripeCustomerId: string;
   stripeSubscriptionId: string;
   subscriptionStatus: string;
+  trialEndsAt?: string | null;
 }) {
   const {
     supabase,
@@ -388,6 +389,7 @@ async function syncStudioBillingSnapshot(params: {
     stripeCustomerId,
     stripeSubscriptionId,
     subscriptionStatus,
+    trialEndsAt = null,
   } = params;
 
   const { error } = await supabase
@@ -396,6 +398,7 @@ async function syncStudioBillingSnapshot(params: {
       stripe_customer_id: stripeCustomerId,
       stripe_subscription_id: stripeSubscriptionId,
       subscription_status: mapStudioSubscriptionStatus(subscriptionStatus),
+      trial_ends_at: trialEndsAt,
       updated_at: new Date().toISOString(),
     })
     .eq("id", studioId);
@@ -471,6 +474,10 @@ async function upsertStudioSubscription(params: {
   const currentPeriodEndUnix = getNumber(
     (subscription as unknown as { current_period_end?: number }).current_period_end
   );
+
+  const trialEndUnix = getNumber(
+  (subscription as unknown as { trial_end?: number | null }).trial_end ?? null
+);
 
   let planRow:
     | {
@@ -1130,6 +1137,100 @@ async function handlePortalFloorRentalCheckoutCompleted(
   return true;
 }
 
+async function handleClientPaymentRequestCheckoutCompleted(
+  supabase: SupabaseClient,
+  session: Stripe.Checkout.Session
+) {
+  const source = getString(session.metadata?.source);
+  if (source !== "client_payment_request") return false;
+
+  const paymentId = getString(session.metadata?.paymentId);
+  if (!paymentId) {
+    throw new Error("Client payment checkout missing paymentId metadata.");
+  }
+
+  if (session.payment_status !== "paid") {
+    return true;
+  }
+
+  const paymentIntentId = getString(session.payment_intent);
+  const sessionId = session.id;
+  const amountTotal = Number(session.amount_total ?? 0) / 100;
+  const currency = (session.currency ?? "usd").toLowerCase();
+
+  const { data: payment, error: paymentLookupError } = await supabase
+    .from("payments")
+    .select("id, studio_id, client_id, client_package_id, client_membership_id, amount, status")
+    .eq("id", paymentId)
+    .maybeSingle();
+
+  if (paymentLookupError) {
+    throw new Error(paymentLookupError.message);
+  }
+
+  if (!payment) {
+    throw new Error("Client payment request not found.");
+  }
+
+  const expectedAmount = Number(payment.amount ?? 0);
+  if (Math.abs(expectedAmount - amountTotal) > 0.01) {
+    throw new Error(
+      `Client payment request amount mismatch. Expected ${expectedAmount}, received ${amountTotal}.`
+    );
+  }
+
+  const { error: paymentUpdateError } = await supabase
+    .from("payments")
+    .update({
+      status: "paid",
+      paid_at: new Date().toISOString(),
+      source: "stripe",
+      payment_method: "card",
+      stripe_checkout_session_id: sessionId,
+      stripe_payment_intent_id: paymentIntentId,
+      external_payment_id: sessionId,
+      external_reference: sessionId,
+      currency,
+    })
+    .eq("id", payment.id);
+
+  if (paymentUpdateError) {
+    throw new Error(paymentUpdateError.message);
+  }
+
+  if (payment.client_package_id) {
+    const { error: packageUpdateError } = await supabase
+      .from("client_packages")
+      .update({
+        active: true,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", payment.client_package_id)
+      .eq("studio_id", payment.studio_id);
+
+    if (packageUpdateError) {
+      throw new Error(packageUpdateError.message);
+    }
+  }
+
+  if (payment.client_membership_id) {
+    const { error: membershipUpdateError } = await supabase
+      .from("client_memberships")
+      .update({
+        status: "active",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", payment.client_membership_id)
+      .eq("studio_id", payment.studio_id);
+
+    if (membershipUpdateError) {
+      throw new Error(membershipUpdateError.message);
+    }
+  }
+
+  return true;
+}
+
 async function handleCheckoutSessionCompleted(
   supabase: SupabaseClient,
   stripe: Stripe,
@@ -1160,6 +1261,15 @@ async function handleCheckoutSessionCompleted(
   );
 
   if (handledPortalFloorRental) {
+    return;
+  }
+
+  const handledClientPaymentRequest = await handleClientPaymentRequestCheckoutCompleted(
+    supabase,
+    session
+  );
+
+  if (handledClientPaymentRequest) {
     return;
   }
 

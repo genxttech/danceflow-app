@@ -14,6 +14,12 @@ function getReturnTo(formData: FormData, fallback: string, success: string) {
   return `${returnTo}${returnTo.includes("?") ? "&" : "?"}success=${success}`;
 }
 
+function getCancelledReturnTo(formData: FormData, fallback: string) {
+  const returnTo = getString(formData, "returnTo");
+  if (!returnTo) return `${fallback}?error=payment_cancelled`;
+  return `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=payment_cancelled`;
+}
+
 function formatCurrency(value: number | null) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -46,22 +52,40 @@ function applyDiscount(baseAmount: number, discountPercent: number | null, disco
   return baseAmount;
 }
 
+function normalizePaymentAction(value: string) {
+  if (value === "charge_now") return "charge_now";
+  if (value === "send_to_portal") return "send_to_portal";
+  return "manual";
+}
+
+function getPaymentType(entryMode: string, serviceType: string) {
+  if (entryMode === "sell_package_and_pay" || entryMode === "existing_package_payment") {
+    return "package_sale";
+  }
+  if (serviceType === "floor_rental") return "floor_rental";
+  if (serviceType === "event_registration") return "event_registration";
+  return "general";
+}
+
 export async function createPaymentAction(
   prevState: { error: string },
   formData: FormData
 ) {
+  let checkoutRedirectUrl: string | null = null;
+
   try {
     const { supabase, studioId, user } = await requireClientEditAccess();
 
     const entryMode = getString(formData, "entryMode");
     const serviceType = getString(formData, "serviceType");
+    const paymentAction = normalizePaymentAction(getString(formData, "paymentAction"));
     const clientId = getString(formData, "clientId");
     const clientPackageId = getString(formData, "clientPackageId");
     const packageTemplateId = getString(formData, "packageTemplateId");
     const salePriceRaw = getString(formData, "salePrice");
     const amountRaw = getString(formData, "amount");
-    const paymentMethod = getString(formData, "paymentMethod");
-    const status = getString(formData, "status");
+    const paymentMethod = paymentAction === "manual" ? getString(formData, "paymentMethod") : "card";
+    const status = paymentAction === "manual" ? getString(formData, "status") || "paid" : "pending";
     const notes = getString(formData, "notes");
 
     if (!clientId) {
@@ -70,8 +94,9 @@ export async function createPaymentAction(
 
     let resolvedClientPackageId: string | null = clientPackageId || null;
     let paymentAmount = getNumber(amountRaw);
-    let salePrice = getNumber(salePriceRaw);
+    const salePrice = getNumber(salePriceRaw);
     let discountNote: string | null = null;
+    let createdPackageName: string | null = null;
 
     if (entryMode === "sell_package_and_pay") {
       if (!packageTemplateId) {
@@ -136,11 +161,12 @@ export async function createPaymentAction(
           name_snapshot: packageTemplate.name,
           purchase_date: purchaseDate,
           expiration_date: expirationDate,
-          active: true,
+          active: paymentAction === "manual" && status === "paid",
           sold_price: resolvedSalePrice,
+          price_snapshot: resolvedSalePrice,
           created_by: user.id,
         })
-        .select("id")
+        .select("id, name_snapshot")
         .single();
 
       if (packageInsertError || !insertedPackage) {
@@ -172,6 +198,7 @@ export async function createPaymentAction(
       }
 
       resolvedClientPackageId = insertedPackage.id;
+      createdPackageName = insertedPackage.name_snapshot;
 
       if (paymentAmount == null) {
         paymentAmount = resolvedSalePrice;
@@ -230,25 +257,55 @@ export async function createPaymentAction(
       }
     }
 
-    const finalNotes = [notes, discountNote].filter(Boolean).join(" | ") || null;
+    const paymentType = getPaymentType(entryMode, serviceType);
+    const requestNote =
+      paymentAction === "charge_now"
+        ? "Created for Charge Now Stripe Checkout."
+        : paymentAction === "send_to_portal"
+          ? "Created as a client portal payment request."
+          : null;
+    const finalNotes = [notes, discountNote, requestNote, createdPackageName ? `Package: ${createdPackageName}` : null]
+      .filter(Boolean)
+      .join(" | ") || null;
 
-    const { error } = await supabase.from("payments").insert({
-      studio_id: studioId,
-      client_id: clientId,
-      client_package_id: resolvedClientPackageId,
-      amount: paymentAmount,
-      payment_method: paymentMethod,
-      status,
-      notes: finalNotes,
-    });
+    const { data: insertedPayment, error } = await supabase
+      .from("payments")
+      .insert({
+        studio_id: studioId,
+        client_id: clientId,
+        client_package_id: resolvedClientPackageId,
+        amount: paymentAmount,
+        payment_method: paymentMethod,
+        status,
+        notes: finalNotes,
+        paid_at: new Date().toISOString(),
+        created_by: user.id,
+        payment_type: paymentType,
+        source: paymentAction === "manual" ? "manual" : "stripe",
+        currency: "usd",
+      })
+      .select("id")
+      .single();
 
-    if (error) {
-      return { error: `Payment creation failed: ${error.message}` };
+    if (error || !insertedPayment) {
+      return { error: `Payment creation failed: ${error?.message ?? "Unable to create payment."}` };
+    }
+
+    if (paymentAction === "charge_now") {
+      const returnTo = getReturnTo(formData, "/app/payments", "payment_logged");
+      const cancelTo = getCancelledReturnTo(formData, "/app/payments");
+      checkoutRedirectUrl = `/api/stripe/client-checkout?paymentId=${encodeURIComponent(
+        insertedPayment.id
+      )}&returnTo=${encodeURIComponent(returnTo)}&cancelTo=${encodeURIComponent(cancelTo)}`;
     }
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
     };
+  }
+
+  if (checkoutRedirectUrl) {
+    redirect(checkoutRedirectUrl);
   }
 
   redirect(getReturnTo(formData, "/app/payments", "payment_logged"));

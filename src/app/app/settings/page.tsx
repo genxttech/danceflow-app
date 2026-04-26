@@ -228,31 +228,51 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="rounded-2xl border bg-white p-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-              Settings
-            </h1>
-            <p className="mt-2 text-slate-600">
-              Manage studio policies, branding, notifications, billing access, and data import.
-            </p>
+      <div className="overflow-hidden rounded-3xl border bg-white shadow-sm">
+        <div className="bg-gradient-to-r from-violet-700 via-fuchsia-600 to-pink-500 p-6 text-white">
+          <p className="text-sm font-semibold uppercase tracking-[0.25em] text-white/80">
+            DanceFlow Studio Admin
+          </p>
+          <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="max-w-3xl">
+              <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+                Studio setup and controls
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/90 md:text-base">
+                Manage the settings that keep your studio running smoothly: studio policies, public branding, client booking rules, notifications, billing access, and data import.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/app/settings/import"
+                className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-violet-700 shadow-sm hover:bg-violet-50"
+              >
+                Import Data
+              </Link>
+
+              <Link
+                href="/app/settings/billing"
+                className="rounded-xl border border-white/40 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
+              >
+                Billing Settings
+              </Link>
+            </div>
           </div>
+        </div>
 
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/app/settings/import"
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              Open Import
-            </Link>
-
-            <Link
-              href="/app/settings/billing"
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              Open Billing
-            </Link>
+        <div className="grid gap-4 p-5 md:grid-cols-3">
+          <div className="rounded-2xl border bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-900">Studio profile</p>
+            <p className="mt-1 text-sm text-slate-600">Keep public branding, booking options, and contact details current.</p>
+          </div>
+          <div className="rounded-2xl border bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-900">Policies and reminders</p>
+            <p className="mt-1 text-sm text-slate-600">Control cancellation windows, booking lead time, low-balance warnings, and notifications.</p>
+          </div>
+          <div className="rounded-2xl border bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-900">Launch tools</p>
+            <p className="mt-1 text-sm text-slate-600">Use import and billing setup to prepare the studio before inviting clients.</p>
           </div>
         </div>
       </div>
@@ -260,20 +280,20 @@ export default async function SettingsPage() {
       <div className="grid gap-4 md:grid-cols-2">
         <Link
           href="/app/settings/import"
-          className="rounded-2xl border bg-white p-5 transition hover:bg-slate-50"
+          className="rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
         >
-          <p className="text-sm font-medium text-slate-500">Data Import</p>
+          <p className="text-sm font-semibold uppercase tracking-wide text-violet-600">Data Import</p>
           <h2 className="mt-2 text-xl font-semibold text-slate-900">
-            Import existing studio data
+            Bring existing clients into DanceFlow
           </h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Upload CSV files, review import history, and prepare migrations from another system.
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Upload a CSV, review row-level errors, then execute the import when the file is ready. Uploading alone does not add clients.
           </p>
         </Link>
 
         <Link
           href="/app/settings/billing"
-          className="rounded-2xl border bg-white p-5 transition hover:bg-slate-50"
+          className="rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
         >
           <p className="text-sm font-medium text-slate-500">Billing</p>
           <h2 className="mt-2 text-xl font-semibold text-slate-900">

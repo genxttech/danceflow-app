@@ -28,17 +28,16 @@ type LinkedPartnerOption = {
 };
 
 type ClientPackageItem = {
-  id: string;
-  item_type: "lesson" | "group_class" | "event" | "other";
-  quantity: number;
-  remaining_quantity: number | null;
-  price_per_item: number;
+  usage_type: string | null;
+  quantity_remaining: number | string | null;
+  quantity_total: number | string | null;
+  is_unlimited: boolean | null;
 };
 
 type ClientPackageOption = {
   id: string;
-  name_snapshot: string;
-  status: string;
+  name_snapshot: string | null;
+  active: boolean | null;
   expiration_date: string | null;
   client_package_items: ClientPackageItem[];
 };
@@ -127,6 +126,40 @@ function appointmentTypeLabel(value: string) {
   }
 }
 
+function packageUsageTypeLabel(value: string | null) {
+  if (value === "private_lesson") return "Private Lesson";
+  if (value === "group_class") return "Group Class";
+  if (value === "practice_party") return "Practice Party";
+  return "Package Credit";
+}
+
+function appointmentTypeToPackageUsageTypes(appointmentType: string) {
+  if (
+    appointmentType === "private_lesson" ||
+    appointmentType === "intro_lesson" ||
+    appointmentType === "coaching"
+  ) {
+    return ["private_lesson"];
+  }
+
+  if (appointmentType === "group_class") {
+    return ["group_class"];
+  }
+
+  if (appointmentType === "practice_party" || appointmentType === "event") {
+    return ["practice_party"];
+  }
+
+  return [appointmentType];
+}
+
+function toNumber(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return null;
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function packageHealthLabel(
   health: "healthy" | "low" | "depleted" | "expired" | "inactive"
 ) {
@@ -187,9 +220,11 @@ function summarizeClientPackageItems(items: ClientPackageItem[]) {
 
   return items
     .map((item) => {
-      const remaining =
-        item.remaining_quantity == null ? "Unlimited" : `${item.remaining_quantity} remaining`;
-      return `${appointmentTypeLabel(item.item_type)} — ${remaining}`;
+      const remaining = item.is_unlimited
+        ? "Unlimited"
+        : `${toNumber(item.quantity_remaining) ?? 0} remaining`;
+
+      return `${packageUsageTypeLabel(item.usage_type)} — ${remaining}`;
     })
     .join(" • ");
 }
@@ -286,8 +321,10 @@ function packageSupportsAppointmentType(
 ) {
   if (!clientPackage) return false;
 
-  return clientPackage.client_package_items.some(
-    (item) => item.item_type === appointmentType || item.item_type === "other"
+  const supportedUsageTypes = appointmentTypeToPackageUsageTypes(appointmentType);
+
+  return clientPackage.client_package_items.some((item) =>
+    item.usage_type ? supportedUsageTypes.includes(item.usage_type) : false
   );
 }
 
@@ -297,7 +334,7 @@ function computePackageHealth(
 ): "healthy" | "low" | "depleted" | "expired" | "inactive" {
   if (!clientPackage) return "inactive";
 
-  if (clientPackage.status !== "active") {
+  if (clientPackage.active !== true) {
     return "inactive";
   }
 
@@ -309,24 +346,23 @@ function computePackageHealth(
     }
   }
 
-  const relevantItems = clientPackage.client_package_items.filter(
-    (item) => item.item_type === appointmentType || item.item_type === "other"
+  const supportedUsageTypes = appointmentTypeToPackageUsageTypes(appointmentType);
+
+  const relevantItems = clientPackage.client_package_items.filter((item) =>
+    item.usage_type ? supportedUsageTypes.includes(item.usage_type) : false
   );
 
   if (!relevantItems.length) {
     return "depleted";
   }
 
-  const finiteItems = relevantItems.filter((item) => item.remaining_quantity != null);
-
-  if (!finiteItems.length) {
+  if (relevantItems.some((item) => item.is_unlimited)) {
     return "healthy";
   }
 
-  const totalRemaining = finiteItems.reduce(
-    (sum, item) => sum + (item.remaining_quantity ?? 0),
-    0
-  );
+  const totalRemaining = relevantItems.reduce((sum, item) => {
+    return sum + (toNumber(item.quantity_remaining) ?? 0);
+  }, 0);
 
   if (totalRemaining <= 0) {
     return "depleted";
@@ -386,6 +422,8 @@ export default function AppointmentCreateForm({
   const [alsoBookFloorSpace, setAlsoBookFloorSpace] = useState(false);
   const [hostStudioId, setHostStudioId] = useState("");
   const [hostRoomId, setHostRoomId] = useState("");
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceEndsMode, setRecurrenceEndsMode] = useState<"count" | "date">("count");
 
   useEffect(() => {
     setPartnerClientId("");
@@ -397,6 +435,8 @@ export default function AppointmentCreateForm({
       setAlsoBookFloorSpace(false);
       setHostStudioId("");
       setHostRoomId("");
+      setIsRecurring(false);
+      setRecurrenceEndsMode("count");
     }
 
     if (appointmentType === "room_unavailable") {
@@ -457,6 +497,7 @@ export default function AppointmentCreateForm({
 
   const isFloorRental = appointmentType === "floor_space_rental";
   const isUnavailableBlock = appointmentType === "room_unavailable";
+  const canRepeatAppointment = !isFloorRental && !isUnavailableBlock;
   const requiresClient = !isUnavailableBlock;
   const showPackageSection = ![
     "group_class",
@@ -509,6 +550,13 @@ export default function AppointmentCreateForm({
       />
       <input type="hidden" name="hostStudioId" value={hostStudioId} />
       <input type="hidden" name="hostRoomId" value={hostRoomId} />
+      <input
+        type="hidden"
+        name="isRecurring"
+        value={canRepeatAppointment && isRecurring ? "true" : "false"}
+      />
+      <input type="hidden" name="recurrenceFrequency" value="weekly" />
+      <input type="hidden" name="recurrenceInterval" value="1" />
 
       <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -535,7 +583,9 @@ export default function AppointmentCreateForm({
                 ? "Create Floor Rentals"
                 : isUnavailableBlock
                 ? "Block Floor Space"
-                : "Create Appointment"}
+                : canRepeatAppointment && isRecurring
+                  ? "Create Recurring Appointments"
+                  : "Create Appointment"}
             </button>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -728,6 +778,113 @@ export default function AppointmentCreateForm({
               </div>
             </div>
           </section>
+
+          {canRepeatAppointment ? (
+            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 md:text-xl">
+                    Repeat Appointment
+                  </h3>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Create a simple weekly series for recurring lessons. For launch,
+                    each appointment in the series can be edited or canceled one at a
+                    time.
+                  </p>
+                </div>
+
+                <label className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700 md:min-w-[260px]">
+                  <input
+                    type="checkbox"
+                    checked={isRecurring}
+                    onChange={(e) => setIsRecurring(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    <span className="font-semibold text-slate-950">
+                      Repeat weekly
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-slate-500">
+                      Uses the start date and time above for every appointment.
+                    </span>
+                  </span>
+                </label>
+              </div>
+
+              {isRecurring ? (
+                <div className="mt-5 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor="recurrenceEndsMode"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      Ends
+                    </label>
+                    <select
+                      id="recurrenceEndsMode"
+                      name="recurrenceEndsMode"
+                      value={recurrenceEndsMode}
+                      onChange={(e) =>
+                        setRecurrenceEndsMode(e.target.value as "count" | "date")
+                      }
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                    >
+                      <option value="count">After a number of appointments</option>
+                      <option value="date">On a specific date</option>
+                    </select>
+                  </div>
+
+                  {recurrenceEndsMode === "count" ? (
+                    <div>
+                      <label
+                        htmlFor="recurrenceOccurrenceCount"
+                        className="mb-1.5 block text-sm font-medium"
+                      >
+                        Number of appointments
+                      </label>
+                      <input
+                        id="recurrenceOccurrenceCount"
+                        name="recurrenceOccurrenceCount"
+                        type="number"
+                        min={2}
+                        max={52}
+                        defaultValue={4}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                      />
+                      <input type="hidden" name="recurrenceEndDate" value="" />
+                    </div>
+                  ) : (
+                    <div>
+                      <label
+                        htmlFor="recurrenceEndDate"
+                        className="mb-1.5 block text-sm font-medium"
+                      >
+                        End date
+                      </label>
+                      <input
+                        id="recurrenceEndDate"
+                        name="recurrenceEndDate"
+                        type="date"
+                        required={isRecurring && recurrenceEndsMode === "date"}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                      />
+                      <input
+                        type="hidden"
+                        name="recurrenceOccurrenceCount"
+                        value="1"
+                      />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <input type="hidden" name="recurrenceEndsMode" value="count" />
+                  <input type="hidden" name="recurrenceOccurrenceCount" value="1" />
+                  <input type="hidden" name="recurrenceEndDate" value="" />
+                </>
+              )}
+            </section>
+          ) : null}
 
           {isUnavailableBlock ? (
             <section className="rounded-[32px] border border-amber-200 bg-amber-50 p-6 shadow-sm md:p-7">
@@ -1092,7 +1249,9 @@ export default function AppointmentCreateForm({
                   ? "Create Floor Rentals"
                   : isUnavailableBlock
                     ? "Block Floor Space"
-                    : "Create Appointment"}
+                    : canRepeatAppointment && isRecurring
+                      ? "Create Recurring Appointments"
+                      : "Create Appointment"}
               </button>
             </div>
           </section>

@@ -19,8 +19,8 @@ import {
   unlinkPartnerAction,
   unlinkPortalAccessAction,
   updateIndependentInstructorSettingsAction,
+  adjustLessonCountCorrectionAction,
 } from "./actions";
-import ClientMembershipCard from "./ClientMembershipCard";
 import {
   cancelMembershipAtPeriodEndAction,
   reactivateMembershipAutoRenewAction,
@@ -240,7 +240,7 @@ type PackageHealth =
   | "expired"
   | "unknown";
 
-  type HostStudioPortalLink = {
+type HostStudioPortalLink = {
   client_id: string;
   studio_id: string;
   studio_name: string;
@@ -1384,6 +1384,26 @@ export default async function ClientDetailPage({
         </div>
       ) : null}
 
+      <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,#0d1536_0%,#111b45_48%,#5b145e_100%)] p-5 text-white shadow-sm md:p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+              DanceFlow Client Workspace
+            </p>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight md:text-3xl">
+              Manage the full client relationship in one place
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
+              Keep payments, packages, memberships, appointments, portal access, and follow-up tasks connected so the front desk can move quickly with fewer clicks.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-sm text-white/80">
+            <p className="font-semibold text-white">Studio CRM</p>
+            <p className="mt-1">Built for daily studio operations</p>
+          </div>
+        </div>
+      </div>
+
       <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,rgba(255,255,255,0.94)_0%,rgba(255,249,243,0.98)_100%)] p-6 shadow-sm">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
@@ -1748,110 +1768,6 @@ export default async function ClientDetailPage({
           </div>
         </SectionCard>
       ) : null}
-
-            <SectionCard
-        title="Products & Recurring Revenue"
-        subtitle="Sell packages, start memberships, and jump directly into the most common front-desk sales actions."
-      >
-        <div className="grid gap-4 xl:grid-cols-2">
-          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Memberships
-                </p>
-                <h3 className="mt-2 text-xl font-semibold text-[var(--brand-text)]">
-                  {typedActiveMembership ? typedActiveMembership.name_snapshot : "No active membership"}
-                </h3>
-                <p className="mt-2 text-sm text-slate-600">
-                  {typedActiveMembership
-                    ? `Status: ${typedActiveMembership.status.replaceAll("_", " ")} • ${fmtCurrency(
-                        typedActiveMembership.price_snapshot
-                      )} / ${billingIntervalLabel(typedActiveMembership.billing_interval_snapshot)}`
-                    : "Recurring revenue is not active for this client yet."}
-                </p>
-              </div>
-
-              <span
-                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-                  typedActiveMembership
-                    ? "bg-emerald-50 text-emerald-700"
-                    : "bg-slate-100 text-slate-600"
-                }`}
-              >
-                {typedActiveMembership ? "Active / Managed" : "Available"}
-              </span>
-            </div>
-
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <Link
-                href={`/app/memberships?clientId=${typedClient.id}`}
-                className="rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-3 text-center text-sm font-medium text-white hover:brightness-105"
-              >
-                {typedActiveMembership ? "Manage Membership" : "Start Membership"}
-              </Link>
-
-              <a
-                href="#membership-billing-controls"
-                className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-center text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
-              >
-                Billing Controls
-              </a>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Packages
-                </p>
-                <h3 className="mt-2 text-xl font-semibold text-[var(--brand-text)]">
-                  {activePackages.length > 0
-                    ? `${activePackages.length} active package${activePackages.length === 1 ? "" : "s"}`
-                    : "No active packages"}
-                </h3>
-                <p className="mt-2 text-sm text-slate-600">
-                  {typedPackageTemplates.length} package template
-                  {typedPackageTemplates.length === 1 ? "" : "s"} available to sell from this client profile.
-                </p>
-              </div>
-
-              <span
-                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-                  activePackages.length > 0
-                    ? "bg-violet-50 text-violet-700"
-                    : "bg-slate-100 text-slate-600"
-                }`}
-              >
-                {activePackages.length > 0 ? "In Use" : "Ready to Sell"}
-              </span>
-            </div>
-
-            <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              <a
-                href="#quick-sale-payment"
-                className="rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-3 text-center text-sm font-medium text-white hover:brightness-105"
-              >
-                Sell Package
-              </a>
-
-              <a
-                href="#package-balances"
-                className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-center text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
-              >
-                View Packages
-              </a>
-            </div>
-          </div>
-        </div>
-      </SectionCard>
-
-      <ClientMembershipCard
-        clientId={typedClient.id}
-        activeMembership={typedActiveMembership}
-        membershipPlans={typedMembershipPlans}
-      />
 
       {delinquencyConfig ? (
         <SectionCard
@@ -2394,6 +2310,198 @@ export default async function ClientDetailPage({
         </SectionCard>
       ) : null}
 
+      <div className="grid gap-6 xl:grid-cols-2">
+        <div id="memberships">
+          <SectionCard
+            title="Memberships"
+            subtitle="Current recurring membership status and billing details."
+            action={
+              <Link
+                href={`/app/memberships?clientId=${typedClient.id}`}
+                className="rounded-2xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-medium hover:bg-[var(--brand-primary-soft)]"
+              >
+                {typedActiveMembership ? "Manage" : "Start"}
+              </Link>
+            }
+          >
+            {typedActiveMembership ? (
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Current Membership
+                      </p>
+                      <h4 className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
+                        {typedActiveMembership.name_snapshot}
+                      </h4>
+                    </div>
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
+                        typedActiveMembership.status
+                      )}`}
+                    >
+                      {typedActiveMembership.status.replaceAll("_", " ")}
+                    </span>
+                  </div>
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-xl bg-white px-3 py-2">
+                      <p className="text-xs text-slate-500">Billing</p>
+                      <p className="mt-1 font-semibold text-[var(--brand-text)]">
+                        {fmtCurrency(typedActiveMembership.price_snapshot)} / {billingIntervalLabel(typedActiveMembership.billing_interval_snapshot)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-white px-3 py-2">
+                      <p className="text-xs text-slate-500">Renewal</p>
+                      <p className="mt-1 font-semibold text-[var(--brand-text)]">
+                        {typedActiveMembership.cancel_at_period_end
+                          ? "Cancels at period end"
+                          : typedActiveMembership.auto_renew
+                            ? "Auto-renew on"
+                            : "Manual renewal"}
+                      </p>
+                    </div>
+                    <div className="rounded-xl bg-white px-3 py-2 sm:col-span-2">
+                      <p className="text-xs text-slate-500">Current Period</p>
+                      <p className="mt-1 font-semibold text-[var(--brand-text)]">
+                        {fmtShortDate(typedActiveMembership.current_period_start)} - {fmtShortDate(typedActiveMembership.current_period_end)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {typedActiveMembership.benefits.length > 0 ? (
+                  <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                    <p className="text-sm font-medium text-[var(--brand-text)]">
+                      Benefits
+                    </p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {typedActiveMembership.benefits.map((benefit, index) => (
+                        <div
+                          key={`${benefit.benefit_type}-${index}`}
+                          className="rounded-xl bg-[var(--brand-surface)] px-3 py-2 text-sm text-slate-700"
+                        >
+                          {benefit.benefit_type.replaceAll("_", " ")}
+                          {benefit.quantity != null ? ` • ${benefit.quantity}` : ""}
+                          {benefit.discount_percent != null ? ` • ${benefit.discount_percent}% off` : ""}
+                          {benefit.discount_amount != null ? ` • ${fmtCurrency(benefit.discount_amount)} off` : ""}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
+                <p className="font-medium text-[var(--brand-text)]">No active membership</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Use Start Membership when this client is ready for monthly, quarterly, or yearly billing.
+                </p>
+                <p className="mt-3 text-xs text-slate-500">
+                  {typedMembershipPlans.length} active membership plan{typedMembershipPlans.length === 1 ? "" : "s"} available.
+                </p>
+              </div>
+            )}
+          </SectionCard>
+        </div>
+
+        <div id="package-balances">
+          <SectionCard
+            title="Packages"
+            subtitle="Current package balances and remaining lesson, group class, and practice party credits."
+            action={
+              <Link href="/app/packages/client-balances" className="text-sm underline">
+                View all balances
+              </Link>
+            }
+          >
+            <div className="space-y-4">
+              {typedPackages.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
+                  <p className="font-medium text-[var(--brand-text)]">No active packages</p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Use Quick Sale & Payment to sell this client their first package.
+                  </p>
+                </div>
+              ) : (
+                typedPackages.map((pkg) => {
+                  const health = getPackageHealth(pkg);
+                  const warning = packageWarningMessage(health);
+
+                  return (
+                    <div
+                      key={pkg.id}
+                      className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <p className="font-medium text-[var(--brand-text)]">{pkg.name_snapshot}</p>
+                            <span
+                              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${packageHealthClass(
+                                health
+                              )}`}
+                            >
+                              {packageHealthLabel(health)}
+                            </span>
+                          </div>
+
+                          <p className="mt-1 text-sm text-slate-500">
+                            Expires: {fmtShortDate(pkg.expiration_date)}
+                          </p>
+                        </div>
+                      </div>
+
+                      {warning ? (
+                        <div
+                          className={`mt-3 rounded-2xl border px-3 py-2 text-sm ${
+                            health === "depleted" ||
+                            health === "inactive" ||
+                            health === "expired"
+                              ? "border-red-200 bg-red-50 text-red-800"
+                              : "border-amber-200 bg-amber-50 text-amber-800"
+                          }`}
+                        >
+                          {warning}
+                        </div>
+                      ) : null}
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        {pkg.client_package_items.length === 0 ? (
+                          <p className="text-slate-500">No package items found.</p>
+                        ) : (
+                          pkg.client_package_items.map((item) => (
+                            <div
+                              key={item.id}
+                              className="rounded-2xl border border-[var(--brand-border)] bg-white p-4"
+                            >
+                              <p className="text-sm text-slate-500">
+                                {usageLabel(item.usage_type)}
+                              </p>
+                              <p className="mt-2 font-medium text-[var(--brand-text)]">
+                                {item.is_unlimited
+                                  ? "Unlimited"
+                                  : `${item.quantity_remaining} remaining`}
+                              </p>
+                              <p className="mt-1 text-sm text-slate-600">
+                                {item.is_unlimited
+                                  ? "No deduction limit"
+                                  : `Used ${item.quantity_used} of ${item.quantity_total}`}
+                              </p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </SectionCard>
+        </div>
+      </div>
+
       <div className="grid gap-6 xl:grid-cols-[1.05fr_1.35fr]">
         <div className="space-y-6">
           <SectionCard title="Client Snapshot">
@@ -2623,95 +2731,6 @@ export default async function ClientDetailPage({
   ) : null}
 </SectionCard>
 
-            <div id="package-balances">
-            <SectionCard
-              title="Package Balances"
-            action={
-              <Link href="/app/packages/client-balances" className="text-sm underline">
-                View all balances
-              </Link>
-            }
-          >
-            <div className="space-y-4">
-              {typedPackages.length === 0 ? (
-                <p className="text-slate-500">No packages found.</p>
-              ) : (
-                typedPackages.map((pkg) => {
-                  const health = getPackageHealth(pkg);
-                  const warning = packageWarningMessage(health);
-
-                  return (
-                    <div
-                      key={pkg.id}
-                      className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
-                    >
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-3">
-                            <p className="font-medium text-[var(--brand-text)]">{pkg.name_snapshot}</p>
-                            <span
-                              className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${packageHealthClass(
-                                health
-                              )}`}
-                            >
-                              {packageHealthLabel(health)}
-                            </span>
-                          </div>
-
-                          <p className="mt-1 text-sm text-slate-500">
-                            Expires: {fmtShortDate(pkg.expiration_date)}
-                          </p>
-                        </div>
-                      </div>
-
-                      {warning ? (
-                        <div
-                          className={`mt-3 rounded-2xl border px-3 py-2 text-sm ${
-                            health === "depleted" ||
-                            health === "inactive" ||
-                            health === "expired"
-                              ? "border-red-200 bg-red-50 text-red-800"
-                              : "border-amber-200 bg-amber-50 text-amber-800"
-                          }`}
-                        >
-                          {warning}
-                        </div>
-                      ) : null}
-
-                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
-                        {pkg.client_package_items.length === 0 ? (
-                          <p className="text-slate-500">No package items found.</p>
-                        ) : (
-                          pkg.client_package_items.map((item) => (
-                            <div
-                              key={item.id}
-                              className="rounded-2xl border border-[var(--brand-border)] bg-white p-4"
-                            >
-                              <p className="text-sm text-slate-500">
-                                {usageLabel(item.usage_type)}
-                              </p>
-                              <p className="mt-2 font-medium text-[var(--brand-text)]">
-                                {item.is_unlimited
-                                  ? "Unlimited"
-                                  : `${item.quantity_remaining} remaining`}
-                              </p>
-                              <p className="mt-1 text-sm text-slate-600">
-                                {item.is_unlimited
-                                  ? "No deduction limit"
-                                  : `Used ${item.quantity_used} of ${item.quantity_total}`}
-                              </p>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-                      </SectionCard>
-          </div>
-
           <SectionCard title="Notes">
             <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="whitespace-pre-wrap text-slate-700">
@@ -2744,6 +2763,127 @@ export default async function ClientDetailPage({
               />
             </QuickActionPanel>
           </div>
+
+          {canEditClients(role) ? (
+  <QuickActionPanel
+    title="Package Count Correction"
+    description="Adjust package balances when lesson, group class, or party credits need to be added back or manually deducted. Each correction is saved in package history."
+    defaultOpen={false}
+  >
+              {activePackages.some((pkg) =>
+                pkg.client_package_items.some((item) => !item.is_unlimited)
+              ) ? (
+                <form action={adjustLessonCountCorrectionAction} className="space-y-4">
+                  <input type="hidden" name="clientId" value={typedClient.id} />
+                  <input
+                    type="hidden"
+                    name="returnTo"
+                    value={`/app/clients/${typedClient.id}`}
+                  />
+
+                  <div>
+                    <label
+                      htmlFor="packageItemId"
+                      className="mb-1 block text-sm font-medium text-[var(--brand-text)]"
+                    >
+                      Package Balance
+                    </label>
+                    <select
+                      id="packageItemId"
+                      name="packageItemId"
+                      required
+                      className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm"
+                      defaultValue=""
+                    >
+                      <option value="">Select package balance</option>
+                      {activePackages.map((pkg) => (
+                        <optgroup key={pkg.id} label={pkg.name_snapshot}>
+                          {pkg.client_package_items
+                            .filter((item) => !item.is_unlimited)
+                            .map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {pkg.name_snapshot} — {usageLabel(item.usage_type)} — {item.quantity_remaining ?? 0} remaining
+                              </option>
+                            ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor="correctionType"
+                        className="mb-1 block text-sm font-medium text-[var(--brand-text)]"
+                      >
+                        Correction Type
+                      </label>
+                      <select
+                        id="correctionType"
+                        name="correctionType"
+                        required
+                        className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm"
+                        defaultValue="add"
+                      >
+                        <option value="add">Add credits</option>
+                        <option value="debit">Debit credits</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="quantity"
+                        className="mb-1 block text-sm font-medium text-[var(--brand-text)]"
+                      >
+                        Quantity
+                      </label>
+                      <input
+                        id="quantity"
+                        name="quantity"
+                        type="number"
+                        min="1"
+                        step="1"
+                        required
+                        className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm"
+                        placeholder="1"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="reason"
+                      className="mb-1 block text-sm font-medium text-[var(--brand-text)]"
+                    >
+                      Reason / Notes
+                    </label>
+                    <textarea
+                      id="reason"
+                      name="reason"
+                      rows={3}
+                      required
+                      className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm"
+                      placeholder="Example: Correcting missed deduction, adding a bonus credit, or restoring a credit after a scheduling error."
+                    />
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      Add credits increases the selected package balance. Debit credits manually deducts from the remaining balance. Negative balances are not allowed.
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full rounded-2xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-semibold text-white hover:opacity-90"
+                  >
+                    Save Correction
+                  </button>
+                </form>
+              ) : (
+                <p className="text-sm text-slate-500">
+                  This client does not have any active package balances that can be corrected.
+                </p>
+              )}
+            </QuickActionPanel>
+          ) : null}
 
           {typedClient.status === "lead" ? (
             <>

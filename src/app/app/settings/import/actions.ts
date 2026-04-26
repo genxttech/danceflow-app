@@ -10,6 +10,37 @@ export type ImportActionState = {
   error: string;
 };
 
+function isNextRedirectError(error: unknown) {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "digest" in error &&
+    typeof (error as { digest?: unknown }).digest === "string" &&
+    (error as { digest: string }).digest.startsWith("NEXT_REDIRECT")
+  );
+}
+
+function importErrorDetail(error: unknown) {
+  if (error instanceof Error && error.message) {
+    return error.message.slice(0, 500);
+  }
+
+  if (typeof error === "string" && error) {
+    return error.slice(0, 500);
+  }
+
+  return "Unknown import error.";
+}
+
+function redirectImportError(path: string, errorCode: string, error: unknown): never {
+  if (isNextRedirectError(error)) {
+    throw error;
+  }
+
+  const separator = path.includes("?") ? "&" : "?";
+  redirect(`${path}${separator}error=${encodeURIComponent(errorCode)}&detail=${encodeURIComponent(importErrorDetail(error))}`);
+}
+
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
@@ -756,6 +787,34 @@ function isBlockingErrorCode(errorCode: string) {
   ].includes(errorCode);
 }
 
+export async function archiveUnfinishedImportBatchesAction() {
+  try {
+    const { supabase, studioId } = await getImportContext();
+    const now = new Date().toISOString();
+
+    const { error } = await supabase
+      .from("import_batches")
+      .update({
+        status: "abandoned",
+        updated_at: now,
+      })
+      .eq("studio_id", studioId)
+      .in("status", ["draft", "uploaded", "validated"]);
+
+    if (error) {
+      throw new Error(`Could not archive unfinished imports: ${error.message}`);
+    }
+  } catch (error) {
+    if (isNextRedirectError(error)) {
+      throw error;
+    }
+
+    redirectImportError("/app/settings/import", "archive_failed", error);
+  }
+
+  redirect("/app/settings/import?success=drafts_archived");
+}
+
 export async function createImportBatchAction(
   _prevState: ImportActionState,
   formData: FormData
@@ -868,6 +927,10 @@ export async function createImportBatchAction(
       redirect(`/app/settings/import/${batch.id}?success=retry_created`);
     }
   } catch (error) {
+    if (isNextRedirectError(error)) {
+      throw error;
+    }
+
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
     };
@@ -1147,8 +1210,8 @@ export async function validateClientImportBatchAction(formData: FormData) {
         ready_rows: readyRows,
       },
     });
-  } catch {
-    redirect("/app/settings/import?error=validation_failed");
+   } catch (error) {
+    redirectImportError("/app/settings/import", "validation_failed", error);
   }
 
   redirect("/app/settings/import?success=validated");
@@ -1337,8 +1400,8 @@ export async function validateInstructorImportBatchAction(formData: FormData) {
         ready_rows: readyRows,
       },
     });
-  } catch {
-    redirect("/app/settings/import?error=validation_failed");
+   } catch (error) {
+    redirectImportError("/app/settings/import", "validation_failed", error);
   }
 
   redirect("/app/settings/import?success=validated");
@@ -1952,8 +2015,8 @@ export async function validateAppointmentImportBatchAction(formData: FormData) {
         room_conflict_warning_count: roomConflictWarningCount,
       },
     });
-  } catch {
-    redirect("/app/settings/import?error=validation_failed");
+   } catch (error) {
+    redirectImportError("/app/settings/import", "validation_failed", error);
   }
 
   redirect("/app/settings/import?success=validated");
@@ -2374,8 +2437,8 @@ export async function validatePaymentImportBatchAction(formData: FormData) {
         payment_status_normalized_warning_count: paymentStatusNormalizedWarningCount,
       },
     });
-  } catch {
-    redirect("/app/settings/import?error=validation_failed");
+   } catch (error) {
+    redirectImportError("/app/settings/import", "validation_failed", error);
   }
 
   redirect("/app/settings/import?success=validated");
@@ -2582,8 +2645,8 @@ export async function executeClientImportBatchAction(formData: FormData) {
         row_count: rows.length,
       },
     });
-  } catch {
-    redirect(`/app/settings/import/${batchId}?error=execution_failed`);
+   } catch (error) {
+    redirectImportError(`/app/settings/import/${batchId}`, "execution_failed", error);
   }
 
   redirect(`/app/settings/import/${batchId}?success=executed`);
@@ -2786,8 +2849,8 @@ export async function executeInstructorImportBatchAction(formData: FormData) {
         row_count: rows.length,
       },
     });
-  } catch {
-    redirect(`/app/settings/import/${batchId}?error=execution_failed`);
+   } catch (error) {
+    redirectImportError(`/app/settings/import/${batchId}`, "execution_failed", error);
   }
 
   redirect(`/app/settings/import/${batchId}?success=executed`);
@@ -3055,8 +3118,8 @@ export async function executeAppointmentImportBatchAction(formData: FormData) {
         row_count: rows.length,
       },
     });
-  } catch {
-    redirect(`/app/settings/import/${batchId}?error=execution_failed`);
+   } catch (error) {
+    redirectImportError(`/app/settings/import/${batchId}`, "execution_failed", error);
   }
 
   redirect(`/app/settings/import/${batchId}?success=executed`);
@@ -3302,8 +3365,8 @@ export async function executePaymentImportBatchAction(formData: FormData) {
         row_count: rows.length,
       },
     });
-  } catch {
-    redirect(`/app/settings/import/${batchId}?error=execution_failed`);
+   } catch (error) {
+    redirectImportError(`/app/settings/import/${batchId}`, "execution_failed", error);
   }
 
   redirect(`/app/settings/import/${batchId}?success=executed`);

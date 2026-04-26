@@ -5,6 +5,7 @@ import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import ImportUploadForm from "./ImportUploadForm";
 import {
+  archiveUnfinishedImportBatchesAction,
   validateAppointmentImportBatchAction,
   validateClientImportBatchAction,
   validateInstructorImportBatchAction,
@@ -15,6 +16,8 @@ type SearchParams = Promise<{
   success?: string;
   error?: string;
 }>;
+
+const ACTIVE_IMPORT_STATUSES = new Set(["draft", "uploaded", "validated"]);
 
 type ImportBatchSummary = Record<string, unknown> & {
   create_candidates?: number;
@@ -92,6 +95,13 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.success === "drafts_archived") {
+    return {
+      kind: "success" as const,
+      message: "Unfinished import drafts were archived. Completed imports and imported clients were not changed.",
+    };
+  }
+
   if (search.error === "batch_not_found") {
     return {
       kind: "error" as const,
@@ -124,6 +134,13 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "Import execution failed.",
+    };
+  }
+
+  if (search.error === "archive_failed") {
+    return {
+      kind: "error" as const,
+      message: "We could not archive unfinished import drafts. Try again or refresh the page.",
     };
   }
 
@@ -247,8 +264,12 @@ export default async function ImportSettingsPage({
       batch.failed_rows > 0
   ).length;
 
+  const unfinishedImportCount = typedBatches.filter((batch) =>
+    ACTIVE_IMPORT_STATUSES.has(batch.status)
+  ).length;
+
   const latestReviewableBatch = typedBatches.find((batch) =>
-    ["uploaded", "validated", "completed_with_warnings"].includes(batch.status)
+    ACTIVE_IMPORT_STATUSES.has(batch.status)
   );
 
   return (
@@ -265,49 +286,82 @@ export default async function ImportSettingsPage({
         </div>
       ) : null}
 
-      <div className="rounded-2xl border bg-white p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-3xl">
-            <h1 className="text-3xl font-semibold tracking-tight text-slate-900">
-              Import Studio Data
-            </h1>
-            <p className="mt-2 text-slate-600">
-              Bring over clients, instructors, appointments, and payments from your previous system.
-              Start with a file, review what needs attention, then import only the rows that are ready.
-            </p>
+      <div className="overflow-hidden rounded-3xl border bg-white shadow-sm">
+        <div className="bg-gradient-to-r from-violet-700 via-fuchsia-600 to-pink-500 p-6 text-white">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-sm font-semibold uppercase tracking-[0.25em] text-white/80">
+                DanceFlow Import Center
+              </p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                Import client data without guessing the next step
+              </h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/90 md:text-base">
+                Bring over clients, instructors, appointments, and payments from your previous system. Uploading creates a review batch first; clients are only added after you review the file and execute the import.
+              </p>
 
-            <div className="mt-4 flex flex-wrap gap-2">
-              <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              <div className="mt-4 flex flex-wrap gap-2">
+              <span className="inline-flex rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white ring-1 ring-white/25">
                 Step 1: Upload
               </span>
-              <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              <span className="inline-flex rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white ring-1 ring-white/25">
                 Step 2: Review
               </span>
-              <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              <span className="inline-flex rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white ring-1 ring-white/25">
                 Step 3: Import
               </span>
-              <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              <span className="inline-flex rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white ring-1 ring-white/25">
                 Step 4: Fix anything left
               </span>
             </div>
-          </div>
+            </div>
 
-          <div className="flex flex-wrap gap-3">
-            {latestReviewableBatch ? (
+            <div className="flex flex-wrap gap-3">
+              {latestReviewableBatch ? (
+                <>
+                  <Link
+                    href={`/app/settings/import/${latestReviewableBatch.id}`}
+                    className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-violet-700 shadow-sm hover:bg-violet-50"
+                  >
+                    Continue Latest Import
+                  </Link>
+                  <form action={archiveUnfinishedImportBatchesAction}>
+                    <button
+                      type="submit"
+                      className="rounded-xl border border-white/40 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
+                      title="Archives unfinished import drafts. Completed imports and imported clients are not changed."
+                    >
+                      Start Over
+                    </button>
+                  </form>
+                  <p className="basis-full text-xs text-white/80">
+                    {unfinishedImportCount} unfinished import draft{unfinishedImportCount === 1 ? "" : "s"}. Start Over archives drafts only; completed imports and imported clients stay unchanged.
+                  </p>
+                </>
+              ) : null}
+
               <Link
-                href={`/app/settings/import/${latestReviewableBatch.id}`}
-                className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
+                href="/app/settings"
+                className="rounded-xl border border-white/40 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
               >
-                Continue Latest Import
+                Back to Settings
               </Link>
-            ) : null}
+            </div>
+          </div>
+        </div>
 
-            <Link
-              href="/app/settings"
-              className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-            >
-              Back to Settings
-            </Link>
+        <div className="grid gap-4 p-5 md:grid-cols-3">
+          <div className="rounded-2xl border bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-900">1. Upload the CSV</p>
+            <p className="mt-1 text-sm text-slate-600">Choose the import type and upload one file at a time.</p>
+          </div>
+          <div className="rounded-2xl border bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-900">2. Review row issues</p>
+            <p className="mt-1 text-sm text-slate-600">Fix missing fields, duplicates, and invalid values before importing.</p>
+          </div>
+          <div className="rounded-2xl border bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-900">3. Execute import</p>
+            <p className="mt-1 text-sm text-slate-600">Only reviewed and ready rows are added to your studio.</p>
           </div>
         </div>
       </div>
@@ -400,9 +454,10 @@ export default async function ImportSettingsPage({
 
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-2">
-          <h2 className="text-xl font-semibold text-slate-900">Start a New Import</h2>
-          <p className="text-sm text-slate-600">
-            Choose the source, pick what you are importing, upload the CSV, and start with a review pass.
+          <p className="text-sm font-semibold uppercase tracking-wide text-violet-600">New Import</p>
+          <h2 className="text-xl font-semibold text-slate-900">Start with a review batch</h2>
+          <p className="text-sm leading-6 text-slate-600">
+            Choose the source, pick what you are importing, upload the CSV, and start with a review pass. Remember: uploading does not immediately add clients. Review the file, then execute the import.
           </p>
         </div>
 

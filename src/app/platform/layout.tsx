@@ -1,20 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
-import { headers } from "next/headers";
+import PlatformAdminNav from "./PlatformAdminNav";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import {
   enterStudioContextAction,
   getPlatformSelectedStudioId,
 } from "@/app/platform/actions";
 import { signOutAction } from "@/app/(auth)/actions";
-
-function isActivePath(currentPath: string, href: string) {
-  if (href === "/platform") {
-    return currentPath === "/platform";
-  }
-
-  return currentPath === href || currentPath.startsWith(`${href}/`);
-}
 
 export default async function PlatformLayout({
   children,
@@ -23,8 +15,6 @@ export default async function PlatformLayout({
 }) {
   await requirePlatformAdmin();
 
-  const headerStore = await headers();
-  const pathname = headerStore.get("x-pathname") ?? "";
   const selectedStudioId = await getPlatformSelectedStudioId();
 
   const navItems = [
@@ -120,25 +110,7 @@ export default async function PlatformLayout({
             </p>
           </div>
 
-          <nav className="space-y-2">
-            {navItems.map((item) => {
-              const active = isActivePath(pathname, item.href);
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`block rounded-2xl px-4 py-3 text-sm font-medium transition ${
-                    active
-                      ? "bg-slate-900 text-white shadow-sm"
-                      : "text-slate-700 hover:bg-slate-50"
-                  }`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
+          <PlatformAdminNav items={navItems} />
 
           <div className="mt-6 border-t border-slate-200 pt-4">
             <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -161,3 +133,4 @@ export default async function PlatformLayout({
     </div>
   );
 }
+

@@ -8,6 +8,15 @@ type PageProps = {
   }>;
 };
 
+type ClientRow = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  studio_id: string;
+  is_independent_instructor: boolean | null;
+  linked_instructor_id: string | null;
+};
+
 type CalendarRow = {
   id: string;
   title: string | null;
@@ -38,6 +47,16 @@ type CalendarRow = {
     | null;
 };
 
+type LessonRecapRow = {
+  id: string;
+  appointment_id: string;
+  summary: string | null;
+  homework: string | null;
+  next_focus: string | null;
+  visible_to_client: boolean | null;
+  updated_at: string;
+};
+
 function getSingle<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
   return Array.isArray(value) ? (value[0] ?? null) : value;
@@ -56,24 +75,10 @@ function getClientName(
 }
 
 function getRoomName(
-  value:
-    | { name: string }
-    | { name: string }[]
-    | null
-    | undefined
+  value: { name: string } | { name: string }[] | null | undefined
 ) {
   const room = getSingle(value);
-  return room?.name ?? "No room";
-}
-
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+  return room?.name ?? "No room listed";
 }
 
 function formatDate(value: string) {
@@ -82,7 +87,7 @@ function formatDate(value: string) {
     month: "long",
     day: "numeric",
     year: "numeric",
-  }).format(new Date(value));
+  }).format(new Date(`${value}T12:00:00`));
 }
 
 function formatTimeRange(start: string, end: string) {
@@ -92,6 +97,14 @@ function formatTimeRange(start: string, end: string) {
   });
 
   return `${formatter.format(new Date(start))} – ${formatter.format(new Date(end))}`;
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
 }
 
 function formatStatusLabel(value: string) {
@@ -108,24 +121,12 @@ function statusBadgeClass(status: string) {
 }
 
 function typeBadgeClass(type: string) {
-  if (type === "floor_space_rental") {
-    return "bg-indigo-50 text-indigo-700 ring-indigo-100";
-  }
-  if (type === "private_lesson") {
-    return "bg-slate-100 text-slate-700 ring-slate-200";
-  }
-  if (type === "group_class") {
-    return "bg-green-50 text-green-700 ring-green-100";
-  }
-  if (type === "intro_lesson") {
-    return "bg-cyan-50 text-cyan-700 ring-cyan-100";
-  }
-  if (type === "coaching") {
-    return "bg-purple-50 text-purple-700 ring-purple-100";
-  }
-  if (type === "practice_party") {
-    return "bg-amber-50 text-amber-700 ring-amber-100";
-  }
+  if (type === "floor_space_rental") return "bg-indigo-50 text-indigo-700 ring-indigo-100";
+  if (type === "private_lesson") return "bg-slate-100 text-slate-700 ring-slate-200";
+  if (type === "group_class") return "bg-green-50 text-green-700 ring-green-100";
+  if (type === "intro_lesson") return "bg-cyan-50 text-cyan-700 ring-cyan-100";
+  if (type === "coaching") return "bg-purple-50 text-purple-700 ring-purple-100";
+  if (type === "practice_party") return "bg-amber-50 text-amber-700 ring-amber-100";
   return "bg-slate-100 text-slate-700 ring-slate-200";
 }
 
@@ -159,9 +160,13 @@ function groupByDay(rows: CalendarRow[]) {
 function ScheduleCard({
   item,
   studioSlug,
+  isIndependentInstructor,
+  recap,
 }: {
   item: CalendarRow;
   studioSlug: string;
+  isIndependentInstructor: boolean;
+  recap?: LessonRecapRow;
 }) {
   const isRental = item.appointment_type === "floor_space_rental";
 
@@ -198,10 +203,34 @@ function ScheduleCard({
             <p>Client: {getClientName(item.clients)}</p>
             <p>Room: {getRoomName(item.rooms)}</p>
           </div>
+
+          {recap ? (
+            <div className="mt-4 rounded-2xl border border-violet-100 bg-violet-50 p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-violet-950">Lesson Recap</p>
+                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-violet-700 ring-1 ring-violet-100">
+                  Updated {formatDateTime(recap.updated_at)}
+                </span>
+              </div>
+              {recap.summary ? (
+                <p className="mt-2 text-sm leading-6 text-violet-900">{recap.summary}</p>
+              ) : null}
+              {recap.homework ? (
+                <p className="mt-2 text-sm leading-6 text-violet-900">
+                  <span className="font-medium">Homework:</span> {recap.homework}
+                </p>
+              ) : null}
+              {recap.next_focus ? (
+                <p className="mt-2 text-sm leading-6 text-violet-900">
+                  <span className="font-medium">Next focus:</span> {recap.next_focus}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {isRental ? (
+          {isRental && isIndependentInstructor ? (
             <Link
               href={`/portal/${studioSlug}/floor-space/my-rentals`}
               className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
@@ -212,6 +241,55 @@ function ScheduleCard({
         </div>
       </div>
     </div>
+  );
+}
+
+async function loadAppointments(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  client: ClientRow;
+}) {
+  const { supabase, studioId, client } = params;
+
+  let query = supabase
+    .from("appointments")
+    .select(`
+      id,
+      title,
+      starts_at,
+      ends_at,
+      status,
+      appointment_type,
+      client_id,
+      instructor_id,
+      room_id,
+      clients:clients!client_id(first_name, last_name),
+      rooms:rooms!room_id(name)
+    `)
+    .eq("studio_id", studioId)
+    .order("starts_at", { ascending: true });
+
+  if (client.is_independent_instructor && client.linked_instructor_id) {
+    query = query.or(
+      `client_id.eq.${client.id},instructor_id.eq.${client.linked_instructor_id}`
+    );
+  } else {
+    query = query.eq("client_id", client.id);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const dedupedMap = new Map<string, CalendarRow>();
+  for (const row of (data ?? []) as CalendarRow[]) {
+    dedupedMap.set(row.id, row);
+  }
+
+  return Array.from(dedupedMap.values()).sort((a, b) =>
+    a.starts_at.localeCompare(b.starts_at)
   );
 }
 
@@ -229,7 +307,7 @@ export default async function PortalSchedulePage({ params }: PageProps) {
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
-    .select("id, name, slug")
+    .select("id, name, slug, public_name")
     .eq("slug", studioSlug)
     .maybeSingle();
 
@@ -249,53 +327,43 @@ export default async function PortalSchedulePage({ params }: PageProps) {
     `)
     .eq("studio_id", studio.id)
     .eq("portal_user_id", user.id)
-    .maybeSingle();
+    .maybeSingle<ClientRow>();
 
   if (portalClientError || !portalClient) {
     redirect(`/portal/${studioSlug}`);
   }
 
-  if (!portalClient.is_independent_instructor) {
-    redirect(`/portal/${studioSlug}`);
+  const isIndependentInstructor = portalClient.is_independent_instructor === true;
+  const appointments = await loadAppointments({
+    supabase,
+    studioId: studio.id,
+    client: portalClient,
+  });
+
+  const recapAppointmentIds = appointments
+    .filter((item) => item.status === "attended")
+    .map((item) => item.id);
+
+  let lessonRecaps: LessonRecapRow[] = [];
+
+  if (recapAppointmentIds.length) {
+    const { data, error } = await supabase
+      .from("lesson_recaps")
+      .select("id, appointment_id, summary, homework, next_focus, visible_to_client, updated_at")
+      .eq("studio_id", studio.id)
+      .in("appointment_id", recapAppointmentIds)
+      .eq("visible_to_client", true)
+      .order("updated_at", { ascending: false });
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    lessonRecaps = (data ?? []) as LessonRecapRow[];
   }
 
-  const filters = [
-    `client_id.eq.${portalClient.id}`,
-    portalClient.linked_instructor_id
-      ? `instructor_id.eq.${portalClient.linked_instructor_id}`
-      : null,
-  ].filter(Boolean) as string[];
-
-  const { data: rawAppointments, error: appointmentsError } = await supabase
-    .from("appointments")
-    .select(`
-      id,
-      title,
-      starts_at,
-      ends_at,
-      status,
-      appointment_type,
-      client_id,
-      instructor_id,
-      room_id,
-      clients:clients!client_id(first_name, last_name),
-      rooms:rooms!room_id(name)
-    `)
-    .eq("studio_id", studio.id)
-    .or(filters.join(","))
-    .order("starts_at", { ascending: true });
-
-  if (appointmentsError) {
-    throw new Error(appointmentsError.message);
-  }
-
-  const dedupedMap = new Map<string, CalendarRow>();
-  for (const row of (rawAppointments ?? []) as CalendarRow[]) {
-    dedupedMap.set(row.id, row);
-  }
-
-  const appointments = Array.from(dedupedMap.values()).sort((a, b) =>
-    a.starts_at.localeCompare(b.starts_at)
+  const recapByAppointmentId = new Map(
+    lessonRecaps.map((recap) => [recap.appointment_id, recap])
   );
 
   const now = new Date();
@@ -303,90 +371,93 @@ export default async function PortalSchedulePage({ params }: PageProps) {
   const recent = appointments
     .filter((row) => new Date(row.ends_at) < now)
     .sort((a, b) => b.starts_at.localeCompare(a.starts_at))
-    .slice(0, 20);
+    .slice(0, 30);
 
   const upcomingGroups = groupByDay(upcoming);
   const recentGroups = groupByDay(recent);
 
-  const unpaidRentalCount = appointments.filter(
-    (row) =>
-      row.appointment_type === "floor_space_rental" &&
-      row.status !== "cancelled" &&
-      new Date(row.ends_at) < now
+  const rentalCount = appointments.filter(
+    (row) => row.appointment_type === "floor_space_rental"
   ).length;
+
+  const studioLabel = studio.public_name?.trim() || studio.name;
 
   return (
     <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-              Instructor Portal
-            </p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">
-              My Schedule
-            </h1>
-            <p className="mt-2 text-sm text-slate-600">
-              View upcoming lessons, rentals, and recent schedule history for {studio.name}.
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
-                Upcoming
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-7 text-white md:px-8">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                DanceFlow Portal
               </p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900">{upcoming.length}</p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
+                My Schedule
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85">
+                Review upcoming appointments, past lessons, and shared lesson recaps for {studioLabel}.
+              </p>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
-                Recent
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900">{recent.length}</p>
-            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/65">
+                  Upcoming
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-white">{upcoming.length}</p>
+              </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
-                Rental Items
-              </p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900">{unpaidRentalCount}</p>
+              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/65">
+                  Recent
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-white">{recent.length}</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-white/65">
+                  Recaps
+                </p>
+                <p className="mt-1 text-2xl font-semibold text-white">{lessonRecaps.length}</p>
+              </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-3">
+        <div className="flex flex-wrap gap-3 border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
           <Link
             href={`/portal/${studioSlug}`}
-            className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             Back to Portal
           </Link>
 
-          <Link
-            href={`/portal/${studioSlug}/floor-space/book`}
-            className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Book Floor Space
-          </Link>
+          {isIndependentInstructor ? (
+            <>
+              <Link
+                href={`/portal/${studioSlug}/floor-space/book`}
+                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Book Floor Space
+              </Link>
 
-          <Link
-            href={`/portal/${studioSlug}/floor-space/my-rentals`}
-            className="inline-flex items-center justify-center rounded-xl bg-[var(--brand-accent-dark)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-95"
-          >
-            My Rentals
-          </Link>
+              <Link
+                href={`/portal/${studioSlug}/floor-space/my-rentals`}
+                className="inline-flex items-center justify-center rounded-xl bg-[var(--brand-accent-dark)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-95"
+              >
+                My Rentals
+              </Link>
+            </>
+          ) : null}
         </div>
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Upcoming Schedule</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Future lessons, rentals, and instructor-linked appointments.
-            </p>
-          </div>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Upcoming Schedule</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Future lessons, classes, rentals, and studio appointments connected to your portal.
+          </p>
         </div>
 
         {upcomingGroups.length === 0 ? (
@@ -410,6 +481,8 @@ export default async function PortalSchedulePage({ params }: PageProps) {
                       key={item.id}
                       item={item}
                       studioSlug={studioSlug}
+                      isIndependentInstructor={isIndependentInstructor}
+                      recap={recapByAppointmentId.get(item.id)}
                     />
                   ))}
                 </div>
@@ -420,13 +493,11 @@ export default async function PortalSchedulePage({ params }: PageProps) {
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Recent Schedule History</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Your most recent completed, cancelled, and past rental items.
-            </p>
-          </div>
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Past Appointments & Recaps</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Review recent appointments and any lesson recaps your instructor has shared.
+          </p>
         </div>
 
         {recentGroups.length === 0 ? (
@@ -450,6 +521,8 @@ export default async function PortalSchedulePage({ params }: PageProps) {
                       key={item.id}
                       item={item}
                       studioSlug={studioSlug}
+                      isIndependentInstructor={isIndependentInstructor}
+                      recap={recapByAppointmentId.get(item.id)}
                     />
                   ))}
                 </div>
@@ -460,19 +533,23 @@ export default async function PortalSchedulePage({ params }: PageProps) {
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">
-        <h2 className="text-lg font-semibold text-slate-900">Quick Notes</h2>
+        <h2 className="text-lg font-semibold text-slate-900">Schedule Notes</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm font-medium text-slate-900">Floor rentals</p>
+            <p className="text-sm font-medium text-slate-900">Lesson recaps</p>
             <p className="mt-1 text-sm text-slate-600">
-              Use My Rentals to review unpaid rental items and pay your running balance in one transaction.
+              Recaps appear here after your instructor shares them from an attended private lesson.
             </p>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm font-medium text-slate-900">Schedule visibility</p>
+            <p className="text-sm font-medium text-slate-900">
+              {isIndependentInstructor ? "Floor rentals" : "Need a schedule change?"}
+            </p>
             <p className="mt-1 text-sm text-slate-600">
-              This page shows items tied to your instructor link and your portal-linked client record.
+              {isIndependentInstructor
+                ? `You have ${rentalCount} floor rental item${rentalCount === 1 ? "" : "s"} connected to this portal.`
+                : "Contact the studio if an appointment time, status, or room looks incorrect."}
             </p>
           </div>
         </div>

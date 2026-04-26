@@ -89,7 +89,7 @@ export default function HelpCenterPage() {
 
             <div className="flex flex-wrap gap-3">
               <Link
-                href="/app/knowledgebase"
+                href="/knowledgebase"
                 className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
               >
                 Open Knowledgebase

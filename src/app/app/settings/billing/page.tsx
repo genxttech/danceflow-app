@@ -628,11 +628,17 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
   const errorMessage = getErrorMessage(errorParam);
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <section className="border-b border-slate-200/70 bg-white">
-        <div className="mx-auto max-w-7xl px-6 py-12">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div>
+    <main className="min-h-screen bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)]">
+  <section className="mx-auto max-w-7xl px-6 pt-8">
+    <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+      <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+              DanceFlow
+            </p>
+
+            <div className="mt-3 flex flex-wrap items-center gap-3">
               <span
                 className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses(
                   getWorkspaceTone(selectedAudience)
@@ -641,121 +647,133 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
                 {getWorkspaceTitle(selectedAudience)}
               </span>
 
-              <h1 className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">
-                Billing & Payouts
-              </h1>
-
-              <p className="mt-3 max-w-3xl text-lg leading-8 text-slate-600">
-                {isTrialCompleteEntry && !hasManagedSubscription
-                  ? `Start your ${
-                      selectedAudience === "organizer" ? "organizer" : "studio"
-                    } subscription and begin your free trial.`
-                  : `Manage your subscription, connect Stripe, and keep this ${
-                      selectedAudience === "organizer" ? "organizer" : "studio"
-                    } workspace ready for payments.`}
-              </p>
+              <span
+                className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${badgeClasses(
+                  getSubscriptionTone(effectiveSubscriptionStatus)
+                )}`}
+              >
+                {getSubscriptionLabel(effectiveSubscriptionStatus)}
+              </span>
             </div>
 
-            <div className="flex flex-wrap gap-3">
-              {hasManagedSubscription && studio.stripe_customer_id ? (
-                <form action="/api/billing/portal" method="post">
-                  <button
-                    type="submit"
-                    className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    Open Billing Portal
-                  </button>
-                </form>
-              ) : null}
+            <h1 className="mt-4 text-3xl font-semibold tracking-tight md:text-4xl">
+              Billing &amp; Payouts
+            </h1>
 
-              {showWorkspaceButton ? (
-                <Link
-                  href={getPostTrialDashboardPath(selectedAudience)}
-                  className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  Go to Workspace
-                </Link>
-              ) : null}
-            </div>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+              {isTrialCompleteEntry && !hasManagedSubscription
+                ? `Start your ${
+                    selectedAudience === "organizer" ? "organizer" : "studio"
+                  } subscription and begin your free trial.`
+                : `Manage your subscription, connect Stripe, and keep this ${
+                    selectedAudience === "organizer" ? "organizer" : "studio"
+                  } workspace ready to collect payments and receive payouts.`}
+            </p>
           </div>
 
-          {isTrialCompleteEntry && !hasManagedSubscription ? (
-            <div
-              className={`mt-8 rounded-2xl border p-4 text-sm ${
-                selectedAudience === "organizer"
-                  ? "border-violet-200 bg-violet-50 text-violet-800"
-                  : "border-sky-200 bg-sky-50 text-sky-800"
-              }`}
-            >
-              {selectedAudience === "organizer"
-                ? "Complete billing first to begin your organizer trial. Payout setup comes after your subscription is started."
-                : "Complete billing first to begin your studio trial. Payout setup comes after your subscription is started."}
-            </div>
-          ) : entryMode === "trial-complete" ? (
-            <div
-              className={`mt-8 rounded-2xl border p-4 text-sm ${
-                selectedAudience === "organizer"
-                  ? "border-violet-200 bg-violet-50 text-violet-800"
-                  : "border-sky-200 bg-sky-50 text-sky-800"
-              }`}
-            >
-              {selectedAudience === "organizer"
-                ? "Your organizer trial is active. You can manage billing, continue into the workspace, and complete payouts when needed."
-                : "Your studio trial is active. You can manage billing, continue into the workspace, and complete payouts when needed."}
-            </div>
-          ) : null}
+          <div className="flex flex-wrap gap-3">
+            {hasManagedSubscription && studio.stripe_customer_id ? (
+              <form action="/api/billing/portal" method="post">
+                <button
+                  type="submit"
+                  className="rounded-xl border border-white/25 bg-white/10 px-4 py-2.5 text-sm font-medium text-white backdrop-blur hover:bg-white/20"
+                >
+                  Open Billing Portal
+                </button>
+              </form>
+            ) : null}
 
-          {isAccessPaused ? (
-            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
-              <p className="font-semibold">Workspace access paused</p>
-              <p className="mt-1">
-                Billing must be resolved before access to this workspace is restored.
-                Update your subscription or payment method below to regain access.
-              </p>
-            </div>
-          ) : null}
-
-          {successMessage ? (
-            <div
-              className={`mt-6 rounded-2xl border p-4 text-sm ${
-                successMessage.tone === "green"
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                  : successMessage.tone === "violet"
-                    ? "border-violet-200 bg-violet-50 text-violet-800"
-                    : "border-sky-200 bg-sky-50 text-sky-800"
-              }`}
-            >
-              <p className="font-semibold">{successMessage.title}</p>
-              <p className="mt-1">{successMessage.body}</p>
-            </div>
-          ) : null}
-
-          {errorMessage ? (
-            <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
-              <p className="font-semibold">Billing issue</p>
-              <p className="mt-1">{errorMessage}</p>
-            </div>
-          ) : null}
-
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
-            <InfoCard
-              label="Workspace"
-              value={studio.name ?? "Workspace"}
-              icon={Sparkles}
-            />
-            <InfoCard
-              label="Subscription"
-              value={getSubscriptionLabel(effectiveSubscriptionStatus)}
-              icon={CreditCard}
-            />
-            <InfoCard
-              label={showPayoutsCard ? "Payout setup" : "Next step"}
-              value={showPayoutsCard ? connectStatus.label : "Complete billing"}
-              icon={showPayoutsCard ? Wallet : ArrowRight}
-            />
+            {showWorkspaceButton ? (
+              <Link
+                href={getPostTrialDashboardPath(selectedAudience)}
+                className="rounded-xl bg-white px-4 py-2.5 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+              >
+                Go to Workspace
+              </Link>
+            ) : null}
           </div>
         </div>
-      </section>
+      </div>
+
+      <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+        <div className="grid gap-4 md:grid-cols-3">
+          <InfoCard
+            label="Workspace"
+            value={studio.name ?? "Workspace"}
+            icon={Sparkles}
+          />
+          <InfoCard
+            label="Subscription"
+            value={getSubscriptionLabel(effectiveSubscriptionStatus)}
+            icon={CreditCard}
+          />
+          <InfoCard
+            label={showPayoutsCard ? "Payout setup" : "Next step"}
+            value={showPayoutsCard ? connectStatus.label : "Complete billing"}
+            icon={showPayoutsCard ? Wallet : ArrowRight}
+          />
+        </div>
+      </div>
+    </div>
+
+    {isTrialCompleteEntry && !hasManagedSubscription ? (
+      <div
+        className={`mt-6 rounded-2xl border p-4 text-sm ${
+          selectedAudience === "organizer"
+            ? "border-violet-200 bg-violet-50 text-violet-800"
+            : "border-sky-200 bg-sky-50 text-sky-800"
+        }`}
+      >
+        {selectedAudience === "organizer"
+          ? "Complete billing first to begin your organizer trial. Payout setup comes after your subscription is started."
+          : "Complete billing first to begin your studio trial. Payout setup comes after your subscription is started."}
+      </div>
+    ) : entryMode === "trial-complete" ? (
+      <div
+        className={`mt-6 rounded-2xl border p-4 text-sm ${
+          selectedAudience === "organizer"
+            ? "border-violet-200 bg-violet-50 text-violet-800"
+            : "border-sky-200 bg-sky-50 text-sky-800"
+        }`}
+      >
+        {selectedAudience === "organizer"
+          ? "Your organizer trial is active. You can manage billing, continue into the workspace, and complete payouts when needed."
+          : "Your studio trial is active. You can manage billing, continue into the workspace, and complete payouts when needed."}
+      </div>
+    ) : null}
+
+    {isAccessPaused ? (
+      <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+        <p className="font-semibold">Workspace access paused</p>
+        <p className="mt-1">
+          Billing must be resolved before access to this workspace is restored.
+          Update your subscription or payment method below to regain access.
+        </p>
+      </div>
+    ) : null}
+
+    {successMessage ? (
+      <div
+        className={`mt-6 rounded-2xl border p-4 text-sm ${
+          successMessage.tone === "green"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+            : successMessage.tone === "violet"
+              ? "border-violet-200 bg-violet-50 text-violet-800"
+              : "border-sky-200 bg-sky-50 text-sky-800"
+        }`}
+      >
+        <p className="font-semibold">{successMessage.title}</p>
+        <p className="mt-1">{successMessage.body}</p>
+      </div>
+    ) : null}
+
+    {errorMessage ? (
+      <div className="mt-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+        <p className="font-semibold">Billing issue</p>
+        <p className="mt-1">{errorMessage}</p>
+      </div>
+    ) : null}
+  </section>
 
       <section className="mx-auto max-w-7xl px-6 py-10">
         <div className="grid gap-8 xl:grid-cols-[1.15fr_0.85fr]">

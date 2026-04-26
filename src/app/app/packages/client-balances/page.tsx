@@ -84,21 +84,18 @@ export default async function ClientBalancesPage() {
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight">Client Package Balances</h2>
-          <p className="mt-2 text-slate-600">
-            View purchased packages and remaining balances by package item.
-          </p>
+      <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
+        <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Client Balances</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
+              Review active client packages, remaining credits, expiration dates, and payment activity.
+            </p>
+          </div>
+          <Link href="/app/packages/sell" className="rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white/90">Sell Package</Link>
         </div>
-
-        <Link
-          href="/app/packages/sell"
-          className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
-        >
-          Sell Package
-        </Link>
-      </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border bg-white p-5">

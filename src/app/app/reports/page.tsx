@@ -357,73 +357,25 @@ export default async function ReportsPage({
 
   return (
     <div className="space-y-8">
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+      <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-sm font-medium text-slate-500">Reports</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-950">
-              Studio performance dashboard
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              A clean owner view of revenue, leads, attendance, and package
-              activity for {rangeLabel(range).toLowerCase()}.
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Reports</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
+              Track studio performance, client activity, revenue, and package usage from one place for {rangeLabel(range).toLowerCase()}.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Link
-              href="/app/reports?range=today"
-              className={`rounded-full border px-4 py-2 text-sm font-medium ${
-                range === "today"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              Today
-            </Link>
-            <Link
-              href="/app/reports?range=month"
-              className={`rounded-full border px-4 py-2 text-sm font-medium ${
-                range === "month"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              Month
-            </Link>
-            <Link
-              href="/app/reports?range=last30"
-              className={`rounded-full border px-4 py-2 text-sm font-medium ${
-                range === "last30"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              Last 30 Days
-            </Link>
-            <Link
-              href="/app/reports?range=quarter"
-              className={`rounded-full border px-4 py-2 text-sm font-medium ${
-                range === "quarter"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              Quarter
-            </Link>
-            <Link
-              href="/app/reports?range=year"
-              className={`rounded-full border px-4 py-2 text-sm font-medium ${
-                range === "year"
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-              }`}
-            >
-              Year
-            </Link>
+            <Link href="/app/reports?range=today" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "today" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Today</Link>
+            <Link href="/app/reports?range=month" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "month" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Month</Link>
+            <Link href="/app/reports?range=last30" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "last30" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Last 30 Days</Link>
+            <Link href="/app/reports?range=quarter" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "quarter" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Quarter</Link>
+            <Link href="/app/reports?range=year" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "year" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Year</Link>
           </div>
         </div>
-      </div>
+      </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">

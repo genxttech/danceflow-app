@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { canEditClients } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { revalidatePath } from "next/cache";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -91,6 +92,28 @@ async function deactivateHostWorkspaceIndependentInstructorRole(params: {
   }
 }
 
+async function activateIndependentInstructorPortalClient(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  clientId: string;
+}) {
+  const { supabase, studioId, clientId } = params;
+
+  const { error } = await supabase
+    .from("clients")
+    .update({
+      status: "active",
+      is_independent_instructor: true,
+    })
+    .eq("id", clientId)
+    .eq("studio_id", studioId)
+    .eq("is_independent_instructor", true);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+}
+
 async function getBaseUrl() {
   const configuredBaseUrl =
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
@@ -146,11 +169,15 @@ export async function updateIndependentInstructorSettingsAction(
     }
   }
 
+  const clientStatusUpdate =
+    isIndependentInstructor && client.portal_user_id ? { status: "active" } : {};
+
   const { error: updateError } = await supabase
     .from("clients")
     .update({
       is_independent_instructor: isIndependentInstructor,
       linked_instructor_id: isIndependentInstructor ? linkedInstructorId : null,
+      ...clientStatusUpdate,
     })
     .eq("id", clientId)
     .eq("studio_id", studioId);
@@ -300,11 +327,13 @@ export async function linkPortalAccessAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "portal_account_not_found");
   }
 
+  const portalActivationUpdate = client.is_independent_instructor
+    ? { portal_user_id: profile.id, status: "active" }
+    : { portal_user_id: profile.id };
+
   const { error: updateError } = await supabase
     .from("clients")
-    .update({
-      portal_user_id: profile.id,
-    })
+    .update(portalActivationUpdate)
     .eq("id", client.id)
     .eq("studio_id", studioId);
 
@@ -397,6 +426,14 @@ export async function sendPortalInviteAction(formData: FormData) {
         studioId,
         userId: client.portal_user_id,
       });
+
+      if (client.is_independent_instructor) {
+        await activateIndependentInstructorPortalClient({
+          supabase,
+          studioId,
+          clientId: client.id,
+        });
+      }
     } catch {
       redirectWithResult(returnTo, "error", "portal_invite_failed");
     }
@@ -421,7 +458,7 @@ export async function sendPortalInviteAction(formData: FormData) {
     email,
     options: {
       shouldCreateUser: true,
-      emailRedirectTo: `${baseUrl}/auth/callback?next=${encodeURIComponent(
+      emailRedirectTo: `${baseUrl}/callback?next=${encodeURIComponent(
         nextPath
       )}`,
       data: {
@@ -434,5 +471,161 @@ export async function sendPortalInviteAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "portal_invite_failed");
   }
 
+  if (client.is_independent_instructor) {
+    const { error: statusUpdateError } = await supabase
+      .from("clients")
+      .update({ status: "active" })
+      .eq("id", client.id)
+      .eq("studio_id", studioId);
+
+    if (statusUpdateError) {
+      redirectWithResult(returnTo, "error", "portal_invite_failed");
+    }
+  }
+
   redirectWithResult(returnTo, "success", "portal_invite_sent");
 }
+
+// Add this import near the top of src/app/app/clients/[id]/actions.ts if it is not already there:
+// import { revalidatePath } from "next/cache";
+
+function packageUsageUnitLabel(usageType: string, quantity: number) {
+  const isSingular = Math.abs(quantity) === 1;
+
+  if (usageType === "private_lesson") {
+    return isSingular ? "private lesson credit" : "private lesson credits";
+  }
+
+  if (usageType === "group_class") {
+    return isSingular ? "group class credit" : "group class credits";
+  }
+
+  if (usageType === "practice_party") {
+    return isSingular ? "practice party credit" : "practice party credits";
+  }
+
+  return isSingular ? "package credit" : "package credits";
+}
+
+export async function adjustLessonCountCorrectionAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const packageItemId = getString(formData, "packageItemId");
+  const correctionType = getString(formData, "correctionType");
+  const quantityRaw = getString(formData, "quantity");
+  const reason = getString(formData, "reason");
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
+
+  if (!clientId || !packageItemId || !correctionType || !quantityRaw || !reason) {
+    redirectWithResult(returnTo, "error", "package_correction_missing_fields");
+  }
+
+  if (!["add", "debit"].includes(correctionType)) {
+    redirectWithResult(returnTo, "error", "package_correction_invalid_type");
+  }
+
+  const quantity = Number.parseInt(quantityRaw, 10);
+
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    redirectWithResult(returnTo, "error", "package_correction_invalid_quantity");
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+
+  const { data: packageItem, error: packageItemError } = await supabase
+    .from("client_package_items")
+    .select(`
+      id,
+      studio_id,
+      client_package_id,
+      usage_type,
+      quantity_total,
+      quantity_used,
+      quantity_remaining,
+      is_unlimited,
+      client_packages!inner (
+        id,
+        client_id,
+        name_snapshot
+      )
+    `)
+    .eq("id", packageItemId)
+    .eq("studio_id", studioId)
+    .eq("client_packages.client_id", clientId)
+    .maybeSingle();
+
+  if (packageItemError || !packageItem) {
+    redirectWithResult(returnTo, "error", "package_correction_package_not_found");
+  }
+
+  if (packageItem.is_unlimited) {
+    redirectWithResult(returnTo, "error", "package_correction_unlimited_package");
+  }
+
+  const currentTotal = Number(packageItem.quantity_total ?? 0);
+  const currentUsed = Number(packageItem.quantity_used ?? 0);
+  const currentRemaining = Number(packageItem.quantity_remaining ?? 0);
+
+  let nextTotal = currentTotal;
+  let nextUsed = currentUsed;
+  let nextRemaining = currentRemaining;
+  const signedDelta = correctionType === "add" ? quantity : -quantity;
+
+  if (correctionType === "add") {
+    nextTotal = currentTotal + quantity;
+    nextRemaining = currentRemaining + quantity;
+  } else {
+    if (currentRemaining - quantity < 0) {
+      redirectWithResult(returnTo, "error", "package_correction_negative_balance");
+    }
+
+    nextUsed = currentUsed + quantity;
+    nextRemaining = currentRemaining - quantity;
+  }
+
+  const { error: updateError } = await supabase
+    .from("client_package_items")
+    .update({
+      quantity_total: nextTotal,
+      quantity_used: nextUsed,
+      quantity_remaining: nextRemaining,
+    })
+    .eq("id", packageItemId)
+    .eq("studio_id", studioId);
+
+  if (updateError) {
+    redirectWithResult(returnTo, "error", "package_correction_update_failed");
+  }
+
+  const packageRelation = Array.isArray(packageItem.client_packages)
+    ? packageItem.client_packages[0]
+    : packageItem.client_packages;
+
+  const directionLabel = correctionType === "add" ? "Added" : "Debited";
+  const packageName = packageRelation?.name_snapshot ?? "Package";
+  const unitLabel = packageUsageUnitLabel(packageItem.usage_type, quantity);
+
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error: ledgerError } = await supabase
+    .from("lesson_transactions")
+    .insert({
+      studio_id: studioId,
+      client_id: clientId,
+      client_package_id: packageItem.client_package_id,
+      transaction_type: "manual_adjustment",
+      lessons_delta: signedDelta,
+      balance_after: nextRemaining,
+      notes: `${directionLabel} ${quantity} ${unitLabel} for ${packageName}. Reason: ${reason}`,
+      created_by: userData.user?.id ?? null,
+    });
+
+  if (ledgerError) {
+    redirectWithResult(returnTo, "error", "package_correction_ledger_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  revalidatePath("/app/packages/client-balances");
+
+  redirectWithResult(returnTo, "success", "package_correction_saved");
+}
+

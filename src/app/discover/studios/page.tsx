@@ -33,6 +33,7 @@ type StudioRow = {
   public_logo_url: string | null;
   public_hero_image_url: string | null;
   beginner_friendly: boolean;
+  created_at: string | null;
 };
 
 type StudioStyleRow = {
@@ -158,7 +159,8 @@ export default async function DiscoverStudiosPage({
         longitude,
         public_logo_url,
         public_hero_image_url,
-        beginner_friendly
+        beginner_friendly,
+        created_at
       `)
       .eq("public_directory_enabled", true)
       .order("public_name", { ascending: true }),
@@ -317,9 +319,17 @@ export default async function DiscoverStudiosPage({
       return titleForStudio(a.studio).localeCompare(titleForStudio(b.studio));
     });
 
+  const newlyAddedStudios = [...filteredStudios]
+    .sort((a, b) => {
+      const aTime = a.studio.created_at ? new Date(a.studio.created_at).getTime() : 0;
+      const bTime = b.studio.created_at ? new Date(b.studio.created_at).getTime() : 0;
+      return bTime - aTime;
+    })
+    .slice(0, 3);
+
   return (
     <>
-      <PublicSiteHeader currentPath="discover" isAuthenticated={!!user} />
+      <PublicSiteHeader currentPath="studios" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-slate-50">
         <section className="border-b bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_24%,#f8fafc_100%)]">
@@ -383,7 +393,76 @@ export default async function DiscoverStudiosPage({
         </section>
 
         <section className="mx-auto max-w-7xl px-6 py-8">
-          <form className="rounded-3xl border bg-white p-6 shadow-sm">
+          <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="overflow-hidden rounded-[2rem] border border-orange-200 bg-white shadow-sm">
+              <div className="bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_55%,#f5f3ff_100%)] p-6">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">
+                    Coming Soon
+                  </span>
+                  <span className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-medium text-slate-600">
+                    Future placement space
+                  </span>
+                </div>
+                <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
+                  Featured Studios
+                </h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Highlighted studio placements are coming soon. This space is reserved for
+                  promoted studios and complete public profiles that help dancers choose where to dance.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-600">
+                    Newly Added
+                  </p>
+                  <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                    Newly Added Studios
+                  </h2>
+                  <p className="mt-2 text-sm text-slate-600">
+                    Recently published studio profiles from the DanceFlow directory.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-5 grid gap-3">
+                {newlyAddedStudios.length > 0 ? (
+                  newlyAddedStudios.map(({ studio }) => (
+                    <Link
+                      key={studio.id}
+                      href={studio.slug ? `/studios/${studio.slug}` : "/discover/studios"}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-white hover:shadow-sm"
+                    >
+                      <p className="font-medium text-slate-950">{titleForStudio(studio)}</p>
+                      <p className="mt-1 text-sm text-slate-500">{locationLabel(studio)}</p>
+                    </Link>
+                  ))
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+                    Newly added studios will appear here as public profiles go live.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <form className="mt-8 overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm">
+            <div className="border-b border-slate-100 bg-[linear-gradient(135deg,#f8fafc_0%,#fff7ed_100%)] px-6 py-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+                Studio Search
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                Find the right place to dance
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Search by location, style, offering, or beginner-friendly options.
+              </p>
+            </div>
+            <div className="p-6">
             <input
               id="search-location-mode"
               type="hidden"
@@ -538,6 +617,7 @@ export default async function DiscoverStudiosPage({
               />
               Beginner-friendly only
             </label>
+            </div>
           </form>
 
           <div className="mt-8 flex items-center justify-between gap-4">

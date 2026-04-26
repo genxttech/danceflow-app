@@ -274,9 +274,21 @@ export default async function PaymentsPage({
       .eq("studio_id", studioId),
   ]);
 
-  if (paymentsError) throw new Error(`Failed to load payments: ${paymentsError.message}`);
-  if (monthlyPaidError) throw new Error(`Failed to load monthly paid revenue: ${monthlyPaidError.message}`);
-  if (paymentsCountError) throw new Error(`Failed to load payment count: ${paymentsCountError.message}`);
+  if (paymentsError) {
+    throw new Error(`Failed to load payments: ${paymentsError.message}`);
+  }
+
+  if (monthlyPaidError) {
+    throw new Error(
+      `Failed to load monthly paid revenue: ${monthlyPaidError.message}`
+    );
+  }
+
+  if (paymentsCountError) {
+    throw new Error(
+      `Failed to load payment count: ${paymentsCountError.message}`
+    );
+  }
 
   const typedPayments = ((payments ?? []) as PaymentRow[]).filter((payment) => {
     if (!q) return true;
@@ -313,9 +325,13 @@ export default async function PaymentsPage({
 
   const paidCount = typedPayments.filter((p) => p.status === "paid").length;
   const pendingCount = typedPayments.filter((p) => p.status === "pending").length;
-  const refundedCount = typedPayments.filter((p) => p.status === "refunded").length;
+  const refundedCount = typedPayments.filter(
+    (p) => p.status === "refunded"
+  ).length;
   const stripeCount = typedPayments.filter((p) => p.source === "stripe").length;
-  const manualCount = typedPayments.filter((p) => (p.source ?? "manual") === "manual").length;
+  const manualCount = typedPayments.filter(
+    (p) => (p.source ?? "manual") === "manual"
+  ).length;
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -324,49 +340,76 @@ export default async function PaymentsPage({
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                DanceFlow Payments
+                DanceFlow
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Payment Activity Workspace
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Review Stripe and manual activity, monitor payment flow, and search transaction history with a branded finance view.
-              </p>
+  Client Payments
+</h1>
+
+<p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+  Review package sales, membership payments, floor rental payments, and manual
+  transactions from one searchable payment history.
+</p>
             </div>
           </div>
         </div>
 
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
-              <h2 className="text-lg font-semibold text-sky-950">Operational payment visibility</h2>
-              <p className="mt-2 text-sm leading-7 text-sky-900">
-                Give staff and owners a clear view of transaction flow without making finance pages feel disconnected from the rest of the product.
-              </p>
-            </div>
+  <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+    <h2 className="text-lg font-semibold text-sky-950">
+      Payment History
+    </h2>
+    <p className="mt-2 text-sm leading-7 text-sky-900">
+      Quickly review every client payment, including packages, memberships,
+      floor rentals, events, and general balance payments.
+    </p>
+  </div>
 
-            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
-              <h2 className="text-lg font-semibold text-violet-950">Stripe and manual in one place</h2>
-              <p className="mt-2 text-sm leading-7 text-violet-900">
-                Track card charges, manual entries, refunds, memberships, package sales, and floor-rental payments from one page.
-              </p>
-            </div>
+  <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+    <h2 className="text-lg font-semibold text-violet-950">
+      Find What You Need
+    </h2>
+    <p className="mt-2 text-sm leading-7 text-violet-900">
+      Use filters to search by client, date range, status, method, source, or
+      payment type when questions come up.
+    </p>
+  </div>
 
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <h2 className="text-lg font-semibold text-amber-950">Role-aware financial clarity</h2>
-              <p className="mt-2 text-sm leading-7 text-amber-900">
-                Keep the page useful for daily operations while still respecting who should and should not see owner-level billing controls.
-              </p>
-            </div>
-          </div>
+  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+    <h2 className="text-lg font-semibold text-amber-950">
+      Front Desk Confidence
+    </h2>
+    <p className="mt-2 text-sm leading-7 text-amber-900">
+      Give staff a simple place to confirm whether a payment was paid,
+      pending, refunded, manual, or processed through Stripe.
+    </p>
+  </div>
+</div>
         </div>
       </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Visible Payments" value={typedPayments.length} icon={Receipt} />
-        <StatCard label="Lifetime Total Payments" value={paymentsCount ?? 0} icon={BadgeDollarSign} />
-        <StatCard label="This Month" value={fmtCurrency(monthlyRevenue)} icon={CreditCard} />
-        <StatCard label="Average Visible Payment" value={fmtCurrency(averagePayment)} icon={Landmark} />
+        <StatCard
+          label="Visible Payments"
+          value={typedPayments.length}
+          icon={Receipt}
+        />
+        <StatCard
+          label="Lifetime Total Payments"
+          value={paymentsCount ?? 0}
+          icon={BadgeDollarSign}
+        />
+        <StatCard
+          label="This Month"
+          value={fmtCurrency(monthlyRevenue)}
+          icon={CreditCard}
+        />
+        <StatCard
+          label="Average Visible Payment"
+          value={fmtCurrency(averagePayment)}
+          icon={Landmark}
+        />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -383,12 +426,16 @@ export default async function PaymentsPage({
             <Filter className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Filter payment activity</h2>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Filter payment activity
+            </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Search by client, transaction reference, source, type, or narrow the visible payment window.
+              Search by client, transaction reference, source, type, or narrow
+              the visible payment window.
             </p>
           </div>
         </div>
+
         <div className="grid gap-4 xl:grid-cols-[1.4fr_repeat(5,minmax(0,1fr))]">
           <div>
             <label htmlFor="q" className="mb-1 block text-sm font-medium">
@@ -512,7 +559,9 @@ export default async function PaymentsPage({
       <div className="space-y-4">
         {typedPayments.length === 0 ? (
           <div className="rounded-[28px] border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-sm">
-            <p className="text-base font-medium text-slate-900">No payments match your current filters.</p>
+            <p className="text-base font-medium text-slate-900">
+              No payments match your current filters.
+            </p>
             <p className="mt-2 text-sm text-slate-500">
               Adjust the filters above to broaden the payment view.
             </p>
@@ -629,14 +678,18 @@ export default async function PaymentsPage({
                           External Reference
                         </p>
                         <p className="mt-1 break-all text-sm font-medium text-slate-900">
-                          {payment.external_reference ?? payment.stripe_charge_id ?? "—"}
+                          {payment.external_reference ??
+                            payment.stripe_charge_id ??
+                            "—"}
                         </p>
                       </div>
                     </div>
 
                     {payment.notes ? (
                       <div className="mt-4 rounded-xl bg-slate-50 p-4">
-                        <p className="text-sm text-slate-600">{payment.notes}</p>
+                        <p className="text-sm text-slate-600">
+                          {payment.notes}
+                        </p>
                       </div>
                     ) : null}
                   </div>

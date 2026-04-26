@@ -14,6 +14,28 @@ function addDaysToDate(startDate: Date, days: number) {
   return result;
 }
 
+function parseCurrencyToDollars(rawValue: string) {
+  const normalized = rawValue.replace(/[$,\s]/g, "");
+
+  if (!normalized) {
+    return null;
+  }
+
+  if (!/^\d+(\.\d{0,2})?$/.test(normalized)) {
+    return null;
+  }
+
+  const [wholePart, decimalPart = ""] = normalized.split(".");
+  const centsText = `${wholePart}${decimalPart.padEnd(2, "0").slice(0, 2)}`;
+  const cents = Number.parseInt(centsText, 10);
+
+  if (!Number.isFinite(cents) || cents < 0) {
+    return null;
+  }
+
+  return cents / 100;
+}
+
 export async function sellPackageToClientAction(
   prevState: { error: string },
   formData: FormData
@@ -25,7 +47,8 @@ export async function sellPackageToClientAction(
     const packageTemplateId = getString(formData, "packageTemplateId");
     const purchaseDateRaw = getString(formData, "purchaseDate");
     const paymentMethod = getString(formData, "paymentMethod");
-    const amountPaidRaw = getString(formData, "amountPaid");
+    const amountPaidRaw =
+  getString(formData, "paymentAmount") || getString(formData, "amountPaid");
     const notes = getString(formData, "notes");
 
     if (
@@ -41,10 +64,10 @@ export async function sellPackageToClientAction(
       };
     }
 
-    const amountPaid = Number.parseFloat(amountPaidRaw);
+    const amountPaid = parseCurrencyToDollars(amountPaidRaw);
 
-    if (Number.isNaN(amountPaid) || amountPaid < 0) {
-      return { error: "Amount paid must be 0 or greater." };
+    if (amountPaid === null || amountPaid < 0) {
+      return { error: "Amount paid must be a valid amount of $0 or greater." };
     }
 
     const { data: pkgTemplate, error: pkgTemplateError } = await supabase
@@ -158,8 +181,8 @@ export async function sellPackageToClientAction(
           item.usage_type === "private_lesson"
             ? "Private"
             : item.usage_type === "group_class"
-            ? "Group"
-            : "Practice";
+              ? "Group"
+              : "Practice";
 
         return item.is_unlimited
           ? `${label}: Unlimited`
