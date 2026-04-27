@@ -75,28 +75,32 @@ export default function NewMembershipPlanPage() {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight">
-            New Membership Plan
-          </h2>
-          <p className="mt-2 text-slate-600">
-            Create a recurring membership plan with included benefits and discounts.
-          </p>
-        </div>
+    <div className="mx-auto max-w-5xl space-y-8">
+      <section className="rounded-[28px] border border-violet-100 bg-gradient-to-br from-violet-50 via-white to-amber-50 p-6 shadow-sm md:p-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-violet-700">
+              DanceFlow Memberships
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+              New Membership Plan
+            </h1>
+            <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
+              Build recurring plans with included benefits, discounts, and
+              renewal settings for your studio.
+            </p>
+          </div>
 
-        <div className="flex flex-wrap gap-3">
           <Link
             href="/app/memberships"
-            className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+            className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             Back to Memberships
           </Link>
         </div>
-      </div>
+      </section>
 
-      <form action={formAction} className="space-y-8 rounded-2xl border bg-white p-6">
+      <form action={formAction} className="space-y-8 rounded-2xl border bg-white p-6 shadow-sm">
         <input type="hidden" name="benefitsJson" value={benefitsJson} />
 
         <div className="grid gap-4 md:grid-cols-2">
@@ -231,7 +235,8 @@ export default function NewMembershipPlanPage() {
             <div>
               <p className="font-medium text-slate-900">Auto renew by default</p>
               <p className="mt-1 text-sm text-slate-600">
-                New client memberships created from this plan will default to auto renew.
+                New client memberships created from this plan will default to auto
+                renew.
               </p>
             </div>
           </label>
@@ -249,7 +254,7 @@ export default function NewMembershipPlanPage() {
             <button
               type="button"
               onClick={addBenefit}
-              className="rounded-xl border px-4 py-2 hover:bg-white"
+              className="rounded-xl border bg-white px-4 py-2 hover:bg-slate-50"
             >
               Add Benefit
             </button>

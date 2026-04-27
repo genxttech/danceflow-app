@@ -32,7 +32,7 @@ export const BILLING_PLANS: BillingPlan[] = [
     code: "starter",
     label: "Starter",
     audience: "studio",
-    amountMonthlyCents: 3900,
+    amountMonthlyCents: 4900,
     description: "Core CRM and scheduling for a single studio.",
     trialDays: 14,
     features: ["crm_basic", "schedule_basic"],
@@ -47,7 +47,7 @@ export const BILLING_PLANS: BillingPlan[] = [
     code: "growth",
     label: "Growth",
     audience: "studio",
-    amountMonthlyCents: 5900,
+    amountMonthlyCents: 7900,
     description:
       "Adds stronger operations, packages, memberships, and customer payments.",
     trialDays: 14,
@@ -70,7 +70,7 @@ export const BILLING_PLANS: BillingPlan[] = [
     code: "pro",
     label: "Pro",
     audience: "studio",
-    amountMonthlyCents: 11900,
+    amountMonthlyCents: 12900,
     description:
       "Advanced studio operations plus public event and organizer capabilities.",
     trialDays: 14,
@@ -105,7 +105,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "Event-first organizer plan for public listings, registrations, and ticketing.",
     trialDays: 14,
     transparentFeeNote:
-      "Transparent fees: 2.5% Square processing fee + 3.5% DanceFlow platform fee on ticket sales.",
+      "Transparent fees: 2.5% payment processing fee + 3.5% DanceFlow platform fee on ticket sales.",
     features: [
       "organizer_tools",
       "public_events",

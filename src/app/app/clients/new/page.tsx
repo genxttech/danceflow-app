@@ -19,21 +19,29 @@ export default function NewClientPage() {
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight">Add Client / Lead</h2>
-          <p className="mt-2 text-slate-600">
-            Create a new client record and keep key CRM fields standardized.
-          </p>
-        </div>
+      <section className="rounded-[28px] border border-violet-100 bg-gradient-to-br from-violet-50 via-white to-amber-50 p-6 shadow-sm md:p-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-violet-700">
+              DanceFlow CRM
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+              Add Client or Lead
+            </h1>
+            <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
+              Create a clean client record with contact details, lead status,
+              dance interests, and follow-up notes.
+            </p>
+          </div>
 
-        <Link
-          href="/app/clients"
-          className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-        >
-          Back to Clients
-        </Link>
-      </div>
+          <Link
+            href="/app/clients"
+            className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Back to Clients
+          </Link>
+        </div>
+      </section>
 
       <form action={formAction} className="rounded-2xl border bg-white p-6 shadow-sm">
         <div className="grid gap-6 md:grid-cols-2">
@@ -122,7 +130,10 @@ export default function NewClientPage() {
           </div>
 
           <div className="md:col-span-2">
-            <label htmlFor="danceInterests" className="mb-1 block text-sm font-medium">
+            <label
+              htmlFor="danceInterests"
+              className="mb-1 block text-sm font-medium"
+            >
               Dance Interests
             </label>
             <input
@@ -134,7 +145,10 @@ export default function NewClientPage() {
           </div>
 
           <div className="md:col-span-2">
-            <label htmlFor="referralSource" className="mb-1 block text-sm font-medium">
+            <label
+              htmlFor="referralSource"
+              className="mb-1 block text-sm font-medium"
+            >
               Referral Source
             </label>
             <select
@@ -177,7 +191,8 @@ export default function NewClientPage() {
                 Independent Instructor
               </p>
               <p className="mt-1 text-sm text-slate-600">
-                Enable this only if this client should also use floor rental / independent instructor workflows.
+                Enable this only if this client should also use floor rental and
+                independent instructor workflows.
               </p>
             </div>
           </label>

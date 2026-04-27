@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { createInstructorAction } from "../actions";
 
@@ -12,11 +13,32 @@ export default function NewInstructorPage() {
   );
 
   return (
-    <div className="max-w-2xl">
-      <h2 className="text-3xl font-semibold tracking-tight">New Instructor</h2>
-      <p className="mt-2 text-slate-600">Add a new instructor to your studio.</p>
+    <div className="mx-auto max-w-3xl space-y-8">
+      <section className="rounded-[28px] border border-violet-100 bg-gradient-to-br from-violet-50 via-white to-amber-50 p-6 shadow-sm md:p-8">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-violet-700">
+              DanceFlow Staff
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+              New Instructor
+            </h1>
+            <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
+              Add an instructor profile so they can appear on schedules,
+              lessons, and studio workflows.
+            </p>
+          </div>
 
-      <form action={formAction} className="mt-8 space-y-4 rounded-2xl border bg-white p-6">
+          <Link
+            href="/app/instructors"
+            className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Back to Instructors
+          </Link>
+        </div>
+      </section>
+
+      <form action={formAction} className="space-y-4 rounded-2xl border bg-white p-6 shadow-sm">
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label htmlFor="firstName" className="mb-1 block text-sm font-medium">
@@ -107,12 +129,12 @@ export default function NewInstructorPage() {
             {pending ? "Saving..." : "Save Instructor"}
           </button>
 
-          <a
+          <Link
             href="/app/instructors"
             className="rounded-xl border px-4 py-2 text-slate-700 hover:bg-slate-50"
           >
             Cancel
-          </a>
+          </Link>
         </div>
       </form>
     </div>

@@ -40,9 +40,9 @@ export default async function OrganizerPricingPage() {
                   Review pricing before creating your account
                 </p>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
-                  You should be able to see organizer pricing first. When you click
-                  Start Trial, DanceFlow will move you into signup if you are not
-                  already signed in.
+                  You should be able to see organizer pricing first. When you
+                  click Start Trial, DanceFlow will move you into signup if you
+                  are not already signed in.
                 </p>
               </div>
             </div>
@@ -64,11 +64,22 @@ export default async function OrganizerPricingPage() {
                   </p>
 
                   <div className="mt-6 rounded-2xl border border-sky-200 bg-sky-50 px-5 py-4 text-sky-900">
-                    <p className="text-sm font-semibold">Transparent ticket-sale pricing</p>
+                    <p className="text-sm font-semibold">
+                      Transparent ticket-sale pricing
+                    </p>
                     <p className="mt-2 text-sm leading-6">
-                      2.5% Square processing fee + 3.5% DanceFlow platform fee on ticket sales.
+                      2.5% payment processing fee + 3.5% DanceFlow platform fee
+                      on ticket sales.
                     </p>
                   </div>
+
+                  {organizerPlan.transparentFeeNote ? (
+                    <div className="mt-4 rounded-2xl border border-slate-200 bg-white px-5 py-4">
+                      <p className="text-sm leading-6 text-slate-600">
+                        {organizerPlan.transparentFeeNote}
+                      </p>
+                    </div>
+                  ) : null}
 
                   <ul className="mt-6 grid gap-2 text-sm text-slate-600">
                     {organizerPlan.highlights.map((highlight) => (
@@ -80,7 +91,9 @@ export default async function OrganizerPricingPage() {
                 <div className="rounded-[28px] bg-slate-950 px-7 py-8 text-white">
                   <p className="text-4xl font-semibold tracking-tight">
                     {formatPlanMoney(organizerPlan.amountMonthlyCents)}
-                    <span className="text-base font-medium text-slate-300">/mo</span>
+                    <span className="text-base font-medium text-slate-300">
+                      /mo
+                    </span>
                   </p>
 
                   <p className="mt-3 text-sm text-slate-300">
@@ -88,7 +101,11 @@ export default async function OrganizerPricingPage() {
                   </p>
 
                   <form action={startPaidPathAction} className="mt-6">
-                    <input type="hidden" name="planCode" value={organizerPlan.code} />
+                    <input
+                      type="hidden"
+                      name="planCode"
+                      value={organizerPlan.code}
+                    />
                     <button
                       type="submit"
                       className="w-full rounded-xl bg-sky-600 px-4 py-3 text-sm font-medium text-white hover:bg-sky-700"
@@ -110,8 +127,9 @@ export default async function OrganizerPricingPage() {
                     DanceFlow also supports studios and public discovery users
                   </h2>
                   <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-                    Studio paths continue into studio pricing and trials. Public users
-                    can create a free discovery account to favorite studios and events.
+                    Studio paths continue into studio pricing and trials. Public
+                    users can create a free discovery account to favorite studios
+                    and events.
                   </p>
                 </div>
 
