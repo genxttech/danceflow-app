@@ -3,11 +3,13 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getBillingPlan, type PlanAudience } from "@/lib/billing/plans";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
 type PaidIntent = PlanAudience;
+type ServerSupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
 type WorkspaceRoleRow = {
   studio_id: string;
@@ -204,11 +206,10 @@ function workspaceMatchesIntent(
 }
 
 async function buildUniqueStudioSlug(params: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
+  supabase: ServerSupabaseClient;
   baseName: string;
 }) {
-  const baseSlug =
-    slugifyWorkspaceName(params.baseName) || "danceflow-workspace";
+  const baseSlug = slugifyWorkspaceName(params.baseName) || "danceflow-workspace";
 
   const candidateSlugs = [
     baseSlug,
@@ -248,7 +249,7 @@ async function getSelectedWorkspaceIdFromCookie() {
 }
 
 async function getActiveOwnerWorkspacesForUser(params: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
+  supabase: ServerSupabaseClient;
   userId: string;
 }) {
   const { data, error } = await params.supabase
@@ -306,7 +307,7 @@ function pickExistingWorkspaceForIntent(params: {
 }
 
 async function ensureOwnerInstructorProfile(params: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
+  supabase: ServerSupabaseClient;
   studioId: string;
   userId: string;
   userEmail: string | null;
@@ -369,7 +370,6 @@ async function ensureOwnerInstructorProfile(params: {
 }
 
 async function createWorkspaceForUser(params: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string;
   userEmail: string | null;
   workspaceName: string;
@@ -377,12 +377,28 @@ async function createWorkspaceForUser(params: {
   ownerFullName: string;
   planCode: string;
 }) {
+  const adminSupabase = createAdminClient() as unknown as ServerSupabaseClient;
+
   const slug = await buildUniqueStudioSlug({
-    supabase: params.supabase,
+    supabase: adminSupabase,
     baseName: params.workspaceName,
   });
 
-  const { data: studio, error: studioError } = await params.supabase
+  const { error: profileError } = await adminSupabase.from("profiles").upsert(
+    {
+      id: params.userId,
+      email: params.userEmail,
+      full_name: params.ownerFullName,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "id" }
+  );
+
+  if (profileError) {
+    throw new Error(`Could not ensure user profile: ${profileError.message}`);
+  }
+
+  const { data: studio, error: studioError } = await adminSupabase
     .from("studios")
     .insert({
       name: params.workspaceName,
@@ -404,7 +420,7 @@ async function createWorkspaceForUser(params: {
     );
   }
 
-  const { error: roleError } = await params.supabase
+  const { error: roleError } = await adminSupabase
     .from("user_studio_roles")
     .insert({
       user_id: params.userId,
@@ -418,14 +434,14 @@ async function createWorkspaceForUser(params: {
   }
 
   await ensureOwnerInstructorProfile({
-    supabase: params.supabase,
+    supabase: adminSupabase,
     studioId: studio.id,
     userId: params.userId,
     userEmail: params.userEmail,
     fullName: params.ownerFullName,
   });
 
-  const { error: settingsError } = await params.supabase
+  const { error: settingsError } = await adminSupabase
     .from("studio_settings")
     .upsert(
       {
@@ -517,7 +533,6 @@ export async function startPaidPathAction(formData: FormData) {
   });
 
   const studio = await createWorkspaceForUser({
-    supabase,
     userId: user.id,
     userEmail: user.email ?? null,
     workspaceName,
