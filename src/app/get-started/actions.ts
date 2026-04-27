@@ -85,6 +85,7 @@ function validatePaidIntent(params: { planCodeRaw: string; intentRaw?: string })
   if (!plan) return null;
 
   const intentRaw = (params.intentRaw || plan.audience).trim().toLowerCase();
+
   if (intentRaw !== "studio" && intentRaw !== "organizer") return null;
   if (plan.audience !== intentRaw) return null;
 
@@ -206,7 +207,9 @@ async function buildUniqueStudioSlug(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   baseName: string;
 }) {
-  const baseSlug = slugifyWorkspaceName(params.baseName) || "danceflow-workspace";
+  const baseSlug =
+    slugifyWorkspaceName(params.baseName) || "danceflow-workspace";
+
   const candidateSlugs = [
     baseSlug,
     `${baseSlug}-workspace`,
@@ -239,6 +242,11 @@ async function setSelectedWorkspaceCookie(studioId: string) {
   });
 }
 
+async function getSelectedWorkspaceIdFromCookie() {
+  const cookieStore = await cookies();
+  return cookieStore.get(APP_SELECTED_STUDIO_COOKIE)?.value ?? null;
+}
+
 async function getActiveOwnerWorkspacesForUser(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string;
@@ -269,11 +277,6 @@ async function getActiveOwnerWorkspacesForUser(params: {
   return (data ?? []) as WorkspaceRoleRow[];
 }
 
-async function getSelectedWorkspaceIdFromCookie() {
-  const cookieStore = await cookies();
-  return cookieStore.get(APP_SELECTED_STUDIO_COOKIE)?.value ?? null;
-}
-
 function pickExistingWorkspaceForIntent(params: {
   rows: WorkspaceRoleRow[];
   selectedWorkspaceId: string | null;
@@ -288,6 +291,7 @@ function pickExistingWorkspaceForIntent(params: {
 
   if (selectedRow) {
     const selectedStudio = getStudioFromJoin(selectedRow.studios);
+
     if (workspaceMatchesIntent(selectedStudio?.name, kind)) {
       return selectedRow;
     }
@@ -371,6 +375,7 @@ async function createWorkspaceForUser(params: {
   workspaceName: string;
   kind: PaidIntent;
   ownerFullName: string;
+  planCode: string;
 }) {
   const slug = await buildUniqueStudioSlug({
     supabase: params.supabase,
@@ -383,7 +388,12 @@ async function createWorkspaceForUser(params: {
       name: params.workspaceName,
       public_name: params.workspaceName,
       slug,
+      email: params.userEmail,
+      timezone: "America/New_York",
+      billing_plan: params.planCode,
       subscription_status: "not_started",
+      active: true,
+      public_directory_enabled: false,
     })
     .select("id, name, slug")
     .single();
@@ -425,20 +435,30 @@ async function createWorkspaceForUser(params: {
     );
 
   if (settingsError) {
-    // Do not block checkout if settings defaults are handled elsewhere.
-    console.warn("Could not create default studio settings:", settingsError.message);
+    console.warn(
+      "Could not create default studio settings:",
+      settingsError.message
+    );
   }
 
   return studio;
 }
 
 export async function startPaidPathAction(formData: FormData) {
-  const planCodeRaw = getString(formData, "planCode") || getString(formData, "planKey");
-  const intentRaw = getString(formData, "intent") || getString(formData, "path");
+  const planCodeRaw =
+    getString(formData, "planCode") || getString(formData, "planKey");
+
+  const intentRaw =
+    getString(formData, "intent") ||
+    getString(formData, "path") ||
+    getString(formData, "audience");
+
   const workspaceNameRaw =
     getString(formData, "workspaceName") ||
     getString(formData, "studioName") ||
+    getString(formData, "organizerName") ||
     getString(formData, "businessName");
+
   const nextPath = normalizeLocalNextPath(getString(formData, "nextPath"));
 
   const validated = validatePaidIntent({ planCodeRaw, intentRaw });
@@ -467,7 +487,9 @@ export async function startPaidPathAction(formData: FormData) {
     supabase,
     userId: user.id,
   });
+
   const selectedWorkspaceId = await getSelectedWorkspaceIdFromCookie();
+
   const existingWorkspace = pickExistingWorkspaceForIntent({
     rows: ownerRows,
     selectedWorkspaceId,
@@ -476,6 +498,7 @@ export async function startPaidPathAction(formData: FormData) {
 
   if (existingWorkspace) {
     await setSelectedWorkspaceCookie(existingWorkspace.studio_id);
+
     redirect(
       nextPath ||
         buildCheckoutUrl({
@@ -486,6 +509,7 @@ export async function startPaidPathAction(formData: FormData) {
   }
 
   const ownerFullName = getCurrentUserFullName(user);
+
   const workspaceName = normalizeWorkspaceName({
     preferredName: workspaceNameRaw || getCurrentUserWorkspaceName(user),
     fullName: ownerFullName,
@@ -499,6 +523,7 @@ export async function startPaidPathAction(formData: FormData) {
     workspaceName,
     kind: intent,
     ownerFullName,
+    planCode: plan.code,
   });
 
   await setSelectedWorkspaceCookie(studio.id);
@@ -513,38 +538,7 @@ export async function startPaidPathAction(formData: FormData) {
 }
 
 export async function beginPaidTrialCheckoutAction(formData: FormData) {
-  const audienceRaw = getString(formData, "audience") || getString(formData, "intent") || "studio";
-  const planCodeRaw =
-    getString(formData, "planCode") ||
-    getString(formData, "plan") ||
-    getString(formData, "selectedPlan") ||
-    getString(formData, "planKey");
-  const workspaceName =
-    getString(formData, "workspaceName") ||
-    getString(formData, "studioName") ||
-    getString(formData, "organizerName") ||
-    getString(formData, "businessName");
-
-  const validated = validatePaidIntent({
-    planCodeRaw,
-    intentRaw: audienceRaw,
-  });
-
-  if (!validated) {
-    redirect("/get-started?error=invalid_plan");
-  }
-
-  const search = new URLSearchParams({
-    planCode: validated.plan.code,
-    path: validated.intent,
-    entry: "trial-complete",
-  });
-
-  if (workspaceName) {
-    search.set("workspaceName", workspaceName);
-  }
-
-  redirect(`/api/billing/checkout?${search.toString()}`);
+  return startPaidPathAction(formData);
 }
 
 export async function chooseExplorerPathAction() {
