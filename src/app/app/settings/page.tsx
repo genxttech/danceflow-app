@@ -8,6 +8,11 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 type StudioRow = {
   id: string;
   name: string;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  latitude: number | null;
+  longitude: number | null;
   public_lead_enabled: boolean;
   public_lead_headline: string | null;
   public_lead_description: string | null;
@@ -94,6 +99,11 @@ export default async function SettingsPage() {
       .select(`
         id,
         name,
+        city,
+        state,
+        postal_code,
+        latitude,
+        longitude,
         public_lead_enabled,
         public_lead_headline,
         public_lead_description,

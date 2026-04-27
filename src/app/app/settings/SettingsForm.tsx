@@ -10,6 +10,11 @@ const notificationInitialState = { error: "", success: "" };
 type StudioRow = {
   id: string;
   name: string;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  latitude: number | null;
+  longitude: number | null;
   public_lead_enabled: boolean;
   public_lead_headline: string | null;
   public_lead_description: string | null;
@@ -253,6 +258,33 @@ export default function SettingsForm({
                 disabled={!canEdit}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50"
               />
+            </div>
+
+            <div className="md:col-span-2 rounded-xl border border-violet-100 bg-violet-50 p-4">
+              <p className="text-sm font-semibold text-violet-900">Public discovery location</p>
+              <p className="mt-1 text-sm leading-6 text-violet-800">
+                This location helps dancers find your studio in public discovery and Search Near Me. When you save, DanceFlow will automatically prepare map coordinates for distance search.
+              </p>
+              {studio.latitude !== null && studio.longitude !== null ? (
+                <p className="mt-2 text-xs font-medium text-green-700">Search Near Me is ready for this studio.</p>
+              ) : (
+                <p className="mt-2 text-xs font-medium text-amber-700">Add city, state, and ZIP code, then save settings to enable better Search Near Me results.</p>
+              )}
+            </div>
+
+            <div>
+              <label htmlFor="publicCity" className="mb-1 block text-sm font-medium">Public City</label>
+              <input id="publicCity" name="publicCity" defaultValue={studio.city ?? ""} disabled={!canEdit} placeholder="Columbus" className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50" />
+            </div>
+
+            <div>
+              <label htmlFor="publicState" className="mb-1 block text-sm font-medium">Public State</label>
+              <input id="publicState" name="publicState" defaultValue={studio.state ?? ""} disabled={!canEdit} placeholder="OH" className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50" />
+            </div>
+
+            <div>
+              <label htmlFor="publicPostalCode" className="mb-1 block text-sm font-medium">Public ZIP Code</label>
+              <input id="publicPostalCode" name="publicPostalCode" defaultValue={studio.postal_code ?? ""} disabled={!canEdit} placeholder="43215" className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50" />
             </div>
           </div>
         </div>

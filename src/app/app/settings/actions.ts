@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { requireSettingsManageAccess } from "@/lib/auth/serverRoleGuard";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { buildStudioLocationQuery, geocodeAddress } from "@/lib/geocoding";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -116,6 +117,9 @@ export async function updateStudioSettingsAction(
     const { supabase, studioId } = await requireSettingsManageAccess();
 
     const studioName = getString(formData, "studioName");
+    const publicCity = getString(formData, "publicCity");
+    const publicState = getString(formData, "publicState");
+    const publicPostalCode = getString(formData, "publicPostalCode");
     const timezone = getString(formData, "timezone");
     const currency = getString(formData, "currency");
     const cancellationWindowHoursRaw = getString(formData, "cancellationWindowHours");
@@ -181,6 +185,38 @@ export async function updateStudioSettingsAction(
       publicIntroBookingEnabled !== "false"
     ) {
       return { error: "Intro booking setting must be enabled or disabled." };
+    }
+
+
+    const { data: existingStudio, error: existingStudioError } = await supabase
+      .from("studios")
+      .select("city, state, postal_code, latitude, longitude")
+      .eq("id", studioId)
+      .single();
+
+    if (existingStudioError || !existingStudio) {
+      return {
+        error: `Studio location lookup failed: ${
+          existingStudioError?.message ?? "Studio not found"
+        }`,
+      };
+    }
+
+    const locationChanged =
+      publicCity !== (existingStudio.city ?? "") ||
+      publicState !== (existingStudio.state ?? "") ||
+      publicPostalCode !== (existingStudio.postal_code ?? "");
+
+    const locationQuery = buildStudioLocationQuery({
+      city: publicCity,
+      state: publicState,
+      postalCode: publicPostalCode,
+    });
+
+    let geocodedLocation: Awaited<ReturnType<typeof geocodeAddress>> = null;
+
+    if (locationChanged && locationQuery) {
+      geocodedLocation = await geocodeAddress(locationQuery);
     }
 
     const { data: existingNotificationSettings, error: existingNotificationSettingsError } =
@@ -298,6 +334,11 @@ export async function updateStudioSettingsAction(
 
     const studioUpdatePayload: {
       name: string;
+      city: string | null;
+      state: string | null;
+      postal_code: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
       public_lead_enabled: boolean;
       public_lead_headline: string | null;
       public_lead_description: string | null;
@@ -307,12 +348,20 @@ export async function updateStudioSettingsAction(
       public_hero_image_url?: string;
     } = {
       name: studioName,
+      city: publicCity || null,
+      state: publicState || null,
+      postal_code: publicPostalCode || null,
       public_lead_enabled: publicLeadEnabled === "true",
       public_lead_headline: publicLeadHeadline || null,
       public_lead_description: publicLeadDescription || null,
       public_primary_color: publicPrimaryColor || null,
       public_lead_cta_text: publicLeadCtaText || null,
     };
+
+    if (locationChanged) {
+      studioUpdatePayload.latitude = geocodedLocation?.latitude ?? null;
+      studioUpdatePayload.longitude = geocodedLocation?.longitude ?? null;
+    }
 
     if (uploadedLogoUrl) {
       studioUpdatePayload.public_logo_url = uploadedLogoUrl;
