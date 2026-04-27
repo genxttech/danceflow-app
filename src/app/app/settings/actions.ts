@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { requireSettingsManageAccess } from "@/lib/auth/serverRoleGuard";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -14,6 +15,76 @@ function getFirstString(formData: FormData, keys: string[]) {
     if (value) return value;
   }
   return "";
+}
+
+const STUDIO_PUBLIC_ASSETS_BUCKET = "studio-public-assets";
+
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+]);
+
+const MAX_LOGO_SIZE_BYTES = 2 * 1024 * 1024;
+const MAX_HERO_SIZE_BYTES = 5 * 1024 * 1024;
+
+function getFile(formData: FormData, key: string) {
+  const value = formData.get(key);
+  return value instanceof File && value.size > 0 ? value : null;
+}
+
+function validateImageFile(params: {
+  file: File;
+  label: string;
+  maxSizeBytes: number;
+}) {
+  const { file, label, maxSizeBytes } = params;
+
+  if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+    throw new Error(`${label} must be a PNG, JPG, JPEG, or WebP image.`);
+  }
+
+  if (file.size > maxSizeBytes) {
+    const maxMb = Math.round(maxSizeBytes / 1024 / 1024);
+    throw new Error(`${label} must be ${maxMb} MB or smaller.`);
+  }
+}
+
+function getImageExtension(file: File) {
+  if (file.type === "image/png") return "png";
+  if (file.type === "image/webp") return "webp";
+  return "jpg";
+}
+
+async function uploadStudioPublicImage(params: {
+  studioId: string;
+  file: File;
+  imageType: "logo" | "hero";
+}) {
+  const adminSupabase = createAdminClient();
+  const extension = getImageExtension(params.file);
+  const path = `${params.studioId}/${params.imageType}-${Date.now()}.${extension}`;
+
+  const { error: uploadError } = await adminSupabase.storage
+    .from(STUDIO_PUBLIC_ASSETS_BUCKET)
+    .upload(path, params.file, {
+      contentType: params.file.type,
+      upsert: true,
+    });
+
+  if (uploadError) {
+    throw new Error(
+      `Could not upload ${
+        params.imageType === "logo" ? "logo" : "hero image"
+      }: ${uploadError.message}`
+    );
+  }
+
+  const { data } = adminSupabase.storage
+    .from(STUDIO_PUBLIC_ASSETS_BUCKET)
+    .getPublicUrl(path);
+
+  return data.publicUrl;
 }
 
 function parseBooleanString(
@@ -57,7 +128,8 @@ export async function updateStudioSettingsAction(
     const publicLeadEnabled = getString(formData, "publicLeadEnabled");
     const publicLeadHeadline = getString(formData, "publicLeadHeadline");
     const publicLeadDescription = getString(formData, "publicLeadDescription");
-    const publicLogoUrl = getString(formData, "publicLogoUrl");
+    const logoFile = getFile(formData, "publicLogoFile");
+    const heroFile = getFile(formData, "publicHeroImageFile");
     const publicPrimaryColor = getString(formData, "publicPrimaryColor");
     const publicLeadCtaText = getString(formData, "publicLeadCtaText");
 
@@ -169,6 +241,37 @@ export async function updateStudioSettingsAction(
       "floorRentalUpcomingNotificationEnabled",
     ]);
 
+    let uploadedLogoUrl: string | null = null;
+    let uploadedHeroImageUrl: string | null = null;
+
+    if (logoFile) {
+      validateImageFile({
+        file: logoFile,
+        label: "Logo",
+        maxSizeBytes: MAX_LOGO_SIZE_BYTES,
+      });
+
+      uploadedLogoUrl = await uploadStudioPublicImage({
+        studioId,
+        file: logoFile,
+        imageType: "logo",
+      });
+    }
+
+    if (heroFile) {
+      validateImageFile({
+        file: heroFile,
+        label: "Hero image",
+        maxSizeBytes: MAX_HERO_SIZE_BYTES,
+      });
+
+      uploadedHeroImageUrl = await uploadStudioPublicImage({
+        studioId,
+        file: heroFile,
+        imageType: "hero",
+      });
+    }
+
     const notificationSettingsPayload = {
       studio_id: studioId,
       public_intro_booking_enabled: parseBooleanString(
@@ -193,17 +296,35 @@ export async function updateStudioSettingsAction(
       ),
     };
 
+    const studioUpdatePayload: {
+      name: string;
+      public_lead_enabled: boolean;
+      public_lead_headline: string | null;
+      public_lead_description: string | null;
+      public_primary_color: string | null;
+      public_lead_cta_text: string | null;
+      public_logo_url?: string;
+      public_hero_image_url?: string;
+    } = {
+      name: studioName,
+      public_lead_enabled: publicLeadEnabled === "true",
+      public_lead_headline: publicLeadHeadline || null,
+      public_lead_description: publicLeadDescription || null,
+      public_primary_color: publicPrimaryColor || null,
+      public_lead_cta_text: publicLeadCtaText || null,
+    };
+
+    if (uploadedLogoUrl) {
+      studioUpdatePayload.public_logo_url = uploadedLogoUrl;
+    }
+
+    if (uploadedHeroImageUrl) {
+      studioUpdatePayload.public_hero_image_url = uploadedHeroImageUrl;
+    }
+
     const { error: studioError } = await supabase
       .from("studios")
-      .update({
-        name: studioName,
-        public_lead_enabled: publicLeadEnabled === "true",
-        public_lead_headline: publicLeadHeadline || null,
-        public_lead_description: publicLeadDescription || null,
-        public_logo_url: publicLogoUrl || null,
-        public_primary_color: publicPrimaryColor || null,
-        public_lead_cta_text: publicLeadCtaText || null,
-      })
+      .update(studioUpdatePayload)
       .eq("id", studioId);
 
     if (studioError) {

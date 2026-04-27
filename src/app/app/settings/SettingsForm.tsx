@@ -14,6 +14,7 @@ type StudioRow = {
   public_lead_headline: string | null;
   public_lead_description: string | null;
   public_logo_url: string | null;
+  public_hero_image_url: string | null;
   public_primary_color: string | null;
   public_lead_cta_text: string | null;
 };
@@ -206,7 +207,11 @@ export default function SettingsForm({
         </div>
       </div>
 
-      <form action={formAction} className="mt-8 space-y-8">
+      <form
+        action={formAction}
+        encType="multipart/form-data"
+        className="mt-8 space-y-8"
+      >
         <div className="rounded-2xl border bg-white p-6">
           <h3 className="text-xl font-semibold">Studio Profile</h3>
 
@@ -523,16 +528,71 @@ export default function SettingsForm({
             </div>
 
             <div>
-              <label htmlFor="publicLogoUrl" className="mb-1 block text-sm font-medium">
-                Public Logo URL
+              <label
+                htmlFor="publicLogoFile"
+                className="mb-1 block text-sm font-medium"
+              >
+                Public Logo
               </label>
+
               <input
-                id="publicLogoUrl"
-                name="publicLogoUrl"
-                defaultValue={studio.public_logo_url ?? ""}
+                id="publicLogoFile"
+                name="publicLogoFile"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
                 disabled={!canEdit}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-800 disabled:bg-slate-50"
               />
+
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Upload a PNG, JPG, JPEG, or WebP image. Max 2 MB. A square logo
+                works best.
+              </p>
+
+              {studio.public_logo_url ? (
+                <a
+                  href={studio.public_logo_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex text-xs font-medium text-violet-700 hover:text-violet-800"
+                >
+                  View current logo
+                </a>
+              ) : null}
+            </div>
+
+            <div>
+              <label
+                htmlFor="publicHeroImageFile"
+                className="mb-1 block text-sm font-medium"
+              >
+                Public Hero Image
+              </label>
+
+              <input
+                id="publicHeroImageFile"
+                name="publicHeroImageFile"
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                disabled={!canEdit}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm file:mr-4 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-slate-800 disabled:bg-slate-50"
+              />
+
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Upload a PNG, JPG, JPEG, or WebP image. Max 5 MB. A wide
+                landscape image works best, such as 1600×900.
+              </p>
+
+              {studio.public_hero_image_url ? (
+                <a
+                  href={studio.public_hero_image_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-2 inline-flex text-xs font-medium text-violet-700 hover:text-violet-800"
+                >
+                  View current hero image
+                </a>
+              ) : null}
             </div>
 
             <div>

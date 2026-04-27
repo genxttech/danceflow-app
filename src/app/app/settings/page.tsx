@@ -12,6 +12,7 @@ type StudioRow = {
   public_lead_headline: string | null;
   public_lead_description: string | null;
   public_logo_url: string | null;
+  public_hero_image_url: string | null;
   public_primary_color: string | null;
   public_lead_cta_text: string | null;
 };
@@ -97,6 +98,7 @@ export default async function SettingsPage() {
         public_lead_headline,
         public_lead_description,
         public_logo_url,
+        public_hero_image_url,
         public_primary_color,
         public_lead_cta_text
       `)
