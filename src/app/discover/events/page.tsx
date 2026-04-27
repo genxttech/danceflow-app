@@ -120,7 +120,9 @@ function eventTypeLabel(value: string | null) {
   if (value === "festival") return "Festival";
   if (value === "special_event") return "Special Event";
   if (!value) return "Event";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function availabilityLabel(params: {
@@ -129,7 +131,8 @@ function availabilityLabel(params: {
   activeCount: number;
   waitlistEnabled: boolean;
 }) {
-  const { registrationRequired, capacity, activeCount, waitlistEnabled } = params;
+  const { registrationRequired, capacity, activeCount, waitlistEnabled } =
+    params;
 
   if (!registrationRequired) {
     return {
@@ -216,7 +219,8 @@ export default async function DiscoverEventsPage({
   const zip = (query.zip ?? "").trim().toLowerCase();
   const style = (query.style ?? "").trim().toLowerCase();
   const beginner = query.beginner === "1";
-  const radius = Number(query.radius ?? "25");
+  const parsedRadius = Number(query.radius ?? "25");
+  const radius = RADIUS_OPTIONS.includes(parsedRadius) ? parsedRadius : 25;
   const locationMode = query.locationMode === "current" ? "current" : "manual";
   const searchLatitude = toNumber(query.latitude);
   const searchLongitude = toNumber(query.longitude);
@@ -236,7 +240,8 @@ export default async function DiscoverEventsPage({
   ] = await Promise.all([
     supabase
       .from("events")
-      .select(`
+      .select(
+        `
         id,
         slug,
         studio_id,
@@ -259,16 +264,16 @@ export default async function DiscoverEventsPage({
         latitude,
         longitude,
         created_at
-      `)
+      `
+      )
       .eq("visibility", "public")
       .eq("public_directory_enabled", true)
       .in("status", ["published", "open"])
       .not("organizer_id", "is", null)
       .order("start_date", { ascending: true }),
 
-    supabase
-      .from("studios")
-      .select(`
+    supabase.from("studios").select(
+      `
         id,
         slug,
         public_name,
@@ -279,17 +284,20 @@ export default async function DiscoverEventsPage({
         latitude,
         longitude,
         public_directory_enabled
-      `),
+      `
+    ),
 
     supabase
       .from("organizers")
-      .select(`
+      .select(
+        `
         id,
         name,
         slug,
         studio_id,
         active
-      `)
+      `
+      )
       .eq("active", true),
 
     supabase
@@ -302,12 +310,26 @@ export default async function DiscoverEventsPage({
       .not("status", "in", "(cancelled,waitlisted)"),
   ]);
 
-  if (eventsError) throw new Error(`Failed to load public events: ${eventsError.message}`);
-  if (studiosError) throw new Error(`Failed to load studios: ${studiosError.message}`);
-  if (organizersError) throw new Error(`Failed to load organizers: ${organizersError.message}`);
-  if (eventStylesError) throw new Error(`Failed to load event styles: ${eventStylesError.message}`);
+  if (eventsError) {
+    throw new Error(`Failed to load public events: ${eventsError.message}`);
+  }
+
+  if (studiosError) {
+    throw new Error(`Failed to load studios: ${studiosError.message}`);
+  }
+
+  if (organizersError) {
+    throw new Error(`Failed to load organizers: ${organizersError.message}`);
+  }
+
+  if (eventStylesError) {
+    throw new Error(`Failed to load event styles: ${eventStylesError.message}`);
+  }
+
   if (registrationsError) {
-    throw new Error(`Failed to load registration summaries: ${registrationsError.message}`);
+    throw new Error(
+      `Failed to load registration summaries: ${registrationsError.message}`
+    );
   }
 
   const typedEvents = (events ?? []) as EventRow[];
@@ -329,7 +351,9 @@ export default async function DiscoverEventsPage({
       );
 
     if (favoritesError) {
-      throw new Error(`Failed to load event favorites: ${favoritesError.message}`);
+      throw new Error(
+        `Failed to load event favorites: ${favoritesError.message}`
+      );
     }
 
     for (const row of favorites ?? []) {
@@ -340,7 +364,9 @@ export default async function DiscoverEventsPage({
   }
 
   const studioById = new Map(typedStudios.map((studio) => [studio.id, studio]));
-  const organizerById = new Map(typedOrganizers.map((organizer) => [organizer.id, organizer]));
+  const organizerById = new Map(
+    typedOrganizers.map((organizer) => [organizer.id, organizer])
+  );
 
   const stylesByEventId = new Map<string, EventStyleRow[]>();
   for (const row of typedEventStyles) {
@@ -355,14 +381,27 @@ export default async function DiscoverEventsPage({
     activeRegistrationCountByEventId.set(row.event_id, current + 1);
   }
 
-  const usingCurrentLocation =
+  const hasAnyGeocodedEvents = typedEvents.some((event) => {
+    const studio = event.studio_id ? studioById.get(event.studio_id) : undefined;
+    const lat = event.latitude ?? studio?.latitude ?? null;
+    const lng = event.longitude ?? studio?.longitude ?? null;
+
+    return lat !== null && lng !== null;
+  });
+
+  const requestedCurrentLocation =
     locationMode === "current" &&
     searchLatitude !== null &&
     searchLongitude !== null;
 
+  const usingCurrentLocation =
+    requestedCurrentLocation && hasAnyGeocodedEvents;
+
   const filteredEvents = typedEvents
     .map((event) => {
-      if (!event.organizer_id || !event.public_directory_enabled || !event.slug) return null;
+      if (!event.organizer_id || !event.public_directory_enabled || !event.slug) {
+        return null;
+      }
 
       const organizer = organizerById.get(event.organizer_id);
       if (!organizer || !organizer.active) return null;
@@ -379,10 +418,22 @@ export default async function DiscoverEventsPage({
         const lat = event.latitude ?? studio.latitude;
         const lng = event.longitude ?? studio.longitude;
 
-        if (lat == null || lng == null) return null;
+        if (lat !== null && lng !== null) {
+          distanceMiles = haversineMiles(
+            searchLatitude!,
+            searchLongitude!,
+            lat,
+            lng
+          );
 
-        distanceMiles = haversineMiles(searchLatitude!, searchLongitude!, lat, lng);
-        if (distanceMiles > radius) return null;
+          if (distanceMiles > radius) return null;
+        } else {
+          /*
+            Keep public events visible even if the event/studio has not been
+            geocoded yet. They will sort after events with calculated distance.
+          */
+          distanceMiles = null;
+        }
       } else {
         const effectiveZip = event.postal_code ?? studio.postal_code ?? "";
         const effectiveCity = studio.city ?? "";
@@ -399,6 +450,7 @@ export default async function DiscoverEventsPage({
             row.style_key.toLowerCase() === style ||
             row.display_name.toLowerCase() === style
         );
+
         if (!hasStyle) return null;
       }
 
@@ -462,8 +514,12 @@ export default async function DiscoverEventsPage({
 
   const newlyAddedEvents = [...filteredEvents]
     .sort((a, b) => {
-      const aTime = a.event.created_at ? new Date(a.event.created_at).getTime() : 0;
-      const bTime = b.event.created_at ? new Date(b.event.created_at).getTime() : 0;
+      const aTime = a.event.created_at
+        ? new Date(a.event.created_at).getTime()
+        : 0;
+      const bTime = b.event.created_at
+        ? new Date(b.event.created_at).getTime()
+        : 0;
       return bTime - aTime;
     })
     .slice(0, 3);
@@ -486,7 +542,8 @@ export default async function DiscoverEventsPage({
             </h1>
 
             <p className="mt-4 max-w-3xl text-lg leading-8 text-slate-600">
-              Search by city, state, ZIP code, or your current location to find public events nearby.
+              Search by city, state, ZIP code, or your current location to find
+              public events nearby.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
@@ -506,7 +563,8 @@ export default async function DiscoverEventsPage({
                 </Link>
               ) : (
                 <div className="inline-flex rounded-xl border border-green-200 bg-green-50 px-4 py-2.5 text-sm text-green-800">
-                  You are signed in. You can now favorite events while you browse.
+                  You are signed in. You can now favorite events while you
+                  browse.
                 </div>
               )}
             </div>
@@ -518,7 +576,8 @@ export default async function DiscoverEventsPage({
                     Near-Me Search
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Use your current location, or search by city, state, or ZIP code.
+                    Use your current location, or search by city, state, or ZIP
+                    code.
                   </p>
                 </div>
 
@@ -545,12 +604,15 @@ export default async function DiscoverEventsPage({
                     Future placement space
                   </span>
                 </div>
+
                 <h2 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
                   Featured Events
                 </h2>
+
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Highlighted event placements are coming soon. This space is reserved for
-                  promoted workshops, socials, competitions, and special events that help dancers find what is next.
+                  Highlighted event placements are coming soon. This space is
+                  reserved for promoted workshops, socials, competitions, and
+                  special events that help dancers find what is next.
                 </p>
               </div>
             </div>
@@ -561,11 +623,14 @@ export default async function DiscoverEventsPage({
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">
                     Newly Added
                   </p>
+
                   <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                     Newly Added Events
                   </h2>
+
                   <p className="mt-2 text-sm text-slate-600">
-                    Recently published event listings from studios and organizers.
+                    Recently published event listings from studios and
+                    organizers.
                   </p>
                 </div>
               </div>
@@ -580,7 +645,8 @@ export default async function DiscoverEventsPage({
                     >
                       <p className="font-medium text-slate-950">{event.name}</p>
                       <p className="mt-1 text-sm text-slate-500">
-                        {formatDateRange(event.start_date, event.end_date)} · {organizer?.name || hostStudioName(studio)}
+                        {formatDateRange(event.start_date, event.end_date)} ·{" "}
+                        {organizer?.name || hostStudioName(studio)}
                       </p>
                     </Link>
                   ))
@@ -598,159 +664,194 @@ export default async function DiscoverEventsPage({
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
                 Event Search
               </p>
+
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                 Find your next dance event
               </h2>
+
               <p className="mt-1 text-sm text-slate-600">
-                Search by location, style, date-friendly details, and beginner-friendly options.
+                Search by location, style, date-friendly details, and
+                beginner-friendly options.
               </p>
             </div>
+
             <div className="p-6">
-            <input
-              id="search-location-mode"
-              type="hidden"
-              name="locationMode"
-              defaultValue={locationMode}
-            />
-            <input
-              id="search-latitude"
-              type="hidden"
-              name="latitude"
-              defaultValue={query.latitude ?? ""}
-            />
-            <input
-              id="search-longitude"
-              type="hidden"
-              name="longitude"
-              defaultValue={query.longitude ?? ""}
-            />
-
-            <div className="grid gap-4 xl:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]">
-              <div>
-                <label htmlFor="q" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  Search
-                </label>
-                <input
-                  id="q"
-                  name="q"
-                  defaultValue={query.q ?? ""}
-                  placeholder="Event name, host, or dance style"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="city" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  City
-                </label>
-                <input
-                  id="city"
-                  name="city"
-                  defaultValue={query.city ?? ""}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="state" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  State
-                </label>
-                <input
-                  id="state"
-                  name="state"
-                  defaultValue={query.state ?? ""}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="zip" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  ZIP Code
-                </label>
-                <input
-                  id="zip"
-                  name="zip"
-                  defaultValue={query.zip ?? ""}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="style" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  Dance style
-                </label>
-                <select
-                  id="style"
-                  name="style"
-                  defaultValue={query.style ?? ""}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                >
-                  <option value="">All styles</option>
-                  {STYLE_OPTIONS.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-end">
-                <button
-                  type="submit"
-                  className="inline-flex w-full justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  Search
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-[auto_180px] lg:items-end">
-              <div>
-                <CurrentLocationButton />
-              </div>
-
-              <div>
-                <label htmlFor="radius" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  Radius
-                </label>
-                <select
-                  id="radius"
-                  name="radius"
-                  defaultValue={String(RADIUS_OPTIONS.includes(radius) ? radius : 25)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                >
-                  {RADIUS_OPTIONS.map((value) => (
-                    <option key={value} value={value}>
-                      {value} miles
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <label className="mt-4 inline-flex items-center gap-3 text-sm text-slate-700">
               <input
-                type="checkbox"
-                name="beginner"
-                value="1"
-                defaultChecked={beginner}
-                className="h-4 w-4 rounded border-slate-300"
+                id="search-location-mode"
+                type="hidden"
+                name="locationMode"
+                defaultValue={locationMode}
               />
-              Beginner-friendly only
-            </label>
+              <input
+                id="search-latitude"
+                type="hidden"
+                name="latitude"
+                defaultValue={query.latitude ?? ""}
+              />
+              <input
+                id="search-longitude"
+                type="hidden"
+                name="longitude"
+                defaultValue={query.longitude ?? ""}
+              />
+
+              <div className="grid gap-4 xl:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]">
+                <div>
+                  <label
+                    htmlFor="q"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    Search
+                  </label>
+                  <input
+                    id="q"
+                    name="q"
+                    defaultValue={query.q ?? ""}
+                    placeholder="Event name, host, or dance style"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="city"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    City
+                  </label>
+                  <input
+                    id="city"
+                    name="city"
+                    defaultValue={query.city ?? ""}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="state"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    State
+                  </label>
+                  <input
+                    id="state"
+                    name="state"
+                    defaultValue={query.state ?? ""}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="zip"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    ZIP Code
+                  </label>
+                  <input
+                    id="zip"
+                    name="zip"
+                    defaultValue={query.zip ?? ""}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="style"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    Dance style
+                  </label>
+                  <select
+                    id="style"
+                    name="style"
+                    defaultValue={query.style ?? ""}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  >
+                    <option value="">All styles</option>
+                    {STYLE_OPTIONS.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="submit"
+                    className="inline-flex w-full justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+                  >
+                    Search
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-[auto_180px] lg:items-end">
+                <div>
+                  <CurrentLocationButton />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="radius"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    Radius
+                  </label>
+                  <select
+                    id="radius"
+                    name="radius"
+                    defaultValue={String(radius)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  >
+                    {RADIUS_OPTIONS.map((value) => (
+                      <option key={value} value={value}>
+                        {value} miles
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <label className="mt-4 inline-flex items-center gap-3 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  name="beginner"
+                  value="1"
+                  defaultChecked={beginner}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                Beginner-friendly only
+              </label>
             </div>
           </form>
 
           <div className="mt-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">Events</h2>
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                Events
+              </h2>
+
               <p className="mt-1 text-sm text-slate-600">
-                Showing {filteredEvents.length} organizer-published public events
-                {usingCurrentLocation ? ` within ${radius} miles of your location` : ""}
+                Showing {filteredEvents.length} organizer-published public
+                events
+                {usingCurrentLocation
+                  ? ` within ${radius} miles of your location`
+                  : ""}
               </p>
+
               {usingCurrentLocation ? (
                 <p className="mt-1 text-xs font-medium text-violet-600">
-                  Sorted by distance from your location
+                  Sorted by distance when event or studio coordinates are
+                  available
+                </p>
+              ) : requestedCurrentLocation ? (
+                <p className="mt-1 text-xs font-medium text-amber-700">
+                  Showing all public events. Location sorting will improve as
+                  event and studio map details are added.
                 </p>
               ) : null}
             </div>
@@ -765,135 +866,160 @@ export default async function DiscoverEventsPage({
 
           {filteredEvents.length === 0 ? (
             <div className="mt-8 rounded-[2rem] border border-slate-200/80 bg-white px-6 py-16 text-center shadow-sm">
-              <h3 className="text-xl font-semibold text-slate-950">No events found</h3>
+              <h3 className="text-xl font-semibold text-slate-950">
+                No events found
+              </h3>
+
               <p className="mt-2 text-slate-600">
-                Try broadening your filters, changing your radius, or switching to manual filters.
+                Try broadening your filters, resetting filters, or searching by
+                city, state, or ZIP code.
               </p>
             </div>
           ) : (
             <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {filteredEvents.map(({ event, studio, organizer, eventStyleRows, distanceMiles }) => {
-                const activeCount = activeRegistrationCountByEventId.get(event.id) ?? 0;
-                const availability = availabilityLabel({
-                  registrationRequired: event.registration_required,
-                  capacity: event.capacity,
-                  activeCount,
-                  waitlistEnabled: event.waitlist_enabled,
-                });
+              {filteredEvents.map(
+                ({
+                  event,
+                  studio,
+                  organizer,
+                  eventStyleRows,
+                  distanceMiles,
+                }) => {
+                  const activeCount =
+                    activeRegistrationCountByEventId.get(event.id) ?? 0;
+                  const availability = availabilityLabel({
+                    registrationRequired: event.registration_required,
+                    capacity: event.capacity,
+                    activeCount,
+                    waitlistEnabled: event.waitlist_enabled,
+                  });
 
-                return (
-                  <article
-                    key={event.id}
-                    className="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm hover:shadow-md"
-                  >
-                    <div className="h-52 bg-slate-100">
-                      {event.public_cover_image_url ? (
-                        <img
-                          src={event.public_cover_image_url}
-                          alt={event.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#ede9fe_40%,#fff7ed_100%)] px-6 text-center text-sm text-slate-500">
-                          Event image coming soon
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-4 p-6">
-                      <div className="flex flex-wrap gap-2">
-                        <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                          {eventTypeLabel(event.event_type)}
-                        </span>
-
-                        <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700">
-                          {formatDateRange(event.start_date, event.end_date)}
-                        </span>
-
-                        <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${availability.className}`}
-                        >
-                          {availability.text}
-                        </span>
-
-                        {event.beginner_friendly ? (
-                          <span className="inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
-                            Beginner Friendly
-                          </span>
-                        ) : null}
+                  return (
+                    <article
+                      key={event.id}
+                      className="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm hover:shadow-md"
+                    >
+                      <div className="h-52 bg-slate-100">
+                        {event.public_cover_image_url ? (
+                          <img
+                            src={event.public_cover_image_url}
+                            alt={event.name}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#ede9fe_40%,#fff7ed_100%)] px-6 text-center text-sm text-slate-500">
+                            Event image coming soon
+                          </div>
+                        )}
                       </div>
 
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-xl font-semibold text-slate-950">{event.name}</h3>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {studio
-                              ? `${hostStudioName(studio)} • ${[studio.city, studio.state]
-                                  .filter(Boolean)
-                                  .join(", ")}`
-                              : "Host coming soon"}
-                          </p>
-                          {usingCurrentLocation && distanceMiles !== null ? (
-                            <p className="mt-1 text-xs font-medium text-violet-600">
-                              {distanceMiles.toFixed(1)} miles away
-                            </p>
-                          ) : null}
-                          {organizer ? (
-                            <p className="mt-1 text-xs text-slate-500">
-                              Published by {organizer.name}
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <FavoriteButton
-                          targetType="event"
-                          targetId={event.id}
-                          initiallyFavorited={favoriteEventIds.has(event.id)}
-                          isAuthenticated={!!user}
-                          returnPath="/discover/events"
-                        />
-                      </div>
-
-                      <p className="text-sm leading-6 text-slate-600">
-                        {event.public_summary ||
-                          event.public_description ||
-                          "Public event details coming soon."}
-                      </p>
-
-                      {eventStyleRows.length > 0 ? (
+                      <div className="space-y-4 p-6">
                         <div className="flex flex-wrap gap-2">
-                          {eventStyleRows.slice(0, 4).map((row) => (
-                            <span
-                              key={`${event.id}-${row.style_key}`}
-                              className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"
-                            >
-                              {row.display_name}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
+                          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+                            {eventTypeLabel(event.event_type)}
+                          </span>
 
-                      <div className="flex flex-wrap gap-3 pt-1">
-                        <Link
-                          href={`/events/${event.slug}`}
-                          className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
-                        >
-                          View Event
-                        </Link>
+                          <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700">
+                            {formatDateRange(
+                              event.start_date,
+                              event.end_date
+                            )}
+                          </span>
 
-                        {studio?.slug ? (
-                          <Link
-                            href={`/studios/${studio.slug}`}
-                            className="inline-flex rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          <span
+                            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${availability.className}`}
                           >
-                            View Studio
-                          </Link>
+                            {availability.text}
+                          </span>
+
+                          {event.beginner_friendly ? (
+                            <span className="inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
+                              Beginner Friendly
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="text-xl font-semibold text-slate-950">
+                              {event.name}
+                            </h3>
+
+                            <p className="mt-1 text-sm text-slate-500">
+                              {studio
+                                ? `${hostStudioName(studio)} • ${[
+                                    studio.city,
+                                    studio.state,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(", ")}`
+                                : "Host coming soon"}
+                            </p>
+
+                            {usingCurrentLocation &&
+                            distanceMiles !== null ? (
+                              <p className="mt-1 text-xs font-medium text-violet-600">
+                                {distanceMiles.toFixed(1)} miles away
+                              </p>
+                            ) : null}
+
+                            {organizer ? (
+                              <p className="mt-1 text-xs text-slate-500">
+                                Published by {organizer.name}
+                              </p>
+                            ) : null}
+                          </div>
+
+                          <FavoriteButton
+                            targetType="event"
+                            targetId={event.id}
+                            initiallyFavorited={favoriteEventIds.has(event.id)}
+                            isAuthenticated={!!user}
+                            returnPath="/discover/events"
+                          />
+                        </div>
+
+                        <p className="text-sm leading-6 text-slate-600">
+                          {event.public_summary ||
+                            event.public_description ||
+                            "Public event details coming soon."}
+                        </p>
+
+                        {eventStyleRows.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {eventStyleRows.slice(0, 4).map((row) => (
+                              <span
+                                key={`${event.id}-${row.style_key}`}
+                                className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"
+                              >
+                                {row.display_name}
+                              </span>
+                            ))}
+                          </div>
                         ) : null}
+
+                        <div className="flex flex-wrap gap-3 pt-1">
+                          <Link
+                            href={`/events/${event.slug}`}
+                            className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                          >
+                            View Event
+                          </Link>
+
+                          {studio?.slug ? (
+                            <Link
+                              href={`/studios/${studio.slug}`}
+                              className="inline-flex rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              View Studio
+                            </Link>
+                          ) : null}
+                        </div>
                       </div>
-                    </div>
-                  </article>
-                );
-              })}
+                    </article>
+                  );
+                }
+              )}
             </div>
           )}
         </section>
@@ -903,4 +1029,3 @@ export default async function DiscoverEventsPage({
     </>
   );
 }
-

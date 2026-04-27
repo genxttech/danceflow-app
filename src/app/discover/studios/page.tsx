@@ -128,7 +128,9 @@ export default async function DiscoverStudiosPage({
   const style = (query.style ?? "").trim().toLowerCase();
   const offering = (query.offering ?? "").trim().toLowerCase();
   const beginner = query.beginner === "1";
-  const radius = Number(query.radius ?? "25");
+  const radius = RADIUS_OPTIONS.includes(Number(query.radius))
+    ? Number(query.radius)
+    : 25;
   const locationMode = query.locationMode === "current" ? "current" : "manual";
   const searchLatitude = toNumber(query.latitude);
   const searchLongitude = toNumber(query.longitude);
@@ -146,7 +148,8 @@ export default async function DiscoverStudiosPage({
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select(`
+      .select(
+        `
         id,
         slug,
         public_name,
@@ -161,7 +164,8 @@ export default async function DiscoverStudiosPage({
         public_hero_image_url,
         beginner_friendly,
         created_at
-      `)
+      `
+      )
       .eq("public_directory_enabled", true)
       .order("public_name", { ascending: true }),
 
@@ -183,7 +187,9 @@ export default async function DiscoverStudiosPage({
   }
 
   if (offeringsError) {
-    throw new Error(`Failed to load studio offerings: ${offeringsError.message}`);
+    throw new Error(
+      `Failed to load studio offerings: ${offeringsError.message}`
+    );
   }
 
   const typedStudios = (studios ?? []) as StudioRow[];
@@ -203,7 +209,9 @@ export default async function DiscoverStudiosPage({
       );
 
     if (favoritesError) {
-      throw new Error(`Failed to load studio favorites: ${favoritesError.message}`);
+      throw new Error(
+        `Failed to load studio favorites: ${favoritesError.message}`
+      );
     }
 
     for (const row of favorites ?? []) {
@@ -227,10 +235,17 @@ export default async function DiscoverStudiosPage({
     offeringsByStudioId.set(row.studio_id, current);
   }
 
-  const usingCurrentLocation =
+  const hasAnyGeocodedStudios = typedStudios.some(
+    (studio) => studio.latitude !== null && studio.longitude !== null
+  );
+
+  const requestedCurrentLocation =
     locationMode === "current" &&
     searchLatitude !== null &&
     searchLongitude !== null;
+
+  const usingCurrentLocation =
+    requestedCurrentLocation && hasAnyGeocodedStudios;
 
   const filteredStudios = typedStudios
     .map((studio) => {
@@ -240,22 +255,34 @@ export default async function DiscoverStudiosPage({
       let distanceMiles: number | null = null;
 
       if (usingCurrentLocation) {
-        if (studio.latitude == null || studio.longitude == null) {
+        if (studio.latitude !== null && studio.longitude !== null) {
+          distanceMiles = haversineMiles(
+            searchLatitude!,
+            searchLongitude!,
+            studio.latitude,
+            studio.longitude
+          );
+
+          if (distanceMiles > radius) return null;
+        } else {
+          /*
+            Keep public studios visible even if they have not been geocoded yet.
+            They will sort after studios with a calculated distance.
+          */
+          distanceMiles = null;
+        }
+      } else {
+        if (zip && !normalizeZip(studio.postal_code).includes(zip)) {
           return null;
         }
 
-        distanceMiles = haversineMiles(
-          searchLatitude!,
-          searchLongitude!,
-          studio.latitude,
-          studio.longitude
-        );
+        if (city && !(studio.city ?? "").toLowerCase().includes(city)) {
+          return null;
+        }
 
-        if (distanceMiles > radius) return null;
-      } else {
-        if (zip && !normalizeZip(studio.postal_code).includes(zip)) return null;
-        if (city && !(studio.city ?? "").toLowerCase().includes(city)) return null;
-        if (state && !(studio.state ?? "").toLowerCase().includes(state)) return null;
+        if (state && !(studio.state ?? "").toLowerCase().includes(state)) {
+          return null;
+        }
       }
 
       if (beginner && !studio.beginner_friendly) return null;
@@ -321,8 +348,12 @@ export default async function DiscoverStudiosPage({
 
   const newlyAddedStudios = [...filteredStudios]
     .sort((a, b) => {
-      const aTime = a.studio.created_at ? new Date(a.studio.created_at).getTime() : 0;
-      const bTime = b.studio.created_at ? new Date(b.studio.created_at).getTime() : 0;
+      const aTime = a.studio.created_at
+        ? new Date(a.studio.created_at).getTime()
+        : 0;
+      const bTime = b.studio.created_at
+        ? new Date(b.studio.created_at).getTime()
+        : 0;
       return bTime - aTime;
     })
     .slice(0, 3);
@@ -333,7 +364,7 @@ export default async function DiscoverStudiosPage({
 
       <main className="min-h-screen bg-slate-50">
         <section className="border-b bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_24%,#f8fafc_100%)]">
-          <div className="mx-auto max-w-7xl px-6 py-14">
+          <div className="mx-auto max-w-7xl px-4 py-14 sm:px-6">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
               Discover Studios
             </p>
@@ -345,7 +376,8 @@ export default async function DiscoverStudiosPage({
             </h1>
 
             <p className="mt-4 max-w-3xl text-lg text-slate-600">
-              Search by city, state, ZIP code, or your current location to find studios nearby.
+              Search by city, state, ZIP code, or your current location to find
+              studios nearby.
             </p>
 
             <div className="mt-6 flex flex-wrap gap-3">
@@ -365,7 +397,8 @@ export default async function DiscoverStudiosPage({
                 </Link>
               ) : (
                 <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-                  You are signed in. You can now favorite studios while you browse.
+                  You are signed in. You can now favorite studios while you
+                  browse.
                 </div>
               )}
             </div>
@@ -377,7 +410,8 @@ export default async function DiscoverStudiosPage({
                     Near-Me Search
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Use your current location, or search by city, state, or ZIP code.
+                    Use your current location, or search by city, state, or ZIP
+                    code.
                   </p>
                 </div>
 
@@ -392,8 +426,382 @@ export default async function DiscoverStudiosPage({
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-6 py-8">
-          <div className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+        <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-2xl font-semibold text-slate-900">Studios</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Showing {filteredStudios.length} public studios
+                {usingCurrentLocation
+                  ? ` within ${radius} miles of your location`
+                  : ""}
+              </p>
+
+              {usingCurrentLocation ? (
+                <p className="mt-1 text-xs font-medium text-violet-600">
+                  Sorted by distance when studio coordinates are available
+                </p>
+              ) : requestedCurrentLocation ? (
+                <p className="mt-1 text-xs font-medium text-amber-700">
+                  Showing all public studios. Location sorting will improve as
+                  studio map details are added.
+                </p>
+              ) : null}
+            </div>
+
+            <Link
+              href="/discover/studios"
+              className="w-full rounded-xl border bg-white px-4 py-2 text-center text-sm hover:bg-slate-50 sm:w-auto"
+            >
+              Reset filters
+            </Link>
+          </div>
+
+          {filteredStudios.length === 0 ? (
+            <div className="mt-6 rounded-3xl border bg-white px-6 py-16 text-center shadow-sm">
+              <h3 className="text-xl font-semibold text-slate-900">
+                No studios found
+              </h3>
+              <p className="mt-2 text-slate-600">
+                Try broadening your search, resetting filters, or searching by
+                city, state, or ZIP code.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-6 grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredStudios.map(
+                ({ studio, studioStyles, studioOfferings, distanceMiles }) => {
+                  const publicHref = studio.slug
+                    ? `/studios/${studio.slug}`
+                    : "#";
+
+                  return (
+                    <article
+                      key={studio.id}
+                      className="overflow-hidden rounded-3xl border bg-white shadow-sm"
+                    >
+                      <div className="h-48 bg-slate-100">
+                        {studio.public_hero_image_url ? (
+                          <img
+                            src={studio.public_hero_image_url}
+                            alt={titleForStudio(studio)}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : studio.public_logo_url ? (
+                          <div className="flex h-full items-center justify-center p-8">
+                            <img
+                              src={studio.public_logo_url}
+                              alt={titleForStudio(studio)}
+                              className="max-h-full max-w-full object-contain"
+                            />
+                          </div>
+                        ) : (
+                          <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#fff7ed_100%)] text-sm text-slate-500">
+                            Studio image coming soon
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-4 p-6">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <h3 className="text-xl font-semibold text-slate-900">
+                              {titleForStudio(studio)}
+                            </h3>
+                            <p className="mt-1 text-sm text-slate-500">
+                              {locationLabel(studio)}
+                            </p>
+
+                            {usingCurrentLocation &&
+                            distanceMiles !== null ? (
+                              <p className="mt-1 text-xs font-medium text-violet-600">
+                                {distanceMiles.toFixed(1)} miles away
+                              </p>
+                            ) : null}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <FavoriteButton
+                              targetType="studio"
+                              targetId={studio.id}
+                              initiallyFavorited={favoriteStudioIds.has(
+                                studio.id
+                              )}
+                              isAuthenticated={!!user}
+                              returnPath="/discover/studios"
+                            />
+
+                            {studio.beginner_friendly ? (
+                              <span className="inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
+                                Beginner Friendly
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <p className="text-sm text-slate-600">
+                          {studio.public_short_description ||
+                            "Explore this studio’s public profile, instructors, and offerings."}
+                        </p>
+
+                        {studioStyles.length > 0 ? (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                              Dance Styles
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {studioStyles.slice(0, 4).map((row) => (
+                                <span
+                                  key={`${studio.id}-${row.style_key}`}
+                                  className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"
+                                >
+                                  {row.display_name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {studioOfferings.length > 0 ? (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                              Offerings
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {studioOfferings.slice(0, 4).map((row) => (
+                                <span
+                                  key={`${studio.id}-${row.offering_key}`}
+                                  className="rounded-full bg-orange-50 px-3 py-1 text-xs text-orange-700"
+                                >
+                                  {row.display_name}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="flex flex-wrap gap-3 pt-2">
+                          {studio.slug ? (
+                            <Link
+                              href={publicHref}
+                              className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800"
+                            >
+                              View Studio
+                            </Link>
+                          ) : (
+                            <span className="rounded-xl bg-slate-200 px-4 py-2 text-sm text-slate-500">
+                              Public page coming soon
+                            </span>
+                          )}
+
+                          {studio.slug ? (
+                            <Link
+                              href={`${publicHref}#lead`}
+                              className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
+                            >
+                              Contact Studio
+                            </Link>
+                          ) : null}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                }
+              )}
+            </div>
+          )}
+
+          <form className="mt-8 overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm">
+            <div className="border-b border-slate-100 bg-[linear-gradient(135deg,#f8fafc_0%,#fff7ed_100%)] px-6 py-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+                Studio Search
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                Find the right place to dance
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Search by location, style, offering, or beginner-friendly
+                options.
+              </p>
+            </div>
+
+            <div className="p-6">
+              <input
+                id="search-location-mode"
+                type="hidden"
+                name="locationMode"
+                defaultValue={locationMode}
+              />
+              <input
+                id="search-latitude"
+                type="hidden"
+                name="latitude"
+                defaultValue={query.latitude ?? ""}
+              />
+              <input
+                id="search-longitude"
+                type="hidden"
+                name="longitude"
+                defaultValue={query.longitude ?? ""}
+              />
+
+              <div className="grid gap-4 xl:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto]">
+                <div>
+                  <label
+                    htmlFor="q"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    Search
+                  </label>
+                  <input
+                    id="q"
+                    name="q"
+                    defaultValue={query.q ?? ""}
+                    placeholder="Studio name, dance style, or offering"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="city"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    City
+                  </label>
+                  <input
+                    id="city"
+                    name="city"
+                    defaultValue={query.city ?? ""}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="state"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    State
+                  </label>
+                  <input
+                    id="state"
+                    name="state"
+                    defaultValue={query.state ?? ""}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="zip"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    ZIP Code
+                  </label>
+                  <input
+                    id="zip"
+                    name="zip"
+                    defaultValue={query.zip ?? ""}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="style"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    Dance style
+                  </label>
+                  <select
+                    id="style"
+                    name="style"
+                    defaultValue={query.style ?? ""}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  >
+                    <option value="">All</option>
+                    {STYLE_OPTIONS.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="offering"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    Offering
+                  </label>
+                  <select
+                    id="offering"
+                    name="offering"
+                    defaultValue={query.offering ?? ""}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  >
+                    <option value="">All</option>
+                    {OFFERING_OPTIONS.map((option) => (
+                      <option key={option.key} value={option.key}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="flex items-end">
+                  <button
+                    type="submit"
+                    className="inline-flex w-full justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+                  >
+                    Search
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 lg:grid-cols-[auto_180px] lg:items-end">
+                <div>
+                  <CurrentLocationButton />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="radius"
+                    className="mb-1.5 block text-sm font-medium text-slate-800"
+                  >
+                    Radius
+                  </label>
+                  <select
+                    id="radius"
+                    name="radius"
+                    defaultValue={String(radius)}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
+                  >
+                    {RADIUS_OPTIONS.map((value) => (
+                      <option key={value} value={value}>
+                        {value} miles
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <label className="mt-4 inline-flex items-center gap-3 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  name="beginner"
+                  value="1"
+                  defaultChecked={beginner}
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                Beginner-friendly only
+              </label>
+            </div>
+          </form>
+
+          <div className="mt-8 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
             <div className="overflow-hidden rounded-[2rem] border border-orange-200 bg-white shadow-sm">
               <div className="bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_55%,#f5f3ff_100%)] p-6">
                 <div className="flex flex-wrap items-center gap-2">
@@ -408,8 +816,9 @@ export default async function DiscoverStudiosPage({
                   Featured Studios
                 </h2>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
-                  Highlighted studio placements are coming soon. This space is reserved for
-                  promoted studios and complete public profiles that help dancers choose where to dance.
+                  Highlighted studio placements are coming soon. This space is
+                  reserved for promoted studios and complete public profiles that
+                  help dancers choose where to dance.
                 </p>
               </div>
             </div>
@@ -424,7 +833,8 @@ export default async function DiscoverStudiosPage({
                     Newly Added Studios
                   </h2>
                   <p className="mt-2 text-sm text-slate-600">
-                    Recently published studio profiles from the DanceFlow directory.
+                    Recently published studio profiles from the DanceFlow
+                    directory.
                   </p>
                 </div>
               </div>
@@ -434,356 +844,30 @@ export default async function DiscoverStudiosPage({
                   newlyAddedStudios.map(({ studio }) => (
                     <Link
                       key={studio.id}
-                      href={studio.slug ? `/studios/${studio.slug}` : "/discover/studios"}
+                      href={
+                        studio.slug
+                          ? `/studios/${studio.slug}`
+                          : "/discover/studios"
+                      }
                       className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-white hover:shadow-sm"
                     >
-                      <p className="font-medium text-slate-950">{titleForStudio(studio)}</p>
-                      <p className="mt-1 text-sm text-slate-500">{locationLabel(studio)}</p>
+                      <p className="font-medium text-slate-950">
+                        {titleForStudio(studio)}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {locationLabel(studio)}
+                      </p>
                     </Link>
                   ))
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
-                    Newly added studios will appear here as public profiles go live.
+                    Newly added studios will appear here as public profiles go
+                    live.
                   </div>
                 )}
               </div>
             </div>
           </div>
-
-          <form className="mt-8 overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm">
-            <div className="border-b border-slate-100 bg-[linear-gradient(135deg,#f8fafc_0%,#fff7ed_100%)] px-6 py-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-                Studio Search
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                Find the right place to dance
-              </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Search by location, style, offering, or beginner-friendly options.
-              </p>
-            </div>
-            <div className="p-6">
-            <input
-              id="search-location-mode"
-              type="hidden"
-              name="locationMode"
-              defaultValue={locationMode}
-            />
-            <input
-              id="search-latitude"
-              type="hidden"
-              name="latitude"
-              defaultValue={query.latitude ?? ""}
-            />
-            <input
-              id="search-longitude"
-              type="hidden"
-              name="longitude"
-              defaultValue={query.longitude ?? ""}
-            />
-
-            <div className="grid gap-4 xl:grid-cols-[2fr_1fr_1fr_1fr_1fr_1fr_auto]">
-              <div>
-                <label htmlFor="q" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  Search
-                </label>
-                <input
-                  id="q"
-                  name="q"
-                  defaultValue={query.q ?? ""}
-                  placeholder="Studio name, dance style, or offering"
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="city" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  City
-                </label>
-                <input
-                  id="city"
-                  name="city"
-                  defaultValue={query.city ?? ""}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="state" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  State
-                </label>
-                <input
-                  id="state"
-                  name="state"
-                  defaultValue={query.state ?? ""}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="zip" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  ZIP Code
-                </label>
-                <input
-                  id="zip"
-                  name="zip"
-                  defaultValue={query.zip ?? ""}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="style" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  Dance style
-                </label>
-                <select
-                  id="style"
-                  name="style"
-                  defaultValue={query.style ?? ""}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                >
-                  <option value="">All</option>
-                  {STYLE_OPTIONS.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label
-                  htmlFor="offering"
-                  className="mb-1.5 block text-sm font-medium text-slate-800"
-                >
-                  Offering
-                </label>
-                <select
-                  id="offering"
-                  name="offering"
-                  defaultValue={query.offering ?? ""}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                >
-                  <option value="">All</option>
-                  {OFFERING_OPTIONS.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex items-end">
-                <button
-                  type="submit"
-                  className="inline-flex w-full justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-                >
-                  Search
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-4 grid gap-4 lg:grid-cols-[auto_180px] lg:items-end">
-              <div>
-                <CurrentLocationButton />
-              </div>
-
-              <div>
-                <label htmlFor="radius" className="mb-1.5 block text-sm font-medium text-slate-800">
-                  Radius
-                </label>
-                <select
-                  id="radius"
-                  name="radius"
-                  defaultValue={String(RADIUS_OPTIONS.includes(radius) ? radius : 25)}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
-                >
-                  {RADIUS_OPTIONS.map((value) => (
-                    <option key={value} value={value}>
-                      {value} miles
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            <label className="mt-4 inline-flex items-center gap-3 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                name="beginner"
-                value="1"
-                defaultChecked={beginner}
-                className="h-4 w-4 rounded border-slate-300"
-              />
-              Beginner-friendly only
-            </label>
-            </div>
-          </form>
-
-          <div className="mt-8 flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-semibold text-slate-900">Studios</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Showing {filteredStudios.length} public studios
-                {usingCurrentLocation ? ` within ${radius} miles of your location` : ""}
-              </p>
-              {usingCurrentLocation ? (
-                <p className="mt-1 text-xs font-medium text-violet-600">
-                  Sorted by distance from your location
-                </p>
-              ) : null}
-            </div>
-
-            <Link
-              href="/discover/studios"
-              className="rounded-xl border bg-white px-4 py-2 text-sm hover:bg-slate-50"
-            >
-              Reset filters
-            </Link>
-          </div>
-
-          {filteredStudios.length === 0 ? (
-            <div className="mt-8 rounded-3xl border bg-white px-6 py-16 text-center shadow-sm">
-              <h3 className="text-xl font-semibold text-slate-900">No studios found</h3>
-              <p className="mt-2 text-slate-600">
-                Try broadening your search, changing your radius, or switching to manual filters.
-              </p>
-            </div>
-          ) : (
-            <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-              {filteredStudios.map(({ studio, studioStyles, studioOfferings, distanceMiles }) => {
-                const publicHref = studio.slug ? `/studios/${studio.slug}` : "#";
-
-                return (
-                  <article
-                    key={studio.id}
-                    className="overflow-hidden rounded-3xl border bg-white shadow-sm"
-                  >
-                    <div className="h-48 bg-slate-100">
-                      {studio.public_hero_image_url ? (
-                        <img
-                          src={studio.public_hero_image_url}
-                          alt={titleForStudio(studio)}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : studio.public_logo_url ? (
-                        <div className="flex h-full items-center justify-center p-8">
-                          <img
-                            src={studio.public_logo_url}
-                            alt={titleForStudio(studio)}
-                            className="max-h-full max-w-full object-contain"
-                          />
-                        </div>
-                      ) : (
-                        <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#f8fafc_0%,#fff7ed_100%)] text-sm text-slate-500">
-                          Studio image coming soon
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="space-y-4 p-6">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-xl font-semibold text-slate-900">
-                            {titleForStudio(studio)}
-                          </h3>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {locationLabel(studio)}
-                          </p>
-                          {usingCurrentLocation && distanceMiles !== null ? (
-                            <p className="mt-1 text-xs font-medium text-violet-600">
-                              {distanceMiles.toFixed(1)} miles away
-                            </p>
-                          ) : null}
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <FavoriteButton
-                            targetType="studio"
-                            targetId={studio.id}
-                            initiallyFavorited={favoriteStudioIds.has(studio.id)}
-                            isAuthenticated={!!user}
-                            returnPath="/discover/studios"
-                          />
-
-                          {studio.beginner_friendly ? (
-                            <span className="inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700">
-                              Beginner Friendly
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <p className="text-sm text-slate-600">
-                        {studio.public_short_description ||
-                          "Explore this studio’s public profile, instructors, and offerings."}
-                      </p>
-
-                      {studioStyles.length > 0 ? (
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                            Dance Styles
-                          </p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {studioStyles.slice(0, 4).map((row) => (
-                              <span
-                                key={`${studio.id}-${row.style_key}`}
-                                className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-700"
-                              >
-                                {row.display_name}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      {studioOfferings.length > 0 ? (
-                        <div>
-                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                            Offerings
-                          </p>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            {studioOfferings.slice(0, 4).map((row) => (
-                              <span
-                                key={`${studio.id}-${row.offering_key}`}
-                                className="rounded-full bg-orange-50 px-3 py-1 text-xs text-orange-700"
-                              >
-                                {row.display_name}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div className="flex flex-wrap gap-3 pt-2">
-                        {studio.slug ? (
-                          <Link
-                            href={publicHref}
-                            className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white hover:bg-slate-800"
-                          >
-                            View Studio
-                          </Link>
-                        ) : (
-                          <span className="rounded-xl bg-slate-200 px-4 py-2 text-sm text-slate-500">
-                            Public page coming soon
-                          </span>
-                        )}
-
-                        {studio.slug ? (
-                          <Link
-                            href={`${publicHref}#lead`}
-                            className="rounded-xl border px-4 py-2 text-sm hover:bg-slate-50"
-                          >
-                            Contact Studio
-                          </Link>
-                        ) : null}
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
         </section>
       </main>
 
