@@ -13,6 +13,12 @@ type StudioRow = {
   postal_code: string | null;
   latitude: number | null;
   longitude: number | null;
+  public_name: string | null;
+  public_short_description: string | null;
+  public_about: string | null;
+  public_phone: string | null;
+  public_email: string | null;
+  public_website_url: string | null;
   public_lead_enabled: boolean;
   public_lead_headline: string | null;
   public_lead_description: string | null;
@@ -104,6 +110,12 @@ export default async function SettingsPage() {
         postal_code,
         latitude,
         longitude,
+        public_name,
+        public_short_description,
+        public_about,
+        public_phone,
+        public_email,
+        public_website_url,
         public_lead_enabled,
         public_lead_headline,
         public_lead_description,

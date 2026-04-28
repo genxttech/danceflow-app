@@ -129,6 +129,13 @@ export async function updateStudioSettingsAction(
     const blockDepletedPackageBooking = getString(formData, "blockDepletedPackageBooking");
     const warnLowPackageBalance = getString(formData, "warnLowPackageBalance");
 
+    const publicName = getString(formData, "publicName");
+    const publicShortDescription = getString(formData, "publicShortDescription");
+    const publicAbout = getString(formData, "publicAbout");
+    const publicPhone = getString(formData, "publicPhone");
+    const publicEmail = getString(formData, "publicEmail").toLowerCase();
+    const publicWebsiteUrl = getString(formData, "publicWebsiteUrl");
+
     const publicLeadEnabled = getString(formData, "publicLeadEnabled");
     const publicLeadHeadline = getString(formData, "publicLeadHeadline");
     const publicLeadDescription = getString(formData, "publicLeadDescription");
@@ -339,6 +346,12 @@ export async function updateStudioSettingsAction(
       postal_code: string | null;
       latitude?: number | null;
       longitude?: number | null;
+      public_name: string | null;
+      public_short_description: string | null;
+      public_about: string | null;
+      public_phone: string | null;
+      public_email: string | null;
+      public_website_url: string | null;
       public_lead_enabled: boolean;
       public_lead_headline: string | null;
       public_lead_description: string | null;
@@ -348,6 +361,12 @@ export async function updateStudioSettingsAction(
       public_hero_image_url?: string;
     } = {
       name: studioName,
+      public_name: publicName || studioName,
+      public_short_description: publicShortDescription || null,
+      public_about: publicAbout || null,
+      public_phone: publicPhone || null,
+      public_email: publicEmail || null,
+      public_website_url: publicWebsiteUrl || null,
       city: publicCity || null,
       state: publicState || null,
       postal_code: publicPostalCode || null,
