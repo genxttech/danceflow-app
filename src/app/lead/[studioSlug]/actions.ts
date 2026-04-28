@@ -12,12 +12,19 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function intentLabel(value: string) {
+  return value === "intro_lesson"
+    ? "Public Intro Lesson Request"
+    : "Public Studio Inquiry";
+}
+
 export async function submitPublicLeadAction(
   _prevState: PublicLeadFormState,
   formData: FormData
 ): Promise<PublicLeadFormState> {
   const studioSlug = getString(formData, "studioSlug");
   const successRedirect = getString(formData, "successRedirect");
+  const inquiryIntent = getString(formData, "inquiryIntent") || "general_inquiry";
   const firstName = getString(formData, "firstName");
   const lastName = getString(formData, "lastName");
   const email = getString(formData, "email").toLowerCase();
@@ -40,6 +47,12 @@ export async function submitPublicLeadAction(
     return { error: "Please provide at least an email or phone number." };
   }
 
+  if (inquiryIntent === "intro_lesson" && !danceInterests) {
+    return {
+      error: "Please tell the studio what kind of dance lesson you are interested in.",
+    };
+  }
+
   try {
     const supabase = await createClient();
 
@@ -54,12 +67,38 @@ export async function submitPublicLeadAction(
       return { error: "This inquiry form is not available." };
     }
 
+    const { data: introSettings } = await supabase
+      .from("studio_settings")
+      .select(
+        "public_intro_booking_enabled, intro_lesson_duration_minutes, intro_booking_window_days"
+      )
+      .eq("studio_id", studio.id)
+      .maybeSingle();
+
+    const introBookingEnabled = Boolean(
+      introSettings?.public_intro_booking_enabled
+    );
+
+    const normalizedIntent =
+      inquiryIntent === "intro_lesson" && introBookingEnabled
+        ? "intro_lesson"
+        : "general_inquiry";
+
+    const sourceLabel = intentLabel(normalizedIntent);
+
     const combinedNotes = [
+      normalizedIntent === "intro_lesson" ? "Intent: Intro Lesson Request" : null,
+      normalizedIntent === "intro_lesson" && introSettings?.intro_lesson_duration_minutes
+        ? `Intro Lesson Duration: ${introSettings.intro_lesson_duration_minutes} minutes`
+        : null,
+      normalizedIntent === "intro_lesson" && introSettings?.intro_booking_window_days
+        ? `Intro Booking Window: ${introSettings.intro_booking_window_days} days`
+        : null,
       notes ? `Inquiry: ${notes}` : null,
       preferredContactMethod
         ? `Preferred Contact Method: ${preferredContactMethod}`
         : null,
-      "Source: Public studio inquiry",
+      `Source: ${sourceLabel}`,
       `Studio Slug: ${studioSlug}`,
     ]
       .filter(Boolean)
@@ -74,7 +113,7 @@ export async function submitPublicLeadAction(
       status: "lead",
       skill_level: skillLevel || null,
       dance_interests: danceInterests || null,
-      referral_source: referralSource || "Public Studio Inquiry",
+      referral_source: referralSource || sourceLabel,
       notes: combinedNotes || null,
     });
 
@@ -83,8 +122,7 @@ export async function submitPublicLeadAction(
     }
   } catch (error) {
     return {
-      error:
-        error instanceof Error ? error.message : "Something went wrong.",
+      error: error instanceof Error ? error.message : "Something went wrong.",
     };
   }
 

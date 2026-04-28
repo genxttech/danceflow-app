@@ -47,6 +47,12 @@ type OfferingRow = {
   display_name: string | null;
 };
 
+type IntroSettingsRow = {
+  public_intro_booking_enabled: boolean | null;
+  intro_lesson_duration_minutes: number | null;
+  intro_booking_window_days: number | null;
+};
+
 type EventRow = {
   id: string;
   slug: string | null;
@@ -204,6 +210,7 @@ export default async function PublicStudioPage({
     { data: styles, error: stylesError },
     { data: offerings, error: offeringsError },
     { data: events, error: eventsError },
+    { data: introSettings, error: introSettingsError },
     favoriteResult,
   ] = await Promise.all([
     supabase
@@ -244,6 +251,18 @@ export default async function PublicStudioPage({
       .order("start_date", { ascending: true })
       .limit(6),
 
+    supabase
+      .from("studio_settings")
+      .select(
+        `
+          public_intro_booking_enabled,
+          intro_lesson_duration_minutes,
+          intro_booking_window_days
+        `
+      )
+      .eq("studio_id", studio.id)
+      .maybeSingle<IntroSettingsRow>(),
+
     user
       ? supabase
           .from("user_favorites")
@@ -266,6 +285,12 @@ export default async function PublicStudioPage({
     throw new Error(`Failed to load studio events: ${eventsError.message}`);
   }
 
+  if (introSettingsError) {
+    throw new Error(
+      `Failed to load intro lesson settings: ${introSettingsError.message}`
+    );
+  }
+
   if (favoriteResult?.error) {
     throw new Error(`Failed to load studio favorite state: ${favoriteResult.error.message}`);
   }
@@ -277,6 +302,35 @@ export default async function PublicStudioPage({
   const location = locationLabel(studio);
   const studioUrlSlug = studio.slug ?? studioSlug;
   const isFavorited = Boolean(favoriteResult?.data?.id);
+  const introBookingEnabled = Boolean(
+    introSettings?.public_intro_booking_enabled
+  );
+  const introLessonDuration =
+    introSettings?.intro_lesson_duration_minutes ?? null;
+  const introBookingWindowDays =
+    introSettings?.intro_booking_window_days ?? null;
+  const leadCtaText = introBookingEnabled
+    ? "Request an Intro Lesson"
+    : studio.public_lead_cta_text?.trim() || "Contact Studio";
+  const leadHeading = introBookingEnabled
+    ? "Request an Intro Lesson"
+    : studio.public_lead_headline?.trim() || `Connect with ${title}`;
+  const leadDescription = introBookingEnabled
+    ? `Tell ${title} you are interested in an intro lesson${
+        introLessonDuration ? ` (${introLessonDuration} minutes)` : ""
+      }${
+        introBookingWindowDays
+          ? `. They can follow up with available times over the next ${introBookingWindowDays} days.`
+          : ". They can follow up with available times."
+      }`
+    : studio.public_lead_description?.trim() ||
+      "Send a message and this studio can follow up with you directly.";
+  const leadStudio = {
+    ...studio,
+    public_intro_booking_enabled: introBookingEnabled,
+    intro_lesson_duration_minutes: introLessonDuration,
+    intro_booking_window_days: introBookingWindowDays,
+  };
 
   return (
     <>
@@ -333,7 +387,7 @@ export default async function PublicStudioPage({
                       href="#lead"
                       className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800"
                     >
-                      {studio.public_lead_cta_text?.trim() || "Contact Studio"}
+                      {leadCtaText}
                     </a>
                   ) : null}
 
@@ -535,14 +589,13 @@ export default async function PublicStudioPage({
                 >
                   <div className="mb-5">
                     <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
-                      Reach Out
+                      {introBookingEnabled ? "Intro Lesson" : "Reach Out"}
                     </p>
                     <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                      {studio.public_lead_headline?.trim() || `Connect with ${title}`}
+                      {leadHeading}
                     </h2>
                     <p className="mt-2 text-sm leading-7 text-slate-600">
-                      {studio.public_lead_description?.trim() ||
-                        "Send a message and this studio can follow up with you directly."}
+                      {leadDescription}
                     </p>
                   </div>
 
@@ -553,9 +606,9 @@ export default async function PublicStudioPage({
                   ) : null}
 
                   <PublicLeadForm
-  studio={studio}
-  successRedirect={`/studios/${studioUrlSlug}?inquiry=success#lead`}
-/>
+                    studio={leadStudio}
+                    successRedirect={`/studios/${studioUrlSlug}?inquiry=success#lead`}
+                  />
                 </section>
               ) : null}
             </div>

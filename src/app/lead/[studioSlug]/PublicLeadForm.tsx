@@ -17,6 +17,9 @@ type StudioBranding = {
   public_logo_url: string | null;
   public_primary_color: string | null;
   public_lead_cta_text: string | null;
+  public_intro_booking_enabled?: boolean | null;
+  intro_lesson_duration_minutes?: number | null;
+  intro_booking_window_days?: number | null;
 };
 
 const initialState: PublicLeadFormState = {
@@ -67,7 +70,12 @@ export default function PublicLeadForm({
   }
 
   const accent = studio.public_primary_color?.trim() || "#0f172a";
-  const ctaText = studio.public_lead_cta_text?.trim() || "Submit Inquiry";
+  const introBookingEnabled = Boolean(studio.public_intro_booking_enabled);
+  const ctaText = introBookingEnabled
+    ? "Request Intro Lesson"
+    : studio.public_lead_cta_text?.trim() || "Submit Inquiry";
+  const introDuration = studio.intro_lesson_duration_minutes ?? null;
+  const introWindowDays = studio.intro_booking_window_days ?? null;
 
   return (
     <div style={{ ["--studio-accent" as string]: accent }}>
@@ -78,6 +86,23 @@ export default function PublicLeadForm({
           name="successRedirect"
           value={successRedirect ?? ""}
         />
+        <input
+          type="hidden"
+          name="inquiryIntent"
+          value={introBookingEnabled ? "intro_lesson" : "general_inquiry"}
+        />
+
+        {introBookingEnabled ? (
+          <div className="rounded-2xl border border-violet-200 bg-white/70 px-4 py-4 text-sm leading-6 text-violet-950">
+            <p className="font-semibold">Intro lesson request</p>
+            <p className="mt-1">
+              Share your contact details and what you are looking for. The
+              studio can follow up to confirm a time
+              {introDuration ? ` for a ${introDuration}-minute intro lesson` : ""}
+              {introWindowDays ? ` within the next ${introWindowDays} days` : ""}.
+            </p>
+          </div>
+        ) : null}
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
@@ -149,11 +174,12 @@ export default function PublicLeadForm({
               htmlFor="danceInterests"
               className="mb-1.5 block text-sm font-medium text-slate-700"
             >
-              Dance interests
+              Dance interests {introBookingEnabled ? "*" : ""}
             </label>
             <input
               id="danceInterests"
               name="danceInterests"
+              required={introBookingEnabled}
               placeholder="Wedding dance, salsa, ballroom..."
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
             />
@@ -221,13 +247,19 @@ export default function PublicLeadForm({
             htmlFor="notes"
             className="mb-1.5 block text-sm font-medium text-slate-700"
           >
-            What are you looking for?
+            {introBookingEnabled
+              ? "What kind of intro lesson are you looking for?"
+              : "What are you looking for?"}
           </label>
           <textarea
             id="notes"
             name="notes"
             rows={5}
-            placeholder="Tell us about your goals, timeline, event, or questions."
+            placeholder={
+              introBookingEnabled
+                ? "Tell us your goals, preferred days/times, and whether this is for social dancing, a wedding, competition, or something else."
+                : "Tell us about your goals, timeline, event, or questions."
+            }
             className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
           />
         </div>

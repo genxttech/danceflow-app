@@ -72,7 +72,10 @@ function validateClientDropdowns(params: {
     return "Invalid client status.";
   }
 
-  if (skillLevel && !isAllowedOptionValue(CLIENT_SKILL_LEVEL_OPTIONS, skillLevel)) {
+  if (
+    skillLevel &&
+    !isAllowedOptionValue(CLIENT_SKILL_LEVEL_OPTIONS, skillLevel)
+  ) {
     return "Invalid skill level.";
   }
 
@@ -241,6 +244,8 @@ export async function updateClientAction(
   prevState: { error: string },
   formData: FormData
 ) {
+  let clientIdForRedirect = "";
+
   try {
     const { supabase, studioId } = await getCurrentUserStudioContext();
 
@@ -263,6 +268,8 @@ export async function updateClientAction(
     if (!clientId) {
       return { error: "Missing client id." };
     }
+
+    clientIdForRedirect = clientId;
 
     if (!firstName || !lastName) {
       return { error: "First name and last name are required." };
@@ -347,13 +354,13 @@ export async function updateClientAction(
     if (error) {
       return { error: `Client update failed: ${error.message}` };
     }
-
-    redirect(`/app/clients/${clientId}`);
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
     };
   }
+
+  redirect(`/app/clients/${clientIdForRedirect}?success=client_updated`);
 }
 
 export async function archiveClientAction(formData: FormData) {
@@ -385,7 +392,8 @@ export async function updateIndependentInstructorSettingsAction(
   const clientId = getString(formData, "clientId");
   const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
   const linkedInstructorIdRaw = getString(formData, "linkedInstructorId");
-  const isIndependentInstructor = formData.get("isIndependentInstructor") === "on";
+  const isIndependentInstructor =
+    formData.get("isIndependentInstructor") === "on";
 
   if (!clientId) {
     redirect(appendQueryParam("/app/clients", "error", "missing_client"));
@@ -424,9 +432,7 @@ export async function updateIndependentInstructorSettingsAction(
       .single();
 
     if (instructorError || !instructor) {
-      redirect(
-        appendQueryParam(returnTo, "error", "invalid_linked_instructor")
-      );
+      redirect(appendQueryParam(returnTo, "error", "invalid_linked_instructor"));
     }
   }
 
