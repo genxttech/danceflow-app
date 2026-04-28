@@ -589,11 +589,406 @@ Before launch, studios should confirm:
 This keeps billing and client payment workflows clear for owners and front desk staff.
 `,
   },
+
+  {
+    slug: "client-portal-linking-invites-vs-existing-accounts",
+    title: "Client Portal Linking: Invites vs Existing Accounts",
+    category: "Clients & Portals",
+    audience: "both",
+    description:
+      "Learn how to connect a client record to portal access, when to send an invite, and when to link an existing account.",
+    content: `
+## Overview
+
+Client portal access connects a client record in your studio to the client’s DanceFlow login account.
+
+The goal is:
+
+**Client record in your studio + client login account = client portal access**
+
+Once linked, the client can log in through **Public Account / Client Portal** and access the portal for your studio.
+
+## Invite vs link
+
+There are two common ways to give a client portal access.
+
+| Action | Best For | What Happens |
+|---|---|---|
+| Send Portal Invite | New clients or clients who have not logged in before | DanceFlow emails the client a secure sign-in link so they can activate access |
+| Link Existing Account | Clients who already have a DanceFlow account | Their existing account is connected to the client record in your studio |
+
+## When to send a portal invite
+
+Send an invite when the client is new to DanceFlow or you are not sure whether they have created an account yet.
+
+Use this when:
+
+- The client has never logged in before
+- The client does not already have a DanceFlow public account
+- You want DanceFlow to email them a secure access link
+- You want the client to activate their own portal access
+
+Before sending the invite, confirm the client record has the correct email address.
+
+## When to link an existing account
+
+Use linking when the client already has a DanceFlow public account or portal account using the same email address.
+
+Use this when:
+
+- The client says they already created a DanceFlow account
+- The client used public discovery before
+- The client registered for an event using the same email
+- The client already has portal access with another studio
+
+The client does not need a second DanceFlow account. Their existing login can be connected to your studio’s client record.
+
+## Why the email address matters
+
+DanceFlow uses the email address to match the client record to the login account.
+
+Check for:
+
+- Misspelled email addresses
+- Old email addresses
+- Duplicate client records
+- A different email used by the client for DanceFlow
+
+If the email does not match, the client may log in but not see the correct portal.
+
+## How to send a client portal invite
+
+1. Go to **Clients**.
+2. Open the client record.
+3. Confirm the client has a valid email address.
+4. Choose the portal invite option.
+5. Send the invite.
+
+The client will receive an email from DanceFlow with a secure sign-in link.
+
+When the client clicks the link, DanceFlow should activate the session and send them directly to the correct portal.
+
+## How to link an existing account
+
+1. Go to **Clients**.
+2. Open the client record.
+3. Confirm the email matches the account the client already uses.
+4. Use the portal linking option.
+5. Save the change.
+
+After linking, the client can log in through **Public Account / Client Portal** and access your studio portal.
+
+## What the client should do
+
+The client should:
+
+1. Open the email from DanceFlow.
+2. Click the secure sign-in link.
+3. Land in their client portal.
+4. Use the same email address for future portal access.
+
+They should not need to request multiple magic links to activate portal access.
+
+## Troubleshooting
+
+### The client did not receive the invite
+
+Ask them to check:
+
+- Spam or junk folder
+- Promotions tab
+- Whether the studio has the correct email address
+- Whether their inbox blocks automated emails
+
+### The client logged in but does not see the portal
+
+Check:
+
+- The email on the client record matches the login email
+- The client record is linked to their portal account
+- The client is not duplicated in the CRM
+- The client is using **Public Account / Client Portal**, not **Studio Login**
+
+### The client used the wrong email
+
+Update the client record with the correct email address, then resend the invite or link the correct existing account.
+
+## Best practices
+
+- Confirm the client email before sending an invite.
+- Avoid duplicate client records.
+- Use one DanceFlow account per client whenever possible.
+- For clients connected to multiple studios, use the same email so their portal access can stay connected.
+`,
+  },
+  {
+    slug: "making-your-studio-visible-in-public-discovery",
+    title: "Making Your Studio Visible in Public Discovery",
+    category: "Public Discovery & Leads",
+    audience: "both",
+    description:
+      "Learn what controls whether your studio appears in public discovery and how to improve your public listing.",
+    content: `
+## Overview
+
+Public discovery helps dancers find studios on DanceFlow.
+
+Your studio only appears publicly when public directory visibility is enabled and the required public profile details are saved.
+
+## What controls public visibility
+
+Your studio must have public discovery enabled.
+
+The most important setting is:
+
+**Public Directory Enabled**
+
+When this is turned on, your studio can appear in public discovery.
+
+## Recommended public profile fields
+
+For the best listing, complete:
+
+- Public studio name
+- Short public description
+- About this studio
+- City
+- State
+- ZIP code
+- Public phone or email, if you want it shown
+- Website URL
+- Studio logo
+- Hero image
+
+## Location and search
+
+DanceFlow uses your location details to help with discovery and Search Near Me.
+
+Add at least:
+
+- City
+- State
+- ZIP code
+
+When geocoding is enabled, DanceFlow can store latitude and longitude to make nearby search more accurate.
+
+## Why your studio may not appear
+
+Common reasons include:
+
+- Public directory is turned off
+- The studio has no public location details
+- Search filters are hiding the studio
+- The public profile was saved before required fields were completed
+- The page needs to be refreshed after saving settings
+
+## Best practices
+
+- Use a clear short description.
+- Add a welcoming About section.
+- Upload a clean logo and hero image.
+- Use the city and ZIP where dancers are most likely to search.
+- Keep public contact details current.
+`,
+  },
+  {
+    slug: "setting-up-your-public-studio-profile",
+    title: "Setting Up Your Public Studio Profile",
+    category: "Public Discovery & Leads",
+    audience: "both",
+    description:
+      "Learn how to complete the public-facing studio profile that dancers see in DanceFlow.",
+    content: `
+## Overview
+
+Your public studio profile is the page dancers see when they view your studio on DanceFlow.
+
+A complete profile helps dancers understand who you are, what you offer, and how to take the next step.
+
+## Profile fields to complete
+
+In studio settings, complete:
+
+- Public studio name
+- Short description
+- About this studio
+- Phone
+- Email
+- Website
+- Logo
+- Hero image
+- Public lead headline
+- Public lead description
+
+## Short description vs About this studio
+
+The short description is used for quick previews, such as discovery cards.
+
+The About section is longer and appears on your public studio profile.
+
+Use the short description to quickly explain what your studio offers.
+
+Use the About section to welcome dancers and explain your style, programs, and personality.
+
+## Logo and hero image
+
+Upload a logo and hero image to make the public profile feel polished.
+
+Use supported image formats such as PNG, JPG, JPEG, or WebP.
+
+Keep image sizes reasonable so the page loads quickly.
+
+## Lead form copy
+
+The public lead form has its own headline and description.
+
+Use this section to tell dancers what to do next.
+
+Examples:
+
+- Request an intro lesson
+- Ask about private lessons
+- Contact us about beginner classes
+- Get help finding the right program
+
+## Best practices
+
+- Keep language friendly and clear.
+- Write for beginners, not just experienced dancers.
+- Explain what happens after someone submits the form.
+- Make the next step easy to understand.
+`,
+  },
+  {
+    slug: "setting-up-intro-lesson-requests",
+    title: "Setting Up Intro Lesson Requests",
+    category: "Public Discovery & Leads",
+    audience: "both",
+    description:
+      "Learn how intro lesson requests work and how studios can use them to turn public interest into leads.",
+    content: `
+## Overview
+
+Intro lesson requests let dancers express interest in starting with your studio from your public profile.
+
+In the current version, an intro lesson request is captured as a lead so your studio can follow up manually.
+
+## What happens when intro lesson requests are enabled
+
+When enabled, the public form uses intro lesson language.
+
+The visitor can submit their contact information and request help getting started.
+
+DanceFlow saves the request as a lead with intro lesson intent so your team knows how to follow up.
+
+## When to use this setting
+
+Use intro lesson requests if your studio offers:
+
+- New student intro lessons
+- First private lesson consultations
+- Beginner trial lessons
+- Wedding dance consultations
+- Starter sessions for new dancers
+
+## Suggested follow-up process
+
+After receiving an intro lesson request:
+
+1. Review the lead details.
+2. Contact the dancer quickly.
+3. Ask about goals, availability, and experience level.
+4. Assign an instructor if needed.
+5. Create an appointment once the time is confirmed.
+
+## Recommended copy
+
+Use friendly beginner-focused language.
+
+Examples:
+
+- Request an intro lesson
+- Tell us what you want to learn
+- We will help match you with the right next step
+- No partner or experience required
+
+## Phase 2 note
+
+Future versions may support fuller intro lesson booking, including availability windows, instructor assignment, room assignment, and appointment confirmation.
+`,
+  },
+  {
+    slug: "troubleshooting-client-portal-invite-emails",
+    title: "Troubleshooting Client Portal Invite Emails",
+    category: "Clients & Portals",
+    audience: "both",
+    description:
+      "Steps to take when a client says they did not receive or cannot use a portal invite email.",
+    content: `
+## Overview
+
+Client portal invites are sent by email. If a client says they did not receive the invite or cannot access the portal, start with the checks below.
+
+## Step 1: Confirm the email address
+
+Open the client record and confirm the email address is correct.
+
+Check for:
+
+- Typos
+- Old email addresses
+- Extra spaces
+- Duplicate client records with different emails
+
+## Step 2: Ask the client to check folders
+
+Ask the client to check:
+
+- Inbox
+- Spam
+- Junk
+- Promotions
+- Updates
+
+If the email is found in spam, ask the client to mark it as not spam.
+
+## Step 3: Confirm which login they are using
+
+Clients should use:
+
+**Public Account / Client Portal**
+
+They should not use **Studio Login** unless they are staff or an instructor with workspace access.
+
+## Step 4: Confirm the portal is linked
+
+If the client can log in but cannot see the portal, the client record may not be linked to their account.
+
+Check that:
+
+- The client record email matches their login email
+- The portal user/account is linked to the client record
+- The client is not duplicated under another email
+
+## Step 5: Resend the invite if needed
+
+If the email address is correct but the client did not receive the invite, resend it.
+
+If the client already has a DanceFlow account, use the existing account linking process instead of creating a duplicate account.
+
+## Best practices
+
+- Use notify@idanceflow.com or another verified sender.
+- Avoid sending many repeated invites in a short time.
+- Tell clients to search for DanceFlow in their inbox.
+- Use one email per client whenever possible.
+`,
+  },
 ];
 
 export function getPublicKnowledgebaseArticles() {
   return knowledgebaseArticles.filter(
-    (article) => article.audience === "public" || article.audience === "both"
+    (article) => article.audience === "public" || article.audience === "both",
   );
 }
 
@@ -603,6 +998,8 @@ export function getKnowledgebaseArticleBySlug(slug: string) {
 
 export function getKnowledgebaseCategories() {
   return Array.from(
-    new Set(getPublicKnowledgebaseArticles().map((article) => article.category))
+    new Set(
+      getPublicKnowledgebaseArticles().map((article) => article.category),
+    ),
   );
 }

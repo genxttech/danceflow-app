@@ -5,13 +5,15 @@ import { loginAction, requestPasswordResetAction } from "../actions";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
+type LoginIntent = "studio" | "organizer" | "public";
+
 function getSingleSearchParam(
   value: string | string[] | undefined
 ): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function normalizeIntent(value: string | undefined) {
+function normalizeIntent(value: string | undefined): LoginIntent {
   if (value === "studio" || value === "organizer" || value === "public") {
     return value;
   }
@@ -30,6 +32,87 @@ function normalizeMode(value: string | undefined) {
   }
 
   return "default";
+}
+
+function buildLoginHref(params: {
+  intent: LoginIntent;
+  nextPath: string;
+  selectedPlan: string;
+  emailHint: string;
+}) {
+  const { intent, nextPath, selectedPlan, emailHint } = params;
+  const search = new URLSearchParams({ intent });
+
+  if (nextPath) search.set("next", nextPath);
+  if (selectedPlan) search.set("plan", selectedPlan);
+  if (emailHint) search.set("email", emailHint);
+
+  return `/login?${search.toString()}`;
+}
+
+function LoginChoiceCard({
+  href,
+  selected,
+  eyebrow,
+  title,
+  description,
+  cta,
+}: {
+  href: string;
+  selected: boolean;
+  eyebrow: string;
+  title: string;
+  description: string;
+  cta: string;
+}) {
+  return (
+    <Link
+      href={href}
+      aria-current={selected ? "page" : undefined}
+      className={[
+        "group relative flex min-h-[168px] flex-col justify-between rounded-2xl border p-5 text-left shadow-sm transition",
+        "focus:outline-none focus:ring-4 focus:ring-violet-100",
+        selected
+          ? "border-violet-400 bg-violet-50 shadow-md"
+          : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-50/50 hover:shadow-md",
+      ].join(" ")}
+    >
+      <span className="flex items-start justify-between gap-3">
+        <span>
+          <span className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
+            {eyebrow}
+          </span>
+          <span className="mt-2 block text-base font-semibold text-slate-950">
+            {title}
+          </span>
+        </span>
+
+        {selected ? (
+          <span className="rounded-full bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white">
+            Selected
+          </span>
+        ) : (
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600 transition group-hover:border-violet-200 group-hover:bg-white group-hover:text-violet-700">
+            Choose
+          </span>
+        )}
+      </span>
+
+      <span className="mt-3 block text-sm leading-6 text-slate-600">
+        {description}
+      </span>
+
+      <span
+        className={[
+          "mt-4 inline-flex items-center text-sm font-semibold",
+          selected ? "text-violet-700" : "text-slate-900 group-hover:text-violet-700",
+        ].join(" ")}
+      >
+        {cta}
+        <span className="ml-1 transition group-hover:translate-x-0.5">→</span>
+      </span>
+    </Link>
+  );
 }
 
 export default async function LoginPage({
@@ -68,22 +151,29 @@ export default async function LoginPage({
 
   const title = isBusiness
     ? loginIntent === "studio"
-      ? "Sign in to your studio account"
-      : "Sign in to your organizer account"
+      ? "Sign in to your studio workspace"
+      : "Sign in to your organizer workspace"
     : "Log in to DanceFlow";
 
   const description = isBusiness
     ? loginIntent === "studio"
       ? "Use your studio email and password to access your DanceFlow workspace."
       : "Use your organizer email and password to access your DanceFlow workspace."
-    : "Use your email to receive a secure sign-in link for your free public account.";
+    : "Use your email to receive a secure sign-in link for your public account or client portal.";
+
+  const selectedLabel =
+    loginIntent === "studio"
+      ? "Studio Workspace"
+      : loginIntent === "organizer"
+        ? "Organizer Workspace"
+        : "Public Account / Client Portal";
 
   return (
     <>
       <PublicSiteHeader isAuthenticated={false} />
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_18%,#f8fafc_100%)]">
-        <section className="mx-auto max-w-4xl px-6 py-14 lg:px-8">
+        <section className="mx-auto max-w-5xl px-6 py-14 lg:px-8">
           <div className="mb-8 rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
               {eyebrow}
@@ -93,60 +183,79 @@ export default async function LoginPage({
               {title}
             </h1>
 
-                        <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
+            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
               {description}
             </p>
 
-            <div className="mt-6 grid gap-3 md:grid-cols-3">
-              <Link
-                href="/login?intent=studio"
-                className={[
-                  "rounded-2xl border p-4 text-left transition",
-                  loginIntent === "studio"
-                    ? "border-violet-300 bg-violet-50"
-                    : "border-slate-200 bg-slate-50 hover:bg-slate-100",
-                ].join(" ")}
-              >
-                <p className="text-sm font-semibold text-slate-950">Studio Login</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Owners, studio admins, front desk, and instructors
-                </p>
-              </Link>
+            <div className="mt-8 rounded-3xl border border-slate-200 bg-slate-50 p-4">
+              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Step 1
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                    Choose how you want to sign in
+                  </h2>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Select one option below to open the correct login form.
+                  </p>
+                </div>
 
-              <Link
-                href="/login?intent=organizer"
-                className={[
-                  "rounded-2xl border p-4 text-left transition",
-                  loginIntent === "organizer"
-                    ? "border-violet-300 bg-violet-50"
-                    : "border-slate-200 bg-slate-50 hover:bg-slate-100",
-                ].join(" ")}
-              >
-                <p className="text-sm font-semibold text-slate-950">Organizer Login</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Organizers and event admin staff
-                </p>
-              </Link>
+                <div className="rounded-full border border-violet-200 bg-white px-3 py-1.5 text-xs font-semibold text-violet-700">
+                  Selected: {selectedLabel}
+                </div>
+              </div>
 
-              <Link
-                href="/login?intent=public"
-                className={[
-                  "rounded-2xl border p-4 text-left transition",
-                  loginIntent === "public"
-                    ? "border-violet-300 bg-violet-50"
-                    : "border-slate-200 bg-slate-50 hover:bg-slate-100",
-                ].join(" ")}
-              >
-                <p className="text-sm font-semibold text-slate-950">Public Login</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Dancers, clients, and general account access
-                </p>
-              </Link>
+              <div className="grid gap-3 md:grid-cols-3">
+                <LoginChoiceCard
+                  href={buildLoginHref({
+                    intent: "studio",
+                    nextPath,
+                    selectedPlan,
+                    emailHint,
+                  })}
+                  selected={loginIntent === "studio"}
+                  eyebrow="Workspace"
+                  title="Studio Workspace"
+                  description="Owners, studio admins, front desk, and instructors."
+                  cta="Use Studio Login"
+                />
+
+                <LoginChoiceCard
+                  href={buildLoginHref({
+                    intent: "organizer",
+                    nextPath,
+                    selectedPlan,
+                    emailHint,
+                  })}
+                  selected={loginIntent === "organizer"}
+                  eyebrow="Events"
+                  title="Organizer Workspace"
+                  description="Organizers and event admin staff managing registrations."
+                  cta="Use Organizer Login"
+                />
+
+                <LoginChoiceCard
+                  href={buildLoginHref({
+                    intent: "public",
+                    nextPath,
+                    selectedPlan,
+                    emailHint,
+                  })}
+                  selected={loginIntent === "public"}
+                  eyebrow="Public"
+                  title="Public Account / Client Portal"
+                  description="Dancers, students, clients, favorites, events, and portal access."
+                  cta="Use Public Login"
+                />
+              </div>
             </div>
 
             {mode === "check-email" ? (
               <div className="mt-6 rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                <p className="text-sm font-medium text-slate-900">Check your email</p>
+                <p className="text-sm font-medium text-slate-900">
+                  Check your email
+                </p>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
                   We sent a sign-in link to{" "}
                   <span className="font-medium text-slate-900">
@@ -178,7 +287,8 @@ export default async function LoginPage({
                   Account already exists
                 </p>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Sign in with the email and password you already created to continue.
+                  Sign in with the email and password you already created to
+                  continue.
                 </p>
               </div>
             ) : null}
@@ -202,7 +312,7 @@ export default async function LoginPage({
           {!isBusiness ? (
             <section className="rounded-[32px] border border-orange-200 bg-white p-8 shadow-sm">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-                Magic Link Login
+                Step 2 · Magic Link Login
               </p>
 
               <h2 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
@@ -210,7 +320,9 @@ export default async function LoginPage({
               </h2>
 
               <p className="mt-4 text-base leading-7 text-slate-600">
-                For free public accounts, we keep login simple. Enter your email and we’ll send you a secure sign-in link.
+                Enter the email connected to your public account or client
+                portal. The email link should take you directly to the right
+                account area.
               </p>
 
               <form action={submitLogin} className="mt-8 space-y-5">
@@ -247,11 +359,11 @@ export default async function LoginPage({
 
               <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-4">
                 <p className="text-sm font-medium text-slate-900">
-                  Public account access
+                  Public account and client portal access
                 </p>
                 <ul className="mt-2 space-y-1 text-sm text-slate-600">
                   <li>• Favorites and saved discovery</li>
-                  <li>• Event registrations and portal access</li>
+                  <li>• Event registrations and client portal access</li>
                   <li>• No password required</li>
                 </ul>
               </div>
@@ -260,7 +372,7 @@ export default async function LoginPage({
             <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
               <section className="rounded-[32px] border border-violet-200 bg-white p-8 shadow-sm">
                 <p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-700">
-                  Password Login
+                  Step 2 · Password Login
                 </p>
 
                 <h2 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
@@ -270,7 +382,8 @@ export default async function LoginPage({
                 </h2>
 
                 <p className="mt-4 text-base leading-7 text-slate-600">
-                  Business accounts use password login so account ownership, billing, and workspace access stay clear and consistent.
+                  Business accounts use password login so account ownership,
+                  billing, and workspace access stay clear and consistent.
                 </p>
 
                 <form action={submitLogin} className="mt-8 space-y-5">
@@ -337,7 +450,8 @@ export default async function LoginPage({
                 </h2>
 
                 <p className="mt-4 text-base leading-7 text-slate-600">
-                  Enter your business account email and we’ll send you a password reset email.
+                  Enter your business account email and we’ll send you a password
+                  reset email.
                 </p>
 
                 <form action={submitReset} className="mt-8 space-y-5">
@@ -399,8 +513,12 @@ export default async function LoginPage({
                 href={
                   loginIntent === "studio" || loginIntent === "organizer"
                     ? `/signup?intent=${encodeURIComponent(loginIntent)}${
-                        selectedPlan ? `&plan=${encodeURIComponent(selectedPlan)}` : ""
-                      }${nextPath ? `&next=${encodeURIComponent(nextPath)}` : ""}`
+                        selectedPlan
+                          ? `&plan=${encodeURIComponent(selectedPlan)}`
+                          : ""
+                      }${
+                        nextPath ? `&next=${encodeURIComponent(nextPath)}` : ""
+                      }`
                     : "/signup"
                 }
                 className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"

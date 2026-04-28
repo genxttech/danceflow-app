@@ -23,7 +23,23 @@ type StudioRoleRow = {
     | null;
 };
 
+type PortalClientRow = {
+  studio_id: string;
+  studios:
+    | {
+        slug: string | null;
+      }
+    | {
+        slug: string | null;
+      }[]
+    | null;
+};
+
 function getStudioFromJoin(value: StudioRoleRow["studios"]) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function getPortalStudioFromJoin(value: PortalClientRow["studios"]) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
@@ -36,6 +52,48 @@ function isOrganizerWorkspaceName(value: string | null | undefined) {
     normalized.endsWith(" organizer") ||
     normalized.includes(" organizer ") ||
     normalized.endsWith(" events")
+  );
+}
+
+function normalizeLocalNextPath(value: string | null) {
+  if (!value) return null;
+  if (!value.startsWith("/")) return null;
+  if (value.startsWith("//")) return null;
+  return value;
+}
+
+function getRequestedNextPath(requestUrl: URL) {
+  const raw =
+    requestUrl.searchParams.get("next") ||
+    requestUrl.searchParams.get("redirect_to") ||
+    requestUrl.searchParams.get("redirectTo");
+
+  if (!raw) return null;
+
+  const normalizedLocal = normalizeLocalNextPath(raw);
+  if (normalizedLocal) return normalizedLocal;
+
+  try {
+    const parsed = new URL(raw);
+
+    if (parsed.origin !== requestUrl.origin) {
+      return null;
+    }
+
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+function isGenericAuthLandingPath(path: string | null) {
+  if (!path) return true;
+
+  return (
+    path === "/account" ||
+    path === "/login" ||
+    path.startsWith("/login?") ||
+    path === "/portal"
   );
 }
 
@@ -68,6 +126,40 @@ async function getActiveStudioRoles(params: {
   }
 
   return (data ?? []) as StudioRoleRow[];
+}
+
+async function getPortalRedirectPath(params: {
+  supabase: ReturnType<typeof createServerClient>;
+  userId: string;
+}) {
+  const { supabase, userId } = params;
+
+  const { data, error } = await supabase
+    .from("clients")
+    .select(
+      `
+      studio_id,
+      studios (
+        slug
+      )
+    `
+    )
+    .eq("portal_user_id", userId)
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) {
+    return null;
+  }
+
+  const portalClient = data as PortalClientRow;
+  const studio = getPortalStudioFromJoin(portalClient.studios);
+
+  if (!studio?.slug) {
+    return null;
+  }
+
+  return `/portal/${studio.slug}`;
 }
 
 async function upsertProfile(params: {
@@ -138,37 +230,6 @@ async function acceptTeamInvitationsForEmail(params: {
   return typeof data === "number" ? data : 0;
 }
 
-function normalizeLocalNextPath(value: string | null) {
-  if (!value) return null;
-  if (!value.startsWith("/")) return null;
-  if (value.startsWith("//")) return null;
-  return value;
-}
-
-function getRequestedNextPath(requestUrl: URL) {
-  const raw =
-    requestUrl.searchParams.get("next") ||
-    requestUrl.searchParams.get("redirect_to") ||
-    requestUrl.searchParams.get("redirectTo");
-
-  if (!raw) return null;
-
-  const normalizedLocal = normalizeLocalNextPath(raw);
-  if (normalizedLocal) return normalizedLocal;
-
-  try {
-    const parsed = new URL(raw);
-
-    if (parsed.origin !== requestUrl.origin) {
-      return null;
-    }
-
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-  } catch {
-    return null;
-  }
-}
-
 function getFallbackNextPathFromUserMetadata(user: {
   user_metadata?: Record<string, unknown> | null;
 }) {
@@ -227,27 +288,58 @@ function pickPreferredWorkspace(params: {
   return roles[0];
 }
 
-function getPostAuthAppDestination(params: {
+function getPostAuthDestination(params: {
   requestedNextPath: string | null;
   fallbackNextPath: string | null;
   selectedWorkspace: StudioRoleRow | null;
+  portalPath: string | null;
 }) {
-  const { requestedNextPath, fallbackNextPath, selectedWorkspace } = params;
+  const { requestedNextPath, fallbackNextPath, selectedWorkspace, portalPath } =
+    params;
 
-  if (requestedNextPath) return requestedNextPath;
-  if (fallbackNextPath) return fallbackNextPath;
-
-  if (!selectedWorkspace) {
-    return "/account";
+  /*
+    If the magic link requested a specific real destination, honor it.
+    Examples:
+    /get-started/complete
+    /app
+    /favorites
+    /discover/studios
+  */
+  if (requestedNextPath && !isGenericAuthLandingPath(requestedNextPath)) {
+    return requestedNextPath;
   }
 
-  const studio = getStudioFromJoin(selectedWorkspace.studios);
+  /*
+    Workspace users should go to the app.
+  */
+  if (selectedWorkspace) {
+    return "/app";
+  }
 
-  if (isOrganizerWorkspaceName(studio?.name)) {
-  return "/app";
-}
+  /*
+    Portal users should not land back on /login or /account after clicking
+    the first magic link. Once the callback links their email to a client
+    portal record, send them straight to that portal.
+  */
+  if (portalPath) {
+    return portalPath;
+  }
 
-  return "/app";
+  /*
+    Studio/organizer signup fallback.
+  */
+  if (fallbackNextPath) {
+    return fallbackNextPath;
+  }
+
+  /*
+    Public accounts with no workspace/portal should land in account.
+  */
+  if (requestedNextPath) {
+    return requestedNextPath;
+  }
+
+  return "/account";
 }
 
 export async function GET(request: NextRequest) {
@@ -280,7 +372,8 @@ export async function GET(request: NextRequest) {
     }
   );
 
-  const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+  const { error: exchangeError } =
+    await supabase.auth.exchangeCodeForSession(code);
 
   if (exchangeError) {
     return NextResponse.redirect(
@@ -303,8 +396,7 @@ export async function GET(request: NextRequest) {
   }
 
   const email = user.email?.trim().toLowerCase() ?? "";
-
-      let acceptedTeamInvitationCount = 0;
+  let acceptedTeamInvitationCount = 0;
 
   try {
     await upsertProfile({
@@ -358,6 +450,17 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  let portalPath: string | null = null;
+
+  try {
+    portalPath = await getPortalRedirectPath({
+      supabase,
+      userId: user.id,
+    });
+  } catch {
+    portalPath = null;
+  }
+
   const fallbackNextPath = getFallbackNextPathFromUserMetadata(user);
   const selectedWorkspace = pickPreferredWorkspace({
     roles,
@@ -365,10 +468,11 @@ export async function GET(request: NextRequest) {
     fallbackNextPath,
   });
 
-    const destination = getPostAuthAppDestination({
+  const destination = getPostAuthDestination({
     requestedNextPath,
     fallbackNextPath,
     selectedWorkspace,
+    portalPath,
   });
 
   const destinationUrl = new URL(destination, request.url);
