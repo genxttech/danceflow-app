@@ -1,97 +1,56 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { AlertCircle, CreditCard, HelpCircle, LifeBuoy, ShieldAlert } from "lucide-react";
-import { createClient } from "@/lib/supabase/server";
-import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { submitSupportRequestAction } from "./actions";
+import {
+  ArrowLeft,
+  CheckCircle2,
+  CreditCard,
+  LifeBuoy,
+  Mail,
+  MessageSquareWarning,
+  ShieldAlert,
+  Wrench,
+} from "lucide-react";
+import { sendSupportRequestAction } from "./actions";
 
-type SupportPageProps = {
-  searchParams?: Promise<Record<string, string | string[] | undefined>>;
-};
+type SearchParams = Promise<{
+  sent?: string;
+  error?: string;
+}>;
 
-function audienceLabel(role: string | null | undefined) {
-  if (role === "organizer_owner" || role === "organizer_admin") {
-    return "Organizer Support";
-  }
+const issueTypes = [
+  {
+    value: "Technical issue",
+    label: "Technical issue",
+    description: "Broken page, error, missing button, or something not working.",
+    icon: Wrench,
+  },
+  {
+    value: "Billing issue",
+    label: "Billing issue",
+    description: "Subscription, payout, payment, or billing question.",
+    icon: CreditCard,
+  },
+  {
+    value: "Account access",
+    label: "Account access",
+    description: "Login, workspace access, invite, or role issue.",
+    icon: ShieldAlert,
+  },
+  {
+    value: "General help",
+    label: "General help",
+    description: "Question about how to complete a task.",
+    icon: MessageSquareWarning,
+  },
+];
 
-  if (
-    role === "studio_owner" ||
-    role === "studio_admin" ||
-    role === "front_desk" ||
-    role === "instructor" ||
-    role === "independent_instructor"
-  ) {
-    return "Studio Support";
-  }
-
-  return "DanceFlow Support";
-}
-
-function InfoCard({
-  icon: Icon,
-  title,
-  description,
-  tone = "default",
+export default async function SupportPage({
+  searchParams,
 }: {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  description: string;
-  tone?: "default" | "warning" | "billing";
+  searchParams: SearchParams;
 }) {
-  const toneClasses =
-    tone === "warning"
-      ? "border-amber-200 bg-amber-50 text-amber-950"
-      : tone === "billing"
-        ? "border-sky-200 bg-sky-50 text-sky-950"
-        : "border-slate-200 bg-white text-slate-950";
-
-  const iconClasses =
-    tone === "warning"
-      ? "bg-amber-100 text-amber-700"
-      : tone === "billing"
-        ? "bg-sky-100 text-sky-700"
-        : "bg-[var(--brand-primary-soft)] text-[var(--brand-primary)]";
-
-  return (
-    <div className={`rounded-3xl border p-5 shadow-sm ${toneClasses}`}>
-      <div className="flex items-start gap-3">
-        <div className={`rounded-2xl p-3 ${iconClasses}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="mt-2 text-sm leading-7 text-slate-600">{description}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-export default async function SupportPage({ searchParams }: SupportPageProps) {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/login");
-  }
-
-  const context = await getCurrentStudioContext();
-
-  const resolvedSearchParams = (await searchParams) ?? {};
-  const successMessage =
-    typeof resolvedSearchParams.success === "string"
-      ? resolvedSearchParams.success
-      : null;
-  const errorMessage =
-    typeof resolvedSearchParams.error === "string"
-      ? resolvedSearchParams.error
-      : null;
-
-  const audience = audienceLabel(context?.studioRole);
-  const email = user.email ?? "";
+  const params = await searchParams;
+  const sent = params.sent === "1";
+  const error = params.error ?? "";
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -100,34 +59,29 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                DanceFlow Help
+                DanceFlow Support
               </p>
+
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Support
+                Contact support
               </h1>
+
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Use this page to report technical problems, billing questions, account access issues,
-                or anything else you need help with.
+                Send a support request when something is broken, confusing, or
+                blocking your work. Include as much detail as you can so the
+                issue can be reviewed quickly.
               </p>
-              <div className="mt-4 flex flex-wrap gap-3 text-sm text-white/80">
-                <span>
-                  Support area: <span className="font-medium text-white">{audience}</span>
-                </span>
-                {context?.studioId ? (
-                  <span>
-                    Workspace connected: <span className="font-medium text-white">Yes</span>
-                  </span>
-                ) : null}
-              </div>
             </div>
 
             <div className="flex flex-wrap gap-3">
               <Link
                 href="/app/help"
-                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                className="inline-flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
               >
+                <ArrowLeft className="h-4 w-4" />
                 Back to Help
               </Link>
+
               <Link
                 href="/knowledgebase"
                 className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
@@ -140,194 +94,223 @@ export default async function SupportPage({ searchParams }: SupportPageProps) {
 
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
           <div className="grid gap-4 md:grid-cols-3">
-            <InfoCard
-              icon={LifeBuoy}
-              title="Use simple details"
-              description="Tell us what happened, what page you were on, and what you expected to happen. Short, clear details help us troubleshoot faster."
-            />
-            <InfoCard
-              icon={CreditCard}
-              title="Billing questions are welcome"
-              description="Use this form for billing, payouts, subscriptions, and payment questions if something looks wrong or you are unsure what to do next."
-              tone="billing"
-            />
-            <InfoCard
-              icon={ShieldAlert}
-              title="Account access issues"
-              description="If you cannot reach a page or think access is wrong for your role, tell us what page you tried to open and what message or redirect you saw."
-              tone="warning"
-            />
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+              <h2 className="text-lg font-semibold text-sky-950">
+                Send one clear request
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-sky-900">
+                Describe what you were trying to do, what happened, and which
+                workspace or page was involved.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+              <h2 className="text-lg font-semibold text-violet-950">
+                Include your best contact email
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-violet-900">
+                Support replies will go to the email you enter on the form.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <h2 className="text-lg font-semibold text-amber-950">
+                Urgent access issue?
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-amber-900">
+                Choose Account access and include the email address you use to
+                sign in.
+              </p>
+            </div>
           </div>
         </div>
       </section>
 
-      {successMessage ? (
-        <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">
-            Support request sent
-          </p>
-          <p className="mt-2 text-sm leading-7 text-slate-700">{successMessage}</p>
-        </section>
-      ) : null}
-
-      {errorMessage ? (
-        <section className="rounded-[32px] border border-rose-200 bg-rose-50 p-6 shadow-sm">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-rose-700">
-            We could not send your request
-          </p>
-          <p className="mt-2 text-sm leading-7 text-slate-700">{errorMessage}</p>
-        </section>
-      ) : null}
-
-      <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
-        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
+      <section className="grid gap-6 xl:grid-cols-[0.8fr_1.2fr]">
+        <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
           <div className="flex items-start gap-3">
             <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-              <HelpCircle className="h-5 w-5" />
+              <LifeBuoy className="h-5 w-5" />
             </div>
+
             <div>
-              <h2 className="text-2xl font-semibold text-slate-950">Send a support request</h2>
+              <h2 className="text-2xl font-semibold text-slate-950">
+                What can support help with?
+              </h2>
               <p className="mt-2 text-sm leading-7 text-slate-600">
-                Choose the type of help you need and tell us what is going on. We will use your
-                message to review the issue and follow up.
+                Use the form for problems that need direct review.
               </p>
             </div>
           </div>
 
-          <form action={submitSupportRequestAction} className="mt-6 space-y-6">
-            <div className="grid gap-5 md:grid-cols-2">
-              <div>
-                <label
-                  htmlFor="issueType"
-                  className="block text-sm font-medium text-slate-700"
-                >
-                  What do you need help with?
-                </label>
-                <select
-                  id="issueType"
-                  name="issueType"
-                  defaultValue="technical"
-                  className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-violet-500"
-                >
-                  <option value="technical">Technical issue</option>
-                  <option value="billing">Billing issue</option>
-                  <option value="account_access">Account access</option>
-                  <option value="feature_question">Feature question</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
+          <div className="mt-6 space-y-4">
+            {issueTypes.map(({ label, description, icon: Icon }) => (
+              <div
+                key={label}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-5"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="rounded-2xl bg-white p-3 text-[var(--brand-primary)] shadow-sm">
+                    <Icon className="h-5 w-5" />
+                  </div>
 
-              <div>
-                <label
-                  htmlFor="supportEmail"
-                  className="block text-sm font-medium text-slate-700"
-                >
-                  Your email
-                </label>
-                <input
-                  id="supportEmail"
-                  type="email"
-                  value={email}
-                  readOnly
-                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600 outline-none"
-                />
-                <p className="mt-2 text-xs leading-6 text-slate-500">
-                  We will use this email to follow up with you.
-                </p>
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">
+                      {label}
+                    </h3>
+                    <p className="mt-2 text-sm leading-7 text-slate-600">
+                      {description}
+                    </p>
+                  </div>
+                </div>
               </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
+          <div className="flex items-start gap-3">
+            <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+              <Mail className="h-5 w-5" />
             </div>
 
             <div>
-              <label htmlFor="subject" className="block text-sm font-medium text-slate-700">
-                Short subject
-              </label>
-              <input
-                id="subject"
-                name="subject"
-                type="text"
-                placeholder="Example: Billing page access is blocked"
-                className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-violet-500"
-              />
-            </div>
-
-            <div>
-              <label htmlFor="description" className="block text-sm font-medium text-slate-700">
-                Describe the issue
-              </label>
-              <textarea
-                id="description"
-                name="description"
-                rows={8}
-                placeholder="Tell us what happened, what page you were on, what you clicked, and what you expected to happen."
-                className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-violet-500"
-              />
-              <p className="mt-2 text-xs leading-6 text-slate-500">
-                Helpful details include the page name, role, and whether you saw an error message
-                or were redirected somewhere unexpected.
+              <h2 className="text-2xl font-semibold text-slate-950">
+                Support request form
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-slate-600">
+                This message will be sent to DanceFlow support.
               </p>
             </div>
+          </div>
 
-            <div className="flex flex-wrap gap-3">
-              <button
-                type="submit"
-                className="rounded-xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-medium text-white hover:opacity-95"
-              >
-                Send Support Request
-              </button>
-
-              <Link
-                href="/knowledgebase"
-                className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Check the Knowledgebase
-              </Link>
-            </div>
-          </form>
-        </section>
-
-        <section className="space-y-6">
-          <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-start gap-3">
-              <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-                <AlertCircle className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-xl font-semibold text-slate-950">Before you send a request</h2>
-                <div className="mt-4 space-y-3 text-sm leading-7 text-slate-600">
-                  <p>• Double-check that you are in the correct workspace.</p>
-                  <p>• Note the page name and what role you were signed in as.</p>
-                  <p>• Include the exact steps that caused the issue.</p>
-                  <p>• Mention whether this is blocking daily work or can wait.</p>
+          {sent ? (
+            <div className="mt-6 rounded-2xl border border-green-200 bg-green-50 p-5 text-green-900">
+              <div className="flex items-start gap-3">
+                <CheckCircle2 className="mt-0.5 h-5 w-5" />
+                <div>
+                  <h3 className="font-semibold">Support request sent</h3>
+                  <p className="mt-1 text-sm leading-6">
+                    Thanks — your message was sent. We’ll follow up as soon as
+                    possible.
+                  </p>
                 </div>
               </div>
             </div>
-          </div>
+          ) : null}
 
-          <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold text-slate-950">Other help options</h2>
-            <div className="mt-4 space-y-4">
-              <Link
-                href="/app/help"
-                className="block rounded-2xl border border-slate-200 bg-slate-50 p-4 hover:bg-slate-100"
-              >
-                <p className="text-sm font-semibold text-slate-950">Return to Help Center</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  See support and help resources in one place.
-                </p>
-              </Link>
-
-              <Link
-                href="/knowledgebase"
-                className="block rounded-2xl border border-slate-200 bg-slate-50 p-4 hover:bg-slate-100"
-              >
-                <p className="text-sm font-semibold text-slate-950">Open Knowledgebase</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Browse setup help, step-by-step guides, and common answers.
-                </p>
-              </Link>
+          {error ? (
+            <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-5 text-red-900">
+              <h3 className="font-semibold">Support request was not sent</h3>
+              <p className="mt-1 text-sm leading-6">
+                {error === "missing-fields"
+                  ? "Please fill out your name, email, issue type, and message."
+                  : "Something went wrong while sending your request. Please try again."}
+              </p>
             </div>
-          </div>
-        </section>
+          ) : null}
+
+          <form action={sendSupportRequestAction} className="mt-6 space-y-5">
+            <div className="grid gap-5 md:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="name"
+                  className="mb-1 block text-sm font-medium text-slate-800"
+                >
+                  Your name *
+                </label>
+                <input
+                  id="name"
+                  name="name"
+                  required
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+                  placeholder="Jane Smith"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="email"
+                  className="mb-1 block text-sm font-medium text-slate-800"
+                >
+                  Your email *
+                </label>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  required
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+                  placeholder="you@example.com"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label
+                htmlFor="workspaceName"
+                className="mb-1 block text-sm font-medium text-slate-800"
+              >
+                Studio, organizer, or workspace name
+              </label>
+              <input
+                id="workspaceName"
+                name="workspaceName"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+                placeholder="ConfiDance Studio"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="issueType"
+                className="mb-1 block text-sm font-medium text-slate-800"
+              >
+                Issue type *
+              </label>
+              <select
+                id="issueType"
+                name="issueType"
+                required
+                defaultValue=""
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+              >
+                <option value="" disabled>
+                  Select an issue type
+                </option>
+                {issueTypes.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="message"
+                className="mb-1 block text-sm font-medium text-slate-800"
+              >
+                Message *
+              </label>
+              <textarea
+                id="message"
+                name="message"
+                required
+                rows={8}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+                placeholder="Tell us what happened, what page you were on, and what you expected to happen."
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="inline-flex rounded-xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-medium text-white hover:opacity-95"
+            >
+              Send Support Request
+            </button>
+          </form>
+        </div>
       </section>
     </div>
   );

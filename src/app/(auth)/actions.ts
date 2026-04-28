@@ -174,6 +174,17 @@ function isExistingUserError(message: string) {
   );
 }
 
+function isEmailConfirmationError(message: string) {
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes("email not confirmed") ||
+    normalized.includes("email confirmation") ||
+    normalized.includes("confirm your email") ||
+    normalized.includes("not confirmed")
+  );
+}
+
 async function upsertProfile(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string;
@@ -332,30 +343,54 @@ export async function signupAction(formData: FormData) {
     return { error: signUpError.message };
   }
 
-  const user = signUpData.user;
+  let authenticatedUser = signUpData.user ?? null;
 
-  if (!user) {
+  if (!authenticatedUser?.id) {
     return { error: "User account was not created." };
   }
 
-  const hasImmediateSession = !!signUpData.session;
+  /*
+    For the 3-step trial flow, production Supabase must have:
+    Authentication → Providers → Email → Confirm email = OFF.
 
-  if (!hasImmediateSession) {
-    redirect(
-      buildLoginRedirectPath({
+    If Confirm email is OFF, signUpData.session should exist immediately.
+    This fallback attempts to establish a password session if Supabase created
+    the user but did not attach the session to the response.
+  */
+  if (!signUpData.session) {
+    const { data: signInData, error: signInError } =
+      await supabase.auth.signInWithPassword({
         email,
-        loginIntent: signupIntent,
-        selectedPlan,
-        nextPath: redirectPath,
-        mode: "verify-email",
-      })
-    );
+        password,
+      });
+
+    if (signInError) {
+      if (isEmailConfirmationError(signInError.message)) {
+        return {
+          error:
+            "This account was created, but email confirmation is still blocking the trial checkout flow. Turn off Confirm email in Supabase Authentication → Providers → Email, then test again with a fresh email.",
+        };
+      }
+
+      return {
+        error: `Account was created, but automatic sign-in failed: ${signInError.message}`,
+      };
+    }
+
+    if (!signInData.user?.id) {
+      return {
+        error:
+          "Account was created, but no active session was returned. Please check Supabase email confirmation settings.",
+      };
+    }
+
+    authenticatedUser = signInData.user;
   }
 
   try {
     await syncAccountAfterAuth({
       supabase,
-      userId: user.id,
+      userId: authenticatedUser.id,
       email,
       fullName,
     });
@@ -448,11 +483,11 @@ export async function loginAction(formData: FormData) {
   }
 
   if (next && next !== "/account") {
-  redirect(next);
-}
+    redirect(next);
+  }
 
-const redirectPath = await getPostLoginRedirectPath(user.id);
-redirect(redirectPath);
+  const redirectPath = await getPostLoginRedirectPath(user.id);
+  redirect(redirectPath);
 }
 
 export async function requestPasswordResetAction(formData: FormData) {

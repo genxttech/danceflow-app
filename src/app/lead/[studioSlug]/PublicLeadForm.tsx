@@ -68,19 +68,9 @@ export default function PublicLeadForm({
 
   const accent = studio.public_primary_color?.trim() || "#0f172a";
   const ctaText = studio.public_lead_cta_text?.trim() || "Submit Inquiry";
-  const headline =
-    studio.public_lead_headline?.trim() || `Get started with ${studio.name}`;
-  const description =
-    studio.public_lead_description?.trim() ||
-    "Tell us a little about yourself and what you are looking for.";
 
   return (
     <div style={{ ["--studio-accent" as string]: accent }}>
-      <div className="mb-5">
-        <h3 className="text-lg font-semibold text-slate-950">{headline}</h3>
-        <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
-      </div>
-
       <form action={formAction} className="space-y-4">
         <input type="hidden" name="studioSlug" value={studio.slug ?? ""} />
         <input
