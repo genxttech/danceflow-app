@@ -5,6 +5,95 @@ import { getCurrentUserPlatformRole } from "@/lib/auth/platform";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 
+
+const audienceCards = [
+  {
+    eyebrow: "Dancers",
+    title: "Find your next studio, class, or event.",
+    description:
+      "DanceFlow gives dancers one place to discover studios and events, save favorites, register for events, and access linked studio portals.",
+    accent: "orange",
+    bullets: [
+      "Discover studios and public events",
+      "Save favorite studios and events",
+      "Track registrations from your account",
+      "View linked studio portals, lesson notes, and shared video summaries",
+    ],
+  },
+  {
+    eyebrow: "Independent Instructors",
+    title: "Teach across studios without extra admin work.",
+    description:
+      "Independent instructors can connect with multiple studios, rent floor space, pay floor fees from their portal, and keep lessons and rentals easier to manage.",
+    accent: "emerald",
+    bullets: [
+      "Create portal links with multiple host studios",
+      "Rent floor space and pay balances from the portal",
+      "Schedule lessons and floor rental in one flow with a studio workspace",
+      "Reduce double-booking, duplicate messages, and manual payment follow-up",
+    ],
+  },
+  {
+    eyebrow: "Studios",
+    title: "Run daily operations and improve the student experience.",
+    description:
+      "Studios can manage clients, scheduling, packages, memberships, leads, payments, public profiles, and student follow-up in one connected workspace.",
+    accent: "violet",
+    bullets: [
+      "Manage clients, instructors, rooms, lessons, packages, and memberships",
+      "Turn public discovery into new leads",
+      "Send lesson notes directly to student portals",
+      "Upload post-lesson video summaries students can review later",
+    ],
+  },
+  {
+    eyebrow: "Organizers",
+    title: "Publish events and make registration easier.",
+    description:
+      "Organizers can create public event pages, collect registrations, manage check-in, track payments, and help dancers find their events faster.",
+    accent: "sky",
+    bullets: [
+      "Publish searchable public event pages",
+      "Collect registrations and ticket payments",
+      "Manage check-in and attendee activity",
+      "Give dancers one place to discover your events",
+    ],
+  },
+];
+
+function audienceAccentClasses(accent: string) {
+  switch (accent) {
+    case "orange":
+      return {
+        border: "border-orange-200",
+        soft: "bg-orange-50",
+        text: "text-orange-700",
+        dot: "bg-orange-500",
+      };
+    case "emerald":
+      return {
+        border: "border-emerald-200",
+        soft: "bg-emerald-50",
+        text: "text-emerald-700",
+        dot: "bg-emerald-500",
+      };
+    case "sky":
+      return {
+        border: "border-sky-200",
+        soft: "bg-sky-50",
+        text: "text-sky-700",
+        dot: "bg-sky-500",
+      };
+    default:
+      return {
+        border: "border-violet-200",
+        soft: "bg-violet-50",
+        text: "text-violet-700",
+        dot: "bg-violet-500",
+      };
+  }
+}
+
 export default async function HomePage() {
   const supabase = await createClient();
 
@@ -139,6 +228,70 @@ export default async function HomePage() {
                 </div>
               </div>
             </div>
+
+            <section className="mt-14 overflow-hidden rounded-[36px] border border-slate-200 bg-white shadow-sm">
+              <div className="bg-[linear-gradient(135deg,#2e1065_0%,#4c1d95_48%,#f97316_100%)] px-7 py-8 text-white sm:px-8 lg:px-10">
+                <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-end">
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/75">
+                      Built for the dance community
+                    </p>
+                    <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+                      One platform for dancers, independent instructors, studios,
+                      and organizers.
+                    </h2>
+                  </div>
+
+                  <p className="text-sm leading-7 text-white/85 sm:text-base">
+                    DanceFlow connects public discovery with the real daily work
+                    behind dance businesses: scheduling, rentals, portals,
+                    payments, event registration, lesson follow-up, and lead
+                    capture.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-4 bg-slate-50/70 p-5 sm:p-6 lg:grid-cols-2">
+                {audienceCards.map((card) => {
+                  const colors = audienceAccentClasses(card.accent);
+
+                  return (
+                    <article
+                      key={card.eyebrow}
+                      className={`rounded-[28px] border ${colors.border} bg-white p-6 shadow-sm`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className={`h-3 w-3 rounded-full ${colors.dot}`} />
+                        <p
+                          className={`text-sm font-semibold uppercase tracking-[0.16em] ${colors.text}`}
+                        >
+                          {card.eyebrow}
+                        </p>
+                      </div>
+
+                      <h3 className="mt-4 text-xl font-semibold tracking-tight text-slate-950">
+                        {card.title}
+                      </h3>
+
+                      <p className="mt-3 text-sm leading-7 text-slate-600">
+                        {card.description}
+                      </p>
+
+                      <div className="mt-5 grid gap-2">
+                        {card.bullets.map((bullet) => (
+                          <div
+                            key={bullet}
+                            className={`rounded-2xl ${colors.soft} px-4 py-3 text-sm leading-6 text-slate-700`}
+                          >
+                            {bullet}
+                          </div>
+                        ))}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
 
             <div className="mt-14 grid gap-6 lg:grid-cols-3">
               <section className="rounded-[32px] border border-orange-200 bg-white/95 p-6 shadow-sm">
