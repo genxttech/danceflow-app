@@ -13,7 +13,6 @@ type StudioRow = {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   trial_ends_at: string | null;
-  current_period_end: string | null;
 };
 
 type SubscriptionRow = {
@@ -285,7 +284,6 @@ function getEffectiveTrialEndsAt(params: {
     params.subscription?.trial_ends_at ??
     params.studio.trial_ends_at ??
     params.subscription?.current_period_end ??
-    params.studio.current_period_end ??
     null
   );
 }
@@ -330,11 +328,11 @@ export default async function PlatformDashboardPage() {
     { data: packageDeductionErrors },
   ] = await Promise.all([
     supabase
-      .from("studios")
-      .select(
-        "id, name, created_at, billing_plan, subscription_status, active, stripe_customer_id, stripe_subscription_id, trial_ends_at, current_period_end"
-      )
-      .order("created_at", { ascending: false }),
+  .from("studios")
+  .select(
+    "id, name, created_at, billing_plan, subscription_status, active, stripe_customer_id, stripe_subscription_id, trial_ends_at"
+  )
+  .order("created_at", { ascending: false }),
 
     supabase
       .from("studio_subscriptions")
