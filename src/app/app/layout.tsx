@@ -102,8 +102,16 @@ function buildStudioSections(params: {
   role: string | null | undefined;
   isPlatformAdmin: boolean;
   portalHref: string | null;
+  publicProfileHref: string | null;
 }) {
-  const { unreadNotificationsCount, leadsBadgeCount, role, isPlatformAdmin, portalHref } = params;
+  const {
+    unreadNotificationsCount,
+    leadsBadgeCount,
+    role,
+    isPlatformAdmin,
+    portalHref,
+    publicProfileHref,
+  } = params;
 
   const isOwner = isPlatformAdmin || role === "studio_owner";
   const isStudioAdmin = isOwner || role === "studio_admin";
@@ -134,7 +142,6 @@ function buildStudioSections(params: {
               },
             ]
           : []),
-            
         {
           label: "Notifications",
           href: "/app/notifications",
@@ -165,7 +172,7 @@ function buildStudioSections(params: {
           : []),
         ...(isFrontDesk || isStudioAdmin || isOwner
           ? [
-                            {
+              {
                 label: "Sell Packages",
                 href: "/app/packages/sell",
                 icon: "packages" as const,
@@ -205,15 +212,40 @@ function buildStudioSections(params: {
         ...(isStudioAdmin || isOwner
           ? [
               {
-                label: "Public Profile",
+                label: "Public Profile Setup",
                 href: "/app/settings/public-profile",
                 icon: "settings" as const,
               },
+              {
+                label: "View Public Profile",
+                href: publicProfileHref ?? "/discover/studios",
+                icon: "clients" as const,
+              },
             ]
           : []),
+        {
+          label: "Discovery Home",
+          href: "/discover",
+          icon: "dashboard",
+        },
+        {
+          label: "Find Studios",
+          href: "/discover/studios",
+          icon: "clients",
+        },
+        {
+          label: "Find Events",
+          href: "/discover/events",
+          icon: "events",
+        },
+        {
+          label: "My Public Account",
+          href: "/account",
+          icon: "clients",
+        },
       ],
     },
-        {
+    {
       title: "Support",
       items: [
         {
@@ -290,7 +322,6 @@ function buildOrganizerSections(params: {
         ...(isOrganizerAdmin
           ? [{ label: "Organizer Profile", href: "/app/organizers", icon: "settings" as const }]
           : []),
-                
         {
           label: "Notifications",
           href: "/app/notifications",
@@ -319,7 +350,32 @@ function buildOrganizerSections(params: {
           : []),
       ],
     },
+    {
+      title: "Public Site",
+      items: [
         {
+          label: "Discovery Home",
+          href: "/discover",
+          icon: "dashboard",
+        },
+        {
+          label: "Find Studios",
+          href: "/discover/studios",
+          icon: "clients",
+        },
+        {
+          label: "Find Events",
+          href: "/discover/events",
+          icon: "events",
+        },
+        {
+          label: "My Public Account",
+          href: "/account",
+          icon: "clients",
+        },
+      ],
+    },
+    {
       title: "Support",
       items: [
         {
@@ -464,6 +520,7 @@ export default async function AppLayout({
 
   const studioName = studio?.name ?? "Workspace";
   const portalHref = studio?.slug ? `/portal/${studio.slug}` : null;
+  const publicProfileHref = studio?.slug ? `/studios/${studio.slug}` : null;
   const userName = buildDisplayName(profile ?? null, user.email ?? null);
   const userEmail = profile?.email ?? user.email ?? "";
   const roleLabel = context.isPlatformAdmin
@@ -484,6 +541,7 @@ export default async function AppLayout({
         role: context.studioRole,
         isPlatformAdmin: context.isPlatformAdmin,
         portalHref,
+        publicProfileHref,
       });
 
   let studioBanner: React.ReactNode = null;

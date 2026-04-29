@@ -7,6 +7,13 @@ type StudioRow = {
   id: string;
   name: string;
   created_at: string;
+  billing_plan: string | null;
+  subscription_status: string | null;
+  active: boolean | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  trial_ends_at: string | null;
+  current_period_end: string | null;
 };
 
 type SubscriptionRow = {
@@ -124,7 +131,7 @@ function trialStatusLabel(trialEndsAt: string | null) {
 }
 
 function trialStatusDetail(trialEndsAt: string | null) {
-  if (!trialEndsAt) return "Trial end date unavailable";
+  if (!trialEndsAt) return "Trial active";
 
   const days = daysUntil(trialEndsAt);
 
@@ -197,14 +204,16 @@ function metricLabel(period: "today" | "month" | "ytd") {
 
 function isOrganizerWorkspace(params: {
   studioName: string;
+  studioBillingPlan?: string | null;
   subscription: SubscriptionRow | undefined;
 }) {
-  const { studioName, subscription } = params;
+  const { studioName, studioBillingPlan, subscription } = params;
   const plan = subscription ? getPlan(subscription.subscription_plans) : null;
-  const planCode = plan?.code?.toLowerCase() ?? "";
+  const planCode =
+    plan?.code?.toLowerCase() ?? studioBillingPlan?.trim().toLowerCase() ?? "";
   const sharedPlan = planCode ? getBillingPlan(planCode as never) : null;
 
-  if (sharedPlan?.audience === "organizer") {
+  if (sharedPlan?.audience === "organizer" || planCode === "organizer") {
     return true;
   }
 
@@ -221,10 +230,88 @@ function hasActiveBillingAccess(status: string | null | undefined) {
   return status === "active" || status === "trialing";
 }
 
-function hasPaidPlan(subscription: SubscriptionRow | undefined) {
-  if (!subscription) return false;
-  const plan = getPlan(subscription.subscription_plans);
-  return Boolean(plan?.code || plan?.name);
+const PLAN_LABELS: Record<string, string> = {
+  starter: "Starter",
+  growth: "Growth",
+  pro: "Pro",
+  organizer: "Organizer",
+};
+
+function normalizeStatus(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function getPlanLabelFromCode(value: string | null | undefined) {
+  const code = (value ?? "").trim().toLowerCase();
+  if (!code) return null;
+
+  return (
+    PLAN_LABELS[code] ??
+    code
+      .split(/[\-_\s]+/)
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ")
+  );
+}
+
+function getEffectivePlanName(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  const plan = params.subscription
+    ? getPlan(params.subscription.subscription_plans)
+    : null;
+
+  return plan?.name ?? getPlanLabelFromCode(params.studio.billing_plan) ?? "No plan";
+}
+
+function getEffectivePlanCode(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  const plan = params.subscription
+    ? getPlan(params.subscription.subscription_plans)
+    : null;
+
+  return plan?.code ?? params.studio.billing_plan ?? null;
+}
+
+function getEffectiveTrialEndsAt(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  return (
+    params.subscription?.trial_ends_at ??
+    params.studio.trial_ends_at ??
+    params.subscription?.current_period_end ??
+    params.studio.current_period_end ??
+    null
+  );
+}
+
+function getEffectiveBillingStatus(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  const subscriptionStatus = normalizeStatus(params.subscription?.status);
+  if (subscriptionStatus) return subscriptionStatus;
+
+  const studioStatus = normalizeStatus(params.studio.subscription_status);
+  if (studioStatus) return studioStatus;
+
+  return params.studio.active === false ? "inactive" : "not_started";
+}
+
+function getWorkspaceStatusLabel(studio: StudioRow) {
+  return studio.active === false ? "Workspace Disabled" : "Workspace Active";
+}
+
+function hasPaidPlan(params: { studio: StudioRow; subscription?: SubscriptionRow }) {
+  const planCode = getEffectivePlanCode(params);
+  const planName = getEffectivePlanName(params);
+
+  return Boolean(planCode || (planName && planName !== "No plan"));
 }
 
 export default async function PlatformDashboardPage() {
@@ -244,7 +331,9 @@ export default async function PlatformDashboardPage() {
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, created_at")
+      .select(
+        "id, name, created_at, billing_plan, subscription_status, active, stripe_customer_id, stripe_subscription_id, trial_ends_at, current_period_end"
+      )
       .order("created_at", { ascending: false }),
 
     supabase
@@ -335,6 +424,7 @@ export default async function PlatformDashboardPage() {
     const subscription = subscriptionByStudioId.get(studio.id);
     return !isOrganizerWorkspace({
       studioName: studio.name,
+      studioBillingPlan: studio.billing_plan,
       subscription,
     });
   });
@@ -343,6 +433,7 @@ export default async function PlatformDashboardPage() {
     const subscription = subscriptionByStudioId.get(studio.id);
     return isOrganizerWorkspace({
       studioName: studio.name,
+      studioBillingPlan: studio.billing_plan,
       subscription,
     });
   });
@@ -398,31 +489,31 @@ export default async function PlatformDashboardPage() {
   const studioWorkspaceIds = new Set(studioWorkspaces.map((studio) => studio.id));
   const organizerWorkspaceIds = new Set(organizerWorkspaces.map((studio) => studio.id));
 
-  const studioSubscriptions = typedSubscriptions.filter((subscription) =>
-    studioWorkspaceIds.has(subscription.studio_id)
-  );
-  const organizerSubscriptions = typedSubscriptions.filter((subscription) =>
-    organizerWorkspaceIds.has(subscription.studio_id)
-  );
+  const getStatusForStudio = (studio: StudioRow) =>
+    getEffectiveBillingStatus({
+      studio,
+      subscription: subscriptionByStudioId.get(studio.id),
+    });
 
-  const activeStudioWorkspaces = studioSubscriptions.filter(
-    (s) => s.status === "active"
+  const activeStudioWorkspaces = studioWorkspaces.filter(
+    (studio) => getStatusForStudio(studio) === "active"
   ).length;
-  const trialingStudioWorkspaces = studioSubscriptions.filter(
-    (s) => s.status === "trialing"
+  const trialingStudioWorkspaces = studioWorkspaces.filter(
+    (studio) => getStatusForStudio(studio) === "trialing"
   ).length;
-  const pastDueStudioWorkspaces = studioSubscriptions.filter(
-    (s) => s.status === "past_due"
+  const pastDueStudioWorkspaces = studioWorkspaces.filter(
+    (studio) => getStatusForStudio(studio) === "past_due"
   ).length;
-  const cancelledStudioWorkspaces = studioSubscriptions.filter(
-    (s) => s.status === "cancelled" || s.status === "canceled"
-  ).length;
+  const cancelledStudioWorkspaces = studioWorkspaces.filter((studio) => {
+    const status = getStatusForStudio(studio);
+    return status === "cancelled" || status === "canceled";
+  }).length;
 
-  const activeOrganizerWorkspaces = organizerSubscriptions.filter(
-    (s) => s.status === "active"
+  const activeOrganizerWorkspaces = organizerWorkspaces.filter(
+    (studio) => getStatusForStudio(studio) === "active"
   ).length;
-  const trialingOrganizerWorkspaces = organizerSubscriptions.filter(
-    (s) => s.status === "trialing"
+  const trialingOrganizerWorkspaces = organizerWorkspaces.filter(
+    (studio) => getStatusForStudio(studio) === "trialing"
   ).length;
 
   const totalOrganizerAccounts = typedOrganizers.length;
@@ -452,20 +543,20 @@ export default async function PlatformDashboardPage() {
     (registration) => registration.payment_status === "paid"
   ).length;
 
-  const studioPlanMix = studioSubscriptions.reduce<Record<string, number>>(
-    (acc, subscription) => {
-      const plan = getPlan(subscription.subscription_plans);
-      const key = plan?.name ?? "No plan";
+  const studioPlanMix = studioWorkspaces.reduce<Record<string, number>>(
+    (acc, studio) => {
+      const subscription = subscriptionByStudioId.get(studio.id);
+      const key = getEffectivePlanName({ studio, subscription });
       acc[key] = (acc[key] ?? 0) + 1;
       return acc;
     },
     {}
   );
 
-  const organizerPlanMix = organizerSubscriptions.reduce<Record<string, number>>(
-    (acc, subscription) => {
-      const plan = getPlan(subscription.subscription_plans);
-      const key = plan?.name ?? "No plan";
+  const organizerPlanMix = organizerWorkspaces.reduce<Record<string, number>>(
+    (acc, studio) => {
+      const subscription = subscriptionByStudioId.get(studio.id);
+      const key = getEffectivePlanName({ studio, subscription });
       acc[key] = (acc[key] ?? 0) + 1;
       return acc;
     },
@@ -475,15 +566,17 @@ export default async function PlatformDashboardPage() {
   const billingIssues = typedStudios
     .map((studio) => {
       const subscription = subscriptionByStudioId.get(studio.id);
+      const status = getEffectiveBillingStatus({ studio, subscription });
+
       return {
         studio,
         subscription,
+        status,
         workspaceType: organizerWorkspaceIds.has(studio.id) ? "Organizer" : "Studio",
       };
     })
-    .filter(({ subscription }) => {
-      if (!subscription) return true;
-      return subscription.status === "past_due" || subscription.status === "cancelled" || subscription.status === "canceled";
+    .filter(({ status }) => {
+      return status === "past_due" || status === "cancelled" || status === "canceled";
     });
 
   const paidAccessWithoutActiveSubscription = typedStudios
@@ -499,9 +592,11 @@ export default async function PlatformDashboardPage() {
         status: subscription?.status ?? "no_subscription",
       };
     })
-    .filter(({ subscription }) => {
-      if (!hasPaidPlan(subscription)) return false;
-      return !hasActiveBillingAccess(subscription?.status);
+    .filter(({ studio, subscription }) => {
+      const status = getEffectiveBillingStatus({ studio, subscription });
+
+      if (!hasPaidPlan({ studio, subscription })) return false;
+      return !hasActiveBillingAccess(status);
     });
 
   const serverSideAlertCount =
@@ -991,8 +1086,8 @@ export default async function PlatformDashboardPage() {
               </div>
             ) : (
               <div className="mt-4 space-y-3">
-                {billingIssues.slice(0, 8).map(({ studio, subscription, workspaceType }) => {
-                  const plan = subscription ? getPlan(subscription.subscription_plans) : null;
+                {billingIssues.slice(0, 8).map(({ studio, subscription, status, workspaceType }) => {
+                  const planName = getEffectivePlanName({ studio, subscription });
 
                   return (
                     <div key={studio.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -1005,16 +1100,16 @@ export default async function PlatformDashboardPage() {
                             {studio.name}
                           </Link>
                           <p className="mt-1 text-sm text-slate-500">
-                            {workspaceType} • Plan: {plan?.name ?? "No plan"}
+                            {workspaceType} • Plan: {planName} • {getWorkspaceStatusLabel(studio)}
                           </p>
                         </div>
 
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                            subscription?.status ?? "inactive"
+                            status
                           )}`}
                         >
-                          {statusLabel(subscription?.status ?? "inactive")}
+                          {statusLabel(status)}
                         </span>
                       </div>
 
@@ -1063,7 +1158,9 @@ export default async function PlatformDashboardPage() {
                   <div className="mt-4 space-y-2">
                     {recentStudios.map((studio) => {
                       const subscription = subscriptionByStudioId.get(studio.id);
-                      const plan = subscription ? getPlan(subscription.subscription_plans) : null;
+                      const planName = getEffectivePlanName({ studio, subscription });
+                      const billingStatus = getEffectiveBillingStatus({ studio, subscription });
+                      const effectiveTrialEndsAt = getEffectiveTrialEndsAt({ studio, subscription });
 
                       return (
                         <div key={studio.id} className="rounded-xl border border-slate-200 bg-white p-3">
@@ -1082,23 +1179,23 @@ export default async function PlatformDashboardPage() {
 
                             <span
                               className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                                subscription?.status ?? "inactive"
+                                billingStatus
                               )}`}
                             >
-                              {subscription?.status === "trialing"
-  ? trialStatusLabel(subscription.trial_ends_at)
-  : statusLabel(subscription?.status ?? "inactive")}
+                              {billingStatus === "trialing"
+  ? trialStatusLabel(effectiveTrialEndsAt)
+  : statusLabel(billingStatus)}
                             </span>
                           </div>
 
                           <p className="mt-2 text-sm text-slate-600">
-  {plan?.name ?? "No plan"} • {eventsByStudioId.get(studio.id) ?? 0} events •{" "}
+  {planName} • {getWorkspaceStatusLabel(studio)} • {eventsByStudioId.get(studio.id) ?? 0} events •{" "}
   {registrationsByStudioId.get(studio.id) ?? 0} registrations
 </p>
 
-{subscription?.status === "trialing" ? (
+{billingStatus === "trialing" ? (
   <p className="mt-1 text-xs font-medium text-sky-700">
-    {trialStatusDetail(subscription.trial_ends_at)}
+    {trialStatusDetail(effectiveTrialEndsAt)}
   </p>
 ) : null}
                         </div>
@@ -1139,7 +1236,9 @@ export default async function PlatformDashboardPage() {
                   <div className="mt-4 space-y-2">
                     {recentOrganizers.map((studio) => {
                       const subscription = subscriptionByStudioId.get(studio.id);
-                      const plan = subscription ? getPlan(subscription.subscription_plans) : null;
+                      const planName = getEffectivePlanName({ studio, subscription });
+                      const billingStatus = getEffectiveBillingStatus({ studio, subscription });
+                      const effectiveTrialEndsAt = getEffectiveTrialEndsAt({ studio, subscription });
 
                       return (
                         <div key={studio.id} className="rounded-xl border border-slate-200 bg-white p-3">
@@ -1158,23 +1257,23 @@ export default async function PlatformDashboardPage() {
 
                             <span
                               className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                                subscription?.status ?? "inactive"
+                                billingStatus
                               )}`}
                             >
-                              {subscription?.status === "trialing"
-  ? trialStatusLabel(subscription.trial_ends_at)
-  : statusLabel(subscription?.status ?? "inactive")}
+                              {billingStatus === "trialing"
+  ? trialStatusLabel(effectiveTrialEndsAt)
+  : statusLabel(billingStatus)}
                             </span>
                           </div>
 
                           <p className="mt-2 text-sm text-slate-600">
-  {plan?.name ?? "No plan"} • {organizersByStudioId.get(studio.id) ?? 0} organizer accounts •{" "}
+  {planName} • {getWorkspaceStatusLabel(studio)} • {organizersByStudioId.get(studio.id) ?? 0} organizer accounts •{" "}
   {publicEventsByStudioId.get(studio.id) ?? 0} public events
 </p>
 
-{subscription?.status === "trialing" ? (
+{billingStatus === "trialing" ? (
   <p className="mt-1 text-xs font-medium text-sky-700">
-    {trialStatusDetail(subscription.trial_ends_at)}
+    {trialStatusDetail(effectiveTrialEndsAt)}
   </p>
 ) : null}
                         </div>

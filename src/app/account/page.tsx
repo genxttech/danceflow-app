@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import { createClient } from "@/lib/supabase/server";
 
 type FavoriteRow = {
@@ -58,6 +59,33 @@ type PortalLinkRow = {
     | null;
 };
 
+type FavoriteStudioItem = {
+  studio: StudioRow;
+  createdAt: string;
+};
+
+type FavoriteEventItem = {
+  event: EventRow;
+  createdAt: string;
+};
+
+type RegisteredEventItem = {
+  registrationId: string;
+  status: string;
+  createdAt: string;
+  event: EventRow;
+};
+
+type LinkedPortalItem = {
+  clientId: string;
+  studioId: string;
+  studioSlug: string;
+  studioName: string;
+  location: string;
+  isIndependentInstructor: boolean;
+  clientName: string;
+};
+
 function formatDate(value: string | null) {
   if (!value) return "Date coming soon";
 
@@ -78,17 +106,283 @@ function getStudioLocation(studio: StudioRow) {
 
 function getPortalStudio(
   value: PortalLinkRow["studios"]
-):
-  | {
-      id: string;
-      slug: string | null;
-      name: string;
-      public_name: string | null;
-      city: string | null;
-      state: string | null;
-    }
-  | null {
+): {
+  id: string;
+  slug: string | null;
+  name: string;
+  public_name: string | null;
+  city: string | null;
+  state: string | null;
+} | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function formatStatus(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function AccountStatCard({
+  label,
+  value,
+  detail,
+  className,
+}: {
+  label: string;
+  value: number;
+  detail: string;
+  className: string;
+}) {
+  return (
+    <div className={`rounded-3xl border p-5 shadow-sm ${className}`}>
+      <p className="text-sm font-medium text-slate-600">{label}</p>
+      <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">{value}</p>
+      <p className="mt-2 text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
+        {detail}
+      </p>
+    </div>
+  );
+}
+
+function QuickActionCard({
+  eyebrow,
+  title,
+  description,
+  href,
+  className,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  href: string;
+  className: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`block rounded-3xl border p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${className}`}
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+        {eyebrow}
+      </p>
+      <p className="mt-3 text-lg font-semibold text-slate-950">{title}</p>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+      <p className="mt-4 text-sm font-semibold text-slate-900">Open →</p>
+    </Link>
+  );
+}
+
+function EmptyState({
+  title,
+  description,
+  href,
+  actionLabel,
+}: {
+  title: string;
+  description: string;
+  href?: string;
+  actionLabel?: string;
+}) {
+  return (
+    <div className="mt-6 rounded-[28px] border border-dashed border-slate-300 bg-slate-50/80 p-8 text-center sm:p-10">
+      <p className="text-lg font-semibold text-slate-950">{title}</p>
+      <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-slate-600">{description}</p>
+      {href && actionLabel ? (
+        <Link
+          href={href}
+          className="mt-5 inline-flex rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+        >
+          {actionLabel}
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+function SectionHeader({
+  eyebrow,
+  title,
+  description,
+  actionHref,
+  actionLabel,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  actionHref?: string;
+  actionLabel?: string;
+}) {
+  return (
+    <div className="flex flex-wrap items-end justify-between gap-4">
+      <div>
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-orange-600">
+          {eyebrow}
+        </p>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+          {title}
+        </h2>
+        <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">{description}</p>
+      </div>
+
+      {actionHref && actionLabel ? (
+        <Link
+          href={actionHref}
+          className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+        >
+          {actionLabel}
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
+function PortalCards({ linkedPortals }: { linkedPortals: LinkedPortalItem[] }) {
+  if (linkedPortals.length === 0) {
+    return (
+      <EmptyState
+        title="No linked studio portals yet"
+        description="When a studio links your account or sends you a client portal invite, your studio portals will appear here."
+      />
+    );
+  }
+
+  return (
+    <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      {linkedPortals.map((portal) => (
+        <Link
+          key={`${portal.studioId}-${portal.clientId}`}
+          href={`/portal/${portal.studioSlug}`}
+          className="group rounded-[28px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xl font-semibold text-slate-950">{portal.studioName}</p>
+              <p className="mt-1 text-sm text-slate-600">{portal.location}</p>
+            </div>
+
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
+              {portal.isIndependentInstructor ? "Instructor Portal" : "Client Portal"}
+            </span>
+          </div>
+
+          <p className="mt-5 text-sm text-slate-700">Signed in as {portal.clientName}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Open this studio’s private portal for studio-specific lessons, memberships,
+            rentals, and account access.
+          </p>
+          <p className="mt-5 text-sm font-semibold text-emerald-800 group-hover:text-emerald-900">
+            Open portal →
+          </p>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function FavoriteStudioCards({ studios }: { studios: FavoriteStudioItem[] }) {
+  if (studios.length === 0) {
+    return (
+      <EmptyState
+        title="No favorite studios yet"
+        description="Save studios from discovery so you can find them quickly the next time you log in."
+        href="/discover/studios"
+        actionLabel="Find Studios"
+      />
+    );
+  }
+
+  return (
+    <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      {studios.map(({ studio }) => (
+        <Link
+          key={studio.id}
+          href={studio.slug ? `/studios/${studio.slug}` : "/discover/studios"}
+          className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <p className="text-lg font-semibold text-slate-950">
+            {studio.public_name?.trim() || studio.name}
+          </p>
+          <p className="mt-1 text-sm text-slate-600">{getStudioLocation(studio)}</p>
+          <p className="mt-4 text-sm font-semibold text-slate-800">View studio →</p>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function FavoriteEventCards({ events }: { events: FavoriteEventItem[] }) {
+  if (events.length === 0) {
+    return (
+      <EmptyState
+        title="No favorite events yet"
+        description="Save public events from discovery and they will appear here for quick access."
+        href="/discover/events"
+        actionLabel="Find Events"
+      />
+    );
+  }
+
+  return (
+    <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      {events.map(({ event }) => (
+        <Link
+          key={event.id}
+          href={event.slug ? `/events/${event.slug}` : "/discover/events"}
+          className="rounded-[28px] border border-violet-100 bg-gradient-to-br from-violet-50 via-white to-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <p className="text-lg font-semibold text-slate-950">{event.name}</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {formatDate(event.start_date)} • {getEventLocation(event)}
+          </p>
+          <p className="mt-4 text-sm font-semibold text-violet-800">View event →</p>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function RegisteredEventCards({ events }: { events: RegisteredEventItem[] }) {
+  if (events.length === 0) {
+    return (
+      <EmptyState
+        title="No event registrations yet"
+        description="When you register for public events through DanceFlow, those registrations will appear here."
+        href="/discover/events"
+        actionLabel="Browse Events"
+      />
+    );
+  }
+
+  return (
+    <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      {events.map(({ registrationId, status, event }) => (
+        <Link
+          key={registrationId}
+          href={event.slug ? `/events/${event.slug}` : "/discover/events"}
+          className="rounded-[28px] border border-sky-100 bg-gradient-to-br from-sky-50 via-white to-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-lg font-semibold text-slate-950">{event.name}</p>
+              <p className="mt-1 text-sm text-slate-600">
+                {formatDate(event.start_date)} • {getEventLocation(event)}
+              </p>
+            </div>
+
+            <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">
+              {formatStatus(status)}
+            </span>
+          </div>
+
+          <p className="mt-4 text-sm font-semibold text-sky-800">View registration →</p>
+        </Link>
+      ))}
+    </div>
+  );
 }
 
 export default async function AccountPage() {
@@ -121,7 +415,8 @@ export default async function AccountPage() {
 
     supabase
       .from("clients")
-      .select(`
+      .select(
+        `
         id,
         first_name,
         last_name,
@@ -134,7 +429,8 @@ export default async function AccountPage() {
           city,
           state
         )
-      `)
+      `
+      )
       .eq("portal_user_id", user.id)
       .order("created_at", { ascending: false }),
   ]);
@@ -180,7 +476,7 @@ export default async function AccountPage() {
           .in("id", favoriteStudioIds)
       : Promise.resolve({ data: [], error: null }),
 
-        allEventIds.length
+    allEventIds.length
       ? supabase
           .from("events")
           .select("id, slug, name, start_date, city, state")
@@ -213,14 +509,7 @@ export default async function AccountPage() {
         createdAt: row.created_at,
       };
     })
-    .filter(
-      (
-        value
-      ): value is {
-        studio: StudioRow;
-        createdAt: string;
-      } => Boolean(value)
-    );
+    .filter((value): value is FavoriteStudioItem => Boolean(value));
 
   const favoriteEventsList = typedFavorites
     .filter((row) => row.event_id)
@@ -233,14 +522,7 @@ export default async function AccountPage() {
         createdAt: row.created_at,
       };
     })
-    .filter(
-      (
-        value
-      ): value is {
-        event: EventRow;
-        createdAt: string;
-      } => Boolean(value)
-    );
+    .filter((value): value is FavoriteEventItem => Boolean(value));
 
   const registeredEventsList = typedRegistrations
     .map((row) => {
@@ -254,16 +536,7 @@ export default async function AccountPage() {
         event,
       };
     })
-    .filter(
-      (
-        value
-      ): value is {
-        registrationId: string;
-        status: string;
-        createdAt: string;
-        event: EventRow;
-      } => Boolean(value)
-    );
+    .filter((value): value is RegisteredEventItem => Boolean(value));
 
   const linkedPortals = typedPortalLinks
     .map((row) => {
@@ -280,22 +553,9 @@ export default async function AccountPage() {
         clientName: `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Portal Member",
       };
     })
-    .filter(
-      (
-        value
-      ): value is {
-        clientId: string;
-        studioId: string;
-        studioSlug: string;
-        studioName: string;
-        location: string;
-        isIndependentInstructor: boolean;
-        clientName: string;
-      } => Boolean(value)
-    );
+    .filter((value): value is LinkedPortalItem => Boolean(value));
 
-  const firstPortalName =
-    linkedPortals.map((row) => row.clientName).find(Boolean) || null;
+  const firstPortalName = linkedPortals.map((row) => row.clientName).find(Boolean) || null;
 
   const displayName =
     user.user_metadata?.full_name ||
@@ -304,304 +564,215 @@ export default async function AccountPage() {
     user.email?.split("@")[0] ||
     "there";
 
+  const firstPortalHref = linkedPortals[0]?.studioSlug
+    ? `/portal/${linkedPortals[0].studioSlug}`
+    : null;
+
   return (
-    <div className="min-h-screen bg-slate-50">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <section className="overflow-hidden rounded-[36px] border border-slate-200 bg-[linear-gradient(135deg,#fff7ed_0%,#ffffff_42%,#f8fafc_100%)] p-8 shadow-sm sm:p-10">
-          <div className="grid gap-8 xl:grid-cols-[1.2fr_0.8fr]">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-orange-600">
-                My Account
-              </p>
-              <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl">
-                Welcome back, {displayName}
-              </h1>
-              <p className="mt-4 max-w-3xl text-sm leading-7 text-slate-600 sm:text-base">
-                This is your public account home. Your favorites and event registrations stay here.
-                If a studio links your account, your studio portals will appear here as separate destinations without replacing your public account.
-              </p>
+    <div className="min-h-screen bg-[#fff8f1]">
+      <PublicSiteHeader currentPath="account" isAuthenticated />
 
-              <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
-                  <p className="text-sm text-slate-500">Favorite Studios</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-950">
-                    {favoriteStudiosList.length}
-                  </p>
-                </div>
+      <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        <section className="overflow-hidden rounded-[36px] border border-orange-100 bg-white shadow-sm">
+          <div className="relative isolate bg-gradient-to-br from-purple-900 via-fuchsia-800 to-orange-500 p-6 text-white sm:p-8 lg:p-10">
+            <div className="absolute inset-0 -z-10 opacity-25 [background-image:radial-gradient(circle_at_top_left,#ffffff_0,transparent_28%),radial-gradient(circle_at_bottom_right,#ffffff_0,transparent_24%)]" />
 
-                <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
-                  <p className="text-sm text-slate-500">Favorite Events</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-950">
-                    {favoriteEventsList.length}
-                  </p>
-                </div>
+            <div className="grid gap-8 xl:grid-cols-[1.15fr_0.85fr] xl:items-end">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-orange-100">
+                  DanceFlow Account
+                </p>
+                <h1 className="mt-4 max-w-4xl text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
+                  Welcome back, {displayName}
+                </h1>
+                <p className="mt-5 max-w-3xl text-base leading-8 text-orange-50">
+                  Your DanceFlow home keeps your favorite studios, saved events,
+                  registrations, and linked studio portals in one place.
+                </p>
 
-                <div className="rounded-2xl border border-orange-100 bg-white p-5 shadow-sm">
-                  <p className="text-sm text-slate-500">Registered Events</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-950">
-                    {registeredEventsList.length}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-emerald-100 bg-white p-5 shadow-sm">
-                  <p className="text-sm text-slate-500">Studio Portals</p>
-                  <p className="mt-2 text-3xl font-semibold text-slate-950">
-                    {linkedPortals.length}
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-[28px] border border-slate-200 bg-white/90 p-6 shadow-sm">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                Account Actions
-              </p>
-
-              <div className="mt-5 grid gap-3">
-                {linkedPortals.length > 0 ? (
+                <div className="mt-7 flex flex-wrap gap-3">
                   <Link
-                    href={`/portal/${linkedPortals[0].studioSlug}`}
-                    className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 hover:bg-emerald-100"
+                    href="/discover/studios"
+                    className="rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-purple-900 shadow-sm transition hover:bg-orange-50"
                   >
-                    <p className="font-medium text-slate-900">Open Studio Portal</p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Jump into your linked studio portal access.
-                    </p>
+                    Find Studios
                   </Link>
-                ) : null}
-
-                <Link
-                  href="/discover"
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-5 hover:bg-slate-100"
-                >
-                  <p className="font-medium text-slate-900">Explore Studios & Events</p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Discover studios, events, and new opportunities near you.
-                  </p>
-                </Link>
-
-                <form action="/auth/logout" method="post">
-                  <button
-                    type="submit"
-                    className="w-full rounded-2xl border border-slate-200 bg-white p-5 text-left hover:bg-slate-50"
+                  <Link
+                    href="/discover/events"
+                    className="rounded-2xl bg-white/15 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/25 transition hover:bg-white/20"
                   >
-                    <p className="font-medium text-slate-900">Log Out</p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      Sign out of your public account and any linked studio portals.
-                    </p>
-                  </button>
-                </form>
+                    Find Events
+                  </Link>
+                  {firstPortalHref ? (
+                    <Link
+                      href={firstPortalHref}
+                      className="rounded-2xl bg-white/15 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/25 transition hover:bg-white/20"
+                    >
+                      Open My Portal
+                    </Link>
+                  ) : null}
+                </div>
               </div>
 
-              <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Signed in as
+              <div className="rounded-[28px] bg-white/12 p-5 ring-1 ring-white/20 backdrop-blur">
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-orange-100">
+                  Quick Start
                 </p>
-                <p className="mt-2 text-sm font-medium text-slate-900">
-                  {user.email || "No email found"}
-                </p>
+                <div className="mt-4 space-y-3 text-sm leading-6 text-white/90">
+                  <p>1. Explore studios and events in public discovery.</p>
+                  <p>2. Save favorites so they are easy to find later.</p>
+                  <p>3. Open any linked studio portal when a studio connects your account.</p>
+                </div>
+                <div className="mt-5 rounded-2xl bg-white/15 p-4 text-sm text-white/90 ring-1 ring-white/15">
+                  Signed in as <span className="font-semibold text-white">{user.email}</span>
+                </div>
               </div>
             </div>
           </div>
+
+          <div className="grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-4 lg:p-6">
+            <AccountStatCard
+              label="Favorite Studios"
+              value={favoriteStudiosList.length}
+              detail="Saved places"
+              className="border-orange-100 bg-orange-50/70"
+            />
+            <AccountStatCard
+              label="Favorite Events"
+              value={favoriteEventsList.length}
+              detail="Saved events"
+              className="border-violet-100 bg-violet-50/70"
+            />
+            <AccountStatCard
+              label="Registered Events"
+              value={registeredEventsList.length}
+              detail="Event activity"
+              className="border-sky-100 bg-sky-50/70"
+            />
+            <AccountStatCard
+              label="Studio Portals"
+              value={linkedPortals.length}
+              detail="Linked access"
+              className="border-emerald-100 bg-emerald-50/70"
+            />
+          </div>
+        </section>
+
+        <section className="mt-8 grid gap-4 lg:grid-cols-4">
+          <QuickActionCard
+            eyebrow="Discover"
+            title="Find studios"
+            description="Browse public studio profiles and save the ones you want to revisit."
+            href="/discover/studios"
+            className="border-orange-100 bg-white"
+          />
+          <QuickActionCard
+            eyebrow="Events"
+            title="Find events"
+            description="Search upcoming events and keep your registrations organized."
+            href="/discover/events"
+            className="border-violet-100 bg-white"
+          />
+          <QuickActionCard
+            eyebrow="Favorites"
+            title="View saved items"
+            description="Open your favorite studios and events without searching again."
+            href="/favorites"
+            className="border-sky-100 bg-white"
+          />
+          <QuickActionCard
+            eyebrow="Help"
+            title="Learn DanceFlow"
+            description="Use the knowledgebase for guides on accounts, portals, and discovery."
+            href="/knowledgebase"
+            className="border-emerald-100 bg-white"
+          />
         </section>
 
         <div className="mt-8 space-y-8">
-          <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                  My Studio Portals
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  Studio-linked portal access
-                </h2>
-                <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-                  Your public account stays separate from your studio portals. Favorites and event registrations live here, while each studio portal gives you access to that studio’s client experience.
-                </p>
-              </div>
-            </div>
-
-            {linkedPortals.length === 0 ? (
-              <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-                <p className="text-lg font-medium text-slate-900">No linked studio portals yet</p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  When a studio links your account or sends you a portal invite, your studio portals will appear here.
-                </p>
-              </div>
-            ) : (
-              <div className="mt-6 grid gap-4 lg:grid-cols-2">
-                {linkedPortals.map((portal) => (
-                  <Link
-                    key={`${portal.studioId}-${portal.clientId}`}
-                    href={`/portal/${portal.studioSlug}`}
-                    className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 shadow-sm transition hover:bg-emerald-100"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-lg font-semibold text-slate-950">
-                          {portal.studioName}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-600">{portal.location}</p>
-                      </div>
-
-                      <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-emerald-800 ring-1 ring-emerald-200">
-                        {portal.isIndependentInstructor
-                          ? "Independent Instructor"
-                          : "Client Portal"}
-                      </span>
-                    </div>
-
-                    <p className="mt-4 text-sm text-slate-700">
-                      Signed in as {portal.clientName}
-                    </p>
-                    <p className="mt-2 text-sm text-slate-600">
-                      Open this studio’s private portal for lessons, memberships, rentals, and studio-specific access.
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            )}
+          <section className="rounded-[32px] border border-emerald-100 bg-white p-6 shadow-sm sm:p-7">
+            <SectionHeader
+              eyebrow="My Studio Portals"
+              title="Private access from studios you are linked to"
+              description="Your public DanceFlow account stays separate from studio portals. When a studio links your account, that studio’s portal appears here."
+            />
+            <PortalCards linkedPortals={linkedPortals} />
           </section>
 
-          <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-orange-600">
-                  Favorite Studios
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  Studios you want to keep nearby
-                </h2>
-                <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-                  Your public favorites stay attached to this account, even when studio portal access is added later.
-                </p>
-              </div>
-            </div>
-
-            {favoriteStudiosList.length === 0 ? (
-              <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-                <p className="text-lg font-medium text-slate-900">No favorite studios yet</p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Favorite studios from discovery will appear here.
-                </p>
-              </div>
-            ) : (
-              <div className="mt-6 grid gap-4 lg:grid-cols-2">
-                {favoriteStudiosList.map(({ studio }) => (
-                  <Link
-                    key={studio.id}
-                    href={studio.slug ? `/studios/${studio.slug}` : "/discover"}
-                    className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm transition hover:bg-white"
-                  >
-                    <p className="text-lg font-semibold text-slate-950">
-                      {studio.public_name?.trim() || studio.name}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-600">{getStudioLocation(studio)}</p>
-                    <p className="mt-4 text-sm text-slate-600">
-                      Open the public studio page.
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            )}
+          <section className="rounded-[32px] border border-orange-100 bg-white p-6 shadow-sm sm:p-7">
+            <SectionHeader
+              eyebrow="Favorite Studios"
+              title="Studios you want to keep nearby"
+              description="Favorite studios from discovery so you can come back to them quickly."
+              actionHref="/discover/studios"
+              actionLabel="Find More Studios"
+            />
+            <FavoriteStudioCards studios={favoriteStudiosList} />
           </section>
 
-          <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
-                  Favorite Events
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  Events you are tracking
-                </h2>
-                <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-                  Saved public events stay tied to your account, not to a specific studio portal.
-                </p>
-              </div>
-            </div>
-
-            {favoriteEventsList.length === 0 ? (
-              <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-                <p className="text-lg font-medium text-slate-900">No favorite events yet</p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Favorite events from discovery will appear here.
-                </p>
-              </div>
-            ) : (
-              <div className="mt-6 grid gap-4 lg:grid-cols-2">
-                {favoriteEventsList.map(({ event }) => (
-                  <Link
-                    key={event.id}
-                    href={event.slug ? `/events/${event.slug}` : "/discover/events"}
-                    className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm transition hover:bg-white"
-                  >
-                    <p className="text-lg font-semibold text-slate-950">{event.name}</p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      {formatDate(event.start_date)} • {getEventLocation(event)}
-                    </p>
-                    <p className="mt-4 text-sm text-slate-600">
-                      Open the public event page.
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            )}
+          <section className="rounded-[32px] border border-violet-100 bg-white p-6 shadow-sm sm:p-7">
+            <SectionHeader
+              eyebrow="Favorite Events"
+              title="Events you are tracking"
+              description="Saved public events stay tied to your account so you do not have to search for them again."
+              actionHref="/discover/events"
+              actionLabel="Find More Events"
+            />
+            <FavoriteEventCards events={favoriteEventsList} />
           </section>
 
-          <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
-            <div className="flex flex-wrap items-end justify-between gap-4">
+          <section className="rounded-[32px] border border-sky-100 bg-white p-6 shadow-sm sm:p-7">
+            <SectionHeader
+              eyebrow="Registered Events"
+              title="Events you have registered for"
+              description="Your public event registrations stay with this account, even if you also have studio portal access."
+              actionHref="/discover/events"
+              actionLabel="Browse Events"
+            />
+            <RegisteredEventCards events={registeredEventsList} />
+          </section>
+
+          <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
+            <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr] lg:items-center">
               <div>
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
-                  Registered Events
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  Account Help
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                  Events you have registered for
+                  Need help with your account?
                 </h2>
-                <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-                  Your public event registrations stay with this account even after a studio portal is linked.
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  Visit the knowledgebase or contact support if you need help with public
+                  accounts, favorites, event registrations, or studio portal access.
                 </p>
+              </div>
+
+              <div className="flex flex-wrap gap-3 lg:justify-end">
+                <Link
+                  href="/knowledgebase"
+                  className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+                >
+                  Knowledgebase
+                </Link>
+                <Link
+                  href="/support"
+                  className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+                >
+                  Contact Support
+                </Link>
+                <form action="/auth/logout" method="post">
+                  <button
+                    type="submit"
+                    className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50"
+                  >
+                    Log Out
+                  </button>
+                </form>
               </div>
             </div>
-
-            {registeredEventsList.length === 0 ? (
-              <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
-                <p className="text-lg font-medium text-slate-900">No event registrations yet</p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Public event registrations will appear here.
-                </p>
-              </div>
-            ) : (
-              <div className="mt-6 grid gap-4 lg:grid-cols-2">
-                {registeredEventsList.map(({ registrationId, status, event }) => (
-                  <Link
-                    key={registrationId}
-                    href={event.slug ? `/events/${event.slug}` : "/discover/events"}
-                    className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm transition hover:bg-white"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-lg font-semibold text-slate-950">{event.name}</p>
-                        <p className="mt-1 text-sm text-slate-600">
-                          {formatDate(event.start_date)} • {getEventLocation(event)}
-                        </p>
-                      </div>
-
-                      <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-medium text-sky-700 ring-1 ring-sky-100">
-                        {status.replaceAll("_", " ")}
-                      </span>
-                    </div>
-
-                    <p className="mt-4 text-sm text-slate-600">
-                      Open the public registration event page.
-                    </p>
-                  </Link>
-                ))}
-              </div>
-            )}
           </section>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

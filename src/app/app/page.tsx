@@ -24,6 +24,9 @@ import {
 type WorkspaceRow = {
   id: string;
   name: string | null;
+  billing_plan: string | null;
+  subscription_status: string | null;
+  trial_ends_at: string | null;
   stripe_connected_account_id: string | null;
 };
 
@@ -222,6 +225,27 @@ function statusBadgeClass(status: string) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
+const PLAN_LABELS: Record<string, string> = {
+  organizer: "Organizer",
+  starter: "Starter",
+  growth: "Growth",
+  pro: "Pro",
+};
+
+function getPlanLabelFromCode(value: string | null | undefined) {
+  const code = (value ?? "").trim().toLowerCase();
+  if (!code) return null;
+
+  return (
+    PLAN_LABELS[code] ??
+    code
+      .split(/[-_\s]+/)
+      .filter(Boolean)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ")
+  );
+}
+
 function planBadgeClass(planCode: string) {
   if (planCode === "pro") {
     return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
@@ -261,27 +285,27 @@ function getTrialDisplay(status: string | null | undefined, trialEndsAt: string 
   if (daysLeft === null) {
     return {
       label: "Trial",
-      detail: "Trial end date unavailable",
+      detail: "Trial active",
     };
   }
 
   if (daysLeft < 0) {
     return {
       label: "Trial expired",
-      detail: endDate ? `Ended ${endDate}` : "Trial end date unavailable",
+      detail: endDate ? `Ended ${endDate}` : "Trial active",
     };
   }
 
   if (daysLeft === 0) {
     return {
       label: "Trial ends today",
-      detail: endDate ? `Ends ${endDate}` : "Trial end date unavailable",
+      detail: endDate ? `Ends ${endDate}` : "Trial active",
     };
   }
 
   return {
     label: `Trial — ${daysLeft} day${daysLeft === 1 ? "" : "s"} left`,
-    detail: endDate ? `Ends ${endDate}` : "Trial end date unavailable",
+    detail: endDate ? `Ends ${endDate}` : "Trial active",
   };
 }
 
@@ -440,10 +464,12 @@ export default async function AppDashboardPage({
     { data: subscription, error: subscriptionError },
   ] = await Promise.all([
     supabase
-      .from("studios")
-      .select("id, name, stripe_connected_account_id")
-      .eq("id", studioId)
-      .maybeSingle<WorkspaceRow>(),
+  .from("studios")
+  .select(
+    "id, name, billing_plan, subscription_status, trial_ends_at, stripe_connected_account_id"
+  )
+  .eq("id", studioId)
+  .maybeSingle<WorkspaceRow>(),
 
     supabase
       .from("notifications")
@@ -490,15 +516,27 @@ export default async function AppDashboardPage({
     currentPlan = planRow ?? null;
   }
 
+  const studioBillingPlan = workspace?.billing_plan?.trim().toLowerCase() ?? null;
   const planCode = organizerWorkspace
     ? "organizer"
-    : (currentPlan?.code?.trim().toLowerCase() || "starter");
-  const planLabel = organizerWorkspace ? "Organizer" : currentPlan?.name || "Starter";
+    : (currentPlan?.code?.trim().toLowerCase() || studioBillingPlan || "starter");
+  const planLabel = organizerWorkspace
+    ? "Organizer"
+    : currentPlan?.name || getPlanLabelFromCode(studioBillingPlan) || "Starter";
+
+  const effectiveSubscriptionStatus =
+    subscription?.status ?? workspace?.subscription_status ?? null;
+
+  const effectiveTrialEndsAt =
+  subscription?.trial_ends_at ??
+  workspace?.trial_ends_at ??
+  subscription?.current_period_end ??
+  null;
 
   const subscriptionTrialInfo = getTrialDisplay(
-  subscription?.status ?? null,
-  subscription?.trial_ends_at ?? null
-);
+    effectiveSubscriptionStatus,
+    effectiveTrialEndsAt
+  );
 
   const unreadCount = ((notifications ?? []) as NotificationRow[]).filter(
     (item) => !item.read_at
