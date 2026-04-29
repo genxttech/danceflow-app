@@ -7,15 +7,22 @@ type StudioRow = {
   id: string;
   name: string;
   created_at: string;
+  billing_plan: string | null;
+  subscription_status: string | null;
+  active: boolean | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  trial_ends_at: string | null;
 };
 
 type SubscriptionRow = {
   id: string;
   studio_id: string;
-  status: string;
-  billing_interval: string;
+  status: string | null;
+  billing_interval: string | null;
   current_period_end: string | null;
-  cancel_at_period_end: boolean;
+  trial_ends_at: string | null;
+  cancel_at_period_end: boolean | null;
   subscription_plans:
     | {
         code: string;
@@ -57,6 +64,13 @@ type SearchParams = Promise<{
   status?: string;
 }>;
 
+const PLAN_LABELS: Record<string, string> = {
+  starter: "Starter",
+  growth: "Growth",
+  pro: "Pro",
+  organizer: "Organizer",
+};
+
 function getPlan(
   value:
     | { code: string; name: string }
@@ -66,8 +80,72 @@ function getPlan(
   return Array.isArray(value) ? value[0] : value;
 }
 
+function formatFallbackLabel(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function getPlanCode(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  const subscriptionPlan = params.subscription
+    ? getPlan(params.subscription.subscription_plans)
+    : null;
+
+  return (
+    subscriptionPlan?.code?.trim().toLowerCase() ||
+    params.studio.billing_plan?.trim().toLowerCase() ||
+    ""
+  );
+}
+
+function getPlanLabel(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  const subscriptionPlan = params.subscription
+    ? getPlan(params.subscription.subscription_plans)
+    : null;
+
+  const planCode = getPlanCode(params);
+
+  return (
+    subscriptionPlan?.name?.trim() ||
+    PLAN_LABELS[planCode] ||
+    (planCode ? formatFallbackLabel(planCode) : "No plan")
+  );
+}
+
+function getEffectiveBillingStatus(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  return (
+    params.subscription?.status?.trim().toLowerCase() ||
+    params.studio.subscription_status?.trim().toLowerCase() ||
+    (params.studio.active === false ? "inactive" : "not_started")
+  );
+}
+
+function getEffectiveCurrentPeriodEnd(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  return (
+    params.subscription?.current_period_end ??
+    params.subscription?.trial_ends_at ??
+    params.studio.trial_ends_at ??
+    null
+  );
+}
+
 function formatDate(value: string | null) {
   if (!value) return "—";
+
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -87,38 +165,95 @@ function statusBadgeClass(status: string) {
   if (status === "active") return "bg-green-50 text-green-700";
   if (status === "trialing") return "bg-blue-50 text-blue-700";
   if (status === "past_due") return "bg-amber-50 text-amber-700";
-  if (status === "cancelled") return "bg-red-50 text-red-700";
+  if (status === "canceled" || status === "cancelled") {
+    return "bg-red-50 text-red-700";
+  }
+  if (status === "not_started") return "bg-slate-100 text-slate-700";
+  if (status === "inactive") return "bg-slate-100 text-slate-700";
+
   return "bg-slate-100 text-slate-700";
 }
 
 function statusLabel(status: string) {
   if (status === "trialing") return "Trial";
-  if (status === "active") return "Active";
+  if (status === "active") return "Subscribed";
   if (status === "past_due") return "Past Due";
-  if (status === "cancelled") return "Cancelled";
+  if (status === "canceled" || status === "cancelled") return "Canceled";
+  if (status === "not_started") return "Billing Not Started";
   if (status === "inactive") return "Inactive";
-  return status;
+
+  return formatFallbackLabel(status);
+}
+
+function workspaceStatusBadgeClass(active: boolean | null) {
+  if (active === false) return "bg-red-50 text-red-700";
+  return "bg-green-50 text-green-700";
+}
+
+function workspaceStatusLabel(active: boolean | null) {
+  return active === false ? "Workspace Disabled" : "Workspace Active";
+}
+
+function billingIntervalLabel(value: string | null | undefined) {
+  if (value === "year") return "Yearly";
+  if (value === "month") return "Monthly";
+  return "—";
+}
+
+function billingDateLabel(params: {
+  status: string;
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  const date = getEffectiveCurrentPeriodEnd(params);
+
+  if (params.status === "trialing") {
+    return date ? `Trial ends ${formatDate(date)}` : "Trial active";
+  }
+
+  if (params.status === "active") {
+    return date ? `Renews ${formatDate(date)}` : "Subscription active";
+  }
+
+  if (params.status === "past_due") {
+    return date ? `Period ended ${formatDate(date)}` : "Payment past due";
+  }
+
+  if (params.status === "canceled" || params.status === "cancelled") {
+    return date ? `Ended ${formatDate(date)}` : "Canceled";
+  }
+
+  if (params.status === "not_started") {
+    return "Billing not started";
+  }
+
+  return date ? `Ends ${formatDate(date)}` : "—";
 }
 
 function isOrganizerWorkspace(params: {
-  studioName: string;
+  studio: StudioRow;
   subscription: SubscriptionRow | undefined;
 }) {
-  const { studioName, subscription } = params;
-  const plan = subscription ? getPlan(subscription.subscription_plans) : null;
-  const planCode = plan?.code?.toLowerCase() ?? "";
+  const planCode = getPlanCode(params);
   const sharedPlan = planCode ? getBillingPlan(planCode as never) : null;
 
   if (sharedPlan?.audience === "organizer") {
     return true;
   }
 
-  const normalizedName = studioName.trim().toLowerCase();
+  if (planCode === "organizer") {
+    return true;
+  }
+
+  const normalizedName = params.studio.name.trim().toLowerCase();
+
   return (
     normalizedName.endsWith(" organizer") ||
     normalizedName.includes(" organizer ") ||
     normalizedName.endsWith(" events") ||
-    normalizedName.includes(" festival")
+    normalizedName.includes(" event") ||
+    normalizedName.includes("festival") ||
+    normalizedName.includes("competition")
   );
 }
 
@@ -144,30 +279,37 @@ export default async function PlatformOrganizersPage({
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, created_at")
+      .select(
+        "id, name, created_at, billing_plan, subscription_status, active, stripe_customer_id, stripe_subscription_id, trial_ends_at"
+      )
       .order("created_at", { ascending: false }),
 
     supabase.from("studio_subscriptions").select(`
-        id,
-        studio_id,
-        status,
-        billing_interval,
-        current_period_end,
-        cancel_at_period_end,
-        subscription_plans (
-          code,
-          name
-        )
-      `),
+      id,
+      studio_id,
+      status,
+      billing_interval,
+      current_period_end,
+      trial_ends_at,
+      cancel_at_period_end,
+      subscription_plans (
+        code,
+        name
+      )
+    `),
 
     supabase
       .from("organizers")
       .select("id, studio_id, name, slug, active, created_at")
       .order("created_at", { ascending: false }),
 
-    supabase.from("events").select("id, organizer_id, studio_id, status, visibility"),
+    supabase
+      .from("events")
+      .select("id, organizer_id, studio_id, status, visibility"),
 
-    supabase.from("event_registrations").select("id, event_id, payment_status, total_amount"),
+    supabase
+      .from("event_registrations")
+      .select("id, event_id, payment_status, total_amount"),
   ]);
 
   if (studiosError) {
@@ -175,7 +317,9 @@ export default async function PlatformOrganizersPage({
   }
 
   if (subscriptionsError) {
-    throw new Error(`Failed to load subscriptions: ${subscriptionsError.message}`);
+    throw new Error(
+      `Failed to load subscriptions: ${subscriptionsError.message}`
+    );
   }
 
   if (organizersError) {
@@ -187,7 +331,9 @@ export default async function PlatformOrganizersPage({
   }
 
   if (registrationsError) {
-    throw new Error(`Failed to load registrations: ${registrationsError.message}`);
+    throw new Error(
+      `Failed to load registrations: ${registrationsError.message}`
+    );
   }
 
   const typedStudios = (studios ?? []) as StudioRow[];
@@ -197,26 +343,37 @@ export default async function PlatformOrganizersPage({
   const typedRegistrations = (registrations ?? []) as RegistrationRow[];
 
   const subscriptionByStudioId = new Map(
-    typedSubscriptions.map((subscription) => [subscription.studio_id, subscription])
+    typedSubscriptions.map((subscription) => [
+      subscription.studio_id,
+      subscription,
+    ])
   );
 
   const organizerWorkspaces = typedStudios.filter((studio) => {
     const subscription = subscriptionByStudioId.get(studio.id);
+
     return isOrganizerWorkspace({
-      studioName: studio.name,
+      studio,
       subscription,
     });
   });
 
   const organizerCounts = new Map<string, { total: number; active: number }>();
+
   for (const organizer of typedOrganizers) {
-    const current = organizerCounts.get(organizer.studio_id) ?? { total: 0, active: 0 };
+    const current = organizerCounts.get(organizer.studio_id) ?? {
+      total: 0,
+      active: 0,
+    };
+
     current.total += 1;
     if (organizer.active) current.active += 1;
+
     organizerCounts.set(organizer.studio_id, current);
   }
 
   const eventsByStudioId = new Map<string, EventRow[]>();
+
   for (const event of typedEvents) {
     const current = eventsByStudioId.get(event.studio_id) ?? [];
     current.push(event);
@@ -224,6 +381,7 @@ export default async function PlatformOrganizersPage({
   }
 
   const registrationsByEventId = new Map<string, RegistrationRow[]>();
+
   for (const registration of typedRegistrations) {
     const current = registrationsByEventId.get(registration.event_id) ?? [];
     current.push(registration);
@@ -232,20 +390,27 @@ export default async function PlatformOrganizersPage({
 
   const filteredWorkspaces = organizerWorkspaces.filter((studio) => {
     const subscription = subscriptionByStudioId.get(studio.id);
-    const subscriptionStatus = subscription?.status?.toLowerCase() ?? "inactive";
-    const plan = subscription ? getPlan(subscription.subscription_plans) : null;
-    const organizerStats = organizerCounts.get(studio.id) ?? { total: 0, active: 0 };
+    const billingStatus = getEffectiveBillingStatus({ studio, subscription });
+    const planCode = getPlanCode({ studio, subscription });
+    const planLabel = getPlanLabel({ studio, subscription });
+    const organizerStats = organizerCounts.get(studio.id) ?? {
+      total: 0,
+      active: 0,
+    };
 
-    if (statusFilter && subscriptionStatus !== statusFilter) {
+    if (statusFilter && billingStatus !== statusFilter) {
       return false;
     }
 
     if (q) {
       const haystack = [
         studio.name,
-        plan?.name ?? "",
-        plan?.code ?? "",
-        subscription?.status ?? "",
+        planLabel,
+        planCode,
+        billingStatus,
+        statusLabel(billingStatus),
+        studio.stripe_customer_id ?? "",
+        studio.stripe_subscription_id ?? "",
         organizerStats.total ? `${organizerStats.total}` : "",
       ]
         .join(" ")
@@ -260,9 +425,12 @@ export default async function PlatformOrganizersPage({
   });
 
   const totalOrganizerWorkspaces = organizerWorkspaces.length;
+
   const activeOrganizerWorkspaces = organizerWorkspaces.filter((studio) => {
     const subscription = subscriptionByStudioId.get(studio.id);
-    return subscription?.status === "active" || subscription?.status === "trialing";
+    const billingStatus = getEffectiveBillingStatus({ studio, subscription });
+
+    return billingStatus === "active" || billingStatus === "trialing";
   }).length;
 
   const workspacesWithEvents = organizerWorkspaces.filter(
@@ -282,7 +450,9 @@ export default async function PlatformOrganizersPage({
                 Organizer Directory
               </h1>
               <p className="mt-3 text-sm leading-7 text-white/85 md:text-base">
-                Review organizer workspaces separately from studios so the platform admin view clearly reflects organizer subscriptions, event activity, and public event usage.
+                Review organizer workspaces separately from studios so the
+                platform admin view clearly reflects organizer subscriptions,
+                event activity, and public event usage.
               </p>
             </div>
 
@@ -313,7 +483,7 @@ export default async function PlatformOrganizersPage({
             </div>
 
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <p className="text-sm text-emerald-700">Active + Trial</p>
+              <p className="text-sm text-emerald-700">Subscribed + Trial</p>
               <p className="mt-1 text-2xl font-semibold text-emerald-950">
                 {activeOrganizerWorkspaces}
               </p>
@@ -339,7 +509,10 @@ export default async function PlatformOrganizersPage({
       <form className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4 md:grid-cols-[1fr_220px_auto]">
           <div>
-            <label htmlFor="q" className="mb-1 block text-sm font-medium text-slate-700">
+            <label
+              htmlFor="q"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
               Search organizer workspaces
             </label>
             <input
@@ -347,13 +520,16 @@ export default async function PlatformOrganizersPage({
               name="q"
               defaultValue={query.q ?? ""}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
-              placeholder="Organizer workspace, plan, or status"
+              placeholder="Organizer workspace, plan, status, Stripe ID"
             />
           </div>
 
           <div>
-            <label htmlFor="status" className="mb-1 block text-sm font-medium text-slate-700">
-              Subscription Status
+            <label
+              htmlFor="status"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
+              Billing Status
             </label>
             <select
               id="status"
@@ -362,10 +538,11 @@ export default async function PlatformOrganizersPage({
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
             >
               <option value="">All</option>
-              <option value="active">Active</option>
+              <option value="active">Subscribed</option>
               <option value="trialing">Trial</option>
               <option value="past_due">Past Due</option>
-              <option value="cancelled">Cancelled</option>
+              <option value="canceled">Canceled</option>
+              <option value="not_started">Billing Not Started</option>
               <option value="inactive">Inactive</option>
             </select>
           </div>
@@ -390,9 +567,12 @@ export default async function PlatformOrganizersPage({
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Organizer Directory</h2>
+          <h2 className="text-lg font-semibold text-slate-900">
+            Organizer Directory
+          </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Showing {filteredWorkspaces.length} of {organizerWorkspaces.length} organizer workspaces.
+            Showing {filteredWorkspaces.length} of{" "}
+            {organizerWorkspaces.length} organizer workspaces.
           </p>
         </div>
 
@@ -413,49 +593,75 @@ export default async function PlatformOrganizersPage({
                   <th className="px-4 py-3 text-left font-medium text-slate-600">
                     Organizer Workspace
                   </th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Plan</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Status</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Plan
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Billing Status
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Workspace
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Billing
+                  </th>
                   <th className="px-4 py-3 text-left font-medium text-slate-600">
                     Organizer Accounts
                   </th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Events</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Events
+                  </th>
                   <th className="px-4 py-3 text-left font-medium text-slate-600">
                     Public Events
                   </th>
                   <th className="px-4 py-3 text-left font-medium text-slate-600">
                     Registrations
                   </th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Revenue</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Created</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Revenue
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Created
+                  </th>
                 </tr>
               </thead>
+
               <tbody className="divide-y divide-slate-200 bg-white">
                 {filteredWorkspaces.map((studio) => {
                   const subscription = subscriptionByStudioId.get(studio.id);
-                  const plan = subscription ? getPlan(subscription.subscription_plans) : null;
+                  const planLabel = getPlanLabel({ studio, subscription });
+                  const billingStatus = getEffectiveBillingStatus({
+                    studio,
+                    subscription,
+                  });
                   const organizerStats = organizerCounts.get(studio.id) ?? {
                     total: 0,
                     active: 0,
                   };
                   const workspaceEvents = eventsByStudioId.get(studio.id) ?? [];
                   const publicEvents = workspaceEvents.filter(
-                    (event) => event.status === "published" && event.visibility === "public"
+                    (event) =>
+                      event.status === "published" &&
+                      event.visibility === "public"
                   ).length;
 
                   const workspaceRegistrations = workspaceEvents.flatMap(
                     (event) => registrationsByEventId.get(event.id) ?? []
                   );
 
-                  const revenue = workspaceRegistrations.reduce((sum, registration) => {
-                    if (
-                      registration.payment_status !== "paid" &&
-                      registration.payment_status !== "partial"
-                    ) {
-                      return sum;
-                    }
+                  const revenue = workspaceRegistrations.reduce(
+                    (sum, registration) => {
+                      if (
+                        registration.payment_status !== "paid" &&
+                        registration.payment_status !== "partial"
+                      ) {
+                        return sum;
+                      }
 
-                    return sum + Number(registration.total_amount ?? 0);
-                  }, 0);
+                      return sum + Number(registration.total_amount ?? 0);
+                    },
+                    0
+                  );
 
                   return (
                     <tr key={studio.id}>
@@ -467,22 +673,51 @@ export default async function PlatformOrganizersPage({
                           >
                             {studio.name}
                           </Link>
-                          <p className="mt-1 text-xs text-slate-500">{studio.id}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {studio.id}
+                          </p>
                         </div>
                       </td>
 
                       <td className="px-4 py-4 text-slate-700">
-                        {plan?.name ?? "No plan"}
+                        {planLabel}
                       </td>
 
                       <td className="px-4 py-4">
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                            subscription?.status ?? "inactive"
+                            billingStatus
                           )}`}
                         >
-                          {statusLabel(subscription?.status ?? "inactive")}
+                          {statusLabel(billingStatus)}
                         </span>
+                      </td>
+
+                      <td className="px-4 py-4">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${workspaceStatusBadgeClass(
+                            studio.active
+                          )}`}
+                        >
+                          {workspaceStatusLabel(studio.active)}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-4 text-slate-700">
+                        <div>
+                          <p>
+                            {billingIntervalLabel(
+                              subscription?.billing_interval
+                            )}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {billingDateLabel({
+                              status: billingStatus,
+                              studio,
+                              subscription,
+                            })}
+                          </p>
+                        </div>
                       </td>
 
                       <td className="px-4 py-4 text-slate-700">
@@ -492,9 +727,13 @@ export default async function PlatformOrganizersPage({
                         </span>
                       </td>
 
-                      <td className="px-4 py-4 text-slate-700">{workspaceEvents.length}</td>
+                      <td className="px-4 py-4 text-slate-700">
+                        {workspaceEvents.length}
+                      </td>
 
-                      <td className="px-4 py-4 text-slate-700">{publicEvents}</td>
+                      <td className="px-4 py-4 text-slate-700">
+                        {publicEvents}
+                      </td>
 
                       <td className="px-4 py-4 text-slate-700">
                         {workspaceRegistrations.length}

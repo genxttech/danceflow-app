@@ -7,15 +7,22 @@ type StudioRow = {
   id: string;
   name: string;
   created_at: string;
+  billing_plan: string | null;
+  subscription_status: string | null;
+  active: boolean | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  trial_ends_at: string | null;
 };
 
 type SubscriptionRow = {
   id: string;
   studio_id: string;
-  status: string;
-  billing_interval: string;
+  status: string | null;
+  billing_interval: string | null;
   current_period_end: string | null;
-  cancel_at_period_end: boolean;
+  trial_ends_at: string | null;
+  cancel_at_period_end: boolean | null;
   subscription_plans:
     | {
         code: string;
@@ -47,6 +54,13 @@ type SearchParams = Promise<{
   plan?: string;
 }>;
 
+const PLAN_LABELS: Record<string, string> = {
+  starter: "Starter",
+  growth: "Growth",
+  pro: "Pro",
+  organizer: "Organizer",
+};
+
 function getPlan(
   value:
     | { code: string; name: string }
@@ -54,6 +68,80 @@ function getPlan(
     | null
 ) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function formatFallbackLabel(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function getPlanCode(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  const subscriptionPlan = params.subscription
+    ? getPlan(params.subscription.subscription_plans)
+    : null;
+
+  return (
+    subscriptionPlan?.code?.trim().toLowerCase() ||
+    params.studio.billing_plan?.trim().toLowerCase() ||
+    ""
+  );
+}
+
+function getPlanLabel(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  const subscriptionPlan = params.subscription
+    ? getPlan(params.subscription.subscription_plans)
+    : null;
+
+  const planCode = getPlanCode(params);
+
+  return (
+    subscriptionPlan?.name?.trim() ||
+    PLAN_LABELS[planCode] ||
+    (planCode ? formatFallbackLabel(planCode) : "No plan")
+  );
+}
+
+function getEffectiveBillingStatus(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  return (
+    params.subscription?.status?.trim().toLowerCase() ||
+    params.studio.subscription_status?.trim().toLowerCase() ||
+    (params.studio.active === false ? "inactive" : "not_started")
+  );
+}
+
+function getEffectiveTrialEndsAt(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  return (
+    params.subscription?.trial_ends_at ??
+    params.studio.trial_ends_at ??
+    params.subscription?.current_period_end ??
+    null
+  );
+}
+
+function getEffectiveCurrentPeriodEnd(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  return (
+    params.subscription?.current_period_end ??
+    getEffectiveTrialEndsAt(params) ??
+    null
+  );
 }
 
 function formatDate(value: string | null) {
@@ -69,38 +157,89 @@ function statusBadgeClass(status: string) {
   if (status === "active") return "bg-green-50 text-green-700";
   if (status === "trialing") return "bg-blue-50 text-blue-700";
   if (status === "past_due") return "bg-amber-50 text-amber-700";
-  if (status === "cancelled") return "bg-red-50 text-red-700";
+  if (status === "canceled" || status === "cancelled") {
+    return "bg-red-50 text-red-700";
+  }
+  if (status === "not_started") return "bg-slate-100 text-slate-700";
+  if (status === "inactive") return "bg-slate-100 text-slate-700";
   return "bg-slate-100 text-slate-700";
 }
 
 function statusLabel(status: string) {
   if (status === "trialing") return "Trial";
-  if (status === "active") return "Active";
+  if (status === "active") return "Subscribed";
   if (status === "past_due") return "Past Due";
-  if (status === "cancelled") return "Cancelled";
+  if (status === "canceled" || status === "cancelled") return "Canceled";
+  if (status === "not_started") return "Billing Not Started";
   if (status === "inactive") return "Inactive";
-  return status;
+  return formatFallbackLabel(status);
+}
+
+function workspaceStatusBadgeClass(active: boolean | null) {
+  if (active === false) return "bg-red-50 text-red-700";
+  return "bg-green-50 text-green-700";
+}
+
+function workspaceStatusLabel(active: boolean | null) {
+  return active === false ? "Workspace Disabled" : "Workspace Active";
+}
+
+function billingIntervalLabel(value: string | null | undefined) {
+  if (value === "year") return "Yearly";
+  if (value === "month") return "Monthly";
+  return "—";
+}
+
+function billingDateLabel(params: {
+  status: string;
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  const date = getEffectiveCurrentPeriodEnd(params);
+
+  if (params.status === "trialing") {
+    return date ? `Trial ends ${formatDate(date)}` : "Trial active";
+  }
+
+  if (params.status === "active") {
+    return date ? `Renews ${formatDate(date)}` : "Subscription active";
+  }
+
+  if (params.status === "past_due") {
+    return date ? `Period ended ${formatDate(date)}` : "Payment past due";
+  }
+
+  if (params.status === "canceled" || params.status === "cancelled") {
+    return date ? `Ended ${formatDate(date)}` : "Canceled";
+  }
+
+  if (params.status === "not_started") {
+    return "Billing not started";
+  }
+
+  return date ? `Ends ${formatDate(date)}` : "—";
 }
 
 function isOrganizerWorkspace(params: {
-  studioName: string;
+  studio: StudioRow;
   subscription: SubscriptionRow | undefined;
 }) {
-  const { studioName, subscription } = params;
-  const plan = subscription ? getPlan(subscription.subscription_plans) : null;
-  const planCode = plan?.code?.toLowerCase() ?? "";
+  const planCode = getPlanCode(params);
   const sharedPlan = planCode ? getBillingPlan(planCode as never) : null;
 
   if (sharedPlan?.audience === "organizer") {
     return true;
   }
 
-  const normalizedName = studioName.trim().toLowerCase();
+  const normalizedName = params.studio.name.trim().toLowerCase();
+
   return (
     normalizedName.endsWith(" organizer") ||
     normalizedName.includes(" organizer ") ||
     normalizedName.endsWith(" events") ||
-    normalizedName.includes(" festival")
+    normalizedName.includes(" event") ||
+    normalizedName.includes(" festival") ||
+    normalizedName.includes("competition")
   );
 }
 
@@ -126,7 +265,9 @@ export default async function PlatformStudiosPage({
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, created_at")
+      .select(
+        "id, name, created_at, billing_plan, subscription_status, active, stripe_customer_id, stripe_subscription_id, trial_ends_at"
+      )
       .order("created_at", { ascending: false }),
 
     supabase.from("studio_subscriptions").select(`
@@ -135,6 +276,7 @@ export default async function PlatformStudiosPage({
         status,
         billing_interval,
         current_period_end,
+        trial_ends_at,
         cancel_at_period_end,
         subscription_plans (
           code,
@@ -152,7 +294,9 @@ export default async function PlatformStudiosPage({
   }
 
   if (subscriptionsError) {
-    throw new Error(`Failed to load subscriptions: ${subscriptionsError.message}`);
+    throw new Error(
+      `Failed to load subscriptions: ${subscriptionsError.message}`
+    );
   }
 
   if (organizersError) {
@@ -169,58 +313,82 @@ export default async function PlatformStudiosPage({
   const typedEvents = (events ?? []) as EventRow[];
 
   const subscriptionByStudioId = new Map(
-    typedSubscriptions.map((subscription) => [subscription.studio_id, subscription])
+    typedSubscriptions.map((subscription) => [
+      subscription.studio_id,
+      subscription,
+    ])
   );
 
   const organizerCounts = new Map<string, { total: number; active: number }>();
   for (const organizer of typedOrganizers) {
-    const current = organizerCounts.get(organizer.studio_id) ?? { total: 0, active: 0 };
+    const current = organizerCounts.get(organizer.studio_id) ?? {
+      total: 0,
+      active: 0,
+    };
+
     current.total += 1;
     if (organizer.active) current.active += 1;
+
     organizerCounts.set(organizer.studio_id, current);
   }
 
-  const eventCounts = new Map<string, { total: number; publicPublished: number }>();
+  const eventCounts = new Map<
+    string,
+    { total: number; publicPublished: number }
+  >();
+
   for (const event of typedEvents) {
-    const current = eventCounts.get(event.studio_id) ?? { total: 0, publicPublished: 0 };
+    const current = eventCounts.get(event.studio_id) ?? {
+      total: 0,
+      publicPublished: 0,
+    };
+
     current.total += 1;
+
     if (event.status === "published" && event.visibility === "public") {
       current.publicPublished += 1;
     }
+
     eventCounts.set(event.studio_id, current);
   }
 
   const studioOnlyWorkspaces = typedStudios.filter((studio) => {
     const subscription = subscriptionByStudioId.get(studio.id);
+
     return !isOrganizerWorkspace({
-      studioName: studio.name,
+      studio,
       subscription,
     });
   });
 
-  const organizerWorkspaceCount = typedStudios.length - studioOnlyWorkspaces.length;
+  const organizerWorkspaceCount =
+    typedStudios.length - studioOnlyWorkspaces.length;
 
   const filteredStudios = studioOnlyWorkspaces.filter((studio) => {
     const subscription = subscriptionByStudioId.get(studio.id);
-    const plan = subscription ? getPlan(subscription.subscription_plans) : null;
-    const planCode = plan?.code?.toLowerCase() ?? "";
-    const planName = plan?.name?.toLowerCase() ?? "";
-    const subscriptionStatus = subscription?.status?.toLowerCase() ?? "inactive";
+    const planCode = getPlanCode({ studio, subscription });
+    const planLabel = getPlanLabel({ studio, subscription }).toLowerCase();
+    const subscriptionStatus = getEffectiveBillingStatus({
+      studio,
+      subscription,
+    });
 
     if (statusFilter && subscriptionStatus !== statusFilter) {
       return false;
     }
 
-    if (planFilter && planCode !== planFilter && planName !== planFilter) {
+    if (planFilter && planCode !== planFilter && planLabel !== planFilter) {
       return false;
     }
 
     if (q) {
       const haystack = [
         studio.name,
-        plan?.name ?? "",
-        plan?.code ?? "",
-        subscription?.status ?? "",
+        planLabel,
+        planCode,
+        subscriptionStatus,
+        studio.stripe_customer_id ?? "",
+        studio.stripe_subscription_id ?? "",
       ]
         .join(" ")
         .toLowerCase();
@@ -234,15 +402,18 @@ export default async function PlatformStudiosPage({
   });
 
   const availablePlans = Array.from(
-    new Set(
+    new Map(
       studioOnlyWorkspaces
         .map((studio) => {
           const subscription = subscriptionByStudioId.get(studio.id);
-          return subscription ? getPlan(subscription.subscription_plans)?.name : null;
+          const code = getPlanCode({ studio, subscription });
+          const label = getPlanLabel({ studio, subscription });
+
+          return code ? [code, label] : null;
         })
-        .filter((value): value is string => Boolean(value))
-    )
-  ).sort((a, b) => a.localeCompare(b));
+        .filter((value): value is [string, string] => Boolean(value))
+    ).entries()
+  ).sort((a, b) => a[1].localeCompare(b[1]));
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.42)_0%,rgba(255,255,255,0)_20%)] p-1">
@@ -257,7 +428,9 @@ export default async function PlatformStudiosPage({
                 Studio Directory
               </h1>
               <p className="mt-3 text-sm leading-7 text-white/85 md:text-base">
-                Review real studio workspaces only. Organizer workspaces are intentionally excluded from this directory so the platform admin view stays clear.
+                Review real studio workspaces only. Organizer workspaces are
+                intentionally excluded from this directory so the platform admin
+                view stays clear.
               </p>
             </div>
 
@@ -288,7 +461,9 @@ export default async function PlatformStudiosPage({
             </div>
 
             <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
-              <p className="text-sm text-violet-700">Organizer Workspaces Excluded</p>
+              <p className="text-sm text-violet-700">
+                Organizer Workspaces Excluded
+              </p>
               <p className="mt-1 text-2xl font-semibold text-violet-950">
                 {organizerWorkspaceCount}
               </p>
@@ -307,7 +482,10 @@ export default async function PlatformStudiosPage({
       <form className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="grid gap-4 md:grid-cols-[1fr_220px_220px_auto]">
           <div>
-            <label htmlFor="q" className="mb-1 block text-sm font-medium text-slate-700">
+            <label
+              htmlFor="q"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
               Search studios
             </label>
             <input
@@ -320,8 +498,11 @@ export default async function PlatformStudiosPage({
           </div>
 
           <div>
-            <label htmlFor="status" className="mb-1 block text-sm font-medium text-slate-700">
-              Subscription Status
+            <label
+              htmlFor="status"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
+              Billing Status
             </label>
             <select
               id="status"
@@ -330,16 +511,20 @@ export default async function PlatformStudiosPage({
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
             >
               <option value="">All</option>
-              <option value="active">Active</option>
+              <option value="active">Subscribed</option>
               <option value="trialing">Trial</option>
               <option value="past_due">Past Due</option>
-              <option value="cancelled">Cancelled</option>
+              <option value="canceled">Canceled</option>
+              <option value="not_started">Billing Not Started</option>
               <option value="inactive">Inactive</option>
             </select>
           </div>
 
           <div>
-            <label htmlFor="plan" className="mb-1 block text-sm font-medium text-slate-700">
+            <label
+              htmlFor="plan"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
               Plan
             </label>
             <select
@@ -349,8 +534,8 @@ export default async function PlatformStudiosPage({
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
             >
               <option value="">All</option>
-              {availablePlans.map((planName) => (
-                <option key={planName} value={planName.toLowerCase()}>
+              {availablePlans.map(([planCode, planName]) => (
+                <option key={planCode} value={planCode}>
                   {planName}
                 </option>
               ))}
@@ -377,15 +562,20 @@ export default async function PlatformStudiosPage({
 
       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Studio Directory</h2>
+          <h2 className="text-lg font-semibold text-slate-900">
+            Studio Directory
+          </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Showing {filteredStudios.length} of {studioOnlyWorkspaces.length} studio workspaces.
+            Showing {filteredStudios.length} of {studioOnlyWorkspaces.length}{" "}
+            studio workspaces.
           </p>
         </div>
 
         {filteredStudios.length === 0 ? (
           <div className="px-6 py-12 text-center">
-            <p className="text-base font-medium text-slate-900">No studios found</p>
+            <p className="text-base font-medium text-slate-900">
+              No studios found
+            </p>
             <p className="mt-2 text-sm text-slate-500">
               Adjust your filters and try again.
             </p>
@@ -395,19 +585,40 @@ export default async function PlatformStudiosPage({
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Studio</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Plan</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Status</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Billing</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Organizers</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Events</th>
-                  <th className="px-4 py-3 text-left font-medium text-slate-600">Created</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Studio
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Plan
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Billing Status
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Workspace
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Billing
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Organizers
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Events
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Created
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
                 {filteredStudios.map((studio) => {
                   const subscription = subscriptionByStudioId.get(studio.id);
-                  const plan = subscription ? getPlan(subscription.subscription_plans) : null;
+                  const planLabel = getPlanLabel({ studio, subscription });
+                  const billingStatus = getEffectiveBillingStatus({
+                    studio,
+                    subscription,
+                  });
                   const organizerStats = organizerCounts.get(studio.id) ?? {
                     total: 0,
                     active: 0,
@@ -427,35 +638,49 @@ export default async function PlatformStudiosPage({
                           >
                             {studio.name}
                           </Link>
-                          <p className="mt-1 text-xs text-slate-500">{studio.id}</p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {studio.id}
+                          </p>
                         </div>
                       </td>
 
                       <td className="px-4 py-4 text-slate-700">
-                        {plan?.name ?? "No plan"}
+                        {planLabel}
                       </td>
 
                       <td className="px-4 py-4">
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                            subscription?.status ?? "inactive"
+                            billingStatus
                           )}`}
                         >
-                          {statusLabel(subscription?.status ?? "inactive")}
+                          {statusLabel(billingStatus)}
+                        </span>
+                      </td>
+
+                      <td className="px-4 py-4">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${workspaceStatusBadgeClass(
+                            studio.active
+                          )}`}
+                        >
+                          {workspaceStatusLabel(studio.active)}
                         </span>
                       </td>
 
                       <td className="px-4 py-4 text-slate-700">
                         <div>
                           <p>
-                            {subscription?.billing_interval === "year"
-                              ? "Yearly"
-                              : subscription?.billing_interval === "month"
-                                ? "Monthly"
-                                : "—"}
+                            {billingIntervalLabel(
+                              subscription?.billing_interval
+                            )}
                           </p>
                           <p className="mt-1 text-xs text-slate-500">
-                            Ends {formatDate(subscription?.current_period_end ?? null)}
+                            {billingDateLabel({
+                              status: billingStatus,
+                              studio,
+                              subscription,
+                            })}
                           </p>
                         </div>
                       </td>
