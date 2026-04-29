@@ -32,25 +32,25 @@ export default function PublicSiteHeader({
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200/80 bg-white/90 backdrop-blur">
       <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-4">
-            <Link href="/" className="flex items-center gap-3">
-              <div className="rounded-2xl bg-white p-2 shadow-sm ring-1 ring-slate-200">
+            <Link href="/" className="flex min-w-0 items-center gap-3">
+              <div className="shrink-0 rounded-2xl bg-white p-2 shadow-sm ring-1 ring-slate-200">
                 <Image
                   src="/brand/danceflow-logo.png"
                   alt="DanceFlow logo"
                   width={52}
                   height={52}
-                  className="h-11 w-11 object-contain"
+                  className="h-10 w-10 object-contain sm:h-11 sm:w-11"
                   priority
                 />
               </div>
 
-              <div className="min-w-0">
+              <div className="hidden min-w-0 sm:block">
                 <p className="truncate text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
                   DanceFlow
                 </p>
-                <p className="truncate text-xs text-slate-500">
+                <p className="hidden truncate text-xs text-slate-500 sm:block">
                   Studio software + public discovery
                 </p>
               </div>
@@ -104,28 +104,30 @@ export default function PublicSiteHeader({
             </nav>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             {isAuthenticated ? (
               <Link
                 href="/account"
-                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 sm:px-4"
               >
-                My Account
+                <span className="sm:hidden">Account</span>
+                <span className="hidden sm:inline">My Account</span>
               </Link>
             ) : (
               <>
                 <Link
-                  href="/login"
-                  className="hidden rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:inline-flex"
+                  href="/login?intent=public"
+                  className="inline-flex rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:px-4"
                 >
                   Log In
                 </Link>
 
                 <Link
                   href="/signup"
-                  className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                  className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 sm:px-4"
                 >
-                  Create Free Account
+                  <span className="sm:hidden">Free Account</span>
+                  <span className="hidden sm:inline">Create Free Account</span>
                 </Link>
               </>
             )}

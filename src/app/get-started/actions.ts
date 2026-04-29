@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBillingPlan, type PlanAudience } from "@/lib/billing/plans";
+import { sendWelcomeToDanceFlowEmail } from "@/lib/notifications/dispatch";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
@@ -42,7 +43,10 @@ function normalizeLocalNextPath(value: string) {
   return value;
 }
 
-function buildTrialCompleteUrl(params: { audience: PaidIntent; planCode: string }) {
+function buildTrialCompleteUrl(params: {
+  audience: PaidIntent;
+  planCode: string;
+}) {
   const search = new URLSearchParams({
     intent: params.audience,
     plan: params.planCode,
@@ -540,6 +544,17 @@ export async function startPaidPathAction(formData: FormData) {
     ownerFullName,
     planCode: plan.code,
   });
+
+  const welcomeEmailResult = await sendWelcomeToDanceFlowEmail({
+    to: user.email,
+    fullName: ownerFullName,
+    workspaceName: studio.name ?? workspaceName,
+    audience: intent,
+  });
+
+  if (!welcomeEmailResult.ok) {
+    console.warn("Welcome to DanceFlow email failed:", welcomeEmailResult.error);
+  }
 
   await setSelectedWorkspaceCookie(studio.id);
 
