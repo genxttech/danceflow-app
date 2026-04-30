@@ -53,7 +53,7 @@ async function getStudioContext() {
   return {
     supabase,
     studioId: context.studioId as string,
-    role: null as string | null,
+    role: context.studioRole ?? null,
     isPlatformAdmin: Boolean(context.isPlatformAdmin),
     userId: user.id,
   };
@@ -114,6 +114,7 @@ function canManageTickets(params: {
   }
 
   if (
+    organizerUserRole === "organizer_owner" ||
     organizerUserRole === "organizer_admin" ||
     organizerUserRole === "organizer_staff"
   ) {
