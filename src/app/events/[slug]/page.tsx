@@ -63,6 +63,30 @@ type EventRow = {
         contact_email?: string | null;
       }[]
     | null;
+  studios:
+    | {
+        id?: string;
+        name: string;
+        slug?: string | null;
+        public_name?: string | null;
+        public_short_description?: string | null;
+        public_about?: string | null;
+        public_website_url?: string | null;
+        public_email?: string | null;
+        public_phone?: string | null;
+      }
+    | {
+        id?: string;
+        name: string;
+        slug?: string | null;
+        public_name?: string | null;
+        public_short_description?: string | null;
+        public_about?: string | null;
+        public_website_url?: string | null;
+        public_email?: string | null;
+        public_phone?: string | null;
+      }[]
+    | null;
 };
 
 type TicketTypeRow = {
@@ -96,6 +120,41 @@ type TicketRegistrationCountRow = {
 
 function getOrganizer(value: EventRow["organizers"]) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function getStudio(value: EventRow["studios"]) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function getEventHost(params: {
+  organizer: ReturnType<typeof getOrganizer>;
+  studio: ReturnType<typeof getStudio>;
+}) {
+  const { organizer, studio } = params;
+
+  const name =
+    organizer?.name ||
+    studio?.public_name ||
+    studio?.name ||
+    "DanceFlow event host";
+
+  const description =
+    organizer?.description ||
+    studio?.public_about ||
+    studio?.public_short_description ||
+    null;
+
+  const websiteUrl = organizer?.website_url || studio?.public_website_url || null;
+  const contactEmail = organizer?.contact_email || studio?.public_email || null;
+  const hostType = organizer?.name ? "Organizer" : "Studio host";
+
+  return {
+    name,
+    description,
+    websiteUrl,
+    contactEmail,
+    hostType,
+  };
 }
 
 function eventTypeLabel(value: string) {
@@ -364,6 +423,17 @@ export default async function PublicEventDetailPage({
         description,
         website_url,
         contact_email
+      ),
+      studios (
+        id,
+        name,
+        slug,
+        public_name,
+        public_short_description,
+        public_about,
+        public_website_url,
+        public_email,
+        public_phone
       )
     `)
     .eq("slug", slug)
@@ -375,6 +445,8 @@ export default async function PublicEventDetailPage({
 
   const typedEvent = event as EventRow;
   const organizer = getOrganizer(typedEvent.organizers);
+  const studio = getStudio(typedEvent.studios);
+  const eventHost = getEventHost({ organizer, studio });
 
   const [
     { data: tags, error: tagsError },
@@ -619,14 +691,14 @@ export default async function PublicEventDetailPage({
                     })}
                   </a>
 
-                  {organizer?.website_url ? (
+                  {eventHost.websiteUrl ? (
                     <a
-                      href={organizer.website_url}
+                      href={eventHost.websiteUrl}
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex rounded-xl border border-white/25 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
                     >
-                      Organizer Website
+                      Host Website
                     </a>
                   ) : null}
                 </div>
@@ -668,9 +740,9 @@ export default async function PublicEventDetailPage({
             }
           />
           <InfoCard
-            label="Organizer"
-            value={organizer?.name || "Organizer coming soon"}
-            detail={organizer?.contact_email || undefined}
+            label="Hosted by"
+            value={eventHost.name}
+            detail={eventHost.contactEmail || eventHost.hostType}
           />
         </div>
       </section>
@@ -930,38 +1002,39 @@ export default async function PublicEventDetailPage({
           </section>
 
           <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-950">Organizer</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">
+              {eventHost.hostType}
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Hosted by</h2>
 
             <div className="mt-4 space-y-3 text-sm leading-7 text-slate-700">
-              <p className="text-base font-semibold text-slate-950">
-                {organizer?.name || "Organizer coming soon"}
-              </p>
+              <p className="text-base font-semibold text-slate-950">{eventHost.name}</p>
 
-              {organizer?.description ? (
-                <p>{organizer.description}</p>
+              {eventHost.description ? (
+                <p>{eventHost.description}</p>
               ) : (
-                <p>Organizer details coming soon.</p>
+                <p>Host details are coming soon.</p>
               )}
             </div>
 
             <div className="mt-5 flex flex-wrap gap-3">
-              {organizer?.website_url ? (
+              {eventHost.websiteUrl ? (
                 <a
-                  href={organizer.website_url}
+                  href={eventHost.websiteUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
-                  Visit Organizer Website
+                  Visit Host Website
                 </a>
               ) : null}
 
-              {organizer?.contact_email ? (
+              {eventHost.contactEmail ? (
                 <a
-                  href={`mailto:${organizer.contact_email}`}
+                  href={`mailto:${eventHost.contactEmail}`}
                   className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
                 >
-                  Contact Organizer
+                  Contact Host
                 </a>
               ) : null}
             </div>

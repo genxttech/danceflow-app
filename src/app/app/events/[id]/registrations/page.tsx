@@ -35,7 +35,7 @@ type EventRow = {
 type RegistrationRow = {
   id: string;
   client_id: string | null;
-  event_ticket_type_id: string | null;
+  ticket_type_id: string | null;
   attendee_first_name: string;
   attendee_last_name: string;
   attendee_email: string;
@@ -376,7 +376,7 @@ export default async function EventRegistrationsPage({
       .select(`
         id,
         client_id,
-        event_ticket_type_id,
+        ticket_type_id,
         attendee_first_name,
         attendee_last_name,
         attendee_email,
@@ -539,7 +539,7 @@ export default async function EventRegistrationsPage({
                 {typedEvent.name}
               </p>
               <p className="mt-2 text-sm text-white/75">
-                Organizer: {organizer?.name ?? "Unknown"} • /events/{typedEvent.slug}
+                Host: {organizer?.name ?? workspace?.name ?? "DanceFlow host"} • /events/{typedEvent.slug}
               </p>
             </div>
 
@@ -571,7 +571,7 @@ export default async function EventRegistrationsPage({
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
           <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
             <h2 className="text-lg font-semibold text-sky-950">
-              Organizer registration operations
+              Event registration operations
             </h2>
             <p className="mt-2 text-sm leading-7 text-sky-900">
               Manage payment status, CRM handoff, attendance progression, and event-day registration flow from one place.

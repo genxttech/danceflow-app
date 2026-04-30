@@ -30,34 +30,19 @@ type EventRow = {
 
 function canManageTickets(params: {
   isPlatformAdmin: boolean;
-  studioRole: string | null | undefined;
   organizerUserRole: string | null;
-  isStudioHostedEvent: boolean;
+  studioRole: string | null;
+  isStudioHosted: boolean;
 }) {
-  const {
-    isPlatformAdmin,
-    studioRole,
-    organizerUserRole,
-    isStudioHostedEvent,
-  } = params;
+  const { isPlatformAdmin, organizerUserRole, studioRole, isStudioHosted } = params;
 
   if (isPlatformAdmin) return true;
 
-  const normalizedStudioRole = (studioRole ?? "").trim().toLowerCase();
-  const normalizedOrganizerRole = (organizerUserRole ?? "").trim().toLowerCase();
-
-  if (
-    normalizedOrganizerRole === "organizer_owner" ||
-    normalizedOrganizerRole === "organizer_admin" ||
-    normalizedOrganizerRole === "organizer_staff"
-  ) {
+  if (["organizer_owner", "organizer_admin", "organizer_staff"].includes(organizerUserRole ?? "")) {
     return true;
   }
 
-  if (
-    isStudioHostedEvent &&
-    (normalizedStudioRole === "studio_owner" || normalizedStudioRole === "studio_admin")
-  ) {
+  if (isStudioHosted && ["studio_owner", "studio_admin"].includes(studioRole ?? "")) {
     return true;
   }
 
@@ -78,28 +63,49 @@ function ticketStatusLabel(ticket: TicketTypeRow) {
   if (!ticket.active) {
     return {
       label: "Inactive",
-      className: "bg-slate-100 text-slate-700",
+      className: "bg-slate-100 text-slate-700 border border-slate-200",
     };
   }
 
   if (ticket.sale_starts_at && new Date(ticket.sale_starts_at).getTime() > now) {
     return {
       label: "Scheduled",
-      className: "bg-blue-50 text-blue-700",
+      className: "bg-blue-50 text-blue-700 border border-blue-200",
     };
   }
 
   if (ticket.sale_ends_at && new Date(ticket.sale_ends_at).getTime() < now) {
     return {
       label: "Ended",
-      className: "bg-slate-100 text-slate-700",
+      className: "bg-slate-100 text-slate-700 border border-slate-200",
     };
   }
 
   return {
-    label: "On Sale",
-    className: "bg-green-50 text-green-700",
+    label: "On sale",
+    className: "bg-emerald-50 text-emerald-700 border border-emerald-200",
   };
+}
+
+function formatTicketKind(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "Not set";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not set";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
 }
 
 export default async function EventTicketsPage({
@@ -147,6 +153,7 @@ export default async function EventTicketsPage({
   }
 
   const typedEvent = event as EventRow;
+  const isStudioHosted = !typedEvent.organizer_id;
 
   let organizerUserRole: string | null = null;
 
@@ -164,9 +171,9 @@ export default async function EventTicketsPage({
 
   const canManage = canManageTickets({
     isPlatformAdmin: Boolean(isPlatformAdmin),
-    studioRole,
     organizerUserRole,
-    isStudioHostedEvent: !typedEvent.organizer_id,
+    studioRole: studioRole ?? null,
+    isStudioHosted,
   });
 
   const { data: tickets, error: ticketsError } = await supabase
@@ -193,42 +200,129 @@ export default async function EventTicketsPage({
   }
 
   const ticketRows = (tickets ?? []) as TicketTypeRow[];
+  const activeCount = ticketRows.filter((ticket) => ticket.active).length;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Event Tickets
-          </p>
-          <h1 className="mt-1 text-3xl font-semibold tracking-tight text-slate-900">
-            {typedEvent.name}
-          </h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Manage ticket types for this event.
-          </p>
+      <section className="overflow-hidden rounded-[28px] border border-[#E9D5FF] bg-gradient-to-r from-[#2D0B45] via-[#5B197A] to-[#7C2D92] text-white shadow-sm">
+        <div className="flex flex-col gap-6 px-6 py-6 md:flex-row md:items-start md:justify-between md:px-8">
+          <div className="max-w-3xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#F3D7FF]">
+              Event ticket setup
+            </p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
+              Manage tickets for {typedEvent.name}
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/85 md:text-base">
+              Build ticket options, set pricing, and control when sales open and close so your
+              public registration flow is ready for dancers.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href={`/app/events/${typedEvent.id}`}
+              className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+            >
+              Back to event
+            </Link>
+            <Link
+              href={`/app/events/${typedEvent.id}/registrations`}
+              className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+            >
+              Manage registrations
+            </Link>
+            <Link
+              href={`/events/${typedEvent.slug}`}
+              className="inline-flex items-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#5B197A] transition hover:bg-[#F9F1FF]"
+            >
+              View public page
+            </Link>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href={`/app/events/${typedEvent.id}`}
-            className="inline-flex items-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-          >
-            Back to event
-          </Link>
+        <div className="grid gap-3 border-t border-white/10 bg-black/10 px-6 py-4 md:grid-cols-4 md:px-8">
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-white/65">Event status</p>
+            <p className="mt-1 text-sm font-semibold capitalize">{typedEvent.status}</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-white/65">Visibility</p>
+            <p className="mt-1 text-sm font-semibold capitalize">
+              {typedEvent.visibility.replaceAll("_", " ")}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-white/65">Ticket types</p>
+            <p className="mt-1 text-sm font-semibold">{ticketRows.length}</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-white/65">Currently active</p>
+            <p className="mt-1 text-sm font-semibold">{activeCount}</p>
+          </div>
+        </div>
+      </section>
 
-          <Link
-            href={`/events/${typedEvent.slug}`}
-            className="inline-flex items-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-          >
-            View public page
-          </Link>
+      <div className="grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+        <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900">Quick tips</h2>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-[#E9D5FF] bg-white p-4">
+              <p className="text-sm font-semibold text-slate-900">Keep pricing simple</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Start with your main ticket first. Add VIP, package, or pass options only when they
+                make the buying flow clearer.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[#E9D5FF] bg-white p-4">
+              <p className="text-sm font-semibold text-slate-900">Use sale windows</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Set open and close dates if you want early access, presale timing, or ticket sales
+                to stop before the event starts.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[#E9D5FF] bg-white p-4">
+              <p className="text-sm font-semibold text-slate-900">Control availability</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Use capacity and the active toggle to control what dancers can buy without deleting
+                older ticket types.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900">Access</h2>
+          {canManage ? (
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              You can manage ticket types for this event. Changes here update what dancers see when
+              they register on the public event page.
+            </p>
+          ) : (
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              You can view ticket setup for this event, but your current role does not have
+              permission to make changes.
+            </p>
+          )}
+
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <p>
+              <span className="font-medium text-slate-900">Hosted as:</span>{" "}
+              {isStudioHosted ? "Studio-hosted event" : "Organizer-hosted event"}
+            </p>
+            <p className="mt-2">
+              <span className="font-medium text-slate-900">Current role:</span>{" "}
+              {isPlatformAdmin
+                ? "Platform admin"
+                : organizerUserRole ?? studioRole ?? "Viewer"}
+            </p>
+          </div>
         </div>
       </div>
 
       {!canManage ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
-          You can view tickets, but your current role does not have permission to manage them. Studio owners and admins can manage tickets for studio-hosted events.
+          You can view tickets, but your current role does not have permission to manage them.
         </div>
       ) : null}
 
@@ -237,14 +331,14 @@ export default async function EventTicketsPage({
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Current ticket types</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Add, reorder, and update pricing for public registration.
+              Update pricing, availability, and sales timing for each ticket option.
             </p>
           </div>
         </div>
 
         {ticketRows.length === 0 ? (
-          <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-sm text-slate-600">
-            No ticket types yet.
+          <div className="mt-6 rounded-2xl border border-dashed border-[#D8B4FE] bg-[#FCF8FF] px-4 py-8 text-sm text-slate-600">
+            No ticket types yet. Add your first ticket option below to start selling registrations.
           </div>
         ) : (
           <div className="mt-6 space-y-4">
@@ -262,12 +356,10 @@ export default async function EventTicketsPage({
 
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                        {ticket.ticket_kind.replaceAll("_", " ")}
+                      <span className="rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-medium text-[#6B21A8]">
+                        {formatTicketKind(ticket.ticket_kind)}
                       </span>
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-medium ${status.className}`}
-                      >
+                      <span className={`rounded-full px-3 py-1 text-xs font-medium ${status.className}`}>
                         {status.label}
                       </span>
                     </div>
@@ -275,6 +367,31 @@ export default async function EventTicketsPage({
                     <p className="text-sm text-slate-500">
                       Current price: {formatPrice(ticket.price, ticket.currency)}
                     </p>
+                  </div>
+
+                  <div className="mb-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Capacity</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">
+                        {ticket.capacity ?? "Unlimited"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Sort order</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">{ticket.sort_order}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Sale starts</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">
+                        {formatDateTime(ticket.sale_starts_at)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Sale ends</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">
+                        {formatDateTime(ticket.sale_ends_at)}
+                      </p>
+                    </div>
                   </div>
 
                   <div className="grid gap-4 md:grid-cols-2">
@@ -289,7 +406,7 @@ export default async function EventTicketsPage({
                     </label>
 
                     <label className="space-y-2 text-sm">
-                      <span className="font-medium text-slate-700">Ticket kind</span>
+                      <span className="font-medium text-slate-700">Ticket type</span>
                       <select
                         name="ticketKind"
                         defaultValue={ticket.ticket_kind}
@@ -400,7 +517,7 @@ export default async function EventTicketsPage({
                     {canManage ? (
                       <button
                         type="submit"
-                        className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+                        className="inline-flex items-center rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#4A1363]"
                       >
                         Save changes
                       </button>
@@ -414,9 +531,12 @@ export default async function EventTicketsPage({
       </section>
 
       {canManage ? (
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-6 shadow-sm">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Add ticket type</h2>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+              Create ticket option
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-slate-900">Add ticket type</h2>
             <p className="mt-1 text-sm text-slate-600">
               Create pricing options for registration on the public event page.
             </p>
@@ -436,7 +556,7 @@ export default async function EventTicketsPage({
             </label>
 
             <label className="space-y-2 text-sm">
-              <span className="font-medium text-slate-700">Ticket kind</span>
+              <span className="font-medium text-slate-700">Ticket type</span>
               <select
                 name="ticketKind"
                 defaultValue="general_admission"
@@ -531,10 +651,10 @@ export default async function EventTicketsPage({
               Active
             </label>
 
-            <div className="md:col-span-2">
+            <div className="md:col-span-2 flex justify-end">
               <button
                 type="submit"
-                className="inline-flex items-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+                className="inline-flex items-center rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#4A1363]"
               >
                 Add ticket type
               </button>
