@@ -389,7 +389,7 @@ export async function sellTicketsAction(
         total_price: totalPrice,
         total_amount: totalPrice,
         currency,
-        registration_source: "manual",
+        registration_source: "admin",
 source: "admin",
         notes:
           notes ||
