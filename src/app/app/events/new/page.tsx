@@ -270,18 +270,18 @@ export default async function NewEventPage() {
           ) : null}
 
           <EventForm
-            mode="create"
-            organizers={typedOrganizers}
-            organizerWorkspace={organizerWorkspace || studioHostedEvents}
-            initialValues={{
-              organizerId:
-                organizerWorkspace && singleOrganizer ? singleOrganizer.id : undefined,
-              visibility: "public",
-              publicDirectoryEnabled: false,
-              beginnerFriendly: false,
-              waitlistEnabled: false,
-            }}
-          />
+  mode="create"
+  organizers={typedOrganizers}
+  organizerWorkspace={organizerWorkspace}
+  initialValues={{
+    organizerId:
+      organizerWorkspace && singleOrganizer ? singleOrganizer.id : undefined,
+    visibility: "public",
+    publicDirectoryEnabled: false,
+    beginnerFriendly: false,
+    waitlistEnabled: false,
+  }}
+/>
         </div>
       )}
     </div>
