@@ -30,13 +30,34 @@ type EventRow = {
 
 function canManageTickets(params: {
   isPlatformAdmin: boolean;
+  studioRole: string | null | undefined;
   organizerUserRole: string | null;
+  isStudioHostedEvent: boolean;
 }) {
-  const { isPlatformAdmin, organizerUserRole } = params;
+  const {
+    isPlatformAdmin,
+    studioRole,
+    organizerUserRole,
+    isStudioHostedEvent,
+  } = params;
 
   if (isPlatformAdmin) return true;
 
-  if (organizerUserRole === "organizer_admin" || organizerUserRole === "organizer_staff") {
+  const normalizedStudioRole = (studioRole ?? "").trim().toLowerCase();
+  const normalizedOrganizerRole = (organizerUserRole ?? "").trim().toLowerCase();
+
+  if (
+    normalizedOrganizerRole === "organizer_owner" ||
+    normalizedOrganizerRole === "organizer_admin" ||
+    normalizedOrganizerRole === "organizer_staff"
+  ) {
+    return true;
+  }
+
+  if (
+    isStudioHostedEvent &&
+    (normalizedStudioRole === "studio_owner" || normalizedStudioRole === "studio_admin")
+  ) {
     return true;
   }
 
@@ -104,7 +125,7 @@ export default async function EventTicketsPage({
     notFound();
   }
 
-  const { studioId, isPlatformAdmin } = context;
+  const { studioId, studioRole, isPlatformAdmin } = context;
 
   const { data: event, error: eventError } = await supabase
     .from("events")
@@ -143,7 +164,9 @@ export default async function EventTicketsPage({
 
   const canManage = canManageTickets({
     isPlatformAdmin: Boolean(isPlatformAdmin),
+    studioRole,
     organizerUserRole,
+    isStudioHostedEvent: !typedEvent.organizer_id,
   });
 
   const { data: tickets, error: ticketsError } = await supabase
@@ -205,7 +228,7 @@ export default async function EventTicketsPage({
 
       {!canManage ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
-          You can view tickets, but your current role does not have permission to manage them.
+          You can view tickets, but your current role does not have permission to manage them. Studio owners and admins can manage tickets for studio-hosted events.
         </div>
       ) : null}
 
