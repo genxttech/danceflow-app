@@ -106,13 +106,23 @@ export default function PublicSiteHeader({
 
           <div className="flex shrink-0 items-center gap-2">
             {isAuthenticated ? (
-              <Link
-                href="/account"
-                className="rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 sm:px-4"
-              >
-                <span className="sm:hidden">Account</span>
-                <span className="hidden sm:inline">My Account</span>
-              </Link>
+              <>
+                <Link
+                  href="/app"
+                  className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 sm:px-4"
+                >
+                  <span className="sm:hidden">Workspace</span>
+                  <span className="hidden sm:inline">Go to Workspace</span>
+                </Link>
+
+                <Link
+                  href="/account"
+                  className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:px-4"
+                >
+                  <span className="sm:hidden">Account</span>
+                  <span className="hidden sm:inline">My Account</span>
+                </Link>
+              </>
             ) : (
               <>
                 <Link
@@ -164,6 +174,10 @@ export default function PublicSiteHeader({
 
           {isAuthenticated ? (
             <>
+              <Link href="/app" className={mobileNavClass(false)}>
+                Workspace
+              </Link>
+
               <Link
                 href="/favorites"
                 className={mobileNavClass(currentPath === "favorites")}
