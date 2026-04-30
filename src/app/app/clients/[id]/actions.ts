@@ -1,6 +1,8 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { Resend } from "resend";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { canEditClients } from "@/lib/auth/permissions";
@@ -132,6 +134,117 @@ async function getBaseUrl() {
   }
 
   return "http://localhost:3000";
+}
+
+
+function getOutboundFromEmail() {
+  return (
+    process.env.NOTIFICATION_FROM_EMAIL ||
+    process.env.OUTBOUND_EMAIL_FROM ||
+    "DanceFlow <notify@idanceflow.com>"
+  );
+}
+
+function getResendClient() {
+  const apiKey = process.env.RESEND_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("Missing RESEND_API_KEY.");
+  }
+
+  return new Resend(apiKey);
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+async function sendClientPortalInviteEmail(params: {
+  to: string;
+  actionLink: string;
+  clientName?: string;
+  studioName?: string | null;
+  portalUrl: string;
+}) {
+  const to = params.to.trim().toLowerCase();
+
+  if (!to) {
+    throw new Error("Missing portal invite recipient.");
+  }
+
+  const greetingName = params.clientName?.trim() || "there";
+  const studioName = params.studioName?.trim() || "your studio";
+  const from = getOutboundFromEmail();
+  const resend = getResendClient();
+
+  const subject = `${studioName} invited you to your DanceFlow portal`;
+  const text = [
+    `Hi ${greetingName},`,
+    "",
+    `${studioName} invited you to access your DanceFlow client portal.`,
+    "",
+    "Use this secure link to sign in and go directly to your portal:",
+    params.actionLink,
+    "",
+    "In your portal, you can view updates your studio shares with you, including lesson notes, messages, and other client information.",
+    "",
+    "If the button does not work, copy and paste the link above into your browser.",
+    "",
+    "Thanks,",
+    "The DanceFlow Team",
+  ].join("\n");
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6; max-width: 620px; margin: 0 auto;">
+      <div style="padding: 24px; border-radius: 24px; background: linear-gradient(135deg, #2e1065 0%, #4c1d95 52%, #f97316 100%); color: white;">
+        <p style="margin: 0 0 8px; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.82;">DanceFlow Portal Invite</p>
+        <h1 style="margin: 0; font-size: 28px; line-height: 1.2;">You have been invited to your client portal</h1>
+      </div>
+
+      <div style="padding: 24px;">
+        <p>Hi ${escapeHtml(greetingName)},</p>
+        <p><strong>${escapeHtml(studioName)}</strong> invited you to access your DanceFlow client portal.</p>
+        <p>Click the button below to securely sign in and go directly to your portal.</p>
+
+        <p style="margin: 28px 0;">
+          <a href="${escapeHtml(params.actionLink)}" style="display: inline-block; background: #4c1d95; color: white; text-decoration: none; padding: 13px 20px; border-radius: 14px; font-weight: 700;">
+            Open My Portal
+          </a>
+        </p>
+
+        <p style="font-size: 14px; color: #475569;">
+          In your portal, you can view updates your studio shares with you, including lesson notes, messages, and other client information.
+        </p>
+
+        <p style="font-size: 13px; color: #64748b;">
+          If the button does not work, copy and paste this secure link into your browser:<br />
+          <a href="${escapeHtml(params.actionLink)}">${escapeHtml(params.actionLink)}</a>
+        </p>
+
+        <p style="margin-top: 28px;">
+          Thanks,<br />
+          The DanceFlow Team
+        </p>
+      </div>
+    </div>
+  `;
+
+  const response = await resend.emails.send({
+    from,
+    to: [to],
+    subject,
+    text,
+    html,
+  });
+
+  if (response.error) {
+    throw new Error(response.error.message || "Portal invite email send failed.");
+  }
 }
 
 export async function updateIndependentInstructorSettingsAction(
@@ -441,7 +554,7 @@ export async function sendPortalInviteAction(formData: FormData) {
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
-    .select("id, slug")
+    .select("id, name, public_name, slug")
     .eq("id", studioId)
     .single();
 
@@ -451,23 +564,48 @@ export async function sendPortalInviteAction(formData: FormData) {
 
   const baseUrl = await getBaseUrl();
   const nextPath = `/portal/${encodeURIComponent(studio.slug)}`;
+  const redirectTo = `${baseUrl}/callback?next=${encodeURIComponent(nextPath)}`;
+  const portalUrl = `${baseUrl}${nextPath}`;
   const fullName =
     `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || undefined;
 
-  const { error: otpError } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      shouldCreateUser: true,
-      emailRedirectTo: `${baseUrl}/callback?next=${encodeURIComponent(
-        nextPath
-      )}`,
-      data: {
-        full_name: fullName,
-      },
-    },
-  });
+  try {
+    const adminSupabase = createAdminClient();
 
-  if (otpError) {
+    const { data: magicLinkData, error: magicLinkError } =
+      await adminSupabase.auth.admin.generateLink({
+        type: "magiclink",
+        email,
+        options: {
+          redirectTo,
+          data: {
+            full_name: fullName,
+            signup_intent: "public",
+            portal_invite: true,
+            invited_studio_id: studioId,
+            invited_client_id: client.id,
+          },
+        },
+      });
+
+    if (magicLinkError) {
+      throw magicLinkError;
+    }
+
+    const actionLink = magicLinkData.properties?.action_link;
+
+    if (!actionLink) {
+      throw new Error("Supabase did not return a portal invite action link.");
+    }
+
+    await sendClientPortalInviteEmail({
+      to: email,
+      actionLink,
+      clientName: fullName,
+      studioName: studio.public_name || studio.name,
+      portalUrl,
+    });
+  } catch {
     redirectWithResult(returnTo, "error", "portal_invite_failed");
   }
 
@@ -483,6 +621,7 @@ export async function sendPortalInviteAction(formData: FormData) {
     }
   }
 
+  revalidatePath(returnTo);
   redirectWithResult(returnTo, "success", "portal_invite_sent");
 }
 
@@ -628,4 +767,3 @@ export async function adjustLessonCountCorrectionAction(formData: FormData) {
 
   redirectWithResult(returnTo, "success", "package_correction_saved");
 }
-

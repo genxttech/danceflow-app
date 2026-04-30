@@ -13,6 +13,8 @@ const audienceCards = [
     description:
       "DanceFlow gives dancers one place to discover studios and events, save favorites, register for events, and access linked studio portals.",
     accent: "orange",
+    badge: "Free",
+    action: "publicLogin",
     bullets: [
       "Discover studios and public events",
       "Save favorite studios and events",
@@ -39,6 +41,8 @@ const audienceCards = [
     description:
       "Studios can manage clients, scheduling, packages, memberships, leads, payments, public profiles, and student follow-up in one connected workspace.",
     accent: "violet",
+    badge: "Trial Available",
+    action: "studioPricing",
     bullets: [
       "Manage clients, instructors, rooms, lessons, packages, and memberships",
       "Turn public discovery into new leads",
@@ -52,6 +56,8 @@ const audienceCards = [
     description:
       "Organizers can create public event pages, collect registrations, manage check-in, track payments, and help dancers find their events faster.",
     accent: "sky",
+    badge: "Trial Available",
+    action: "organizerPricing",
     bullets: [
       "Publish searchable public event pages",
       "Collect registrations and ticket payments",
@@ -60,7 +66,6 @@ const audienceCards = [
     ],
   },
 ];
-
 function audienceAccentClasses(accent: string) {
   switch (accent) {
     case "orange":
@@ -260,13 +265,23 @@ export default async function HomePage() {
                       key={card.eyebrow}
                       className={`rounded-[28px] border ${colors.border} bg-white p-6 shadow-sm`}
                     >
-                      <div className="flex items-center gap-3">
-                        <span className={`h-3 w-3 rounded-full ${colors.dot}`} />
-                        <p
-                          className={`text-sm font-semibold uppercase tracking-[0.16em] ${colors.text}`}
-                        >
-                          {card.eyebrow}
-                        </p>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <span className={`h-3 w-3 rounded-full ${colors.dot}`} />
+                          <p
+                            className={`text-sm font-semibold uppercase tracking-[0.16em] ${colors.text}`}
+                          >
+                            {card.eyebrow}
+                          </p>
+                        </div>
+
+                        {card.badge ? (
+                          <span
+                            className={`rounded-full border ${colors.border} ${colors.soft} px-3 py-1 text-xs font-semibold ${colors.text}`}
+                          >
+                            {card.badge}
+                          </span>
+                        ) : null}
                       </div>
 
                       <h3 className="mt-4 text-xl font-semibold tracking-tight text-slate-950">
@@ -287,161 +302,62 @@ export default async function HomePage() {
                           </div>
                         ))}
                       </div>
+
+                      {card.action === "publicLogin" ? (
+                        <form action="/login" method="get" className="mt-6 space-y-3">
+                          <input type="hidden" name="intent" value="public" />
+
+                          <div>
+                            <label
+                              htmlFor="home-discovery-email"
+                              className="mb-1.5 block text-sm font-medium text-slate-800"
+                            >
+                              Email
+                            </label>
+                            <input
+                              id="home-discovery-email"
+                              name="email"
+                              type="email"
+                              required
+                              autoComplete="email"
+                              placeholder="you@example.com"
+                              className="w-full rounded-xl border border-orange-200 px-3 py-3 outline-none focus:border-orange-400"
+                            />
+                          </div>
+
+                          <button
+                            type="submit"
+                            className="inline-flex w-full items-center justify-center rounded-xl bg-orange-500 px-5 py-3 text-sm font-medium text-white hover:bg-orange-600"
+                          >
+                            Email My Sign-In Link
+                          </button>
+                        </form>
+                      ) : null}
+
+                      {card.action === "studioPricing" ? (
+                        <Link
+                          href="/get-started/studio"
+                          className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-violet-600 px-5 py-3 text-sm font-medium text-white hover:bg-violet-700"
+                        >
+                          View Studio Pricing
+                        </Link>
+                      ) : null}
+
+                      {card.action === "organizerPricing" ? (
+                        <Link
+                          href="/get-started/organizer"
+                          className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-sky-600 px-5 py-3 text-sm font-medium text-white hover:bg-sky-700"
+                        >
+                          View Organizer Pricing
+                        </Link>
+                      ) : null}
                     </article>
                   );
                 })}
               </div>
             </section>
 
-            <div className="mt-14 grid gap-6 lg:grid-cols-3">
-              <section className="rounded-[32px] border border-orange-200 bg-white/95 p-6 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-                    Discovery Account
-                  </p>
-                  <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 ring-1 ring-orange-200">
-                    Free
-                  </span>
-                </div>
-
-                <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">
-                  I’m here to explore
-                </h2>
-
-                <p className="mt-4 text-base leading-7 text-slate-600">
-                  Use DanceFlow as a dancer or member of the public to discover
-                  studios and events, save favorites, and keep your registrations
-                  organized from one place.
-                </p>
-
-                <div className="mt-6 space-y-3">
-                  <div className="rounded-2xl bg-orange-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-orange-100">
-                    Favorite studios and events
-                  </div>
-                  <div className="rounded-2xl bg-orange-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-orange-100">
-                    Track events you register for
-                  </div>
-                  <div className="rounded-2xl bg-orange-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-orange-100">
-                    Search by city, state, ZIP, or near-me location
-                  </div>
-                </div>
-
-                <form action="/login" method="get" className="mt-8 space-y-3">
-                  <input type="hidden" name="intent" value="public" />
-
-                  <div>
-                    <label
-                      htmlFor="discovery-email"
-                      className="mb-1.5 block text-sm font-medium text-slate-800"
-                    >
-                      Email
-                    </label>
-                    <input
-                      id="discovery-email"
-                      name="email"
-                      type="email"
-                      required
-                      autoComplete="email"
-                      placeholder="you@example.com"
-                      className="w-full rounded-xl border border-orange-200 px-3 py-3 outline-none focus:border-orange-400"
-                    />
-                  </div>
-
-                  <button
-                    type="submit"
-                    className="inline-flex w-full items-center justify-center rounded-xl bg-orange-500 px-5 py-3 text-sm font-medium text-white hover:bg-orange-600"
-                  >
-                    Email My Sign-In Link
-                  </button>
-                </form>
-
-                <p className="mt-3 text-xs leading-6 text-slate-500">
-                  You can explore without an account. A free discovery account lets
-                  you save favorites, track registrations, and return faster with
-                  your magic link.
-                </p>
-              </section>
-
-              <section className="rounded-[32px] border border-violet-200 bg-white/95 p-6 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-700">
-                    Studio Path
-                  </p>
-                  <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700 ring-1 ring-violet-200">
-                    Trial Available
-                  </span>
-                </div>
-
-                <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">
-                  I run a dance studio
-                </h2>
-
-                <p className="mt-4 text-base leading-7 text-slate-600">
-                  Compare studio tiers, see feature differences clearly, and choose
-                  the plan that fits your operations, staff, and growth goals.
-                </p>
-
-                <div className="mt-6 space-y-3">
-                  <div className="rounded-2xl bg-violet-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-violet-100">
-                    CRM, scheduling, packages, memberships, and payments
-                  </div>
-                  <div className="rounded-2xl bg-violet-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-violet-100">
-                    Public studio profile and lead capture
-                  </div>
-                  <div className="rounded-2xl bg-violet-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-violet-100">
-                    Transparent pricing and feature comparison
-                  </div>
-                </div>
-
-                <Link
-                  href="/get-started/studio"
-                  className="mt-8 inline-flex w-full items-center justify-center rounded-xl bg-violet-600 px-5 py-3 text-sm font-medium text-white hover:bg-violet-700"
-                >
-                  View Studio Pricing
-                </Link>
-              </section>
-
-              <section className="rounded-[32px] border border-sky-200 bg-white/95 p-6 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-700">
-                    Organizer Path
-                  </p>
-                  <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-200">
-                    Trial Available
-                  </span>
-                </div>
-
-                <h2 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950">
-                  I organize events
-                </h2>
-
-                <p className="mt-4 text-base leading-7 text-slate-600">
-                  Continue into organizer pricing for public event publishing,
-                  registrations, ticketing, and event visibility tools.
-                </p>
-
-                <div className="mt-6 space-y-3">
-                  <div className="rounded-2xl bg-sky-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-sky-100">
-                    Publish searchable public events
-                  </div>
-                  <div className="rounded-2xl bg-sky-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-sky-100">
-                    Manage registrations and ticket sales
-                  </div>
-                  <div className="rounded-2xl bg-sky-50 px-4 py-3 text-sm text-slate-700 ring-1 ring-sky-100">
-                    Clear pricing before you start
-                  </div>
-                </div>
-
-                <Link
-                  href="/get-started/organizer"
-                  className="mt-8 inline-flex w-full items-center justify-center rounded-xl bg-sky-600 px-5 py-3 text-sm font-medium text-white hover:bg-sky-700"
-                >
-                  View Organizer Pricing
-                </Link>
-              </section>
-            </div>
-
-            <div className="mt-8 rounded-[28px] border border-slate-200 bg-white/90 p-6 shadow-sm">
+            <div className="mt-10 rounded-[28px] border border-slate-200 bg-white/90 p-6 shadow-sm">
               <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
