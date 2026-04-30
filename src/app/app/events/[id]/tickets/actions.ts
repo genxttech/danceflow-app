@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { getStudioContextForStudio } from "@/lib/auth/studio";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -33,7 +33,56 @@ function parseOptionalDateTimeLocal(value: string) {
   return parsed.toISOString();
 }
 
-async function getStudioContext() {
+type EventAccess = {
+  event: {
+    id: string;
+    studio_id: string;
+    organizer_id: string | null;
+  };
+  studioRole: string | null;
+  organizerUserRole: string | null;
+  isPlatformAdmin: boolean;
+  userId: string;
+};
+
+function canManageTickets(params: {
+  isPlatformAdmin: boolean;
+  studioRole: string | null | undefined;
+  organizerUserRole: string | null | undefined;
+  isStudioHostedEvent: boolean;
+}) {
+  const normalizedStudioRole = (params.studioRole ?? "").trim().toLowerCase();
+  const normalizedOrganizerRole = (params.organizerUserRole ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (params.isPlatformAdmin) return true;
+
+  if (
+    normalizedOrganizerRole === "organizer_owner" ||
+    normalizedOrganizerRole === "organizer_admin" ||
+    normalizedOrganizerRole === "organizer_staff"
+  ) {
+    return true;
+  }
+
+  if (
+    params.isStudioHostedEvent &&
+    (normalizedStudioRole === "studio_owner" ||
+      normalizedStudioRole === "studio_admin" ||
+      normalizedStudioRole === "organizer_owner" ||
+      normalizedStudioRole === "organizer_admin")
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+async function getTicketEventAccess(eventId: string): Promise<{
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  access: EventAccess;
+}> {
   const supabase = await createClient();
 
   const {
@@ -44,90 +93,67 @@ async function getStudioContext() {
     redirect("/login");
   }
 
-  const context = await getCurrentStudioContext();
-
-  if (!context?.studioId) {
-    throw new Error("No active studio context found for this user.");
-  }
-
-  return {
-    supabase,
-    studioId: context.studioId as string,
-    role: context.studioRole ?? null,
-    isPlatformAdmin: Boolean(context.isPlatformAdmin),
-    userId: user.id,
-  };
-}
-
-async function ensureEventAccess(params: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
-  studioId: string;
-  eventId: string;
-  userId: string;
-}) {
-  const { supabase, studioId, eventId, userId } = params;
-
   const { data: event, error } = await supabase
     .from("events")
     .select("id, studio_id, organizer_id")
     .eq("id", eventId)
-    .eq("studio_id", studioId)
     .single();
 
   if (error || !event) {
     throw new Error("Event not found.");
   }
 
+  const typedEvent = event as {
+    id: string;
+    studio_id: string;
+    organizer_id: string | null;
+  };
+
+  const context = await getStudioContextForStudio(typedEvent.studio_id);
+
   let organizerUserRole: string | null = null;
 
-  if (event.organizer_id) {
+  if (typedEvent.organizer_id) {
     const { data: organizerUser } = await supabase
       .from("organizer_users")
       .select("role")
-      .eq("organizer_id", event.organizer_id)
-      .eq("user_id", userId)
+      .eq("organizer_id", typedEvent.organizer_id)
+      .eq("user_id", user.id)
       .eq("active", true)
       .maybeSingle();
 
     organizerUserRole = organizerUser?.role ?? null;
   }
 
-  return {
-    event,
+  const access: EventAccess = {
+    event: typedEvent,
+    studioRole: context.studioRole ?? null,
     organizerUserRole,
+    isPlatformAdmin: Boolean(context.isPlatformAdmin),
+    userId: user.id,
   };
-}
-
-function canManageTickets(params: {
-  isPlatformAdmin: boolean;
-  studioRole: string | null;
-  organizerUserRole: string | null;
-}) {
-  const { isPlatformAdmin, studioRole, organizerUserRole } = params;
-
-  if (isPlatformAdmin) {
-    return true;
-  }
-
-  if (studioRole === "studio_owner" || studioRole === "studio_admin") {
-    return true;
-  }
 
   if (
-    organizerUserRole === "organizer_owner" ||
-    organizerUserRole === "organizer_admin" ||
-    organizerUserRole === "organizer_staff"
+    !canManageTickets({
+      isPlatformAdmin: access.isPlatformAdmin,
+      studioRole: access.studioRole,
+      organizerUserRole: access.organizerUserRole,
+      isStudioHostedEvent: !access.event.organizer_id,
+    })
   ) {
-    return true;
+    throw new Error(
+      `You do not have permission to manage tickets. Role: ${
+        access.studioRole ?? "none"
+      }. Organizer role: ${access.organizerUserRole ?? "none"}. Studio hosted: ${
+        !access.event.organizer_id
+      }.`
+    );
   }
 
-  return false;
+  return { supabase, access };
 }
 
 export async function createTicketTypeAction(formData: FormData) {
-  const { supabase, studioId, role, isPlatformAdmin, userId } =
-    await getStudioContext();
-
   const eventId = getString(formData, "eventId");
   const name = getString(formData, "name");
   const description = getString(formData, "description");
@@ -152,25 +178,10 @@ export async function createTicketTypeAction(formData: FormData) {
     throw new Error("Ticket name is required.");
   }
 
-  const { organizerUserRole } = await ensureEventAccess({
-    supabase,
-    studioId,
-    eventId,
-    userId,
-  });
-
-  if (
-    !canManageTickets({
-      isPlatformAdmin,
-      studioRole: role,
-      organizerUserRole,
-    })
-  ) {
-    throw new Error("You do not have permission to manage tickets.");
-  }
+  const { supabase, access } = await getTicketEventAccess(eventId);
 
   const { error } = await supabase.from("event_ticket_types").insert({
-    event_id: eventId,
+    event_id: access.event.id,
     name,
     description: description || null,
     ticket_kind: ticketKind,
@@ -187,13 +198,10 @@ export async function createTicketTypeAction(formData: FormData) {
     throw new Error(`Could not create ticket type: ${error.message}`);
   }
 
-  redirect(`/app/events/${eventId}/tickets`);
+  redirect(`/app/events/${access.event.id}/tickets`);
 }
 
 export async function updateTicketTypeAction(formData: FormData) {
-  const { supabase, studioId, role, isPlatformAdmin, userId } =
-    await getStudioContext();
-
   const ticketId = getString(formData, "ticketId");
   const eventId = getString(formData, "eventId");
   const name = getString(formData, "name");
@@ -223,22 +231,7 @@ export async function updateTicketTypeAction(formData: FormData) {
     throw new Error("Ticket name is required.");
   }
 
-  const { organizerUserRole } = await ensureEventAccess({
-    supabase,
-    studioId,
-    eventId,
-    userId,
-  });
-
-  if (
-    !canManageTickets({
-      isPlatformAdmin,
-      studioRole: role,
-      organizerUserRole,
-    })
-  ) {
-    throw new Error("You do not have permission to manage tickets.");
-  }
+  const { supabase, access } = await getTicketEventAccess(eventId);
 
   const { error } = await supabase
     .from("event_ticket_types")
@@ -256,11 +249,11 @@ export async function updateTicketTypeAction(formData: FormData) {
       updated_at: new Date().toISOString(),
     })
     .eq("id", ticketId)
-    .eq("event_id", eventId);
+    .eq("event_id", access.event.id);
 
   if (error) {
     throw new Error(`Could not update ticket type: ${error.message}`);
   }
 
-  redirect(`/app/events/${eventId}/tickets`);
+  redirect(`/app/events/${access.event.id}/tickets`);
 }
