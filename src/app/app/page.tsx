@@ -591,7 +591,7 @@ export default async function AppDashboardPage({
     let typedAttendance: AttendanceRow[] = [];
     if (registrationIds.length > 0) {
       const { data: attendanceRows, error: attendanceError } = await supabase
-        .from("event_attendance")
+        .from("attendance_records")
         .select("id, event_registration_id, status")
         .in("event_registration_id", registrationIds);
 

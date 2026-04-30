@@ -230,7 +230,7 @@ export default async function EventCheckInIndexPage() {
 
     if (registrationIds.length > 0) {
       const { data: attendanceRows, error: attendanceError } = await supabase
-        .from("event_attendance")
+        .from("attendance_records")
         .select(`
           id,
           event_registration_id,
