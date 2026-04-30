@@ -432,15 +432,6 @@ source: "admin",
       clientId: registration.client_id,
     });
 
-    await logManualEventPayment({
-      supabase,
-      studioId,
-      registration,
-      amount: totalPrice,
-      currency,
-      paymentMethod,
-    });
-
     redirect(`/app/events/${event.id}/registrations?success=manual_ticket_sale_created`);
   } catch (error) {
     return {
