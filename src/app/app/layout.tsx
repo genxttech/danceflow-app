@@ -120,28 +120,56 @@ function buildStudioSections(params: {
   const isIndependentInstructor = role === "independent_instructor";
   const isAnyInstructor = isInstructor || isIndependentInstructor;
 
+  if (isIndependentInstructor) {
+    return compactSections([
+      {
+        title: "My Work",
+        items: [
+          { label: "Dashboard", href: "/app", icon: "dashboard" },
+          { label: "My Schedule", href: "/app/schedule", icon: "schedule" },
+          ...(portalHref
+            ? [{ label: "My Studio Portal", href: portalHref, icon: "clients" as const }]
+            : []),
+          {
+            label: "Notifications",
+            href: "/app/notifications",
+            icon: "notifications",
+            badge: unreadNotificationsCount,
+          },
+        ],
+      },
+      {
+        title: "Floor Rental",
+        items: [
+          { label: "Pay Floor Fees", href: "/app/payments", icon: "payments" },
+          { label: "Rooms / Floor Space", href: "/app/rooms", icon: "rooms" },
+        ],
+      },
+      {
+        title: "Public Site",
+        items: [
+          { label: "Discovery Home", href: "/discover", icon: "dashboard" },
+          { label: "Find Studios", href: "/discover/studios", icon: "clients" },
+          { label: "Find Events", href: "/discover/events", icon: "events" },
+          { label: "My Public Account", href: "/account", icon: "clients" },
+        ],
+      },
+      {
+        title: "Support",
+        items: [
+          { label: "Help", href: "/app/help", icon: "settings" },
+          { label: "Knowledgebase", href: "/knowledgebase", icon: "settings" },
+        ],
+      },
+    ]);
+  }
+
   return compactSections([
     {
-      title: "Daily Operations",
+      title: "Start Here",
       items: [
         { label: "Dashboard", href: "/app", icon: "dashboard" },
-        { label: "Schedule", href: "/app/schedule", icon: "schedule" },
-        ...(isIndependentInstructor && portalHref
-          ? [{ label: "My Portal", href: portalHref, icon: "clients" as const }]
-          : []),
-        ...(isFrontDesk || isStudioAdmin || isOwner
-          ? [{ label: "Clients", href: "/app/clients", icon: "clients" as const }]
-          : []),
-        ...(isFrontDesk || isStudioAdmin || isOwner
-          ? [
-              {
-                label: "Leads",
-                href: "/app/leads",
-                icon: "leads" as const,
-                badge: leadsBadgeCount,
-              },
-            ]
-          : []),
+        { label: "Today’s Schedule", href: "/app/schedule", icon: "schedule" },
         {
           label: "Notifications",
           href: "/app/notifications",
@@ -151,58 +179,53 @@ function buildStudioSections(params: {
       ],
     },
     {
-      title: "Programs & Staff",
+      title: "Clients & Leads",
       items: [
-        ...(isFrontDesk || isStudioAdmin || isOwner || isAnyInstructor
-          ? [{ label: "Events", href: "/app/events", icon: "events" as const }]
-          : []),
-        ...(isStudioAdmin || isOwner
-          ? [{ label: "Instructors", href: "/app/instructors", icon: "instructors" as const }]
-          : []),
-        ...(isStudioAdmin || isOwner
-          ? [{ label: "Rooms", href: "/app/rooms", icon: "rooms" as const }]
+        ...(isFrontDesk || isStudioAdmin || isOwner
+          ? [
+              { label: "Client List", href: "/app/clients", icon: "clients" as const },
+              { label: "Add New Client", href: "/app/clients/new", icon: "clients" as const },
+              {
+                label: "New Leads",
+                href: "/app/leads",
+                icon: "leads" as const,
+                badge: leadsBadgeCount,
+              },
+            ]
           : []),
       ],
     },
     {
-      title: "Sales & Billing",
+      title: "Schedule & Space",
       items: [
-        ...(isFrontDesk || isStudioAdmin || isOwner || isIndependentInstructor
-          ? [{ label: "Payments", href: "/app/payments", icon: "payments" as const }]
+        ...(isAnyInstructor
+          ? [{ label: "My Schedule", href: "/app/schedule", icon: "schedule" as const }]
           : []),
+        ...(isStudioAdmin || isOwner
+          ? [
+              { label: "Instructors", href: "/app/instructors", icon: "instructors" as const },
+              { label: "Rooms / Floor Space", href: "/app/rooms", icon: "rooms" as const },
+            ]
+          : []),
+      ],
+    },
+    {
+      title: "Sales & Payments",
+      items: [
         ...(isFrontDesk || isStudioAdmin || isOwner
           ? [
-              {
-                label: "Sell Packages",
-                href: "/app/packages/sell",
-                icon: "packages" as const,
-              },
-              {
-                label: "Sell Memberships",
-                href: "/app/memberships/sell",
-                icon: "memberships" as const,
-              },
-              {
-                label: "Client Balances",
-                href: "/app/packages/client-balances",
-                icon: "balances" as const,
-              },
+              { label: "Take Payment / Payouts", href: "/app/payments", icon: "payments" as const },
+              { label: "Sell Package", href: "/app/packages/sell", icon: "packages" as const },
+              { label: "Sell Membership", href: "/app/memberships/sell", icon: "memberships" as const },
+              { label: "Client Balances", href: "/app/packages/client-balances", icon: "balances" as const },
             ]
-          : []),
-        ...(isStudioAdmin || isOwner
-          ? [{ label: "Package Templates", href: "/app/packages", icon: "packages" as const }]
           : []),
         ...(isStudioAdmin || isOwner
           ? [
-              {
-                label: "Membership Plans",
-                href: "/app/memberships",
-                icon: "memberships" as const,
-              },
+              { label: "Package Setup", href: "/app/packages", icon: "packages" as const },
+              { label: "Membership Setup", href: "/app/memberships", icon: "memberships" as const },
+              { label: "Reports", href: "/app/reports", icon: "reports" as const },
             ]
-          : []),
-        ...(isStudioAdmin || isOwner
-          ? [{ label: "Reports", href: "/app/reports", icon: "reports" as const }]
           : []),
       ],
     },
@@ -211,79 +234,37 @@ function buildStudioSections(params: {
       items: [
         ...(isStudioAdmin || isOwner
           ? [
-              {
-                label: "Public Profile Setup",
-                href: "/app/settings/public-profile",
-                icon: "settings" as const,
-              },
-              {
-                label: "View Public Profile",
-                href: publicProfileHref ?? "/discover/studios",
-                icon: "clients" as const,
-              },
+              { label: "Public Profile Setup", href: "/app/settings/public-profile", icon: "settings" as const },
+              { label: "View Public Profile", href: publicProfileHref ?? "/discover/studios", icon: "clients" as const },
+              { label: "Events", href: "/app/events", icon: "events" as const },
+              { label: "Create Event", href: "/app/events/new", icon: "events" as const },
             ]
           : []),
-        {
-          label: "Discovery Home",
-          href: "/discover",
-          icon: "dashboard",
-        },
-        {
-          label: "Find Studios",
-          href: "/discover/studios",
-          icon: "clients",
-        },
-        {
-          label: "Find Events",
-          href: "/discover/events",
-          icon: "events",
-        },
-        {
-          label: "My Public Account",
-          href: "/account",
-          icon: "clients",
-        },
-      ],
-    },
-    {
-      title: "Support",
-      items: [
-        {
-          label: "Help",
-          href: "/app/help",
-          icon: "settings",
-        },
-        {
-          label: "Knowledgebase",
-          href: "/knowledgebase",
-          icon: "settings",
-        },
+        { label: "Discovery Home", href: "/discover", icon: "dashboard" },
+        { label: "Find Studios", href: "/discover/studios", icon: "clients" },
+        { label: "Find Events", href: "/discover/events", icon: "events" },
+        { label: "My Public Account", href: "/account", icon: "clients" },
       ],
     },
     {
       title: "Admin",
       items: [
         ...(isStudioAdmin || isOwner
-          ? [{ label: "Settings", href: "/app/settings", icon: "settings" as const }]
+          ? [{ label: "Studio Settings", href: "/app/settings", icon: "settings" as const }]
           : []),
         ...(isOwner
           ? [
-              {
-                label: "Team & Permissions",
-                href: "/app/settings/team",
-                icon: "settings" as const,
-              },
+              { label: "Team & Permissions", href: "/app/settings/team", icon: "settings" as const },
+              { label: "Billing & Payouts", href: "/app/settings/billing", icon: "payments" as const },
             ]
           : []),
-        ...(isOwner
-          ? [
-              {
-                label: "Billing & Payouts",
-                href: "/app/settings/billing",
-                icon: "payments" as const,
-              },
-            ]
-          : []),
+      ],
+    },
+    {
+      title: "Support",
+      items: [
+        { label: "Help", href: "/app/help", icon: "settings" },
+        { label: "Knowledgebase", href: "/knowledgebase", icon: "settings" },
       ],
     },
   ]);
@@ -301,26 +282,16 @@ function buildOrganizerSections(params: {
 
   return compactSections([
     {
-      title: "Organizer Operations",
+      title: "Event Operations",
       items: [
         { label: "Dashboard", href: "/app", icon: "dashboard" },
         ...(isOrganizerAdmin
-          ? [{ label: "Events", href: "/app/events", icon: "events" as const }]
-          : []),
-        ...(isOrganizerAdmin
           ? [
-              {
-                label: "Registrations",
-                href: "/app/events/registrations",
-                icon: "clients" as const,
-              },
+              { label: "Events", href: "/app/events", icon: "events" as const },
+              { label: "Create Event", href: "/app/events/new", icon: "events" as const },
+              { label: "Registrations", href: "/app/events/registrations", icon: "clients" as const },
+              { label: "Event Check-In", href: "/app/events/checkin", icon: "checkin" as const },
             ]
-          : []),
-        ...(isOrganizerAdmin
-          ? [{ label: "Check-In", href: "/app/events/checkin", icon: "checkin" as const }]
-          : []),
-        ...(isOrganizerAdmin
-          ? [{ label: "Organizer Profile", href: "/app/organizers", icon: "settings" as const }]
           : []),
         {
           label: "Notifications",
@@ -331,80 +302,47 @@ function buildOrganizerSections(params: {
       ],
     },
     {
-      title: "Revenue",
+      title: "Money",
       items: [
-        ...(isOwner
+        ...(isOrganizerAdmin
           ? [
-              {
-                label: "Billing & Payouts",
-                href: "/app/settings/billing",
-                icon: "payments" as const,
-              },
+              { label: "Ticket Sales & Payments", href: "/app/payments", icon: "payments" as const },
+              { label: "Reports", href: "/app/reports", icon: "reports" as const },
             ]
           : []),
-        ...(isOrganizerAdmin
-          ? [{ label: "Payment History", href: "/app/payments", icon: "payments" as const }]
-          : []),
-        ...(isOrganizerAdmin
-          ? [{ label: "Reports", href: "/app/reports", icon: "reports" as const }]
+        ...(isOwner
+          ? [{ label: "Billing & Payouts", href: "/app/settings/billing", icon: "payments" as const }]
           : []),
       ],
     },
     {
-      title: "Public Site",
+      title: "Public Presence",
       items: [
-        {
-          label: "Discovery Home",
-          href: "/discover",
-          icon: "dashboard",
-        },
-        {
-          label: "Find Studios",
-          href: "/discover/studios",
-          icon: "clients",
-        },
-        {
-          label: "Find Events",
-          href: "/discover/events",
-          icon: "events",
-        },
-        {
-          label: "My Public Account",
-          href: "/account",
-          icon: "clients",
-        },
-      ],
-    },
-    {
-      title: "Support",
-      items: [
-        {
-          label: "Help",
-          href: "/app/help",
-          icon: "settings",
-        },
-        {
-          label: "Knowledgebase",
-          href: "/knowledgebase",
-          icon: "settings",
-        },
+        ...(isOrganizerAdmin
+          ? [{ label: "Organizer Profile", href: "/app/organizers", icon: "settings" as const }]
+          : []),
+        { label: "Discovery Home", href: "/discover", icon: "dashboard" },
+        { label: "Find Studios", href: "/discover/studios", icon: "clients" },
+        { label: "Find Events", href: "/discover/events", icon: "events" },
+        { label: "My Public Account", href: "/account", icon: "clients" },
       ],
     },
     {
       title: "Admin",
       items: [
         ...(isOrganizerAdmin
-          ? [{ label: "Settings", href: "/app/settings", icon: "settings" as const }]
+          ? [{ label: "Workspace Settings", href: "/app/settings", icon: "settings" as const }]
           : []),
         ...(isOwner
-          ? [
-              {
-                label: "Team & Permissions",
-                href: "/app/settings/team",
-                icon: "settings" as const,
-              },
-            ]
+          ? [{ label: "Team & Permissions", href: "/app/settings/team", icon: "settings" as const }]
           : []),
+      ],
+    },
+    {
+      title: "Support",
+      items: [
+        { label: "Help", href: "/app/help", icon: "settings" },
+        { label: "Knowledgebase", href: "/knowledgebase", icon: "settings" },
       ],
     },
   ]);
@@ -624,3 +562,4 @@ export default async function AppLayout({
     </div>
   );
 }
+

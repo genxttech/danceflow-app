@@ -14,6 +14,17 @@ type WorkspaceRow = {
   id: string;
   name: string | null;
   public_name: string | null;
+  billing_plan: string | null;
+  subscription_status: string | null;
+};
+
+type SubscriptionRow = {
+  status: string | null;
+  subscription_plan_id: string | null;
+};
+
+type SubscriptionPlanRow = {
+  code: string | null;
 };
 
 function isOrganizerWorkspaceRole(role: string | null | undefined) {
@@ -34,6 +45,44 @@ function canManageEvents(role: string | null | undefined, isPlatformAdminRole: b
 function canManageOrganizers(role: string | null | undefined, isPlatformAdminRole: boolean) {
   if (isPlatformAdminRole) return true;
   return role === "organizer_owner" || role === "organizer_admin";
+}
+
+function isActiveOrTrialing(status: string | null | undefined) {
+  const normalized = (status ?? "").trim().toLowerCase();
+  return normalized === "active" || normalized === "trialing";
+}
+
+function getEffectiveBillingPlan(
+  workspace: WorkspaceRow | null | undefined,
+  subscriptionPlan: SubscriptionPlanRow | null | undefined
+) {
+  return (
+    subscriptionPlan?.code?.trim().toLowerCase() ||
+    workspace?.billing_plan?.trim().toLowerCase() ||
+    ""
+  );
+}
+
+function getEffectiveSubscriptionStatus(
+  workspace: WorkspaceRow | null | undefined,
+  subscription: SubscriptionRow | null | undefined
+) {
+  return (
+    subscription?.status?.trim().toLowerCase() ||
+    workspace?.subscription_status?.trim().toLowerCase() ||
+    ""
+  );
+}
+
+function canUseStudioHostedEvents(params: {
+  workspace: WorkspaceRow | null | undefined;
+  subscription: SubscriptionRow | null | undefined;
+  subscriptionPlan: SubscriptionPlanRow | null | undefined;
+}) {
+  return (
+    getEffectiveBillingPlan(params.workspace, params.subscriptionPlan) === "pro" &&
+    isActiveOrTrialing(getEffectiveSubscriptionStatus(params.workspace, params.subscription))
+  );
 }
 
 export default async function NewEventPage() {
@@ -57,10 +106,11 @@ export default async function NewEventPage() {
   const [
     { data: workspace, error: workspaceError },
     { data: organizers, error: organizersError },
+    { data: subscriptionRows, error: subscriptionsError },
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, public_name")
+      .select("id, name, public_name, billing_plan, subscription_status")
       .eq("id", studioId)
       .maybeSingle<WorkspaceRow>(),
 
@@ -70,6 +120,13 @@ export default async function NewEventPage() {
       .eq("studio_id", studioId)
       .eq("active", true)
       .order("name", { ascending: true }),
+
+    supabase
+      .from("studio_subscriptions")
+      .select("status, subscription_plan_id")
+      .eq("studio_id", studioId)
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
 
   if (workspaceError) {
@@ -80,7 +137,35 @@ export default async function NewEventPage() {
     throw new Error(`Failed to load organizers: ${organizersError.message}`);
   }
 
+  if (subscriptionsError) {
+    throw new Error(`Failed to load subscription: ${subscriptionsError.message}`);
+  }
+
+  const latestSubscription = ((subscriptionRows ?? []) as SubscriptionRow[])[0] ?? null;
+  let subscriptionPlan: SubscriptionPlanRow | null = null;
+
+  if (latestSubscription?.subscription_plan_id) {
+    const { data: plan, error: planError } = await supabase
+      .from("subscription_plans")
+      .select("code")
+      .eq("id", latestSubscription.subscription_plan_id)
+      .maybeSingle<SubscriptionPlanRow>();
+
+    if (planError) {
+      throw new Error(`Failed to load subscription plan: ${planError.message}`);
+    }
+
+    subscriptionPlan = plan;
+  }
+
   const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
+  const studioHostedEvents =
+    !organizerWorkspace &&
+    canUseStudioHostedEvents({
+      workspace,
+      subscription: latestSubscription,
+      subscriptionPlan,
+    });
   const canCreateOrganizer = canManageOrganizers(
     context.studioRole,
     context.isPlatformAdmin
@@ -104,7 +189,9 @@ export default async function NewEventPage() {
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
                 {organizerWorkspace
                   ? "Create an organizer-linked event for public discovery, registrations, and event operations."
-                  : "Create an organizer-linked event and optionally publish it into the public dance directory."}
+                  : studioHostedEvents
+                    ? "Create a studio-hosted public event. Your studio name will be used as the event host."
+                    : "Create an organizer-linked event and optionally publish it into the public dance directory."}
               </p>
             </div>
 
@@ -131,10 +218,22 @@ export default async function NewEventPage() {
               </p>
             </div>
           </div>
+        ) : studioHostedEvents ? (
+          <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+              <h2 className="text-lg font-semibold text-emerald-950">
+                This will be a studio-hosted event
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-emerald-900">
+                Pro studios can publish events without creating a separate organizer.
+                Your studio name will be used as the public event host.
+              </p>
+            </div>
+          </div>
         ) : null}
       </section>
 
-      {typedOrganizers.length === 0 ? (
+      {typedOrganizers.length === 0 && !studioHostedEvents ? (
         <div className="rounded-[32px] border border-slate-200 bg-white p-8 text-center shadow-sm">
           <p className="text-base font-medium text-slate-900">
             Create an organizer first
@@ -173,7 +272,7 @@ export default async function NewEventPage() {
           <EventForm
             mode="create"
             organizers={typedOrganizers}
-            organizerWorkspace={organizerWorkspace}
+            organizerWorkspace={organizerWorkspace || studioHostedEvents}
             initialValues={{
               organizerId:
                 organizerWorkspace && singleOrganizer ? singleOrganizer.id : undefined,

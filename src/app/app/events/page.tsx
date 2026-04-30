@@ -58,6 +58,17 @@ type WorkspaceRow = {
   id: string;
   name: string | null;
   public_name: string | null;
+  billing_plan: string | null;
+  subscription_status: string | null;
+};
+
+type SubscriptionRow = {
+  status: string | null;
+  subscription_plan_id: string | null;
+};
+
+type SubscriptionPlanRow = {
+  code: string | null;
 };
 
 function isOrganizerWorkspaceRole(role: string | null | undefined) {
@@ -83,6 +94,44 @@ function canManageOrganizerProfile(role: string | null | undefined, isPlatformAd
 function canManageBilling(role: string | null | undefined, isPlatformAdminRole: boolean) {
   if (isPlatformAdminRole) return true;
   return role === "studio_owner" || role === "organizer_owner";
+}
+
+function isActiveOrTrialing(status: string | null | undefined) {
+  const normalized = (status ?? "").trim().toLowerCase();
+  return normalized === "active" || normalized === "trialing";
+}
+
+function getEffectiveBillingPlan(
+  workspace: WorkspaceRow | null | undefined,
+  subscriptionPlan: SubscriptionPlanRow | null | undefined
+) {
+  return (
+    subscriptionPlan?.code?.trim().toLowerCase() ||
+    workspace?.billing_plan?.trim().toLowerCase() ||
+    ""
+  );
+}
+
+function getEffectiveSubscriptionStatus(
+  workspace: WorkspaceRow | null | undefined,
+  subscription: SubscriptionRow | null | undefined
+) {
+  return (
+    subscription?.status?.trim().toLowerCase() ||
+    workspace?.subscription_status?.trim().toLowerCase() ||
+    ""
+  );
+}
+
+function canUseStudioHostedEvents(params: {
+  workspace: WorkspaceRow | null | undefined;
+  subscription: SubscriptionRow | null | undefined;
+  subscriptionPlan: SubscriptionPlanRow | null | undefined;
+}) {
+  return (
+    getEffectiveBillingPlan(params.workspace, params.subscriptionPlan) === "pro" &&
+    isActiveOrTrialing(getEffectiveSubscriptionStatus(params.workspace, params.subscription))
+  );
 }
 
 function statusBadgeClass(status: string) {
@@ -255,10 +304,11 @@ export default async function EventsPage() {
   const [
     { data: workspace, error: workspaceError },
     { data: events, error: eventsError },
+    { data: subscriptionRows, error: subscriptionsError },
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, public_name")
+      .select("id, name, public_name, billing_plan, subscription_status")
       .eq("id", studioId)
       .maybeSingle<WorkspaceRow>(),
 
@@ -288,6 +338,13 @@ export default async function EventsPage() {
       .order("start_date", { ascending: true })
       .order("start_time", { ascending: true })
       .order("name", { ascending: true }),
+
+    supabase
+      .from("studio_subscriptions")
+      .select("status, subscription_plan_id")
+      .eq("studio_id", studioId)
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
 
   if (workspaceError) {
@@ -298,8 +355,36 @@ export default async function EventsPage() {
     throw new Error(`Failed to load events: ${eventsError.message}`);
   }
 
+  if (subscriptionsError) {
+    throw new Error(`Failed to load subscription: ${subscriptionsError.message}`);
+  }
+
+  const latestSubscription = ((subscriptionRows ?? []) as SubscriptionRow[])[0] ?? null;
+  let subscriptionPlan: SubscriptionPlanRow | null = null;
+
+  if (latestSubscription?.subscription_plan_id) {
+    const { data: plan, error: planError } = await supabase
+      .from("subscription_plans")
+      .select("code")
+      .eq("id", latestSubscription.subscription_plan_id)
+      .maybeSingle<SubscriptionPlanRow>();
+
+    if (planError) {
+      throw new Error(`Failed to load subscription plan: ${planError.message}`);
+    }
+
+    subscriptionPlan = plan;
+  }
+
   const workspaceName = workspace?.public_name?.trim() || workspace?.name?.trim() || "Workspace";
   const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
+  const studioHostedEvents =
+    !organizerWorkspace &&
+    canUseStudioHostedEvents({
+      workspace,
+      subscription: latestSubscription,
+      subscriptionPlan,
+    });
   const showCreateEvent = canManageEvents(context.studioRole, context.isPlatformAdmin);
   const showOrganizerProfile = canManageOrganizerProfile(
     context.studioRole,
@@ -620,7 +705,7 @@ export default async function EventsPage() {
                 event.public_directory_enabled &&
                 event.visibility === "public" &&
                 (event.status === "published" || event.status === "open") &&
-                Boolean(event.organizer_id);
+                (Boolean(event.organizer_id) || studioHostedEvents);
 
               const eventRegistrations = registrationsByEventId.get(event.id) ?? [];
               const defaultCurrency =
@@ -709,6 +794,10 @@ export default async function EventsPage() {
                           <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
                             Organizer Linked
                           </span>
+                        ) : studioHostedEvents ? (
+                          <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+                            Studio Hosted
+                          </span>
                         ) : (
                           <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
                             No Organizer
@@ -727,7 +816,7 @@ export default async function EventsPage() {
                       </div>
 
                       <p className="mt-3 text-sm text-slate-500">
-                        Organizer: {organizer?.name ?? "None"} • /events/{event.slug}
+                        Host: {organizer?.name ?? (studioHostedEvents ? workspaceName : "None")} • /events/{event.slug}
                       </p>
 
                       <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">

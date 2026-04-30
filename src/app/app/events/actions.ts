@@ -19,6 +19,17 @@ type ActionState = {
 type WorkspaceRow = {
   id: string;
   name: string | null;
+  billing_plan: string | null;
+  subscription_status: string | null;
+};
+
+type SubscriptionRow = {
+  status: string | null;
+  subscription_plan_id: string | null;
+};
+
+type SubscriptionPlanRow = {
+  code: string | null;
 };
 
 type OrganizerRow = {
@@ -146,6 +157,44 @@ function normalizeDbEventType(value: string) {
   return "other";
 }
 
+function isActiveOrTrialing(status: string | null | undefined) {
+  const normalized = (status ?? "").trim().toLowerCase();
+  return normalized === "active" || normalized === "trialing";
+}
+
+function getEffectiveBillingPlan(
+  workspace: WorkspaceRow | null | undefined,
+  subscriptionPlan: SubscriptionPlanRow | null | undefined
+) {
+  return (
+    subscriptionPlan?.code?.trim().toLowerCase() ||
+    workspace?.billing_plan?.trim().toLowerCase() ||
+    ""
+  );
+}
+
+function getEffectiveSubscriptionStatus(
+  workspace: WorkspaceRow | null | undefined,
+  subscription: SubscriptionRow | null | undefined
+) {
+  return (
+    subscription?.status?.trim().toLowerCase() ||
+    workspace?.subscription_status?.trim().toLowerCase() ||
+    ""
+  );
+}
+
+function isProStudioWorkspace(params: {
+  workspace: WorkspaceRow | null | undefined;
+  subscription: SubscriptionRow | null | undefined;
+  subscriptionPlan: SubscriptionPlanRow | null | undefined;
+}) {
+  return (
+    getEffectiveBillingPlan(params.workspace, params.subscriptionPlan) === "pro" &&
+    isActiveOrTrialing(getEffectiveSubscriptionStatus(params.workspace, params.subscription))
+  );
+}
+
 function isOrganizerWorkspaceName(value: string | null | undefined) {
   const normalized = (value ?? "").trim().toLowerCase();
 
@@ -270,7 +319,6 @@ function validateEventEnums(payload: ReturnType<typeof buildEventPayload>) {
 }
 
 function validateEventPayload(payload: ReturnType<typeof buildEventPayload>) {
-  if (!payload.organizerId) return "Organizer is required.";
   if (!payload.name) return "Event name is required.";
   if (!payload.slug) return "Event slug is required.";
   if (!payload.startDate) return "Start date is required.";
@@ -345,6 +393,10 @@ async function ensureOrganizerValid(params: {
 }) {
   const { supabase, studioId, organizerId } = params;
 
+  if (!organizerId) {
+    return true;
+  }
+
   const { data: organizer, error: organizerError } = await supabase
     .from("organizers")
     .select("id, studio_id")
@@ -367,7 +419,7 @@ async function getWorkspaceAndOrganizerPolicy(params: {
 
   const { data: workspace, error: workspaceError } = await supabase
     .from("studios")
-    .select("id, name")
+    .select("id, name, billing_plan, subscription_status")
     .eq("id", studioId)
     .maybeSingle<WorkspaceRow>();
 
@@ -375,7 +427,44 @@ async function getWorkspaceAndOrganizerPolicy(params: {
     throw new Error(`Failed to load workspace policy: ${workspaceError.message}`);
   }
 
-  const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
+  const { data: subscriptionRows, error: subscriptionsError } = await supabase
+    .from("studio_subscriptions")
+    .select("status, subscription_plan_id")
+    .eq("studio_id", studioId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (subscriptionsError) {
+    throw new Error(`Failed to load subscription policy: ${subscriptionsError.message}`);
+  }
+
+  const latestSubscription = ((subscriptionRows ?? []) as SubscriptionRow[])[0] ?? null;
+  let subscriptionPlan: SubscriptionPlanRow | null = null;
+
+  if (latestSubscription?.subscription_plan_id) {
+    const { data: plan, error: planError } = await supabase
+      .from("subscription_plans")
+      .select("code")
+      .eq("id", latestSubscription.subscription_plan_id)
+      .maybeSingle<SubscriptionPlanRow>();
+
+    if (planError) {
+      throw new Error(`Failed to load subscription plan policy: ${planError.message}`);
+    }
+
+    subscriptionPlan = plan;
+  }
+
+  const effectiveBillingPlan = getEffectiveBillingPlan(workspace, subscriptionPlan);
+  const organizerWorkspace =
+    effectiveBillingPlan === "organizer" || isOrganizerWorkspaceName(workspace?.name);
+  const studioHostedEvents =
+    !organizerWorkspace &&
+    isProStudioWorkspace({
+      workspace,
+      subscription: latestSubscription,
+      subscriptionPlan,
+    });
 
   const { data: organizers, error: organizersError } = await supabase
     .from("organizers")
@@ -394,6 +483,7 @@ async function getWorkspaceAndOrganizerPolicy(params: {
     organizerWorkspace,
     organizers: typedOrganizers,
     singleOrganizer,
+    studioHostedEvents,
   };
 }
 
@@ -425,6 +515,13 @@ async function resolveEffectiveOrganizerId(params: {
   }
 
   if (!requestedOrganizerId) {
+    if (policy.studioHostedEvents) {
+      return {
+        organizerId: "",
+        error: null as string | null,
+      };
+    }
+
     return {
       organizerId: "",
       error: "Organizer is required.",
@@ -537,13 +634,13 @@ async function resolveCoverImageUrl(params: {
 function buildInsertUpdatePayload(params: {
   payload: ReturnType<typeof buildEventPayload>;
   studioId: string;
-  organizerId: string;
+  organizerId: string | null;
   resolvedCoverImageUrl: string | null;
 }) {
   const { payload, studioId, organizerId, resolvedCoverImageUrl } = params;
 
   return {
-    organizer_id: organizerId,
+    organizer_id: organizerId || null,
     studio_id: studioId,
     name: payload.name,
     slug: payload.slug,
