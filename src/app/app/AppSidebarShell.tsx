@@ -23,6 +23,8 @@ import {
   ChevronsUpDown,
   Check,
   Building2,
+  Ticket,
+  Search,
 } from "lucide-react";
 import NotificationMenu from "@/components/ui/NotificationMenu";
 
@@ -69,6 +71,8 @@ function getIcon(icon: string) {
   if (icon === "clients") return Users;
   if (icon === "schedule") return CalendarDays;
   if (icon === "events") return CalendarDays;
+  if (icon === "tickets") return Ticket;
+  if (icon === "registrations") return ClipboardCheck;
   if (icon === "checkin") return ClipboardCheck;
   if (icon === "instructors") return GraduationCap;
   if (icon === "rooms") return DoorOpen;
@@ -79,6 +83,7 @@ function getIcon(icon: string) {
   if (icon === "reports") return BarChart3;
   if (icon === "settings") return Settings;
   if (icon === "notifications") return Bell;
+  if (icon === "discovery") return Search;
   return LayoutDashboard;
 }
 
@@ -94,127 +99,198 @@ function normalizeNavLabel(item: NavItem) {
     return "Billing & Payouts";
   }
 
+  if (
+    lower === "discovery" ||
+    lower === "discover" ||
+    lower === "public discovery"
+  ) {
+    return "Discovery Home";
+  }
+
+  if (
+    lower === "find studios" ||
+    lower === "studios near me" ||
+    lower === "discover studios"
+  ) {
+    return "Find Studios";
+  }
+
+  if (
+    lower === "find events" ||
+    lower === "events near me" ||
+    lower === "discover events"
+  ) {
+    return "Find Events";
+  }
+
+  if (
+    lower === "tickets" ||
+    lower === "event tickets" ||
+    lower === "manage event tickets"
+  ) {
+    return "Manage Tickets";
+  }
+
+  if (
+    lower === "registrations" ||
+    lower === "event registrations" ||
+    lower === "manage registrations"
+  ) {
+    return "Registrations";
+  }
+
+  if (
+    lower === "check in" ||
+    lower === "check-in" ||
+    lower === "event check-in"
+  ) {
+    return "Check-In";
+  }
+
   return item.label;
 }
 
-function isOrganizerLikeRole(role: string) {
-  const normalized = role.trim().toLowerCase();
+function isDiscoveryHomeItem(item: NavItem) {
+  const lower = item.label.trim().toLowerCase();
+
   return (
-    normalized.includes("organizer") ||
-    normalized.includes("event") ||
-    normalized.includes("promoter")
+    item.href === "/discover" ||
+    item.href === "/app/discover" ||
+    lower === "discovery home" ||
+    lower === "public discovery" ||
+    lower === "discovery"
   );
 }
 
-function hasNavLink(sections: NavSectionType[], href: string) {
-  return sections.some((section) =>
-    section.items.some((item) => item.href === href)
+function isRedundantDiscoveryChild(item: NavItem) {
+  const lower = item.label.trim().toLowerCase();
+
+  return (
+    item.href === "/discover/studios" ||
+    item.href === "/discover/events" ||
+    item.href === "/app/discover/studios" ||
+    item.href === "/app/discover/events" ||
+    lower === "find studios" ||
+    lower === "find events"
   );
 }
 
-function looksLikeOrganizerNavigation(sections: NavSectionType[], role: string) {
-  if (isOrganizerLikeRole(role)) return true;
+function removeRedundantDiscoveryLinks(sections: NavSectionType[]) {
+  const hasDiscoveryHome = sections.some((section) =>
+    section.items.some(isDiscoveryHomeItem)
+  );
 
-  const flatItems = sections.flatMap((section) => section.items);
-
-  const hasEvents = flatItems.some((item) => item.href.startsWith("/app/events"));
-  const hasSchedule = flatItems.some((item) => item.href.startsWith("/app/schedule"));
-  const hasClients = flatItems.some((item) => item.href.startsWith("/app/clients"));
-
-  return hasEvents && !hasSchedule && !hasClients;
-}
-
-function injectOrganizerEventHubs(
-  sections: NavSectionType[],
-  role: string
-): NavSectionType[] {
-  if (!looksLikeOrganizerNavigation(sections, role)) {
+  if (!hasDiscoveryHome) {
     return sections;
   }
 
-  let inserted = false;
-
-  const nextSections = sections.map((section) => {
-    const hasEventsLink = section.items.some((item) => item.href === "/app/events");
-
-    if (!hasEventsLink) {
-      return section;
-    }
-
-    const hasRegistrationsHub = section.items.some(
-      (item) => item.href === "/app/events/registrations"
-    );
-    const hasCheckInHub = section.items.some(
-      (item) => item.href === "/app/events/checkin"
-    );
-
-    const nextItems: NavItem[] = [];
-
-    for (const item of section.items) {
-      nextItems.push(item);
-
-      if (item.href === "/app/events") {
-        if (!hasRegistrationsHub) {
-          nextItems.push({
-            label: "Registrations",
-            href: "/app/events/registrations",
-            icon: "clients",
-          });
-        }
-
-        if (!hasCheckInHub) {
-          nextItems.push({
-            label: "Check-In",
-            href: "/app/events/checkin",
-            icon: "checkin",
-          });
-        }
-
-        inserted = true;
-      }
-    }
-
-    return {
+  return sections
+    .map((section) => ({
       ...section,
-      items: nextItems,
-    };
-  });
-
-  if (inserted) {
-    return nextSections;
-  }
-
-  return [
-    {
-      title: "Organizer Operations",
-      items: [
-        {
-          label: "Dashboard",
-          href: "/app",
-          icon: "dashboard",
-        },
-        {
-          label: "Events",
-          href: "/app/events",
-          icon: "events",
-        },
-        {
-          label: "Registrations",
-          href: "/app/events/registrations",
-          icon: "clients",
-        },
-        {
-          label: "Check-In",
-          href: "/app/events/checkin",
-          icon: "checkin",
-        },
-      ],
-    },
-    ...sections,
-  ];
+      items: section.items.filter((item) => !isRedundantDiscoveryChild(item)),
+    }))
+    .filter((section) => section.items.length > 0);
 }
 
-function normalizeSections(input: unknown, role: string): NavSectionType[] {
+function injectEventWorkflowLinks(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const hasEventsAccess = flatItems.some((item) => item.href === "/app/events");
+
+  if (!hasEventsAccess) {
+    return sections;
+  }
+
+  const eventSection: NavSectionType = {
+    title: "Events",
+    items: [
+      {
+        label: "Events",
+        href: "/app/events",
+        icon: "events",
+      },
+      {
+        label: "Create Event",
+        href: "/app/events/new",
+        icon: "events",
+      },
+      {
+        label: "Manage Tickets",
+        href: "/app/events",
+        icon: "tickets",
+      },
+      {
+        label: "Sell Tickets",
+        href: "/app/events/sell-tickets",
+        icon: "tickets",
+      },
+      {
+        label: "Registrations",
+        href: "/app/events/registrations",
+        icon: "registrations",
+      },
+      {
+        label: "Check-In",
+        href: "/app/events/checkin",
+        icon: "checkin",
+      },
+    ],
+  };
+
+  const cleanedSections = sections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) =>
+          item.href !== "/app/events" &&
+          item.href !== "/app/events/new" &&
+          item.href !== "/app/events/tickets" &&
+          item.href !== "/app/events/sell-tickets" &&
+          item.href !== "/app/events/registrations" &&
+          item.href !== "/app/events/checkin"
+      ),
+    }))
+    .filter((section) => section.items.length > 0);
+
+  const salesAndPaymentsIndex = cleanedSections.findIndex((section) => {
+    const title = section.title.trim().toLowerCase();
+
+    return (
+      title === "sales & payments" ||
+      title === "sales and payments" ||
+      title === "payments" ||
+      section.items.some(
+        (item) =>
+          item.href.startsWith("/app/payments") ||
+          item.href.startsWith("/app/packages") ||
+          item.href.startsWith("/app/memberships")
+      )
+    );
+  });
+
+  if (salesAndPaymentsIndex >= 0) {
+    return [
+      ...cleanedSections.slice(0, salesAndPaymentsIndex + 1),
+      eventSection,
+      ...cleanedSections.slice(salesAndPaymentsIndex + 1),
+    ];
+  }
+
+  const dashboardIndex = cleanedSections.findIndex((section) =>
+    section.items.some((item) => item.href === "/app")
+  );
+
+  if (dashboardIndex >= 0) {
+    return [
+      ...cleanedSections.slice(0, dashboardIndex + 1),
+      eventSection,
+      ...cleanedSections.slice(dashboardIndex + 1),
+    ];
+  }
+
+  return [eventSection, ...cleanedSections];
+}
+
+function normalizeSections(input: unknown): NavSectionType[] {
   if (!Array.isArray(input)) return [];
 
   const normalized = input
@@ -262,7 +338,9 @@ function normalizeSections(input: unknown, role: string): NavSectionType[] {
     })
     .filter((section) => section.items.length > 0);
 
-    return injectOrganizerEventHubs(normalized, role);
+  const withoutDiscoveryDuplicates = removeRedundantDiscoveryLinks(normalized);
+
+  return injectEventWorkflowLinks(withoutDiscoveryDuplicates);
 }
 
 function prettyRole(role: string) {
@@ -316,7 +394,9 @@ function WorkspaceSwitcher({
 
   return (
     <div className={wrapperClass}>
-      <p className={`text-xs font-semibold uppercase tracking-[0.18em] ${labelClass}`}>
+      <p
+        className={`text-xs font-semibold uppercase tracking-[0.18em] ${labelClass}`}
+      >
         Workspace
       </p>
 
@@ -327,7 +407,8 @@ function WorkspaceSwitcher({
       >
         <div className="min-w-0">
           <p className={`truncate font-medium ${titleClass}`}>
-            {currentWorkspace.studioPublicName?.trim() || currentWorkspace.studioName}
+            {currentWorkspace.studioPublicName?.trim() ||
+              currentWorkspace.studioName}
           </p>
           <p className={`mt-1 truncate text-xs ${subtitleClass}`}>
             {prettyRole(currentWorkspace.studioRole)}
@@ -338,7 +419,9 @@ function WorkspaceSwitcher({
       </button>
 
       {open ? (
-        <div className={`mt-3 overflow-hidden rounded-2xl border ${dropdownClass}`}>
+        <div
+          className={`mt-3 overflow-hidden rounded-2xl border ${dropdownClass}`}
+        >
           <div className="max-h-72 overflow-y-auto p-2">
             {workspaces.map((workspace) => {
               const active = workspace.studioId === currentWorkspace.studioId;
@@ -351,14 +434,19 @@ function WorkspaceSwitcher({
                     setOpen(false);
                   }}
                 >
-                  <input type="hidden" name="studioId" value={workspace.studioId} />
+                  <input
+                    type="hidden"
+                    name="studioId"
+                    value={workspace.studioId}
+                  />
                   <button
                     type="submit"
                     className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left transition ${itemClass}`}
                   >
                     <div className="min-w-0">
                       <p className="truncate font-medium">
-                        {workspace.studioPublicName?.trim() || workspace.studioName}
+                        {workspace.studioPublicName?.trim() ||
+                          workspace.studioName}
                       </p>
                       <p className={`mt-1 truncate text-xs ${roleClass}`}>
                         {prettyRole(workspace.studioRole)}
@@ -533,8 +621,8 @@ export default function AppSidebarShell({
     : [];
 
   const normalizedSections = useMemo(
-    () => normalizeSections(sections, safeRole),
-    [sections, safeRole]
+    () => normalizeSections(sections),
+    [sections]
   );
 
   return (
@@ -723,7 +811,9 @@ export default function AppSidebarShell({
                   <p className="mt-2 font-medium text-[var(--brand-text)]">
                     {safeUserName}
                   </p>
-                  <p className="text-sm text-[var(--brand-muted)]">{safeUserEmail}</p>
+                  <p className="text-sm text-[var(--brand-muted)]">
+                    {safeUserEmail}
+                  </p>
                   <p className="mt-2 text-xs text-[var(--brand-accent-dark)]">
                     {safeRole}
                   </p>
