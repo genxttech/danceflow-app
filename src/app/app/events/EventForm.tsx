@@ -259,7 +259,8 @@ export default function EventForm({
   const isGroupClass = eventType === "group_class";
   const hasCapacity = capacity.trim() !== "" && Number(capacity) > 0;
 
-    const singleOrganizer = organizers.length === 1 ? organizers[0] : null;
+  const singleOrganizer = organizers.length === 1 ? organizers[0] : null;
+  const isStudioHostedEvent = !organizerWorkspace && organizers.length === 0;
   const organizerDefaultValue =
     initialValues?.organizerId ?? singleOrganizer?.id ?? "";
   const organizerSelectionLocked =
@@ -312,8 +313,8 @@ export default function EventForm({
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">
   Create public or internal offerings like group classes, socials,
-  workshops, and special events. Organizer workspaces keep events tied
-  to their single organizer profile for cleaner branding and discovery.
+  workshops, and special events. Pro studios can publish studio-hosted
+  events using the studio name as the public host.
 </p>
           </div>
 
@@ -420,44 +421,54 @@ export default function EventForm({
               </div>
 
               <div>
-  <label htmlFor="organizerId" className="mb-1.5 block text-sm font-medium">
-    Organizer
-  </label>
+                <label htmlFor="organizerId" className="mb-1.5 block text-sm font-medium">
+                  Event Host
+                </label>
 
-  {organizerSelectionLocked && singleOrganizer ? (
-    <>
-      <input type="hidden" name="organizerId" value={singleOrganizer.id} />
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-        <p className="text-sm font-medium text-emerald-900">
-          {singleOrganizer.name}
-        </p>
-        <p className="mt-1 text-xs text-emerald-800">
-          This organizer workspace is locked to its single organizer profile.
-        </p>
-      </div>
-    </>
-  ) : (
-    <>
-      <select
-        id="organizerId"
-        name="organizerId"
-        required
-        className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-        defaultValue={organizerDefaultValue}
-      >
-        <option value="">Select organizer</option>
-        {organizers.map((organizer) => (
-          <option key={organizer.id} value={organizer.id}>
-            {organizer.name}
-          </option>
-        ))}
-      </select>
-      <p className="mt-1 text-xs text-slate-500">
-        Choose the organizer brand this event belongs to.
-      </p>
-    </>
-  )}
-</div>
+                {isStudioHostedEvent ? (
+                  <div className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3">
+                    <input type="hidden" name="organizerId" value="" />
+                    <p className="text-sm font-medium text-violet-900">
+                      Studio-hosted event
+                    </p>
+                    <p className="mt-1 text-xs text-violet-800">
+                      This Pro studio event will use your studio name as the public event host. No separate organizer is required.
+                    </p>
+                  </div>
+                ) : organizerSelectionLocked && singleOrganizer ? (
+                  <>
+                    <input type="hidden" name="organizerId" value={singleOrganizer.id} />
+                    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+                      <p className="text-sm font-medium text-emerald-900">
+                        {singleOrganizer.name}
+                      </p>
+                      <p className="mt-1 text-xs text-emerald-800">
+                        This organizer workspace is locked to its single organizer profile.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <select
+                      id="organizerId"
+                      name="organizerId"
+                      required={organizers.length > 0}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                      defaultValue={organizerDefaultValue}
+                    >
+                      <option value="">Select organizer</option>
+                      {organizers.map((organizer) => (
+                        <option key={organizer.id} value={organizer.id}>
+                          {organizer.name}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Choose the organizer brand this event belongs to.
+                    </p>
+                  </>
+                )}
+              </div>
 
               <div>
                 <label htmlFor="eventType" className="mb-1.5 block text-sm font-medium">
@@ -836,7 +847,7 @@ export default function EventForm({
               Public Discovery
             </h3>
             <p className="mt-2 text-sm text-orange-800">
-              Use these settings to control whether this organizer event appears in the public dance directory.
+              Use these settings to control whether this event appears in the public dance directory.
             </p>
 
             <div className="mt-4 space-y-3">
@@ -853,7 +864,7 @@ export default function EventForm({
                     Show in public dance directory
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Only organizer-published events with this enabled will appear in public event discovery.
+                    Published/open events with this enabled can appear in public event discovery.
                   </p>
                 </div>
               </label>
@@ -1040,7 +1051,7 @@ export default function EventForm({
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
               <p className="font-medium">Public directory enabled</p>
               <p className="mt-2 text-emerald-800">
-                This event will be eligible for the public dance directory when saved with a public host studio, active organizer, and published/open status.
+                This event will be eligible for the public dance directory when saved with a public host, published/open status, and public discovery enabled.
               </p>
             </div>
           ) : null}
@@ -1054,6 +1065,27 @@ export default function EventForm({
               </p>
             </div>
           ) : null}
+
+
+          <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
+            <button
+              type="submit"
+              disabled={pending}
+              className="w-full rounded-xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {pending
+                ? mode === "edit"
+                  ? "Saving event..."
+                  : "Creating event..."
+                : mode === "edit"
+                  ? "Save Event Changes"
+                  : "Create Event"}
+            </button>
+
+            <p className="mt-3 text-center text-xs leading-5 text-slate-500">
+              You can save as a draft first, then publish when the event details are ready.
+            </p>
+          </section>
         </div>
       </div>
     </form>
