@@ -269,7 +269,6 @@ export default async function DiscoverEventsPage({
       .eq("visibility", "public")
       .eq("public_directory_enabled", true)
       .in("status", ["published", "open"])
-      .not("organizer_id", "is", null)
       .order("start_date", { ascending: true }),
 
     supabase.from("studios").select(
@@ -399,12 +398,20 @@ export default async function DiscoverEventsPage({
 
   const filteredEvents = typedEvents
     .map((event) => {
-      if (!event.organizer_id || !event.public_directory_enabled || !event.slug) {
-        return null;
-      }
+      if (
+  (!event.organizer_id && !event.studio_id) ||
+  !event.public_directory_enabled ||
+  !event.slug
+) {
+  return null;
+}
 
-      const organizer = organizerById.get(event.organizer_id);
-      if (!organizer || !organizer.active) return null;
+let organizer: OrganizerRow | undefined;
+
+if (event.organizer_id) {
+  organizer = organizerById.get(event.organizer_id);
+  if (!organizer || !organizer.active) return null;
+}
 
       const studio = event.studio_id ? studioById.get(event.studio_id) : undefined;
       if (!studio || !studio.public_directory_enabled) return null;
@@ -461,8 +468,8 @@ export default async function DiscoverEventsPage({
           event.public_description ?? "",
           eventTypeLabel(event.event_type),
           hostStudioName(studio),
-          organizer.name,
-          organizer.slug,
+          organizer?.name ?? "",
+organizer?.slug ?? "",
           studio.city ?? "",
           studio.state ?? "",
           event.postal_code ?? "",
