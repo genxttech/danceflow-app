@@ -390,7 +390,7 @@ export async function sellTicketsAction(
         total_amount: totalPrice,
         currency,
         registration_source: "manual",
-        source: "manual_ticket_sale",
+source: "admin",
         notes:
           notes ||
           `Manual ticket sale created from workspace by user ${userId}. Payment method: ${paymentMethod}.`,
