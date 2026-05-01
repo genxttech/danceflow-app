@@ -2,32 +2,34 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 
+type SubscriptionPlan = {
+  code: string | null;
+  name: string | null;
+};
+
 type SubscriptionRow = {
   id: string;
   studio_id: string;
-  status: string;
-  billing_interval: string;
+  status: string | null;
+  billing_interval: string | null;
   current_period_start: string | null;
   current_period_end: string | null;
-  cancel_at_period_end: boolean;
+  cancel_at_period_end: boolean | null;
   trial_ends_at: string | null;
   stripe_subscription_id: string | null;
-  subscription_plans:
-    | {
-        code: string;
-        name: string;
-      }
-    | {
-        code: string;
-        name: string;
-      }[]
-    | null;
+  subscription_plans: SubscriptionPlan | SubscriptionPlan[] | null;
 };
 
 type StudioRow = {
   id: string;
   name: string;
   created_at: string;
+  billing_plan: string | null;
+  subscription_status: string | null;
+  active: boolean | null;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  trial_ends_at: string | null;
 };
 
 type InvoiceRow = {
@@ -44,17 +46,43 @@ type InvoiceRow = {
   created_at: string;
 };
 
-function getPlan(
-  value:
-    | { code: string; name: string }
-    | { code: string; name: string }[]
-    | null
-) {
+type BillingRisk = {
+  key: string;
+  severity: "critical" | "warning" | "info";
+  title: string;
+  description: string;
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+  status: string;
+  planName: string;
+};
+
+const PLAN_LABELS: Record<string, string> = {
+  starter: "Starter",
+  growth: "Growth",
+  pro: "Pro",
+  organizer: "Organizer",
+};
+
+function getPlan(value: SubscriptionPlan | SubscriptionPlan[] | null) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function normalize(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function formatFallbackLabel(value: string) {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function formatDate(value: string | null) {
   if (!value) return "—";
+
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -65,52 +93,290 @@ function formatDate(value: string | null) {
 function formatMoney(value: number, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency,
+    currency: currency || "USD",
     maximumFractionDigits: 0,
   }).format(Number(value ?? 0));
 }
 
 function statusBadgeClass(status: string) {
-  if (status === "active") return "bg-green-50 text-green-700";
-  if (status === "trialing") return "bg-blue-50 text-blue-700";
-  if (status === "past_due") return "bg-amber-50 text-amber-700";
-  if (status === "cancelled" || status === "canceled") return "bg-red-50 text-red-700";
-  if (status === "paid") return "bg-green-50 text-green-700";
-  if (status === "open") return "bg-amber-50 text-amber-700";
-  if (status === "draft") return "bg-slate-100 text-slate-700";
-  if (status === "void") return "bg-red-50 text-red-700";
-  return "bg-slate-100 text-slate-700";
+  const normalized = normalize(status);
+
+  if (normalized === "active" || normalized === "paid") {
+    return "bg-green-50 text-green-700 ring-1 ring-green-200";
+  }
+
+  if (normalized === "trialing") {
+    return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
+  }
+
+  if (normalized === "past_due" || normalized === "open") {
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  }
+
+  if (normalized === "cancelled" || normalized === "canceled" || normalized === "void") {
+    return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  }
+
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
-function statusLabel(status: string) {
-  if (status === "trialing") return "Trialing";
-  if (status === "active") return "Active";
-  if (status === "past_due") return "Past Due";
-  if (status === "cancelled" || status === "canceled") return "Canceled";
-  if (status === "inactive") return "Inactive";
-  if (status === "paid") return "Paid";
-  if (status === "open") return "Open";
-  if (status === "draft") return "Draft";
-  if (status === "void") return "Void";
-  return status;
+function riskBadgeClass(severity: BillingRisk["severity"]) {
+  if (severity === "critical") return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  if (severity === "warning") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function statusLabel(status: string | null | undefined) {
+  const normalized = normalize(status);
+
+  if (!normalized) return "Unknown";
+  if (normalized === "trialing") return "Trial";
+  if (normalized === "active") return "Active";
+  if (normalized === "past_due") return "Past Due";
+  if (normalized === "cancelled" || normalized === "canceled") return "Canceled";
+  if (normalized === "not_started") return "Billing Not Started";
+  if (normalized === "no_subscription") return "No Subscription";
+  if (normalized === "inactive") return "Inactive";
+  if (normalized === "paid") return "Paid";
+  if (normalized === "open") return "Open";
+  if (normalized === "draft") return "Draft";
+  if (normalized === "void") return "Void";
+
+  return formatFallbackLabel(normalized);
+}
+
+function billingIntervalLabel(value: string | null | undefined) {
+  const normalized = normalize(value);
+
+  if (normalized === "year") return "Yearly";
+  if (normalized === "month") return "Monthly";
+  return "—";
 }
 
 function daysUntil(dateValue: string | null) {
   if (!dateValue) return null;
+
   const now = new Date();
   const target = new Date(dateValue);
   const diffMs = target.getTime() - now.getTime();
+
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
 
-function hasActiveBillingAccess(status: string | null | undefined) {
-  return status === "active" || status === "trialing";
+function getPlanCode(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  const subscriptionPlan = params.subscription
+    ? getPlan(params.subscription.subscription_plans)
+    : null;
+
+  return (
+    normalize(subscriptionPlan?.code) ||
+    normalize(params.studio.billing_plan) ||
+    ""
+  );
 }
 
-function hasPaidPlan(subscription: SubscriptionRow | undefined) {
-  if (!subscription) return false;
-  const plan = getPlan(subscription.subscription_plans);
-  return Boolean(plan?.code || plan?.name || subscription.stripe_subscription_id);
+function getPlanName(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  const subscriptionPlan = params.subscription
+    ? getPlan(params.subscription.subscription_plans)
+    : null;
+  const planCode = getPlanCode(params);
+
+  return (
+    subscriptionPlan?.name?.trim() ||
+    PLAN_LABELS[planCode] ||
+    (planCode ? formatFallbackLabel(planCode) : "No plan")
+  );
+}
+
+function getEffectiveBillingStatus(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  return (
+    normalize(params.subscription?.status) ||
+    normalize(params.studio.subscription_status) ||
+    (params.studio.active === false ? "inactive" : "not_started")
+  );
+}
+
+function getEffectiveTrialEndsAt(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  return (
+    params.subscription?.trial_ends_at ??
+    params.studio.trial_ends_at ??
+    params.subscription?.current_period_end ??
+    null
+  );
+}
+
+function getEffectiveStripeSubscriptionId(params: {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+}) {
+  return (
+    params.subscription?.stripe_subscription_id?.trim() ||
+    params.studio.stripe_subscription_id?.trim() ||
+    ""
+  );
+}
+
+function hasActiveBillingAccess(status: string | null | undefined) {
+  const normalized = normalize(status);
+  return normalized === "active" || normalized === "trialing";
+}
+
+function isPaidPlanCode(planCode: string) {
+  return Boolean(planCode) && !["free", "none", "no_plan", "not_started"].includes(planCode);
+}
+
+function hasPaidPlan(params: { studio: StudioRow; subscription?: SubscriptionRow }) {
+  const planCode = getPlanCode(params);
+  const stripeSubscriptionId = getEffectiveStripeSubscriptionId(params);
+
+  return isPaidPlanCode(planCode) || Boolean(stripeSubscriptionId);
+}
+
+function getRiskSummary(risks: BillingRisk[]) {
+  const critical = risks.filter((risk) => risk.severity === "critical").length;
+  const warning = risks.filter((risk) => risk.severity === "warning").length;
+  const info = risks.filter((risk) => risk.severity === "info").length;
+
+  return { critical, warning, info };
+}
+
+function createBillingRisks(params: {
+  studios: StudioRow[];
+  subscriptionByStudioId: Map<string, SubscriptionRow>;
+}) {
+  const risks: BillingRisk[] = [];
+
+  for (const studio of params.studios) {
+    const subscription = params.subscriptionByStudioId.get(studio.id);
+    const status = getEffectiveBillingStatus({ studio, subscription });
+    const planName = getPlanName({ studio, subscription });
+    const paidPlan = hasPaidPlan({ studio, subscription });
+    const activeAccess = hasActiveBillingAccess(status);
+    const stripeSubscriptionId = getEffectiveStripeSubscriptionId({ studio, subscription });
+    const trialEndsAt = getEffectiveTrialEndsAt({ studio, subscription });
+    const trialDaysLeft = daysUntil(trialEndsAt);
+
+    if (paidPlan && !activeAccess) {
+      risks.push({
+        key: `${studio.id}-paid-access-no-active-subscription`,
+        severity: "critical",
+        title: "Paid access needs subscription review",
+        description:
+          "This workspace has a paid plan or Stripe subscription reference, but the billing status is not active or trialing.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (activeAccess && !studio.stripe_customer_id) {
+      risks.push({
+        key: `${studio.id}-missing-stripe-customer`,
+        severity: "warning",
+        title: "Missing Stripe customer ID",
+        description:
+          "This workspace is active or trialing, but the studio record does not have a Stripe customer ID.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (activeAccess && !stripeSubscriptionId) {
+      risks.push({
+        key: `${studio.id}-missing-stripe-subscription`,
+        severity: "warning",
+        title: "Missing Stripe subscription ID",
+        description:
+          "This workspace is active or trialing, but no Stripe subscription ID is available from the studio or subscription record.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (status === "trialing" && !trialEndsAt) {
+      risks.push({
+        key: `${studio.id}-trial-missing-end-date`,
+        severity: "warning",
+        title: "Trial is missing an end date",
+        description:
+          "This account is trialing, but no trial end date is stored. Trial reminders and risk checks may be inaccurate.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (status === "trialing" && trialDaysLeft !== null && trialDaysLeft < 0) {
+      risks.push({
+        key: `${studio.id}-trial-expired`,
+        severity: "critical",
+        title: "Trial appears expired",
+        description:
+          "This account is still marked trialing, but the trial end date has passed.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (subscription?.cancel_at_period_end) {
+      risks.push({
+        key: `${studio.id}-cancel-at-period-end`,
+        severity: "info",
+        title: "Subscription set to cancel",
+        description:
+          "This subscription is active for now, but it is scheduled to cancel at the end of the billing period.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (status === "past_due") {
+      risks.push({
+        key: `${studio.id}-past-due`,
+        severity: "critical",
+        title: "Subscription is past due",
+        description:
+          "This account has a past-due billing status and may need payment follow-up.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+  }
+
+  return risks.sort((a, b) => {
+    const severityRank = { critical: 0, warning: 1, info: 2 };
+    const severityCompare = severityRank[a.severity] - severityRank[b.severity];
+
+    if (severityCompare !== 0) return severityCompare;
+
+    return a.studio.name.localeCompare(b.studio.name, undefined, {
+      sensitivity: "base",
+    });
+  });
 }
 
 export default async function PlatformBillingPage() {
@@ -143,7 +409,9 @@ export default async function PlatformBillingPage() {
 
     supabase
       .from("studios")
-      .select("id, name, created_at")
+      .select(
+        "id, name, created_at, billing_plan, subscription_status, active, stripe_customer_id, stripe_subscription_id, trial_ends_at"
+      )
       .order("created_at", { ascending: false }),
 
     supabase
@@ -186,31 +454,41 @@ export default async function PlatformBillingPage() {
     typedSubscriptions.map((subscription) => [subscription.studio_id, subscription])
   );
 
-  const activeCount = typedSubscriptions.filter((s) => s.status === "active").length;
-  const trialingCount = typedSubscriptions.filter((s) => s.status === "trialing").length;
-const trialingWithoutEndDateCount = typedSubscriptions.filter(
-  (s) => s.status === "trialing" && !s.trial_ends_at
-).length;
-const nextTrialEnding = typedSubscriptions
-  .filter((s) => s.status === "trialing" && daysUntil(s.trial_ends_at) !== null)
-  .map((subscription) => ({
-    subscription,
-    days: daysUntil(subscription.trial_ends_at),
-  }))
-  .sort((a, b) => (a.days ?? 9999) - (b.days ?? 9999))[0];
+  const accountRows = typedStudios.map((studio) => {
+    const subscription = subscriptionByStudioId.get(studio.id);
+    const status = getEffectiveBillingStatus({ studio, subscription });
+    const planName = getPlanName({ studio, subscription });
+    const trialEndsAt = getEffectiveTrialEndsAt({ studio, subscription });
+    const trialDaysLeft = daysUntil(trialEndsAt);
 
-const pastDueCount = typedSubscriptions.filter((s) => s.status === "past_due").length;
-  const cancelledCount = typedSubscriptions.filter((s) => s.status === "cancelled" || s.status === "canceled").length;
+    return {
+      studio,
+      subscription,
+      status,
+      planName,
+      trialEndsAt,
+      trialDaysLeft,
+      paidPlan: hasPaidPlan({ studio, subscription }),
+      stripeSubscriptionId: getEffectiveStripeSubscriptionId({ studio, subscription }),
+    };
+  });
 
-  const monthlyCount = typedSubscriptions.filter((s) => s.billing_interval === "month").length;
-  const yearlyCount = typedSubscriptions.filter((s) => s.billing_interval === "year").length;
+  const activeCount = accountRows.filter((row) => row.status === "active").length;
+  const trialingCount = accountRows.filter((row) => row.status === "trialing").length;
+  const pastDueCount = accountRows.filter((row) => row.status === "past_due").length;
+  const cancelledCount = accountRows.filter(
+    (row) => row.status === "cancelled" || row.status === "canceled"
+  ).length;
+  const billingNotStartedCount = accountRows.filter(
+    (row) => row.status === "not_started" || row.status === "no_subscription"
+  ).length;
 
-  const planMix = typedSubscriptions.reduce<Record<string, number>>((acc, subscription) => {
-    const plan = getPlan(subscription.subscription_plans);
-    const key = plan?.name ?? "No plan";
-    acc[key] = (acc[key] ?? 0) + 1;
-    return acc;
-  }, {});
+  const monthlyCount = typedSubscriptions.filter(
+    (subscription) => subscription.billing_interval === "month"
+  ).length;
+  const yearlyCount = typedSubscriptions.filter(
+    (subscription) => subscription.billing_interval === "year"
+  ).length;
 
   const totalInvoicePaid = typedInvoices.reduce(
     (sum, invoice) => sum + Number(invoice.amount_paid ?? 0),
@@ -222,76 +500,59 @@ const pastDueCount = typedSubscriptions.filter((s) => s.status === "past_due").l
     0
   );
 
-  const billingIssues = typedStudios
-    .map((studio) => {
-      const subscription = subscriptionByStudioId.get(studio.id);
-      return { studio, subscription };
-    })
-    .filter(({ subscription }) => {
-      if (!subscription) return true;
-      return subscription.status === "past_due" || subscription.status === "cancelled" || subscription.status === "canceled";
-    });
+  const openInvoiceCount = typedInvoices.filter(
+    (invoice) => normalize(invoice.status) === "open"
+  ).length;
+
+  const planMix = accountRows.reduce<Record<string, number>>((acc, row) => {
+    acc[row.planName] = (acc[row.planName] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const billingRisks = createBillingRisks({
+    studios: typedStudios,
+    subscriptionByStudioId,
+  });
+
+  const riskSummary = getRiskSummary(billingRisks);
+
+  const trialsEndingSoon = accountRows
+    .filter(
+      (row) =>
+        row.status === "trialing" &&
+        row.trialDaysLeft !== null &&
+        row.trialDaysLeft >= 0 &&
+        row.trialDaysLeft <= 14
+    )
+    .sort((a, b) => (a.trialDaysLeft ?? 999) - (b.trialDaysLeft ?? 999));
 
   const renewalsEndingSoon = typedSubscriptions
     .map((subscription) => {
       const studio = studioById.get(subscription.studio_id);
-      const plan = getPlan(subscription.subscription_plans);
       const days = daysUntil(subscription.current_period_end);
 
       return {
         subscription,
         studio,
-        plan,
+        planName: studio ? getPlanName({ studio, subscription }) : "No plan",
         days,
       };
     })
     .filter(
       (item) =>
-        item.subscription.status === "active" &&
-        item.days != null &&
+        normalize(item.subscription.status) === "active" &&
+        item.days !== null &&
         item.days >= 0 &&
         item.days <= 14
     )
     .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
 
-  const trialsEndingSoon = typedSubscriptions
-    .map((subscription) => {
-      const studio = studioById.get(subscription.studio_id);
-      const plan = getPlan(subscription.subscription_plans);
-      const days = daysUntil(subscription.trial_ends_at);
-
-      return {
-        subscription,
-        studio,
-        plan,
-        days,
-      };
-    })
-    .filter(
-      (item) =>
-        item.subscription.status === "trialing" &&
-        item.days != null &&
-        item.days >= 0 &&
-        item.days <= 14
-    )
-    .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
-
-  const paidAccessWithoutActiveSubscription = typedStudios
-    .map((studio) => {
-      const subscription = subscriptionByStudioId.get(studio.id);
-      const plan = subscription ? getPlan(subscription.subscription_plans) : null;
-
-      return {
-        studio,
-        subscription,
-        plan,
-        status: subscription?.status ?? "no_subscription",
-      };
-    })
-    .filter(({ subscription }) => {
-      if (!hasPaidPlan(subscription)) return false;
-      return !hasActiveBillingAccess(subscription?.status);
-    });
+  const missingStripeCustomerCount = billingRisks.filter(
+    (risk) => risk.key.endsWith("missing-stripe-customer")
+  ).length;
+  const missingStripeSubscriptionCount = billingRisks.filter(
+    (risk) => risk.key.endsWith("missing-stripe-subscription")
+  ).length;
 
   return (
     <div className="space-y-8">
@@ -301,10 +562,10 @@ const pastDueCount = typedSubscriptions.filter((s) => s.status === "past_due").l
             DanceFlow Platform Admin
           </p>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-            Billing Oversight
+            Billing Risk & Subscription Health
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-white/85 md:text-base">
-            Monitor subscriptions, trial health, invoice activity, and paid-plan access so no studio or organizer uses paid features without an active subscription.
+            Monitor subscription status, trial health, Stripe sync, invoice activity, and paid-plan access from one place.
           </p>
         </div>
 
@@ -315,20 +576,16 @@ const pastDueCount = typedSubscriptions.filter((s) => s.status === "past_due").l
           </div>
 
           <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
-  <p className="text-sm text-sky-700">Trialing</p>
-  <p className="mt-2 text-3xl font-semibold text-sky-950">{trialingCount}</p>
-  <p className="mt-2 text-xs font-medium text-sky-700">
-    {nextTrialEnding?.days != null
-      ? nextTrialEnding.days < 0
-        ? "A trial is expired"
-        : nextTrialEnding.days === 0
-          ? "Next trial ends today"
-          : `Next trial ends in ${nextTrialEnding.days} day${nextTrialEnding.days === 1 ? "" : "s"}`
-      : trialingWithoutEndDateCount > 0
-        ? `${trialingWithoutEndDateCount} missing trial end date`
-        : "No trial end dates pending"}
-  </p>
-</div>
+            <p className="text-sm text-sky-700">Trial</p>
+            <p className="mt-2 text-3xl font-semibold text-sky-950">{trialingCount}</p>
+            <p className="mt-2 text-xs font-medium text-sky-700">
+              {trialsEndingSoon[0]?.trialDaysLeft !== undefined
+                ? trialsEndingSoon[0].trialDaysLeft === 0
+                  ? "Next trial ends today"
+                  : `Next trial ends in ${trialsEndingSoon[0].trialDaysLeft} day${trialsEndingSoon[0].trialDaysLeft === 1 ? "" : "s"}`
+                : "No trials ending soon"}
+            </p>
+          </div>
 
           <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
             <p className="text-sm text-amber-700">Past Due</p>
@@ -341,88 +598,141 @@ const pastDueCount = typedSubscriptions.filter((s) => s.status === "past_due").l
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <p className="text-sm text-slate-500">Monthly</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-950">{monthlyCount}</p>
+            <p className="text-sm text-slate-500">Billing Not Started</p>
+            <p className="mt-2 text-3xl font-semibold text-slate-950">{billingNotStartedCount}</p>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <p className="text-sm text-slate-500">Yearly</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-950">{yearlyCount}</p>
+            <p className="text-sm text-slate-500">Open Invoices</p>
+            <p className="mt-2 text-3xl font-semibold text-slate-950">{openInvoiceCount}</p>
           </div>
         </div>
       </section>
 
-      {paidAccessWithoutActiveSubscription.length > 0 ? (
-        <section className="rounded-[32px] border border-rose-200 bg-rose-50 p-6 shadow-sm">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">
-                Launch Alert
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold text-rose-950">
-                Paid-plan access without active subscription
-              </h2>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-rose-800">
-                These accounts have a paid plan or Stripe subscription reference, but their subscription is not active or trialing. Review them before launch so paid workspaces are not being used for free.
-              </p>
-            </div>
-            <span className="rounded-full bg-rose-100 px-4 py-2 text-sm font-semibold text-rose-800 ring-1 ring-rose-200">
-              {paidAccessWithoutActiveSubscription.length} to review
-            </span>
+      <section className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-[28px] border border-red-200 bg-red-50 p-6 shadow-sm">
+          <p className="text-sm font-medium text-red-700">Critical Risks</p>
+          <p className="mt-2 text-4xl font-semibold text-red-950">{riskSummary.critical}</p>
+          <p className="mt-2 text-sm leading-6 text-red-800">
+            Items that can affect revenue, access, or subscription accuracy.
+          </p>
+        </div>
+
+        <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-6 shadow-sm">
+          <p className="text-sm font-medium text-amber-700">Warnings</p>
+          <p className="mt-2 text-4xl font-semibold text-amber-950">{riskSummary.warning}</p>
+          <p className="mt-2 text-sm leading-6 text-amber-800">
+            Records that need cleanup or Stripe sync review.
+          </p>
+        </div>
+
+        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="text-sm font-medium text-slate-500">Monitoring Notes</p>
+          <p className="mt-2 text-4xl font-semibold text-slate-950">{riskSummary.info}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Subscriptions scheduled to cancel or accounts that should be watched.
+          </p>
+        </div>
+      </section>
+
+      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold text-slate-900">Billing Risk Review</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Review workspaces with subscription, trial, or Stripe sync issues. These checks help catch paid access, expired trials, and missing billing references before they become support problems.
+            </p>
           </div>
 
-          <div className="mt-5 overflow-hidden rounded-2xl border border-rose-200 bg-white">
-            <table className="min-w-full divide-y divide-rose-100 text-sm">
-              <thead className="bg-rose-50">
-                <tr>
-                  <th className="px-4 py-3 text-left font-medium text-rose-900">Account</th>
-                  <th className="px-4 py-3 text-left font-medium text-rose-900">Plan</th>
-                  <th className="px-4 py-3 text-left font-medium text-rose-900">Status</th>
-                  <th className="px-4 py-3 text-left font-medium text-rose-900">Stripe Subscription</th>
-                  <th className="px-4 py-3 text-left font-medium text-rose-900">Created</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-rose-100">
-                {paidAccessWithoutActiveSubscription.map(({ studio, subscription, plan, status }) => (
-                  <tr key={studio.id}>
-                    <td className="px-4 py-4">
-                      <Link href={`/platform/studios/${studio.id}`} className="font-medium text-slate-950 underline">
-                        {studio.name}
-                      </Link>
-                    </td>
-                    <td className="px-4 py-4 text-slate-700">{plan?.name ?? "Paid plan"}</td>
-                    <td className="px-4 py-4">
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(status)}`}>
-                        {statusLabel(status)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-slate-700">{subscription?.stripe_subscription_id ?? "—"}</td>
-                    <td className="px-4 py-4 text-slate-700">{formatDate(studio.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <span
+            className={`rounded-full px-4 py-2 text-sm font-semibold ${
+              billingRisks.length === 0
+                ? "bg-green-50 text-green-700 ring-1 ring-green-200"
+                : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+            }`}
+          >
+            {billingRisks.length} item{billingRisks.length === 1 ? "" : "s"} to review
+          </span>
+        </div>
+
+        {billingRisks.length === 0 ? (
+          <div className="mt-6 rounded-2xl border border-green-200 bg-green-50 px-4 py-10 text-sm text-green-700">
+            No billing risk items detected right now.
           </div>
-        </section>
-      ) : (
-        <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-5 text-sm text-emerald-800 shadow-sm">
-          No paid-plan access without an active or trialing subscription was detected.
-        </section>
-      )}
+        ) : (
+          <div className="mt-6 space-y-3">
+            {billingRisks.map((risk) => (
+              <div key={risk.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${riskBadgeClass(
+                          risk.severity
+                        )}`}
+                      >
+                        {risk.severity.toUpperCase()}
+                      </span>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
+                          risk.status
+                        )}`}
+                      >
+                        {statusLabel(risk.status)}
+                      </span>
+                    </div>
+
+                    <h3 className="mt-3 text-base font-semibold text-slate-950">
+                      {risk.title}
+                    </h3>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      {risk.description}
+                    </p>
+                    <p className="mt-2 text-sm text-slate-500">
+                      {risk.planName} • Created {formatDate(risk.studio.created_at)}
+                    </p>
+                  </div>
+
+                  <div className="md:text-right">
+                    <Link
+                      href={`/platform/studios/${risk.studio.id}`}
+                      className="font-medium text-slate-950 underline"
+                    >
+                      {risk.studio.name}
+                    </Link>
+                    <p className="mt-2 text-xs text-slate-500">
+                      Stripe customer: {risk.studio.stripe_customer_id ?? "—"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Stripe subscription: {getEffectiveStripeSubscriptionId({
+                        studio: risk.studio,
+                        subscription: risk.subscription,
+                      }) || "—"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold text-slate-900">Revenue Snapshot</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Recent subscription invoice totals from stored Stripe invoice records.
+          </p>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl border bg-slate-50 p-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Recent Invoice Paid Total</p>
               <p className="mt-1 text-2xl font-semibold text-slate-900">
                 {formatMoney(totalInvoicePaid, "USD")}
               </p>
             </div>
 
-            <div className="rounded-xl border bg-slate-50 p-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Recent Invoice Due Total</p>
               <p className="mt-1 text-2xl font-semibold text-slate-900">
                 {formatMoney(totalInvoiceDue, "USD")}
@@ -431,106 +741,49 @@ const pastDueCount = typedSubscriptions.filter((s) => s.status === "past_due").l
           </div>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-sm text-slate-500">Monthly Subscriptions</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">{monthlyCount}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-sm text-slate-500">Yearly Subscriptions</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">{yearlyCount}</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold text-slate-900">Plan Mix</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Current workspace plan distribution based on subscription plan records and studio billing plan fallback.
+          </p>
+
+          <div className="mt-5 grid gap-3">
             {Object.keys(planMix).length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500 md:col-span-2">
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
                 No plan mix data yet.
               </div>
             ) : (
               Object.entries(planMix).map(([planName, count]) => (
-                <div key={planName} className="rounded-xl border bg-slate-50 p-4">
-                  <p className="text-sm text-slate-500">{planName}</p>
-                  <p className="mt-1 text-2xl font-semibold text-slate-900">{count}</p>
+                <div
+                  key={planName}
+                  className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4"
+                >
+                  <p className="text-sm font-medium text-slate-700">{planName}</p>
+                  <p className="text-lg font-semibold text-slate-950">{count}</p>
                 </div>
               ))
             )}
           </div>
-        </div>
-
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">Billing Issues</h2>
-
-          {billingIssues.length === 0 ? (
-            <div className="mt-5 rounded-xl border border-green-200 bg-green-50 px-4 py-10 text-sm text-green-700">
-              No billing issues detected right now.
-            </div>
-          ) : (
-            <div className="mt-5 space-y-3">
-              {billingIssues.map(({ studio, subscription }) => {
-                const plan = subscription ? getPlan(subscription.subscription_plans) : null;
-
-                return (
-                  <div key={studio.id} className="rounded-xl border bg-slate-50 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <Link
-                          href={`/platform/studios/${studio.id}`}
-                          className="font-medium underline text-slate-900"
-                        >
-                          {studio.name}
-                        </Link>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {plan?.name ?? "No plan"}
-                        </p>
-                      </div>
-
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                          subscription?.status ?? "inactive"
-                        )}`}
-                      >
-                        {statusLabel(subscription?.status ?? "inactive")}
-                      </span>
-                    </div>
-
-                    <p className="mt-3 text-sm text-slate-600">
-                      Period end: {formatDate(subscription?.current_period_end ?? null)}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        </section>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">Renewals Ending Soon</h2>
-
-          {renewalsEndingSoon.length === 0 ? (
-            <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
-              No active renewals ending in the next 14 days.
-            </div>
-          ) : (
-            <div className="mt-5 space-y-3">
-              {renewalsEndingSoon.map((item) => (
-                <div key={item.subscription.id} className="rounded-xl border bg-slate-50 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <Link
-                        href={`/platform/studios/${item.subscription.studio_id}`}
-                        className="font-medium underline text-slate-900"
-                      >
-                        {item.studio?.name ?? "Unknown studio"}
-                      </Link>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {item.plan?.name ?? "No plan"} • {item.subscription.billing_interval === "year" ? "Yearly" : "Monthly"}
-                      </p>
-                    </div>
-
-                    <div className="text-right text-sm text-slate-600">
-                      <p>{item.days} days</p>
-                      <p>{formatDate(item.subscription.current_period_end)}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-2xl border bg-white p-6 shadow-sm">
+        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold text-slate-900">Trials Ending Soon</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Trialing accounts with a trial end date in the next 14 days.
+          </p>
 
           {trialsEndingSoon.length === 0 ? (
             <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
@@ -539,41 +792,84 @@ const pastDueCount = typedSubscriptions.filter((s) => s.status === "past_due").l
           ) : (
             <div className="mt-5 space-y-3">
               {trialsEndingSoon.map((item) => (
-                <div key={item.subscription.id} className="rounded-xl border bg-slate-50 p-4">
+                <div key={item.studio.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <Link
-                        href={`/platform/studios/${item.subscription.studio_id}`}
-                        className="font-medium underline text-slate-900"
+                        href={`/platform/studios/${item.studio.id}`}
+                        className="font-medium text-slate-900 underline"
                       >
-                        {item.studio?.name ?? "Unknown studio"}
+                        {item.studio.name}
                       </Link>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {item.plan?.name ?? "No plan"}
-                      </p>
+                      <p className="mt-1 text-sm text-slate-500">{item.planName}</p>
                     </div>
 
                     <div className="text-right text-sm text-slate-600">
-                      <p>{item.days} days</p>
-                      <p>{formatDate(item.subscription.trial_ends_at)}</p>
+                      <p>
+                        {item.trialDaysLeft} day{item.trialDaysLeft === 1 ? "" : "s"}
+                      </p>
+                      <p>{formatDate(item.trialEndsAt)}</p>
                     </div>
                   </div>
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </section>
+
+        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold text-slate-900">Renewals Ending Soon</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Active subscriptions with a billing period ending in the next 14 days.
+          </p>
+
+          {renewalsEndingSoon.length === 0 ? (
+            <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
+              No active renewals ending in the next 14 days.
+            </div>
+          ) : (
+            <div className="mt-5 space-y-3">
+              {renewalsEndingSoon.map((item) => (
+                <div key={item.subscription.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <Link
+                        href={`/platform/studios/${item.subscription.studio_id}`}
+                        className="font-medium text-slate-900 underline"
+                      >
+                        {item.studio?.name ?? "Unknown studio"}
+                      </Link>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {item.planName} • {billingIntervalLabel(item.subscription.billing_interval)}
+                      </p>
+                    </div>
+
+                    <div className="text-right text-sm text-slate-600">
+                      <p>
+                        {item.days} day{item.days === 1 ? "" : "s"}
+                      </p>
+                      <p>{formatDate(item.subscription.current_period_end)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
 
-      <div className="rounded-2xl border bg-white p-6 shadow-sm">
+      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
         <h2 className="text-xl font-semibold text-slate-900">Recent Invoices</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Recent invoice activity stored in the platform database.
+        </p>
 
         {typedInvoices.length === 0 ? (
           <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
             No invoices yet.
           </div>
         ) : (
-          <div className="mt-5 overflow-hidden rounded-xl border">
+          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
               <thead className="bg-slate-50">
                 <tr>
@@ -632,7 +928,73 @@ const pastDueCount = typedSubscriptions.filter((s) => s.status === "past_due").l
             </table>
           </div>
         )}
-      </div>
+      </section>
+
+      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="text-xl font-semibold text-slate-900">All Subscription Accounts</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          Review each workspace billing status, plan, Stripe references, and trial or renewal timing.
+        </p>
+
+        <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
+          <table className="min-w-full divide-y divide-slate-200 text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-4 py-3 text-left font-medium text-slate-600">Workspace</th>
+                <th className="px-4 py-3 text-left font-medium text-slate-600">Plan</th>
+                <th className="px-4 py-3 text-left font-medium text-slate-600">Billing Status</th>
+                <th className="px-4 py-3 text-left font-medium text-slate-600">Workspace</th>
+                <th className="px-4 py-3 text-left font-medium text-slate-600">Stripe</th>
+                <th className="px-4 py-3 text-left font-medium text-slate-600">Next Date</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 bg-white">
+              {accountRows.map((row) => {
+                const nextDate =
+                  row.status === "trialing"
+                    ? row.trialEndsAt
+                    : row.subscription?.current_period_end ?? null;
+
+                return (
+                  <tr key={row.studio.id}>
+                    <td className="px-4 py-4">
+                      <Link
+                        href={`/platform/studios/${row.studio.id}`}
+                        className="font-medium text-slate-950 underline"
+                      >
+                        {row.studio.name}
+                      </Link>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Created {formatDate(row.studio.created_at)}
+                      </p>
+                    </td>
+                    <td className="px-4 py-4 text-slate-700">{row.planName}</td>
+                    <td className="px-4 py-4">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
+                          row.status
+                        )}`}
+                      >
+                        {statusLabel(row.status)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-slate-700">
+                      {row.studio.active === false ? "Disabled" : "Active"}
+                    </td>
+                    <td className="px-4 py-4 text-slate-700">
+                      <p>Customer: {row.studio.stripe_customer_id ? "Yes" : "No"}</p>
+                      <p className="mt-1">Subscription: {row.stripeSubscriptionId ? "Yes" : "No"}</p>
+                    </td>
+                    <td className="px-4 py-4 text-slate-700">
+                      {formatDate(nextDate)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }
