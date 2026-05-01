@@ -219,6 +219,43 @@ function getOrganizer(value: EventRow["organizers"]) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function hasPublicDiscoveryBasics(event: EventRow) {
+  return (
+    event.public_directory_enabled &&
+    event.visibility === "public" &&
+    (event.status === "published" || event.status === "open")
+  );
+}
+
+function getEventHostLabel(params: {
+  organizer: { id?: string; name: string; slug: string } | null | undefined;
+  studioHostedEvents: boolean;
+  workspaceName: string;
+}) {
+  if (params.organizer?.name?.trim()) {
+    return params.organizer.name;
+  }
+
+  if (params.studioHostedEvents) {
+    return params.workspaceName;
+  }
+
+  return "Unknown";
+}
+
+function isEventDiscoveryReady(params: {
+  event: EventRow;
+  organizer: { id?: string; name: string; slug: string } | null | undefined;
+  studioHostedEvents: boolean;
+}) {
+  return (
+    hasPublicDiscoveryBasics(params.event) &&
+    (Boolean(params.event.organizer_id) ||
+      Boolean(params.organizer) ||
+      params.studioHostedEvents)
+  );
+}
+
 function registrationLabel(eventType: string) {
   return eventType === "group_class" ? "Enrollment" : "Registration";
 }
@@ -465,13 +502,20 @@ export default async function EventDetailPage({
     throw new Error(`Failed to load ticket registration counts: ${ticketRegistrationsError.message}`);
   }
 
+  const workspaceName = workspace?.name?.trim() || "Workspace";
   const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
+  const studioHostedEvents = !organizerWorkspace;
   const typedEvent = event as EventRow;
   const typedTags = (tags ?? []) as EventTagRow[];
   const typedRegistrations = (registrations ?? []) as RegistrationSummaryRow[];
   const typedTicketTypes = (ticketTypes ?? []) as TicketTypeSummaryRow[];
   const typedTicketRegistrations = (ticketRegistrations ?? []) as TicketRegistrationSummaryRow[];
   const organizer = getOrganizer(typedEvent.organizers);
+  const hostLabel = getEventHostLabel({
+    organizer,
+    studioHostedEvents,
+    workspaceName,
+  });
 
   const registrationIds = typedRegistrations.map((row) => row.id);
 
@@ -578,11 +622,11 @@ export default async function EventDetailPage({
   const remainingCapacity =
     typedEvent.capacity == null ? null : Math.max(typedEvent.capacity - totalRegistrations, 0);
 
-  const publicDirectoryReady =
-    typedEvent.public_directory_enabled &&
-    typedEvent.visibility === "public" &&
-    (typedEvent.status === "published" || typedEvent.status === "open") &&
-    Boolean(typedEvent.organizer_id);
+  const publicDirectoryReady = isEventDiscoveryReady({
+    event: typedEvent,
+    organizer,
+    studioHostedEvents,
+  });
 
   const ticketCount = typedTicketTypes.length;
   const activeTicketCount = typedTicketTypes.filter((ticket) => ticket.active).length;
@@ -654,7 +698,7 @@ export default async function EventDetailPage({
               </p>
 
               <p className="mt-4 text-sm text-white/75">
-                Organizer: {organizer?.name ?? "Unknown"} • /events/{typedEvent.slug}
+                Host: {hostLabel} • /events/{typedEvent.slug}
               </p>
 
               <p className="mt-2 text-sm text-white/75">
@@ -730,9 +774,9 @@ export default async function EventDetailPage({
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <p className="text-sm text-slate-500">Organizer</p>
+          <p className="text-sm text-slate-500">Host</p>
           <p className="mt-2 text-xl font-semibold text-slate-900">
-            {organizer?.name ?? "Unknown"}
+            {hostLabel}
           </p>
         </div>
 
@@ -793,12 +837,16 @@ export default async function EventDetailPage({
 
               <span
                 className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
-                  typedEvent.organizer_id
+                  typedEvent.organizer_id || organizer || studioHostedEvents
                     ? "bg-green-50 text-green-700 ring-1 ring-green-200"
                     : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
                 }`}
               >
-                {typedEvent.organizer_id ? "Organizer Linked" : "No Organizer"}
+                {typedEvent.organizer_id || organizer
+                  ? "Organizer Linked"
+                  : studioHostedEvents
+                    ? "Studio Hosted"
+                    : "Host Not Set"}
               </span>
 
               <span
@@ -819,7 +867,7 @@ export default async function EventDetailPage({
                 </p>
               ) : (
                 <p>
-                  This event is not currently fully eligible for public discovery. Public directory must be on, visibility must be public, status must be published/open, and the event must be linked to an organizer.
+                  This event is not currently fully eligible for public discovery. Public directory must be on, visibility must be public, status must be published/open, and the event must have a clear host. Studio-hosted events can use your workspace name; organizer-hosted events should be linked to an organizer profile.
                 </p>
               )}
             </div>
