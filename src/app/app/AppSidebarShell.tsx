@@ -215,7 +215,7 @@ function injectEventWorkflowLinks(sections: NavSectionType[]): NavSectionType[] 
       },
       {
         label: "Manage Tickets",
-        href: "/app/events",
+        href: "/app/events/tickets",
         icon: "tickets",
       },
       {
