@@ -61,7 +61,23 @@ type WorkspaceItem = {
 };
 
 function isActivePath(pathname: string, href: string) {
-  if (href === "/app") return pathname === "/app";
+  if (href === "/app") {
+    return pathname === "/app";
+  }
+
+  const exactOnlyRoutes = new Set([
+    "/app/events",
+    "/app/events/new",
+    "/app/events/tickets",
+    "/app/events/sell-tickets",
+    "/app/events/registrations",
+    "/app/events/checkin",
+  ]);
+
+  if (exactOnlyRoutes.has(href)) {
+    return pathname === href;
+  }
+
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
