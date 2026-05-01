@@ -511,7 +511,7 @@ export default async function EventRegistrationsIndexPage() {
                         </Link>
 
                         <Link
-                          href={`/app/events/${event.id}/checkin`}
+                          href={`/app/events/${event.id}/check-in`}
                           className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                         >
                           Open Check-In
@@ -617,7 +617,7 @@ export default async function EventRegistrationsIndexPage() {
                         </Link>
 
                         <Link
-                          href={`/app/events/${event.id}/checkin`}
+                          href={`/app/events/${event.id}/check-in`}
                           className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                         >
                           Open Check-In
@@ -723,7 +723,7 @@ export default async function EventRegistrationsIndexPage() {
                         </Link>
 
                         <Link
-                          href={`/app/events/${event.id}/checkin`}
+                          href={`/app/events/${event.id}/check-in`}
                           className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
                         >
                           Review Check-In

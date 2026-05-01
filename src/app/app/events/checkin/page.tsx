@@ -461,7 +461,7 @@ export default async function EventCheckInIndexPage() {
 
                       <div className="mt-5 flex flex-wrap gap-3">
                         <Link
-                          href={`/app/events/${event.id}/checkin`}
+                          href={`/app/events/${event.id}/check-in`}
                           className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
                         >
                           Open Check-In
@@ -558,7 +558,7 @@ export default async function EventCheckInIndexPage() {
 
                       <div className="mt-5 flex flex-wrap gap-3">
                         <Link
-                          href={`/app/events/${event.id}/checkin`}
+                          href={`/app/events/${event.id}/check-in`}
                           className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
                         >
                           Open Check-In
@@ -655,7 +655,7 @@ export default async function EventCheckInIndexPage() {
 
                       <div className="mt-5 flex flex-wrap gap-3">
                         <Link
-                          href={`/app/events/${event.id}/checkin`}
+                          href={`/app/events/${event.id}/check-in`}
                           className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
                         >
                           Review Check-In
