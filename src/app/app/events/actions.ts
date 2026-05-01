@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { buildEventLocationQuery, geocodeAddress } from "@/lib/geocoding";
 import {
   EVENT_VISIBILITY_OPTIONS,
   TIMEZONE_OPTIONS,
@@ -38,6 +39,11 @@ type OrganizerRow = {
   name: string;
   slug: string;
   active: boolean;
+};
+
+type EventCoordinates = {
+  latitude: number | null;
+  longitude: number | null;
 };
 
 const EVENT_IMAGE_BUCKET = "event-media";
@@ -631,13 +637,48 @@ async function resolveCoverImageUrl(params: {
   return existingUrl ?? null;
 }
 
+async function resolveEventCoordinates(params: {
+  payload: ReturnType<typeof buildEventPayload>;
+  existingCoordinates?: EventCoordinates;
+}) {
+  const query = buildEventLocationQuery({
+    venueName: params.payload.venueName || null,
+    addressLine1: params.payload.addressLine1 || null,
+    addressLine2: params.payload.addressLine2 || null,
+    city: params.payload.city || null,
+    state: params.payload.state || null,
+    postalCode: params.payload.postalCode || null,
+  });
+
+  if (!query) {
+    return {
+      latitude: null,
+      longitude: null,
+    };
+  }
+
+  const result = await geocodeAddress(query);
+
+  if (result) {
+    return result;
+  }
+
+  return (
+    params.existingCoordinates ?? {
+      latitude: null,
+      longitude: null,
+    }
+  );
+}
+
 function buildInsertUpdatePayload(params: {
   payload: ReturnType<typeof buildEventPayload>;
   studioId: string;
   organizerId: string | null;
   resolvedCoverImageUrl: string | null;
+  coordinates: EventCoordinates;
 }) {
-  const { payload, studioId, organizerId, resolvedCoverImageUrl } = params;
+  const { payload, studioId, organizerId, resolvedCoverImageUrl, coordinates } = params;
 
   return {
     organizer_id: organizerId || null,
@@ -655,6 +696,8 @@ function buildInsertUpdatePayload(params: {
     city: payload.city || null,
     state: normalizeOptionValue(US_STATE_OPTIONS, payload.state),
     postal_code: payload.postalCode || null,
+    latitude: coordinates.latitude,
+    longitude: coordinates.longitude,
     timezone:
       normalizeOptionValue(TIMEZONE_OPTIONS, payload.timezone) ?? "America/New_York",
     start_date: payload.startDate,
@@ -743,12 +786,17 @@ export async function createEventAction(
       payload: effectivePayload,
     });
 
+    const coordinates = await resolveEventCoordinates({
+      payload: effectivePayload,
+    });
+
     const insertPayload = {
       ...buildInsertUpdatePayload({
         payload: effectivePayload,
         studioId,
         organizerId: effectivePayload.organizerId,
         resolvedCoverImageUrl,
+        coordinates,
       }),
       created_by: userId,
     };
@@ -836,7 +884,7 @@ export async function updateEventAction(
 
     const { data: existingEvent, error: existingEventError } = await supabase
       .from("events")
-      .select("id, cover_image_url, public_cover_image_url")
+      .select("id, cover_image_url, public_cover_image_url, latitude, longitude")
       .eq("id", id)
       .eq("studio_id", studioId)
       .single();
@@ -875,6 +923,20 @@ export async function updateEventAction(
       payload: effectivePayload,
     });
 
+    const coordinates = await resolveEventCoordinates({
+      payload: effectivePayload,
+      existingCoordinates: {
+        latitude:
+          typeof existingEvent.latitude === "number"
+            ? existingEvent.latitude
+            : null,
+        longitude:
+          typeof existingEvent.longitude === "number"
+            ? existingEvent.longitude
+            : null,
+      },
+    });
+
     const { error: updateError } = await supabase
       .from("events")
       .update({
@@ -883,6 +945,7 @@ export async function updateEventAction(
           studioId,
           organizerId: effectivePayload.organizerId,
           resolvedCoverImageUrl,
+          coordinates,
         }),
         updated_at: new Date().toISOString(),
       })

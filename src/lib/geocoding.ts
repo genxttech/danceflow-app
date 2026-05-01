@@ -28,6 +28,28 @@ export function buildStudioLocationQuery(params: {
   return parts.join(", ");
 }
 
+export function buildEventLocationQuery(params: {
+  venueName: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+}) {
+  const parts = [
+    params.venueName,
+    params.addressLine1,
+    params.addressLine2,
+    params.city,
+    params.state,
+    params.postalCode,
+  ]
+    .map((value) => value?.trim())
+    .filter(Boolean);
+
+  return parts.join(", ");
+}
+
 export async function geocodeAddress(
   address: string
 ): Promise<GeocodeResult | null> {
