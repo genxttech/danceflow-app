@@ -66,6 +66,8 @@ function isActivePath(pathname: string, href: string) {
   }
 
   const exactOnlyRoutes = new Set([
+    "/app/clients",
+    "/app/clients/new",
     "/app/events",
     "/app/events/new",
     "/app/events/tickets",
