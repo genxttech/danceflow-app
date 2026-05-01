@@ -167,6 +167,18 @@ function getClientName(
   );
 }
 
+function isFloorRentalPayment(payment: PaymentRow) {
+  const paymentType = (payment.payment_type ?? "").toLowerCase();
+  const source = (payment.source ?? "").toLowerCase();
+
+  return (
+    paymentType === "floor_fee" ||
+    paymentType === "floor_space_rental" ||
+    source === "floor_rental" ||
+    source === "portal_floor_rental_balance_checkout"
+  );
+}
+
 function labelize(value: string | null | undefined) {
   if (!value) return "Unknown";
   return value.replaceAll("_", " ");
@@ -377,12 +389,25 @@ export default async function ReportsPage({
     (item) => item.status === "refunded",
   );
 
-  const studioPaymentRevenueTotal = paidPayments.reduce(
+  const floorRentalPayments = paidPayments.filter(isFloorRentalPayment);
+  const nonFloorStudioPayments = paidPayments.filter(
+    (payment) => !isFloorRentalPayment(payment),
+  );
+
+  const floorRentalRevenueTotal = floorRentalPayments.reduce(
     (sum, item) => sum + Number(item.amount ?? 0),
     0,
   );
+
+  const studioPaymentRevenueTotal = nonFloorStudioPayments.reduce(
+    (sum, item) => sum + Number(item.amount ?? 0),
+    0,
+  );
+
   const averagePaidPayment =
-    paidPayments.length > 0 ? studioPaymentRevenueTotal / paidPayments.length : 0;
+    nonFloorStudioPayments.length > 0
+      ? studioPaymentRevenueTotal / nonFloorStudioPayments.length
+      : 0;
 
   const paidEventRegistrations = typedEventRegistrations.filter(
     (item) =>
@@ -402,7 +427,8 @@ export default async function ReportsPage({
     0,
   );
 
-  const revenueTotal = studioPaymentRevenueTotal + eventRevenueTotal;
+  const revenueTotal =
+    studioPaymentRevenueTotal + eventRevenueTotal + floorRentalRevenueTotal;
   const refundedTotal =
     refundedPayments.reduce((sum, item) => sum + Number(item.amount ?? 0), 0) +
     eventRefundedTotal;
@@ -613,17 +639,17 @@ export default async function ReportsPage({
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
-                Basic P&L
+                Profit & Loss
               </p>
               <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-                Estimated Profit & Loss
+                Profit & Loss Summary
               </h2>
               <p className="mt-1 text-sm leading-6 text-slate-600">
-                A starter P&L using tracked studio payments, event/ticket registrations, refunds, and known system data for {rangeLabel(range).toLowerCase()}.
+                Review income, deductions, and net income recorded in DanceFlow for {rangeLabel(range).toLowerCase()}.
               </p>
             </div>
             <span className="inline-flex w-fit rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-semibold text-[#6B21A8] ring-1 ring-[#E9D5FF]">
-              Starter report
+              {rangeLabel(range)}
             </span>
           </div>
 
@@ -641,6 +667,10 @@ export default async function ReportsPage({
               <span className="text-sm font-semibold text-slate-950">{fmtCurrency(eventRevenueTotal)}</span>
             </div>
             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+              <span className="text-sm font-medium text-slate-700">Floor rental revenue</span>
+              <span className="text-sm font-semibold text-slate-950">{fmtCurrency(floorRentalRevenueTotal)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
               <span className="text-sm font-medium text-slate-700">Refunds recorded</span>
               <span className="text-sm font-semibold text-slate-950">-{fmtCurrency(refundedTotal)}</span>
             </div>
@@ -649,13 +679,13 @@ export default async function ReportsPage({
               <span className="text-sm font-semibold text-slate-950">-{fmtCurrency(knownFeesTotal)}</span>
             </div>
             <div className="flex items-center justify-between rounded-2xl border border-[#D8B4FE] bg-[#FCF8FF] px-4 py-4">
-              <span className="text-sm font-semibold text-slate-950">Estimated net income</span>
+              <span className="text-sm font-semibold text-slate-950">Net income</span>
               <span className="text-xl font-semibold text-[#5B197A]">{fmtCurrency(estimatedNetIncome)}</span>
             </div>
           </div>
 
           <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-            This report summarizes the income and deductions recorded for your studio.
+            This report summarizes the income and deductions currently recorded for your studio.
           </div>
         </div>
 
@@ -666,14 +696,14 @@ export default async function ReportsPage({
                 Instructor Stats
               </p>
               <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-                Instructor Performance Foundation
+                Instructor Activity
               </h2>
               <p className="mt-1 text-sm leading-6 text-slate-600">
-                Early instructor reporting based on appointment activity in the selected range.
+                Review instructor appointment activity in the selected range.
               </p>
             </div>
             <span className="inline-flex w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-              Growth-ready
+              {rangeLabel(range)}
             </span>
           </div>
 
@@ -824,7 +854,7 @@ export default async function ReportsPage({
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-3">
+          <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Average Paid Studio Payment</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
@@ -841,6 +871,12 @@ export default async function ReportsPage({
               <p className="text-sm text-slate-500">Event/Ticket Revenue</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtCurrency(eventRevenueTotal)}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Floor Rental Revenue</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtCurrency(floorRentalRevenueTotal)}
               </p>
             </div>
           </div>
@@ -1043,7 +1079,7 @@ export default async function ReportsPage({
             Membership snapshot
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Recurring revenue foundation for Growth-tier reporting.
+Membership activity recorded for the selected date range.
           </p>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -1062,11 +1098,37 @@ export default async function ReportsPage({
           </div>
 
           <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-            Deeper recurring revenue, retention, and monthly/YTD comparisons can be unlocked as Growth reporting matures.
+            Use this section to review membership starts and recorded membership revenue for the selected range.
           </div>
         </div>
 
-        
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+            Event revenue snapshot
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Paid event and ticket registrations recorded for the selected date range.
+          </p>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Paid Event Registrations</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(paidEventRegistrations.length)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Event/Ticket Revenue</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtCurrency(eventRevenueTotal)}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+            Event revenue is calculated from paid event registrations recorded during the selected range.
+          </div>
+        </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
@@ -1178,4 +1240,5 @@ export default async function ReportsPage({
     </div>
   );
 }
+
 
