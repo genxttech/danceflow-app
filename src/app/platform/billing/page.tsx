@@ -163,6 +163,18 @@ function daysUntil(dateValue: string | null) {
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
 
+function getTrialEndsAt(params: {
+  studio?: StudioRow | null;
+  subscription?: SubscriptionRow | null;
+}) {
+  return (
+    params.subscription?.trial_ends_at ??
+    params.studio?.trial_ends_at ??
+    params.subscription?.current_period_end ??
+    null
+  );
+}
+
 function getPlanCode(params: {
   studio: StudioRow;
   subscription?: SubscriptionRow;
@@ -408,11 +420,19 @@ export default async function PlatformBillingPage() {
       `),
 
     supabase
-      .from("studios")
-      .select(
-        "id, name, created_at, billing_plan, subscription_status, active, stripe_customer_id, stripe_subscription_id, trial_ends_at"
-      )
-      .order("created_at", { ascending: false }),
+  .from("studios")
+  .select(`
+    id,
+    name,
+    created_at,
+    billing_plan,
+    subscription_status,
+    active,
+    stripe_customer_id,
+    stripe_subscription_id,
+    trial_ends_at
+  `)
+  .order("created_at", { ascending: false }),
 
     supabase
       .from("studio_invoices")
