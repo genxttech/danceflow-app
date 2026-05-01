@@ -655,7 +655,7 @@ export default async function ReportsPage({
           </div>
 
           <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-            This is an estimated P&L. Manual expenses, instructor payroll, rent, and full fee reconciliation can be added in a later reporting phase.
+            This report summarizes the income and deductions recorded for your studio.
           </div>
         </div>
 
@@ -1066,29 +1066,7 @@ export default async function ReportsPage({
           </div>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-            Advanced reports roadmap
-          </h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Reports stay available to paid studios, with deeper analytics gated by tier.
-          </p>
-
-          <div className="mt-6 grid gap-3">
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-              <p className="text-sm font-semibold text-emerald-900">Starter</p>
-              <p className="mt-1 text-sm text-emerald-800">Core reports, basic P&L, clients, packages, payments, and attendance.</p>
-            </div>
-            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
-              <p className="text-sm font-semibold text-blue-900">Growth</p>
-              <p className="mt-1 text-sm text-blue-800">Recurring revenue, retention, instructor activity summaries, and deeper monthly/YTD views.</p>
-            </div>
-            <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
-              <p className="text-sm font-semibold text-purple-900">Pro</p>
-              <p className="mt-1 text-sm text-purple-800">Events, tickets, discovery conversion, group-class session attendance, instructor utilization, exports, and advanced P&L.</p>
-            </div>
-          </div>
-        </div>
+        
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
