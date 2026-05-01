@@ -1879,6 +1879,170 @@ export async function cancelAppointmentAction(formData: FormData) {
   }
 }
 
+
+async function hasMembershipCoverageForAttendance(params: {
+  supabase: Awaited<ReturnType<typeof requireAttendanceAccess>>["supabase"];
+  studioId: string;
+  clientId: string | null;
+  appointmentType: string;
+  startsAtIso: string;
+}) {
+  const { supabase, studioId, clientId, appointmentType, startsAtIso } = params;
+
+  if (!clientId) return false;
+
+  const usageType = getPackageUsageTypeForAppointmentType(appointmentType);
+  if (!usageType) return false;
+
+  const usageDate = datePart(startsAtIso);
+
+  const { data: activeMemberships, error: membershipsError } = await supabase
+    .from("client_memberships")
+    .select("id, membership_plan_id, current_period_start, current_period_end")
+    .eq("studio_id", studioId)
+    .eq("client_id", clientId)
+    .in("status", ["active", "trialing"]);
+
+  if (membershipsError) {
+    throw new Error(`Could not load membership coverage: ${membershipsError.message}`);
+  }
+
+  const matchingMembership = (activeMemberships ?? []).find((membership) => {
+    const startsInRange =
+      !membership.current_period_start || membership.current_period_start <= usageDate;
+    const endsInRange =
+      !membership.current_period_end || membership.current_period_end >= usageDate;
+
+    return startsInRange && endsInRange;
+  });
+
+  if (!matchingMembership) return false;
+
+  const { data: benefit, error: benefitError } = await supabase
+    .from("membership_plan_benefits")
+    .select("id")
+    .eq("membership_plan_id", matchingMembership.membership_plan_id)
+    .eq("benefit_type", usageType)
+    .limit(1)
+    .maybeSingle();
+
+  if (benefitError) {
+    throw new Error(`Could not load membership benefit: ${benefitError.message}`);
+  }
+
+  return Boolean(benefit?.id);
+}
+
+async function packageHasAvailableCreditForAttendance(params: {
+  supabase: Awaited<ReturnType<typeof requireAttendanceAccess>>["supabase"];
+  studioId: string;
+  clientId: string | null;
+  appointmentType: string;
+  clientPackageId: string | null;
+}) {
+  const { supabase, studioId, clientId, appointmentType, clientPackageId } = params;
+
+  if (!clientId || !clientPackageId) return false;
+
+  const usageType = getPackageUsageTypeForAppointmentType(appointmentType);
+  if (!usageType) return false;
+
+  const { data: packageItem, error: packageItemError } = await supabase
+    .from("client_package_items")
+    .select(
+      `
+      id,
+      quantity_remaining,
+      is_unlimited,
+      client_packages!inner (
+        id,
+        studio_id,
+        client_id,
+        active
+      )
+    `
+    )
+    .eq("client_package_id", clientPackageId)
+    .eq("usage_type", usageType)
+    .eq("client_packages.studio_id", studioId)
+    .eq("client_packages.client_id", clientId)
+    .eq("client_packages.active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (packageItemError) {
+    throw new Error(`Could not load package credit: ${packageItemError.message}`);
+  }
+
+  if (!packageItem) return false;
+  if (packageItem.is_unlimited) return true;
+
+  return Number(packageItem.quantity_remaining ?? 0) > 0;
+}
+
+async function canMarkAppointmentAttendedWithoutPaymentWarning(params: {
+  supabase: Awaited<ReturnType<typeof requireAttendanceAccess>>["supabase"];
+  studioId: string;
+  appointment: {
+    id: string;
+    client_id: string | null;
+    appointment_type: string;
+    starts_at: string;
+    client_package_id: string | null;
+    price_amount: number | string | null;
+    payment_status: string | null;
+  };
+}) {
+  const { supabase, studioId, appointment } = params;
+
+  const usageType = getPackageUsageTypeForAppointmentType(appointment.appointment_type);
+  if (!usageType) return true;
+
+  const paymentStatus = (appointment.payment_status ?? "").toLowerCase();
+  const amountDue = Number(appointment.price_amount ?? 0);
+
+  if (["paid", "waived", "comped", "free", "included"].includes(paymentStatus)) {
+    return true;
+  }
+
+  const hasPackageCredit = await packageHasAvailableCreditForAttendance({
+    supabase,
+    studioId,
+    clientId: appointment.client_id,
+    appointmentType: appointment.appointment_type,
+    clientPackageId: appointment.client_package_id,
+  });
+
+  if (hasPackageCredit) return true;
+
+  const hasMembershipCoverage = await hasMembershipCoverageForAttendance({
+    supabase,
+    studioId,
+    clientId: appointment.client_id,
+    appointmentType: appointment.appointment_type,
+    startsAtIso: appointment.starts_at,
+  });
+
+  if (hasMembershipCoverage) return true;
+
+  if (amountDue <= 0) return true;
+
+  const { data: studioSettings, error: settingsError } = await supabase
+    .from("studio_settings")
+    .select("block_depleted_package_booking")
+    .eq("studio_id", studioId)
+    .maybeSingle();
+
+  if (settingsError) {
+    throw new Error(`Could not load studio attendance settings: ${settingsError.message}`);
+  }
+
+  const blockNegativeBalance = Boolean(studioSettings?.block_depleted_package_booking);
+
+  return !blockNegativeBalance;
+}
+
+
 export async function markAppointmentAttendedAction(formData: FormData) {
   const fallback = "/app/schedule";
 
@@ -1892,13 +2056,23 @@ export async function markAppointmentAttendedAction(formData: FormData) {
 
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")
-      .select("id, client_id, appointment_type, starts_at, client_package_id")
+      .select("id, client_id, appointment_type, starts_at, client_package_id, price_amount, payment_status")
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
       .single();
 
     if (appointmentError || !appointment) {
       redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
+    }
+
+    const canCompleteAttendance = await canMarkAppointmentAttendedWithoutPaymentWarning({
+      supabase,
+      studioId,
+      appointment,
+    });
+
+    if (!canCompleteAttendance) {
+      redirect(getErrorRedirect(formData, fallback, "payment_required"));
     }
 
     const { error: updateError } = await supabase
