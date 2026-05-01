@@ -12,6 +12,7 @@ type Params = Promise<{
 type SearchParams = Promise<{
   q?: string;
   status?: string;
+  sessionId?: string;
   success?: string;
   error?: string;
 }>;
@@ -27,6 +28,11 @@ type EventRow = {
   slug: string;
   status: string;
   visibility: string;
+  event_type: string | null;
+  start_date: string;
+  end_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
   organizers:
     | { name: string; slug: string }
     | { name: string; slug: string }[]
@@ -51,8 +57,18 @@ type RegistrationRow = {
 type AttendanceRow = {
   id: string;
   event_registration_id: string;
+  event_session_id: string | null;
   status: string;
   checked_in_at: string | null;
+};
+
+type EventSessionRow = {
+  id: string;
+  session_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  session_label: string | null;
+  status: string;
 };
 
 function isOrganizerWorkspaceName(value: string | null | undefined) {
@@ -71,7 +87,7 @@ function getOrganizer(
   value:
     | { name: string; slug: string }
     | { name: string; slug: string }[]
-    | null
+    | null,
 ) {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -80,7 +96,7 @@ function getTicketTypeName(
   value:
     | { name: string; ticket_kind: string }
     | { name: string; ticket_kind: string }[]
-    | null
+    | null,
 ) {
   const ticket = Array.isArray(value) ? value[0] : value;
   return ticket?.name ?? "No ticket type";
@@ -90,7 +106,7 @@ function getTicketKind(
   value:
     | { name: string; ticket_kind: string }
     | { name: string; ticket_kind: string }[]
-    | null
+    | null,
 ) {
   const ticket = Array.isArray(value) ? value[0] : value;
   return ticket?.ticket_kind ?? "other";
@@ -99,18 +115,28 @@ function getTicketKind(
 function kindLabel(value: string) {
   if (value === "general_admission") return "General Admission";
   if (value === "vip") return "VIP";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function statusBadgeClass(status: string) {
-  if (status === "registered") return "bg-green-50 text-green-700 ring-1 ring-green-200";
-  if (status === "confirmed") return "bg-green-50 text-green-700 ring-1 ring-green-200";
-  if (status === "pending") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-  if (status === "waitlisted") return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
-  if (status === "cancelled") return "bg-red-50 text-red-700 ring-1 ring-red-200";
-  if (status === "checked_in") return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
-  if (status === "attended") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
-  if (status === "no_show") return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
+  if (status === "registered")
+    return "bg-green-50 text-green-700 ring-1 ring-green-200";
+  if (status === "confirmed")
+    return "bg-green-50 text-green-700 ring-1 ring-green-200";
+  if (status === "pending")
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (status === "waitlisted")
+    return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
+  if (status === "cancelled")
+    return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  if (status === "checked_in")
+    return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
+  if (status === "attended")
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  if (status === "no_show")
+    return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
@@ -129,11 +155,13 @@ function buildCheckInHref(params: {
   eventId: string;
   q?: string;
   status?: string;
+  sessionId?: string;
 }) {
   const search = new URLSearchParams();
 
   if (params.q) search.set("q", params.q);
   if (params.status) search.set("status", params.status);
+  if (params.sessionId) search.set("sessionId", params.sessionId);
 
   const query = search.toString();
   return query
@@ -170,6 +198,20 @@ function getBanner(search: { success?: string; error?: string; q?: string }) {
     };
   }
 
+  if (search.error === "session_required") {
+    return {
+      kind: "error" as const,
+      message: "Choose a class session before checking in an attendee.",
+    };
+  }
+
+  if (search.error === "session_not_found") {
+    return {
+      kind: "error" as const,
+      message: "That class session could not be found.",
+    };
+  }
+
   if (search.error === "checkin_failed") {
     return {
       kind: "error" as const,
@@ -193,6 +235,7 @@ export default async function EventCheckInPage({
   const query = await searchParams;
   const q = (query.q ?? "").trim().toLowerCase();
   const statusFilter = (query.status ?? "ready").trim().toLowerCase();
+  const requestedSessionId = (query.sessionId ?? "").trim();
   const banner = getBanner(query);
 
   const supabase = await createClient();
@@ -212,6 +255,7 @@ export default async function EventCheckInPage({
     { data: workspace, error: workspaceError },
     { data: event, error: eventError },
     { data: registrations, error: registrationsError },
+    { data: sessions, error: sessionsError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -221,21 +265,29 @@ export default async function EventCheckInPage({
 
     supabase
       .from("events")
-      .select(`
+      .select(
+        `
         id,
         name,
         slug,
         status,
         visibility,
+        event_type,
+        start_date,
+        end_date,
+        start_time,
+        end_time,
         organizers ( name, slug )
-      `)
+      `,
+      )
       .eq("id", id)
       .eq("studio_id", studioId)
       .single(),
 
     supabase
       .from("event_registrations")
-      .select(`
+      .select(
+        `
         id,
         status,
         attendee_first_name,
@@ -245,9 +297,27 @@ export default async function EventCheckInPage({
         checked_in_at,
         created_at,
         event_ticket_types ( name, ticket_kind )
-      `)
+      `,
+      )
       .eq("event_id", id)
       .order("created_at", { ascending: true }),
+
+    supabase
+      .from("event_sessions")
+      .select(
+        `
+        id,
+        session_date,
+        start_time,
+        end_time,
+        session_label,
+        status
+      `,
+      )
+      .eq("event_id", id)
+      .eq("studio_id", studioId)
+      .neq("status", "cancelled")
+      .order("session_date", { ascending: true }),
   ]);
 
   if (workspaceError) {
@@ -259,11 +329,27 @@ export default async function EventCheckInPage({
   }
 
   if (registrationsError) {
-    throw new Error(`Failed to load registrations: ${registrationsError.message}`);
+    throw new Error(
+      `Failed to load registrations: ${registrationsError.message}`,
+    );
+  }
+
+  if (sessionsError) {
+    throw new Error(`Failed to load class sessions: ${sessionsError.message}`);
   }
 
   const typedEvent = event as EventRow;
   const typedRegistrations = (registrations ?? []) as RegistrationRow[];
+  const typedSessions = (sessions ?? []) as EventSessionRow[];
+  const isGroupClass = typedEvent.event_type === "group_class";
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const selectedSession = isGroupClass
+    ? (typedSessions.find((session) => session.id === requestedSessionId) ??
+      typedSessions.find((session) => session.session_date === todayIso) ??
+      typedSessions[0] ??
+      null)
+    : null;
+  const selectedSessionId = selectedSession?.id ?? "";
   const organizer = getOrganizer(typedEvent.organizers);
   const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
 
@@ -272,31 +358,61 @@ export default async function EventCheckInPage({
   let attendanceByRegistrationId = new Map<string, AttendanceRow>();
 
   if (registrationIds.length > 0) {
-    const { data: attendanceRows, error: attendanceError } = await supabase
+    let attendanceQuery = supabase
       .from("attendance_records")
-      .select(`
+      .select(
+        `
         id,
         event_registration_id,
+        event_session_id,
         status,
         checked_in_at
-      `)
+      `,
+      )
       .eq("studio_id", studioId)
       .in("event_registration_id", registrationIds);
 
+    attendanceQuery = isGroupClass
+      ? selectedSessionId
+        ? attendanceQuery.eq("event_session_id", selectedSessionId)
+        : attendanceQuery.eq(
+            "event_session_id",
+            "00000000-0000-0000-0000-000000000000",
+          )
+      : attendanceQuery.is("event_session_id", null);
+
+    const { data: attendanceRows, error: attendanceError } =
+      await attendanceQuery;
+
     if (attendanceError) {
-      throw new Error(`Failed to load attendance records: ${attendanceError.message}`);
+      throw new Error(
+        `Failed to load attendance records: ${attendanceError.message}`,
+      );
     }
 
     const typedAttendanceRows = (attendanceRows ?? []) as AttendanceRow[];
     attendanceByRegistrationId = new Map(
-      typedAttendanceRows.map((row) => [row.event_registration_id, row])
+      typedAttendanceRows.map((row) => [row.event_registration_id, row]),
     );
   }
 
   const getEffectiveStatus = (registration: RegistrationRow) => {
     const attendance = attendanceByRegistrationId.get(registration.id);
+
     if (attendance?.status) return attendance.status;
+    if (registration.status === "cancelled") return "cancelled";
     if (registration.status === "confirmed") return "registered";
+
+    if (isGroupClass) {
+      return registration.status === "checked_in" || registration.checked_in_at
+        ? "registered"
+        : registration.status;
+    }
+
+    if (registration.checked_in_at || registration.status === "checked_in") {
+      return "checked_in";
+    }
+
     return registration.status;
   };
 
@@ -308,7 +424,9 @@ export default async function EventCheckInPage({
         return effectiveStatus === "registered";
       }
       if (statusFilter === "checked_in") {
-        return effectiveStatus === "checked_in" || effectiveStatus === "attended";
+        return (
+          effectiveStatus === "checked_in" || effectiveStatus === "attended"
+        );
       }
       if (statusFilter === "cancelled") {
         return effectiveStatus === "cancelled";
@@ -332,14 +450,14 @@ export default async function EventCheckInPage({
     });
 
   const readyCount = typedRegistrations.filter(
-    (registration) => getEffectiveStatus(registration) === "registered"
+    (registration) => getEffectiveStatus(registration) === "registered",
   ).length;
   const checkedInCount = typedRegistrations.filter((registration) => {
     const effectiveStatus = getEffectiveStatus(registration);
     return effectiveStatus === "checked_in" || effectiveStatus === "attended";
   }).length;
   const cancelledCount = typedRegistrations.filter(
-    (registration) => getEffectiveStatus(registration) === "cancelled"
+    (registration) => getEffectiveStatus(registration) === "cancelled",
   ).length;
 
   return (
@@ -361,7 +479,9 @@ export default async function EventCheckInPage({
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                {organizerWorkspace ? "DanceFlow Organizer Check-In" : "DanceFlow Event Check-In"}
+                {organizerWorkspace
+                  ? "DanceFlow Organizer Check-In"
+                  : "DanceFlow Event Check-In"}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
                 Check-In Mode
@@ -370,7 +490,8 @@ export default async function EventCheckInPage({
                 {typedEvent.name}
               </p>
               <p className="mt-2 text-sm text-white/75">
-                Organizer: {organizer?.name ?? "Unknown"} • /events/{typedEvent.slug}
+                Organizer: {organizer?.name ?? "Unknown"} • /events/
+                {typedEvent.slug}
               </p>
             </div>
 
@@ -405,30 +526,94 @@ export default async function EventCheckInPage({
               Event-day organizer workflow
             </h2>
             <p className="mt-2 text-sm leading-7 text-sky-900">
-              Search attendees quickly, filter by readiness, and move people through event-day check-in with less friction.
+              Search attendees quickly, filter by readiness, and move people
+              through event-day check-in with less friction.
             </p>
           </div>
         </div>
       </div>
 
+      {isGroupClass ? (
+        <section className="rounded-[28px] border border-[#E9D5FF] bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                Group Class Session
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                Choose the class meeting for check-in
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Attendance is tracked separately for each weekly class session.
+              </p>
+            </div>
+
+            <form className="w-full md:w-80">
+              <input type="hidden" name="q" value={query.q ?? ""} />
+              <input type="hidden" name="status" value={statusFilter} />
+              <label
+                htmlFor="sessionId"
+                className="mb-1 block text-sm font-medium text-slate-700"
+              >
+                Class session
+              </label>
+              <div className="flex gap-2">
+                <select
+                  id="sessionId"
+                  name="sessionId"
+                  defaultValue={selectedSessionId}
+                  className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2"
+                >
+                  {typedSessions.length === 0 ? (
+                    <option value="">No sessions found</option>
+                  ) : null}
+                  {typedSessions.map((session) => (
+                    <option key={session.id} value={session.id}>
+                      {session.session_label ?? "Class"} ·{" "}
+                      {session.session_date} ·{" "}
+                      {session.start_time ?? "Time TBD"}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="submit"
+                  className="rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4A1363]"
+                >
+                  View
+                </button>
+              </div>
+            </form>
+          </div>
+        </section>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Ready to Check In</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{readyCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {readyCount}
+          </p>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Checked In</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{checkedInCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {checkedInCount}
+          </p>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Cancelled</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{cancelledCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {cancelledCount}
+          </p>
         </div>
       </div>
 
       <form className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        {isGroupClass && selectedSessionId ? (
+          <input type="hidden" name="sessionId" value={selectedSessionId} />
+        ) : null}
         <div className="grid gap-4 md:grid-cols-[1fr_220px_auto]">
           <div>
             <label htmlFor="q" className="mb-1 block text-sm font-medium">
@@ -470,7 +655,10 @@ export default async function EventCheckInPage({
             </button>
 
             <Link
-              href={`/app/events/${typedEvent.id}/check-in`}
+              href={buildCheckInHref({
+                eventId: typedEvent.id,
+                sessionId: selectedSessionId,
+              })}
               className="rounded-xl border px-4 py-2 hover:bg-slate-50"
             >
               Reset
@@ -482,46 +670,61 @@ export default async function EventCheckInPage({
       <div className="grid gap-4">
         {filteredRegistrations.length === 0 ? (
           <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
-            <p className="text-base font-medium text-slate-900">No attendees found</p>
+            <p className="text-base font-medium text-slate-900">
+              No attendees found
+            </p>
             <p className="mt-2 text-sm text-slate-500">
               Try a different search or filter.
             </p>
           </div>
         ) : (
           filteredRegistrations.map((registration) => {
-            const attendance = attendanceByRegistrationId.get(registration.id) ?? null;
+            const attendance =
+              attendanceByRegistrationId.get(registration.id) ?? null;
             const effectiveStatus = getEffectiveStatus(registration);
-            const effectiveCheckedInAt = attendance?.checked_in_at ?? registration.checked_in_at;
+            const effectiveCheckedInAt = isGroupClass
+              ? (attendance?.checked_in_at ?? null)
+              : (attendance?.checked_in_at ?? registration.checked_in_at);
 
             const fullName =
               `${registration.attendee_first_name} ${registration.attendee_last_name}`.trim();
-            const ticketTypeName = getTicketTypeName(registration.event_ticket_types);
+            const ticketTypeName = getTicketTypeName(
+              registration.event_ticket_types,
+            );
             const ticketKind = getTicketKind(registration.event_ticket_types);
-            const canCheckIn = effectiveStatus === "registered";
+            const canCheckIn =
+              effectiveStatus === "registered" &&
+              (!isGroupClass || Boolean(selectedSessionId));
             const returnTo = appendQueryParam(
               appendQueryParam(
                 buildCheckInHref({
                   eventId: typedEvent.id,
                   q: query.q ?? "",
                   status: statusFilter,
+                  sessionId: selectedSessionId,
                 }),
                 "q",
-                query.q ?? ""
+                query.q ?? "",
               ),
               "status",
-              statusFilter
+              statusFilter,
             );
 
             return (
-              <div key={registration.id} className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+              <div
+                key={registration.id}
+                className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"
+              >
                 <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-2xl font-semibold text-slate-900">{fullName}</h3>
+                      <h3 className="text-2xl font-semibold text-slate-900">
+                        {fullName}
+                      </h3>
 
                       <span
                         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                          effectiveStatus
+                          effectiveStatus,
                         )}`}
                       >
                         {effectiveStatus}
@@ -570,8 +773,23 @@ export default async function EventCheckInPage({
                   <div className="flex shrink-0 flex-wrap gap-3 lg:w-48 lg:flex-col">
                     {canCheckIn ? (
                       <form action={checkInEventRegistrationAction}>
-                        <input type="hidden" name="eventId" value={typedEvent.id} />
-                        <input type="hidden" name="registrationId" value={registration.id} />
+                        <input
+                          type="hidden"
+                          name="eventId"
+                          value={typedEvent.id}
+                        />
+                        <input
+                          type="hidden"
+                          name="registrationId"
+                          value={registration.id}
+                        />
+                        {isGroupClass && selectedSessionId ? (
+                          <input
+                            type="hidden"
+                            name="eventSessionId"
+                            value={selectedSessionId}
+                          />
+                        ) : null}
                         <input type="hidden" name="returnTo" value={returnTo} />
                         <button
                           type="submit"
@@ -587,6 +805,7 @@ export default async function EventCheckInPage({
                         eventId: typedEvent.id,
                         q: registration.attendee_email,
                         status: "all",
+                        sessionId: selectedSessionId,
                       })}
                       className="rounded-xl border px-4 py-3 text-center hover:bg-slate-50"
                     >

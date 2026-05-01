@@ -32,6 +32,20 @@ type ClientRow = {
 
 type AttendanceLookupRow = {
   id: string;
+  status?: string | null;
+};
+
+type EventAccessRow = {
+  id: string;
+  event_type: string | null;
+};
+
+type EventSessionRow = {
+  id: string;
+  event_id: string;
+  studio_id: string;
+  session_date: string;
+  status: string;
 };
 
 type EventPaymentRow = {
@@ -93,14 +107,14 @@ async function getStudioContext() {
 async function validateEventAccess(
   supabase: Awaited<ReturnType<typeof createClient>>,
   eventId: string,
-  studioId: string
+  studioId: string,
 ) {
   const { data: event, error } = await supabase
     .from("events")
-    .select("id")
+    .select("id, event_type")
     .eq("id", eventId)
     .eq("studio_id", studioId)
-    .maybeSingle();
+    .maybeSingle<EventAccessRow>();
 
   if (error || !event) {
     redirect("/app/events");
@@ -118,7 +132,8 @@ async function getRegistrationForEvent(params: {
 
   const { data, error } = await supabase
     .from("event_registrations")
-    .select(`
+    .select(
+      `
       id,
       event_id,
       client_id,
@@ -133,7 +148,8 @@ async function getRegistrationForEvent(params: {
       currency,
       checked_in_at,
       stripe_payment_intent_id
-    `)
+    `,
+    )
     .eq("id", registrationId)
     .eq("event_id", eventId)
     .maybeSingle<RegistrationRow>();
@@ -205,20 +221,34 @@ async function upsertAttendanceStatus(params: {
   status: string;
   checkedInAt?: string | null;
   markedAttendedAt?: string | null;
+  eventSessionId?: string | null;
 }) {
-  const { supabase, studioId, registration, status, checkedInAt, markedAttendedAt } =
-    params;
+  const {
+    supabase,
+    studioId,
+    registration,
+    status,
+    checkedInAt,
+    markedAttendedAt,
+    eventSessionId = null,
+  } = params;
 
   if (!registration.client_id) {
     return null;
   }
 
-  const { data: existing, error: existingError } = await supabase
+  let lookupQuery = supabase
     .from("attendance_records")
-    .select("id")
+    .select("id, status")
     .eq("studio_id", studioId)
-    .eq("event_registration_id", registration.id)
-    .maybeSingle<AttendanceLookupRow>();
+    .eq("event_registration_id", registration.id);
+
+  lookupQuery = eventSessionId
+    ? lookupQuery.eq("event_session_id", eventSessionId)
+    : lookupQuery.is("event_session_id", null);
+
+  const { data: existing, error: existingError } =
+    await lookupQuery.maybeSingle<AttendanceLookupRow>();
 
   if (existingError) {
     throw new Error(existingError.message);
@@ -228,6 +258,7 @@ async function upsertAttendanceStatus(params: {
     studio_id: studioId,
     client_id: registration.client_id,
     event_registration_id: registration.id,
+    event_session_id: eventSessionId,
     status,
     checked_in_at: checkedInAt ?? null,
     marked_attended_at: markedAttendedAt ?? null,
@@ -258,6 +289,56 @@ async function upsertAttendanceStatus(params: {
   }
 
   return inserted.id;
+}
+
+async function getEventSessionForEvent(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  eventId: string;
+  eventSessionId: string;
+}) {
+  const { supabase, studioId, eventId, eventSessionId } = params;
+
+  const { data, error } = await supabase
+    .from("event_sessions")
+    .select("id, event_id, studio_id, session_date, status")
+    .eq("id", eventSessionId)
+    .eq("event_id", eventId)
+    .eq("studio_id", studioId)
+    .maybeSingle<EventSessionRow>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ?? null;
+}
+
+async function getAttendanceForRegistration(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  registrationId: string;
+  eventSessionId?: string | null;
+}) {
+  const { supabase, studioId, registrationId, eventSessionId = null } = params;
+
+  let query = supabase
+    .from("attendance_records")
+    .select("id, status")
+    .eq("studio_id", studioId)
+    .eq("event_registration_id", registrationId);
+
+  query = eventSessionId
+    ? query.eq("event_session_id", eventSessionId)
+    : query.is("event_session_id", null);
+
+  const { data, error } = await query.maybeSingle<AttendanceLookupRow>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ?? null;
 }
 
 async function ensureClientInStudio(params: {
@@ -353,7 +434,13 @@ async function markRegistrationPaymentStatus(params: {
   paymentStatus: string;
   registrationStatus?: string;
 }) {
-  const { supabase, eventId, registrationId, paymentStatus, registrationStatus } = params;
+  const {
+    supabase,
+    eventId,
+    registrationId,
+    paymentStatus,
+    registrationStatus,
+  } = params;
 
   const payload: Record<string, string> = {
     payment_status: paymentStatus,
@@ -447,12 +534,13 @@ export async function cancelEventRegistrationAction(formData: FormData) {
       throw new Error(registrationError.message);
     }
 
-    const { data: existingAttendance, error: attendanceLookupError } = await supabase
-      .from("attendance_records")
-      .select("id")
-      .eq("studio_id", studioId)
-      .eq("event_registration_id", registrationId)
-      .maybeSingle<AttendanceLookupRow>();
+    const { data: existingAttendance, error: attendanceLookupError } =
+      await supabase
+        .from("attendance_records")
+        .select("id")
+        .eq("studio_id", studioId)
+        .eq("event_registration_id", registrationId)
+        .maybeSingle<AttendanceLookupRow>();
 
     if (attendanceLookupError) {
       throw new Error(attendanceLookupError.message);
@@ -481,6 +569,7 @@ export async function cancelEventRegistrationAction(formData: FormData) {
 export async function checkInEventRegistrationAction(formData: FormData) {
   const eventId = getString(formData, "eventId");
   const registrationId = getString(formData, "registrationId");
+  const eventSessionId = getString(formData, "eventSessionId");
   const returnTo = getString(formData, "returnTo");
 
   if (!eventId || !registrationId) {
@@ -495,7 +584,8 @@ export async function checkInEventRegistrationAction(formData: FormData) {
 
   try {
     const { supabase, studioId } = await getStudioContext();
-    await validateEventAccess(supabase, eventId, studioId);
+    const event = await validateEventAccess(supabase, eventId, studioId);
+    const isGroupClass = event.event_type === "group_class";
 
     const registration = await getRegistrationForEvent({
       supabase,
@@ -521,42 +611,85 @@ export async function checkInEventRegistrationAction(formData: FormData) {
         returnTo,
         fallbackSuffix: "error=cannot_check_in_unpaid",
       });
-    } else if (registration.checked_in_at || registration.status === "checked_in") {
+    } else if (isGroupClass && !eventSessionId) {
       nextUrl = resolveReturnUrl({
         eventId,
         returnTo,
-        fallbackSuffix: "success=already_checked_in",
+        fallbackSuffix: "error=session_required",
       });
     } else {
-      const now = new Date().toISOString();
+      if (isGroupClass) {
+        const session = await getEventSessionForEvent({
+          supabase,
+          studioId,
+          eventId,
+          eventSessionId,
+        });
 
-      const { error: registrationUpdateError } = await supabase
-        .from("event_registrations")
-        .update({
-          checked_in_at: now,
-        })
-        .eq("id", registrationId)
-        .eq("event_id", eventId)
-        .eq("studio_id", studioId);
-
-      if (registrationUpdateError) {
-        throw new Error(registrationUpdateError.message);
+        if (!session || session.status === "cancelled") {
+          nextUrl = resolveReturnUrl({
+            eventId,
+            returnTo,
+            fallbackSuffix: "error=session_not_found",
+          });
+        }
       }
 
-      await upsertAttendanceStatus({
-        supabase,
-        studioId,
-        registration,
-        status: "checked_in",
-        checkedInAt: now,
-        markedAttendedAt: null,
-      });
+      if (!nextUrl.includes("error=session_not_found")) {
+        const existingAttendance = await getAttendanceForRegistration({
+          supabase,
+          studioId,
+          registrationId,
+          eventSessionId: isGroupClass ? eventSessionId : null,
+        });
 
-      nextUrl = resolveReturnUrl({
-        eventId,
-        returnTo,
-        fallbackSuffix: "success=checked_in",
-      });
+        if (
+          existingAttendance?.status === "checked_in" ||
+          existingAttendance?.status === "attended" ||
+          (!isGroupClass &&
+            (registration.checked_in_at ||
+              registration.status === "checked_in"))
+        ) {
+          nextUrl = resolveReturnUrl({
+            eventId,
+            returnTo,
+            fallbackSuffix: "success=already_checked_in",
+          });
+        } else {
+          const now = new Date().toISOString();
+
+          if (!isGroupClass) {
+            const { error: registrationUpdateError } = await supabase
+              .from("event_registrations")
+              .update({
+                checked_in_at: now,
+              })
+              .eq("id", registrationId)
+              .eq("event_id", eventId)
+              .eq("studio_id", studioId);
+
+            if (registrationUpdateError) {
+              throw new Error(registrationUpdateError.message);
+            }
+          }
+
+          await upsertAttendanceStatus({
+            supabase,
+            studioId,
+            registration,
+            status: "checked_in",
+            checkedInAt: now,
+            markedAttendedAt: null,
+            eventSessionId: isGroupClass ? eventSessionId : null,
+          });
+
+          nextUrl = resolveReturnUrl({
+            eventId,
+            returnTo,
+            fallbackSuffix: "success=checked_in",
+          });
+        }
+      }
     }
   } catch (error) {
     console.error("Event check-in failed", error);
@@ -732,7 +865,7 @@ export async function upsertEventAttendanceAction(formData: FormData) {
 
     const checkedInAt =
       status === "checked_in" || status === "attended"
-        ? registration.checked_in_at ?? new Date().toISOString()
+        ? (registration.checked_in_at ?? new Date().toISOString())
         : null;
 
     const registrationStatus =
@@ -770,12 +903,13 @@ export async function upsertEventAttendanceAction(formData: FormData) {
     }
 
     if (status === "registered") {
-      const { data: attendanceRecord, error: attendanceLookupError } = await supabase
-        .from("attendance_records")
-        .select("id")
-        .eq("studio_id", studioId)
-        .eq("event_registration_id", registrationId)
-        .maybeSingle<AttendanceLookupRow>();
+      const { data: attendanceRecord, error: attendanceLookupError } =
+        await supabase
+          .from("attendance_records")
+          .select("id")
+          .eq("studio_id", studioId)
+          .eq("event_registration_id", registrationId)
+          .maybeSingle<AttendanceLookupRow>();
 
       if (attendanceLookupError) {
         throw new Error(attendanceLookupError.message);
@@ -877,7 +1011,9 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
       redirect(buildReturnUrl(eventId, "error=registration_not_found"));
     }
 
-    const amount = Number(registration.total_amount ?? registration.total_price ?? 0);
+    const amount = Number(
+      registration.total_amount ?? registration.total_price ?? 0,
+    );
     const currency = registration.currency ?? "USD";
 
     await markRegistrationPaymentStatus({
@@ -885,7 +1021,8 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
       eventId,
       registrationId,
       paymentStatus: "paid",
-      registrationStatus: registration.status === "pending" ? "confirmed" : undefined,
+      registrationStatus:
+        registration.status === "pending" ? "confirmed" : undefined,
     });
 
     if (amount > 0) {
@@ -930,7 +1067,9 @@ export async function refundEventRegistrationAction(formData: FormData) {
       redirect(buildReturnUrl(eventId, "error=registration_not_found"));
     }
 
-    const amount = Number(registration.total_amount ?? registration.total_price ?? 0);
+    const amount = Number(
+      registration.total_amount ?? registration.total_price ?? 0,
+    );
     const currency = registration.currency ?? "USD";
 
     if (registration.stripe_payment_intent_id) {
@@ -999,12 +1138,13 @@ export async function refundEventRegistrationAction(formData: FormData) {
       }
     }
 
-    const { data: existingAttendance, error: attendanceLookupError } = await supabase
-      .from("attendance_records")
-      .select("id")
-      .eq("studio_id", studioId)
-      .eq("event_registration_id", registrationId)
-      .maybeSingle<AttendanceLookupRow>();
+    const { data: existingAttendance, error: attendanceLookupError } =
+      await supabase
+        .from("attendance_records")
+        .select("id")
+        .eq("studio_id", studioId)
+        .eq("event_registration_id", registrationId)
+        .maybeSingle<AttendanceLookupRow>();
 
     if (attendanceLookupError) {
       throw new Error(attendanceLookupError.message);
