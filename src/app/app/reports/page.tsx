@@ -59,6 +59,18 @@ type ClientMembershipRow = {
   billing_interval_snapshot: string | null;
 };
 
+type EventRegistrationRevenueRow = {
+  id: string;
+  event_id: string | null;
+  studio_id: string | null;
+  quantity: number | null;
+  payment_status: string | null;
+  total_amount: number | null;
+  total_price: number | null;
+  currency: string | null;
+  created_at: string;
+};
+
 type InstructorRow = {
   id: string;
   first_name: string | null;
@@ -222,6 +234,7 @@ export default async function ReportsPage({
     { data: appointments, error: appointmentsError },
     { data: packages, error: packagesError },
     { data: memberships, error: membershipsError },
+    { data: eventRegistrations, error: eventRegistrationsError },
     { data: instructors, error: instructorsError },
     { count: activeStudentsCount, error: activeStudentsError },
   ] = await Promise.all([
@@ -285,6 +298,16 @@ export default async function ReportsPage({
       .limit(500),
 
     supabase
+      .from("event_registrations")
+      .select(
+        "id, event_id, studio_id, quantity, payment_status, total_amount, total_price, currency, created_at",
+      )
+      .eq("studio_id", studioId)
+      .gte("created_at", rangeStart)
+      .order("created_at", { ascending: false })
+      .limit(1000),
+
+    supabase
       .from("instructors")
       .select("id, first_name, last_name")
       .eq("studio_id", studioId)
@@ -321,6 +344,11 @@ export default async function ReportsPage({
       `Failed to load membership report data: ${membershipsError.message}`,
     );
   }
+  if (eventRegistrationsError) {
+    throw new Error(
+      `Failed to load event revenue report data: ${eventRegistrationsError.message}`,
+    );
+  }
   if (instructorsError) {
     throw new Error(
       `Failed to load instructor report data: ${instructorsError.message}`,
@@ -337,6 +365,8 @@ export default async function ReportsPage({
   const typedAppointments = (appointments ?? []) as AppointmentRow[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
   const typedMemberships = (memberships ?? []) as ClientMembershipRow[];
+  const typedEventRegistrations =
+    (eventRegistrations ?? []) as EventRegistrationRevenueRow[];
   const typedInstructors = (instructors ?? []) as InstructorRow[];
 
   const paidPayments = typedPayments.filter((item) => item.status === "paid");
@@ -347,18 +377,38 @@ export default async function ReportsPage({
     (item) => item.status === "refunded",
   );
 
-  const revenueTotal = paidPayments.reduce(
+  const studioPaymentRevenueTotal = paidPayments.reduce(
     (sum, item) => sum + Number(item.amount ?? 0),
     0,
   );
   const averagePaidPayment =
-    paidPayments.length > 0 ? revenueTotal / paidPayments.length : 0;
-  const refundedTotal = refundedPayments.reduce(
-    (sum, item) => sum + Number(item.amount ?? 0),
+    paidPayments.length > 0 ? studioPaymentRevenueTotal / paidPayments.length : 0;
+
+  const paidEventRegistrations = typedEventRegistrations.filter(
+    (item) =>
+      item.payment_status === "paid" || item.payment_status === "partial",
+  );
+  const refundedEventRegistrations = typedEventRegistrations.filter(
+    (item) => item.payment_status === "refunded",
+  );
+  const eventRevenueTotal = paidEventRegistrations.reduce(
+    (sum, item) =>
+      sum + Number(item.total_amount ?? item.total_price ?? 0),
     0,
   );
+  const eventRefundedTotal = refundedEventRegistrations.reduce(
+    (sum, item) =>
+      sum + Number(item.total_amount ?? item.total_price ?? 0),
+    0,
+  );
+
+  const revenueTotal = studioPaymentRevenueTotal + eventRevenueTotal;
+  const refundedTotal =
+    refundedPayments.reduce((sum, item) => sum + Number(item.amount ?? 0), 0) +
+    eventRefundedTotal;
   const knownFeesTotal = 0;
   const estimatedNetIncome = revenueTotal - refundedTotal - knownFeesTotal;
+  const paidRevenueItemsCount = paidPayments.length + paidEventRegistrations.length;
   const packageRevenueSnapshot = typedPackages.reduce(
     (sum, item) => sum + Number(item.sold_price ?? item.price_snapshot ?? 0),
     0,
@@ -521,8 +571,8 @@ export default async function ReportsPage({
             {fmtCurrency(revenueTotal)}
           </p>
           <p className="mt-2 text-sm text-slate-600">
-            {fmtNumber(paidPayments.length)} paid payments in{" "}
-            {rangeLabel(range).toLowerCase()}.
+            {fmtNumber(paidRevenueItemsCount)} paid revenue records in{" "}
+            {rangeLabel(range).toLowerCase()}, including event registrations.
           </p>
         </div>
 
@@ -569,7 +619,7 @@ export default async function ReportsPage({
                 Estimated Profit & Loss
               </h2>
               <p className="mt-1 text-sm leading-6 text-slate-600">
-                A starter P&L using tracked payments, refunds, and known system data for {rangeLabel(range).toLowerCase()}.
+                A starter P&L using tracked studio payments, event/ticket registrations, refunds, and known system data for {rangeLabel(range).toLowerCase()}.
               </p>
             </div>
             <span className="inline-flex w-fit rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-semibold text-[#6B21A8] ring-1 ring-[#E9D5FF]">
@@ -581,6 +631,14 @@ export default async function ReportsPage({
             <div className="flex items-center justify-between rounded-2xl bg-emerald-50 px-4 py-3">
               <span className="text-sm font-medium text-emerald-900">Income collected</span>
               <span className="text-sm font-semibold text-emerald-900">{fmtCurrency(revenueTotal)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+              <span className="text-sm font-medium text-slate-700">Studio payments</span>
+              <span className="text-sm font-semibold text-slate-950">{fmtCurrency(studioPaymentRevenueTotal)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+              <span className="text-sm font-medium text-slate-700">Event / ticket registrations</span>
+              <span className="text-sm font-semibold text-slate-950">{fmtCurrency(eventRevenueTotal)}</span>
             </div>
             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
               <span className="text-sm font-medium text-slate-700">Refunds recorded</span>
@@ -669,7 +727,7 @@ export default async function ReportsPage({
                 Revenue snapshot
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                Payments by status, method, and sale type.
+                Studio payments plus event registration revenue by status, method, and sale type.
               </p>
             </div>
             <Link
@@ -680,9 +738,9 @@ export default async function ReportsPage({
             </Link>
           </div>
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Paid</p>
+              <p className="text-sm text-slate-500">Paid Payments</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtNumber(paidPayments.length)}
               </p>
@@ -697,6 +755,15 @@ export default async function ReportsPage({
               <p className="text-sm text-slate-500">Refunded</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtNumber(refundedPayments.length)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Paid Event Registrations</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(paidEventRegistrations.length)}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {fmtCurrency(eventRevenueTotal)} event/ticket revenue
               </p>
             </div>
           </div>
@@ -757,11 +824,25 @@ export default async function ReportsPage({
             </div>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Average Paid Payment</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">
-              {fmtCurrency(averagePaidPayment)}
-            </p>
+          <div className="mt-6 grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Average Paid Studio Payment</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtCurrency(averagePaidPayment)}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Studio Payment Revenue</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtCurrency(studioPaymentRevenueTotal)}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Event/Ticket Revenue</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtCurrency(eventRevenueTotal)}
+              </p>
+            </div>
           </div>
         </div>
 
@@ -1119,3 +1200,4 @@ export default async function ReportsPage({
     </div>
   );
 }
+
