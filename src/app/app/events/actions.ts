@@ -70,7 +70,7 @@ const DB_EVENT_STATUSES = [
 
 const DB_EVENT_TYPES = [
   "group_class",
-"special_event",
+  "special_event",
   "workshop",
   "social_dance",
   "showcase",
@@ -154,7 +154,6 @@ function normalizeDbEventStatus(value: string) {
 function normalizeDbEventType(value: string) {
   const normalized = value.trim().toLowerCase();
 
-  if (normalized === "special_event") return "other";
   if (normalized === "event") return "other";
 
   if ((DB_EVENT_TYPES as readonly string[]).includes(normalized)) {
@@ -672,6 +671,155 @@ async function resolveEventCoordinates(params: {
   );
 }
 
+type EventSessionRow = {
+  id: string;
+  session_date: string;
+  status: string;
+};
+
+function toUtcDate(value: string) {
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function toDateString(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
+}
+
+function buildGroupClassSessions(params: {
+  eventId: string;
+  studioId: string;
+  payload: ReturnType<typeof buildEventPayload>;
+}) {
+  const { eventId, studioId, payload } = params;
+  const start = toUtcDate(payload.startDate);
+  const end = toUtcDate(payload.endDate);
+
+  if (!start || !end || end < start) {
+    return [];
+  }
+
+  const sessions: Array<{
+    event_id: string;
+    studio_id: string;
+    session_date: string;
+    start_time: string | null;
+    end_time: string | null;
+    session_label: string;
+    status: string;
+    updated_at: string;
+  }> = [];
+
+  let cursor = start;
+  let week = 1;
+  const updatedAt = new Date().toISOString();
+
+  while (cursor <= end) {
+    sessions.push({
+      event_id: eventId,
+      studio_id: studioId,
+      session_date: toDateString(cursor),
+      start_time: payload.startTime,
+      end_time: payload.endTime,
+      session_label: `Week ${week}`,
+      status: "scheduled",
+      updated_at: updatedAt,
+    });
+
+    cursor = addDays(cursor, 7);
+    week += 1;
+  }
+
+  return sessions;
+}
+
+async function syncEventSessions(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  eventId: string;
+  payload: ReturnType<typeof buildEventPayload>;
+}) {
+  const { supabase, studioId, eventId, payload } = params;
+  const eventType = normalizeDbEventType(payload.eventType);
+
+  if (eventType !== "group_class") {
+    const { error } = await supabase
+      .from("event_sessions")
+      .update({
+        status: "cancelled",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("event_id", eventId)
+      .eq("studio_id", studioId)
+      .neq("status", "cancelled");
+
+    if (error) {
+      throw new Error(`Failed to clear group class sessions: ${error.message}`);
+    }
+
+    return;
+  }
+
+  const sessions = buildGroupClassSessions({
+    eventId,
+    studioId,
+    payload,
+  });
+
+  if (sessions.length === 0) {
+    throw new Error("Group class sessions could not be generated from the selected dates.");
+  }
+
+  const { error: upsertError } = await supabase
+    .from("event_sessions")
+    .upsert(sessions, {
+      onConflict: "event_id,session_date",
+    });
+
+  if (upsertError) {
+    throw new Error(`Failed to save group class sessions: ${upsertError.message}`);
+  }
+
+  const activeSessionDates = new Set(sessions.map((session) => session.session_date));
+
+  const { data: existingSessions, error: existingError } = await supabase
+    .from("event_sessions")
+    .select("id, session_date, status")
+    .eq("event_id", eventId)
+    .eq("studio_id", studioId);
+
+  if (existingError) {
+    throw new Error(`Failed to review group class sessions: ${existingError.message}`);
+  }
+
+  const obsoleteSessionIds = ((existingSessions ?? []) as EventSessionRow[])
+    .filter((session) => !activeSessionDates.has(session.session_date))
+    .filter((session) => session.status !== "cancelled")
+    .map((session) => session.id);
+
+  if (obsoleteSessionIds.length === 0) {
+    return;
+  }
+
+  const { error: cancelError } = await supabase
+    .from("event_sessions")
+    .update({
+      status: "cancelled",
+      updated_at: new Date().toISOString(),
+    })
+    .in("id", obsoleteSessionIds);
+
+  if (cancelError) {
+    throw new Error(`Failed to cancel old group class sessions: ${cancelError.message}`);
+  }
+}
+
 function buildInsertUpdatePayload(params: {
   payload: ReturnType<typeof buildEventPayload>;
   studioId: string;
@@ -834,6 +982,13 @@ export async function createEventAction(
       eventId: event.id,
       styleKeys: effectivePayload.styleKeys,
     });
+
+    await syncEventSessions({
+      supabase,
+      studioId,
+      eventId: event.id,
+      payload: effectivePayload,
+    });
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
@@ -989,6 +1144,13 @@ export async function updateEventAction(
       supabase,
       eventId: id,
       styleKeys: effectivePayload.styleKeys,
+    });
+
+    await syncEventSessions({
+      supabase,
+      studioId,
+      eventId: id,
+      payload: effectivePayload,
     });
   } catch (error) {
     return {
