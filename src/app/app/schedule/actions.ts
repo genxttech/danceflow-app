@@ -2119,6 +2119,109 @@ export async function markAppointmentAttendedAction(formData: FormData) {
   }
 }
 
+
+export async function bulkMarkDailyAppointmentsAttendedAction(formData: FormData) {
+  const fallback = "/app/schedule";
+
+  try {
+    const { supabase, studioId } = await requireAttendanceAccess();
+
+    const selectedDate = getString(formData, "date") || new Date().toISOString().slice(0, 10);
+    const startsAtMin = `${selectedDate}T00:00:00`;
+    const startsAtMax = `${selectedDate}T23:59:59.999`;
+
+    const { data: appointments, error: appointmentsError } = await supabase
+      .from("appointments")
+      .select(
+        "id, client_id, appointment_type, starts_at, client_package_id, price_amount, payment_status, status"
+      )
+      .eq("studio_id", studioId)
+      .gte("starts_at", startsAtMin)
+      .lte("starts_at", startsAtMax)
+      .not("appointment_type", "eq", "floor_space_rental")
+      .in("status", ["scheduled", "confirmed", "booked"])
+      .order("starts_at", { ascending: true });
+
+    if (appointmentsError) {
+      redirect(getErrorRedirect(formData, fallback, "bulk_attendance_failed"));
+    }
+
+    let markedCount = 0;
+    let skippedCount = 0;
+    let paymentRequiredCount = 0;
+    let failedCount = 0;
+
+    for (const appointment of appointments ?? []) {
+      try {
+        const canCompleteAttendance = await canMarkAppointmentAttendedWithoutPaymentWarning({
+          supabase,
+          studioId,
+          appointment,
+        });
+
+        if (!canCompleteAttendance) {
+          skippedCount += 1;
+          paymentRequiredCount += 1;
+          continue;
+        }
+
+        const { error: updateError } = await supabase
+          .from("appointments")
+          .update({
+            status: "attended",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", appointment.id)
+          .eq("studio_id", studioId)
+          .in("status", ["scheduled", "confirmed", "booked"]);
+
+        if (updateError) {
+          skippedCount += 1;
+          failedCount += 1;
+          continue;
+        }
+
+        await syncMembershipUsageForAppointment({
+          supabase,
+          studioId,
+          appointmentId: appointment.id,
+          clientId: appointment.client_id,
+          appointmentType: appointment.appointment_type,
+          status: "attended",
+          startsAtIso: appointment.starts_at,
+        });
+
+        await syncPackageUsageForAttendedAppointment({
+          supabase,
+          studioId,
+          appointmentId: appointment.id,
+          clientId: appointment.client_id,
+          appointmentType: appointment.appointment_type,
+          clientPackageId: appointment.client_package_id,
+        });
+
+        markedCount += 1;
+      } catch {
+        skippedCount += 1;
+        failedCount += 1;
+      }
+    }
+
+    revalidatePath("/app/schedule");
+
+    let redirectUrl = getSuccessRedirect(formData, fallback, "bulk_attended");
+    redirectUrl = appendQueryParam(redirectUrl, "bulkMarked", String(markedCount));
+    redirectUrl = appendQueryParam(redirectUrl, "bulkSkipped", String(skippedCount));
+    redirectUrl = appendQueryParam(redirectUrl, "bulkPaymentRequired", String(paymentRequiredCount));
+    redirectUrl = appendQueryParam(redirectUrl, "bulkFailed", String(failedCount));
+    redirect(redirectUrl);
+  } catch (error) {
+    rethrowIfRedirect(error);
+    if (isRedirectError(error)) throw error;
+    redirect(getErrorRedirect(formData, fallback, "bulk_attendance_failed"));
+  }
+}
+
 export async function markAppointmentNoShowAction(formData: FormData) {
   const fallback = "/app/schedule";
 

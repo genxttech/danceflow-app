@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  bulkMarkDailyAppointmentsAttendedAction,
   cancelAppointmentAction,
   markAppointmentAttendedAction,
   markAppointmentNoShowAction,
@@ -11,6 +12,8 @@ import {
   ClipboardList,
   DoorOpen,
   Filter,
+  CheckCircle2,
+  AlertTriangle,
   Repeat2,
   Sparkles,
 } from "lucide-react";
@@ -32,6 +35,10 @@ type SearchParams = Promise<{
   date?: string;
   success?: string;
   error?: string;
+  bulkMarked?: string;
+  bulkSkipped?: string;
+  bulkPaymentRequired?: string;
+  bulkFailed?: string;
 }>;
 
 type ClientPackageItem = {
@@ -56,6 +63,8 @@ type AppointmentRow = {
   starts_at: string;
   ends_at: string;
   client_package_id: string | null;
+  price_amount: number | string | null;
+  payment_status: string | null;
   is_recurring: boolean;
   recurrence_series_id: string | null;
   clients:
@@ -116,19 +125,18 @@ type ScheduleListItem =
       event: EventRow;
     };
 
-function startOfTodayLocal() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+function startOfLocalDate(date: string) {
+  return new Date(`${date}T00:00:00`);
 }
 
-function endOfTodayLocal() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+function endOfLocalDate(date: string) {
+  const start = startOfLocalDate(date);
+  return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
 }
 
-function startOfNext7DaysLocal() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7);
+function addDaysLocal(date: string, days: number) {
+  const start = startOfLocalDate(date);
+  return new Date(start.getFullYear(), start.getMonth(), start.getDate() + days);
 }
 
 function getBaseDate(raw?: string) {
@@ -308,6 +316,39 @@ function packageHealthClass(health: PackageHealth) {
   return "bg-slate-100 text-slate-700";
 }
 
+function isCloseoutCandidate(appointment: AppointmentRow) {
+  return (
+    appointment.appointment_type !== "floor_space_rental" &&
+    ["scheduled", "confirmed", "booked"].includes(appointment.status)
+  );
+}
+
+function hasPaymentCleared(appointment: AppointmentRow) {
+  const status = (appointment.payment_status ?? "").toLowerCase();
+  return ["paid", "waived", "comped", "free", "included"].includes(status);
+}
+
+function isSameLocalDate(value: string, date: string) {
+  return value.slice(0, 10) === date;
+}
+
+function mayNeedPaymentReview(appointment: AppointmentRow) {
+  if (!isCloseoutCandidate(appointment)) return false;
+  if (hasPaymentCleared(appointment)) return false;
+
+  const amountDue = Number(appointment.price_amount ?? 0);
+  if (amountDue <= 0) return false;
+
+  const pkg = Array.isArray(appointment.client_packages)
+    ? appointment.client_packages[0]
+    : appointment.client_packages;
+
+  if (!pkg) return true;
+
+  const packageHealth = getPackageHealth(pkg);
+  return packageHealth === "depleted" || packageHealth === "inactive" || packageHealth === "unknown";
+}
+
 function StatCard({
   label,
   value,
@@ -332,7 +373,14 @@ function StatCard({
   );
 }
 
-function getBanner(search: { success?: string; error?: string }) {
+function getBanner(search: {
+  success?: string;
+  error?: string;
+  bulkMarked?: string;
+  bulkSkipped?: string;
+  bulkPaymentRequired?: string;
+  bulkFailed?: string;
+}) {
   if (search.success === "appointment_created") {
     return {
       kind: "success" as const,
@@ -368,6 +416,24 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.success === "bulk_attended") {
+    const marked = Number(search.bulkMarked ?? 0);
+    const skipped = Number(search.bulkSkipped ?? 0);
+    const paymentRequired = Number(search.bulkPaymentRequired ?? 0);
+    const failed = Number(search.bulkFailed ?? 0);
+    const skippedParts = [
+      paymentRequired > 0 ? `${paymentRequired} need payment or review` : null,
+      failed > 0 ? `${failed} could not be updated` : null,
+    ].filter(Boolean);
+
+    return {
+      kind: "success" as const,
+      message: skipped > 0
+        ? `${marked} lessons marked attended. ${skippedParts.join("; ") || `${skipped} skipped`}.`
+        : `${marked} lessons marked attended.`,
+    };
+  }
+
   if (search.error === "appointment_missing") {
     return {
       kind: "error" as const,
@@ -400,6 +466,20 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "Could not mark the appointment no show.",
+    };
+  }
+
+  if (search.error === "payment_required") {
+    return {
+      kind: "error" as const,
+      message: "Payment, package credit, membership coverage, or a comped status is needed before this lesson can be marked attended.",
+    };
+  }
+
+  if (search.error === "bulk_attendance_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not complete daily closeout. Please try again or mark lessons individually.",
     };
   }
 
@@ -445,9 +525,10 @@ export default async function SchedulePage({
   const role = context.studioRole ?? "";
   const studioId = context.studioId;
 
-  const todayStart = startOfTodayLocal().toISOString();
-  const todayEnd = endOfTodayLocal().toISOString();
-  const next7End = startOfNext7DaysLocal().toISOString();
+  const selectedDateStart = startOfLocalDate(baseDate);
+  const todayStart = selectedDateStart.toISOString();
+  const todayEnd = endOfLocalDate(baseDate).toISOString();
+  const next7End = addDaysLocal(baseDate, 7).toISOString();
 
   let appointmentsQuery = supabase
     .from("appointments")
@@ -459,6 +540,8 @@ export default async function SchedulePage({
       starts_at,
       ends_at,
       client_package_id,
+      price_amount,
+      payment_status,
       is_recurring,
       recurrence_series_id,
       clients:clients!appointments_client_id_fkey ( first_name, last_name, referral_source ),
@@ -670,6 +753,23 @@ export default async function SchedulePage({
   const floorRentalCount = typedAppointments.filter(
     (a) => a.appointment_type === "floor_space_rental"
   ).length;
+  const dailyCloseoutAppointments = typedAppointments.filter(
+    (appointment) => isSameLocalDate(appointment.starts_at, baseDate) && isCloseoutCandidate(appointment)
+  );
+  const dailyCloseoutNeedsReview = dailyCloseoutAppointments.filter(mayNeedPaymentReview);
+  const dailyCloseoutReadyCount = Math.max(
+    dailyCloseoutAppointments.length - dailyCloseoutNeedsReview.length,
+    0
+  );
+  const currentScheduleHref = `/app/schedule${buildQuery({
+    q: params.q || undefined,
+    scope,
+    source: sourceFilter !== "all" ? sourceFilter : undefined,
+    instructor: instructorFilter !== "all" ? instructorFilter : undefined,
+    room: roomFilter !== "all" ? roomFilter : undefined,
+    status: statusFilter !== "all" ? statusFilter : undefined,
+    date: baseDate,
+  })}`;
   const eventCount = typedEvents.length;
 
   return (
@@ -780,6 +880,75 @@ export default async function SchedulePage({
         <StatCard label="Recurring" value={recurringCount} icon={Repeat2} />
         <StatCard label="Floor Rentals" value={floorRentalCount} icon={DoorOpen} />
       </div>
+      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="rounded-2xl bg-green-50 p-3 text-green-700">
+              <CheckCircle2 className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-wide text-green-700">
+                Daily Closeout
+              </p>
+              <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                Mark eligible lessons attended for {formatDate(baseDate)}
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                Use this at the end of the day to quickly close out lessons. Lessons that need payment, package credit, membership coverage, or review are skipped instead of being marked attended.
+              </p>
+            </div>
+          </div>
+
+          {canMarkAttendance(role) ? (
+            <form action={bulkMarkDailyAppointmentsAttendedAction} className="shrink-0">
+              <input type="hidden" name="date" value={baseDate} />
+              <input type="hidden" name="returnTo" value={currentScheduleHref} />
+              <button
+                type="submit"
+                disabled={dailyCloseoutAppointments.length === 0}
+                className="rounded-xl bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                Mark Eligible Lessons Attended
+              </button>
+            </form>
+          ) : null}
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
+            <p className="text-sm font-medium text-green-800">Ready to close out</p>
+            <p className="mt-2 text-3xl font-semibold text-green-950">
+              {dailyCloseoutReadyCount}
+            </p>
+            <p className="mt-1 text-xs text-green-800">
+              Lessons that appear ready based on this page. The server checks payment and credit rules again before updating.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <div className="flex items-center gap-2 text-amber-800">
+              <AlertTriangle className="h-4 w-4" />
+              <p className="text-sm font-medium">May need review</p>
+            </div>
+            <p className="mt-2 text-3xl font-semibold text-amber-950">
+              {dailyCloseoutNeedsReview.length}
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              Pay-as-you-go or missing-credit lessons should be reviewed before attendance is completed.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-medium text-slate-700">Included in today's closeout</p>
+            <p className="mt-2 text-3xl font-semibold text-slate-950">
+              {dailyCloseoutAppointments.length}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Scheduled lessons for the selected date. Floor rentals, cancelled lessons, no-shows, and already attended lessons are not included.
+            </p>
+          </div>
+        </div>
+      </section>
 
       <form className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-start gap-3">
@@ -793,7 +962,7 @@ export default async function SchedulePage({
             </p>
           </div>
         </div>
-        <div className="grid gap-4 lg:grid-cols-[1.5fr_repeat(5,minmax(0,1fr))]">
+        <div className="grid gap-4 lg:grid-cols-[1.3fr_repeat(6,minmax(0,1fr))]">
           <div>
             <label htmlFor="q" className="mb-1 block text-sm font-medium">
               Search
@@ -803,6 +972,19 @@ export default async function SchedulePage({
               name="q"
               defaultValue={params.q ?? ""}
               placeholder="Client, instructor, room, type, event..."
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="date" className="mb-1 block text-sm font-medium">
+              Date
+            </label>
+            <input
+              id="date"
+              name="date"
+              type="date"
+              defaultValue={baseDate}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
             />
           </div>
@@ -1199,6 +1381,7 @@ export default async function SchedulePage({
                   <div className="mt-4 flex flex-wrap gap-3 border-t pt-4">
                     <form action={markAppointmentAttendedAction}>
                       <input type="hidden" name="appointmentId" value={appointment.id} />
+                      <input type="hidden" name="returnTo" value={currentScheduleHref} />
                       <button
                         type="submit"
                         className="rounded-xl bg-green-600 px-4 py-2 text-white hover:bg-green-700"
@@ -1209,6 +1392,7 @@ export default async function SchedulePage({
 
                     <form action={markAppointmentNoShowAction}>
                       <input type="hidden" name="appointmentId" value={appointment.id} />
+                      <input type="hidden" name="returnTo" value={currentScheduleHref} />
                       <button
                         type="submit"
                         className="rounded-xl bg-amber-500 px-4 py-2 text-white hover:bg-amber-600"
