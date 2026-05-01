@@ -145,6 +145,8 @@ export async function POST(request: NextRequest) {
         studioSlug: studio.slug,
         appointmentIds: appointmentIds.join(","),
         appointmentCount: String(appointmentIds.length),
+        paymentType: "floor_fee",
+reportingCategory: "floor_rental",
       },
       payment_intent_data: {
         metadata: {
@@ -154,6 +156,8 @@ export async function POST(request: NextRequest) {
           studioSlug: studio.slug,
           appointmentIds: appointmentIds.join(","),
           appointmentCount: String(appointmentIds.length),
+          paymentType: "floor_fee",
+reportingCategory: "floor_rental",
         },
       },
     });

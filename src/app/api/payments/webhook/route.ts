@@ -1100,20 +1100,20 @@ async function handlePortalFloorRentalCheckoutCompleted(
   }
 
   const { error: insertPaymentError } = await supabase
-    .from("payments")
-    .insert({
-      studio_id: studioId,
-      client_id: clientId,
-      amount: amountTotal,
-      payment_method: "card",
-      status: "processed",
-      external_payment_id: sessionId,
-      paid_at: new Date().toISOString(),
-      payment_type: "floor_space_rental",
-      source: "portal_floor_rental_balance_checkout",
-      stripe_payment_intent_id: paymentIntentId,
-      notes: `Portal floor rental balance payment for appointments: ${appointmentIds.join(", ")}`,
-    });
+  .from("payments")
+  .insert({
+    studio_id: studioId,
+    client_id: clientId,
+    amount: amountTotal,
+    payment_method: "card",
+    status: "paid",
+    external_payment_id: sessionId,
+    paid_at: new Date().toISOString(),
+    payment_type: "floor_fee",
+    source: "floor_rental",
+    stripe_payment_intent_id: paymentIntentId,
+    notes: `Floor rental payment for appointments: ${appointmentIds.join(", ")}`,
+  });
 
   if (insertPaymentError) {
     throw new Error(insertPaymentError.message);
