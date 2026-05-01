@@ -99,7 +99,9 @@ export default async function ClientsPage({
       created_at
     `)
     .eq("studio_id", studioId)
-    .order("created_at", { ascending: false });
+.order("first_name", { ascending: true })
+.order("last_name", { ascending: true })
+.order("created_at", { ascending: true });
 
   if (selectedStatus) {
     query = query.eq("status", selectedStatus);
@@ -111,12 +113,15 @@ export default async function ClientsPage({
     throw new Error(`Failed to load clients: ${error.message}`);
   }
 
-  const typedClients = ((clients ?? []) as ClientRow[]).filter((client) => {
+  const typedClients = ((clients ?? []) as ClientRow[])
+  .filter((client) => {
     if (!queryText) return true;
 
     const haystack = [
       client.first_name,
       client.last_name,
+      `${client.first_name} ${client.last_name}`,
+      `${client.last_name} ${client.first_name}`,
       client.email ?? "",
       client.phone ?? "",
       client.dance_interests ?? "",
@@ -128,7 +133,26 @@ export default async function ClientsPage({
       .toLowerCase();
 
     return haystack.includes(queryText);
+  })
+  .sort((a, b) => {
+  const firstNameCompare = a.first_name.localeCompare(b.first_name, undefined, {
+    sensitivity: "base",
   });
+
+  if (firstNameCompare !== 0) {
+    return firstNameCompare;
+  }
+
+  const lastNameCompare = a.last_name.localeCompare(b.last_name, undefined, {
+    sensitivity: "base",
+  });
+
+  if (lastNameCompare !== 0) {
+    return lastNameCompare;
+  }
+
+  return a.created_at.localeCompare(b.created_at);
+});
 
   const activeCount = typedClients.filter((client) => client.status === "active").length;
   const leadCount = typedClients.filter((client) => client.status === "lead").length;
