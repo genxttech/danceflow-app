@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import FavoriteButton from "@/components/public/FavoriteButton";
+import ShareButton from "@/components/public/ShareButton";
 import PublicLeadForm from "@/app/lead/[studioSlug]/PublicLeadForm";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
@@ -367,13 +368,22 @@ export default async function PublicStudioPage({
                     ) : null}
                   </div>
 
-                  <FavoriteButton
-                    targetType="studio"
-                    targetId={studio.id}
-                    initiallyFavorited={isFavorited}
-                    isAuthenticated={!!user}
-                    returnPath={`/studios/${studioUrlSlug}`}
-                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <ShareButton
+                      title={title}
+                      text={`Check out ${title} on DanceFlow.`}
+                      url={`/studios/${studioUrlSlug}`}
+                      label="Share Studio"
+                      className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                    />
+                    <FavoriteButton
+                      targetType="studio"
+                      targetId={studio.id}
+                      initiallyFavorited={isFavorited}
+                      isAuthenticated={!!user}
+                      returnPath={`/studios/${studioUrlSlug}`}
+                    />
+                  </div>
                 </div>
 
                 <p className="mt-6 max-w-3xl text-lg leading-8 text-slate-600">

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import FavoriteButton from "@/components/public/FavoriteButton";
+import ShareButton from "@/components/public/ShareButton";
 import CurrentLocationButton from "@/components/public/CurrentLocationButton";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
@@ -1056,13 +1057,21 @@ organizer?.slug ?? "",
                             ) : null}
                           </div>
 
-                          <FavoriteButton
-                            targetType="event"
-                            targetId={event.id}
-                            initiallyFavorited={favoriteEventIds.has(event.id)}
-                            isAuthenticated={!!user}
-                            returnPath="/discover/events"
-                          />
+                          <div className="flex items-center gap-2">
+                            <ShareButton
+                              title={event.name}
+                              text={`Check out ${event.name} on DanceFlow.`}
+                              url={`/events/${event.slug}`}
+                              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                            />
+                            <FavoriteButton
+                              targetType="event"
+                              targetId={event.id}
+                              initiallyFavorited={favoriteEventIds.has(event.id)}
+                              isAuthenticated={!!user}
+                              returnPath="/discover/events"
+                            />
+                          </div>
                         </div>
 
                         <p className="text-sm leading-6 text-slate-600">
@@ -1115,4 +1124,6 @@ organizer?.slug ?? "",
     </>
   );
 }
+
+
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import FavoriteButton from "@/components/public/FavoriteButton";
+import ShareButton from "@/components/public/ShareButton";
 import RegistrationForm from "./register/RegistrationForm";
 import { retryEventRegistrationCheckoutAction } from "./register/actions";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
@@ -781,13 +782,22 @@ export default async function PublicEventDetailPage({
                 </div>
               </div>
 
-              <FavoriteButton
-                targetType="event"
-                targetId={typedEvent.id}
-                initiallyFavorited={isFavorited}
-                isAuthenticated={!!user}
-                returnPath={`/events/${typedEvent.slug}`}
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <ShareButton
+                  title={typedEvent.name}
+                  text={`Check out ${typedEvent.name} on DanceFlow.`}
+                  url={`/events/${typedEvent.slug}`}
+                  label="Share Event"
+                  className="inline-flex items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-white/15"
+                />
+                <FavoriteButton
+                  targetType="event"
+                  targetId={typedEvent.id}
+                  initiallyFavorited={isFavorited}
+                  isAuthenticated={!!user}
+                  returnPath={`/events/${typedEvent.slug}`}
+                />
+              </div>
             </div>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import FavoriteButton from "@/components/public/FavoriteButton";
+import ShareButton from "@/components/public/ShareButton";
 import CurrentLocationButton from "@/components/public/CurrentLocationButton";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
@@ -778,6 +779,15 @@ export default async function DiscoverStudiosPage({
                           </div>
 
                           <div className="flex items-center gap-2">
+                            {studio.slug ? (
+                              <ShareButton
+                                title={titleForStudio(studio)}
+                                text={`Check out ${titleForStudio(studio)} on DanceFlow.`}
+                                url={`/studios/${studio.slug}`}
+                                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                              />
+                            ) : null}
+
                             <FavoriteButton
                               targetType="studio"
                               targetId={studio.id}
