@@ -1,15 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import type { ComponentType, ReactNode } from "react";
-import {
-  ArrowRight,
-  CalendarCheck,
-  CreditCard,
-  Download,
-  FileText,
-  UserPlus,
-  Users,
-} from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { canViewReports } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
@@ -44,6 +34,10 @@ type AppointmentRow = {
   status: string | null;
   starts_at: string;
   appointment_type: string | null;
+  instructor_id: string | null;
+  duration_minutes: number | null;
+  price_amount: number | null;
+  payment_status: string | null;
 };
 
 type ClientPackageRow = {
@@ -52,6 +46,35 @@ type ClientPackageRow = {
   created_at: string;
   name_snapshot: string | null;
   price_snapshot: number | null;
+  sold_price: number | null;
+};
+
+type ClientMembershipRow = {
+  id: string;
+  status: string | null;
+  created_at: string;
+  name_snapshot: string | null;
+  price_snapshot: number | null;
+  signup_fee_snapshot: number | null;
+  billing_interval_snapshot: string | null;
+};
+
+type InstructorRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+};
+
+type InstructorSummary = {
+  instructorId: string;
+  name: string;
+  totalAppointments: number;
+  attended: number;
+  scheduled: number;
+  cancelled: number;
+  noShows: number;
+  minutes: number;
+  revenue: number;
 };
 
 function fmtCurrency(value: number) {
@@ -134,17 +157,23 @@ function getClientName(
 
 function labelize(value: string | null | undefined) {
   if (!value) return "Unknown";
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (character) => character.toUpperCase());
+  return value.replaceAll("_", " ");
 }
 
 function paymentStatusBadgeClass(status: string | null) {
-  if (status === "paid") return "bg-emerald-50 text-emerald-700 ring-emerald-200";
-  if (status === "pending") return "bg-amber-50 text-amber-700 ring-amber-200";
-  if (status === "failed") return "bg-red-50 text-red-700 ring-red-200";
-  if (status === "refunded") return "bg-blue-50 text-blue-700 ring-blue-200";
-  return "bg-slate-100 text-slate-700 ring-slate-200";
+  if (status === "paid") return "bg-green-50 text-green-700";
+  if (status === "pending") return "bg-amber-50 text-amber-700";
+  if (status === "failed") return "bg-red-50 text-red-700";
+  if (status === "refunded") return "bg-blue-50 text-blue-700";
+  return "bg-slate-100 text-slate-700";
+}
+
+function appointmentStatusBadgeClass(status: string | null) {
+  if (status === "scheduled") return "bg-sky-50 text-sky-700";
+  if (status === "attended") return "bg-green-50 text-green-700";
+  if (status === "cancelled") return "bg-slate-100 text-slate-700";
+  if (status === "no_show") return "bg-red-50 text-red-700";
+  return "bg-slate-100 text-slate-700";
 }
 
 function sourceLabel(value: string | null) {
@@ -166,176 +195,6 @@ function sortEntriesDesc<T extends string>(
 function percentage(part: number, total: number) {
   if (!total) return "0%";
   return `${Math.round((part / total) * 100)}%`;
-}
-
-function RangePill({ href, active, children }: { href: string; active: boolean; children: ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
-        active
-          ? "border-white bg-white text-[#4A1363] shadow-sm"
-          : "border-white/25 bg-white/10 text-white hover:bg-white/15"
-      }`}
-    >
-      {children}
-    </Link>
-  );
-}
-
-function MetricCard({
-  label,
-  value,
-  helper,
-  icon: Icon,
-  accent = "purple",
-}: {
-  label: string;
-  value: string;
-  helper: string;
-  icon: ComponentType<{ className?: string }>;
-  accent?: "purple" | "amber" | "blue" | "emerald";
-}) {
-  const accentClasses = {
-    purple: "bg-[#F3E8FF] text-[#6B21A8]",
-    amber: "bg-[#FEF3C7] text-[#92400E]",
-    blue: "bg-[#DBEAFE] text-[#1D4ED8]",
-    emerald: "bg-[#D1FAE5] text-[#047857]",
-  }[accent];
-
-  return (
-    <div className="group rounded-[28px] border border-[#E9D5FF] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#D8B4FE] hover:shadow-md">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-            {label}
-          </p>
-          <p className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
-            {value}
-          </p>
-          <p className="mt-2 text-sm leading-5 text-slate-600">{helper}</p>
-        </div>
-        <div className={`rounded-2xl p-3 ${accentClasses}`}>
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ReportPanel({
-  title,
-  subtitle,
-  action,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  action?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <section className="overflow-hidden rounded-[32px] border border-[#E9D5FF] bg-white shadow-sm">
-      <div className="border-b border-[#F3E8FF] bg-gradient-to-r from-[#FCF8FF] to-white px-6 py-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
-              DanceFlow Reports
-            </p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-950">{title}</h2>
-            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
-              {subtitle}
-            </p>
-          </div>
-          {action ? <div className="shrink-0">{action}</div> : null}
-        </div>
-      </div>
-      <div className="p-6">{children}</div>
-    </section>
-  );
-}
-
-function PanelAction({ href, children }: { href: string; children: ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#E9D5FF] bg-white px-4 py-2 text-sm font-semibold text-[#6B21A8] transition hover:bg-[#F3E8FF]"
-    >
-      {children}
-      <ArrowRight className="h-4 w-4" />
-    </Link>
-  );
-}
-
-function MiniStat({ label, value, helper }: { label: string; value: string; helper?: string }) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-        {label}
-      </p>
-      <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-      {helper ? <p className="mt-1 text-xs leading-5 text-slate-500">{helper}</p> : null}
-    </div>
-  );
-}
-
-function EmptyState({ message }: { message: string }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-      {message}
-    </div>
-  );
-}
-
-function BreakdownList({
-  entries,
-  formatter = labelize,
-  emptyMessage,
-}: {
-  entries: Array<[string, number]>;
-  formatter?: (value: string) => string;
-  emptyMessage: string;
-}) {
-  if (entries.length === 0) {
-    return <EmptyState message={emptyMessage} />;
-  }
-
-  return (
-    <div className="space-y-3">
-      {entries.map(([key, count]) => (
-        <div
-          key={key}
-          className="flex items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
-        >
-          <span className="text-sm font-medium text-slate-700">
-            {formatter(key)}
-          </span>
-          <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-950 ring-1 ring-slate-200">
-            {fmtNumber(count)}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ExportLink({ href, label, helper }: { href: string; label: string; helper: string }) {
-  return (
-    <a
-      href={href}
-      className="group rounded-2xl border border-[#E9D5FF] bg-[#FCF8FF] px-4 py-4 transition hover:border-[#D8B4FE] hover:bg-[#F3E8FF]"
-    >
-      <div className="flex items-start gap-3">
-        <div className="rounded-xl bg-white p-2 text-[#6B21A8] shadow-sm">
-          <Download className="h-4 w-4" />
-        </div>
-        <div>
-          <p className="text-sm font-semibold text-slate-950">{label}</p>
-          <p className="mt-1 text-xs leading-5 text-slate-600">{helper}</p>
-        </div>
-      </div>
-    </a>
-  );
 }
 
 export default async function ReportsPage({
@@ -362,6 +221,8 @@ export default async function ReportsPage({
     { data: leads, error: leadsError },
     { data: appointments, error: appointmentsError },
     { data: packages, error: packagesError },
+    { data: memberships, error: membershipsError },
+    { data: instructors, error: instructorsError },
     { count: activeStudentsCount, error: activeStudentsError },
   ] = await Promise.all([
     supabase
@@ -396,7 +257,9 @@ export default async function ReportsPage({
 
     supabase
       .from("appointments")
-      .select("id, status, starts_at, appointment_type")
+      .select(
+        "id, status, starts_at, appointment_type, instructor_id, duration_minutes, price_amount, payment_status",
+      )
       .eq("studio_id", studioId)
       .gte("starts_at", rangeStart)
       .lte("starts_at", nowIso)
@@ -405,10 +268,27 @@ export default async function ReportsPage({
 
     supabase
       .from("client_packages")
-      .select("id, active, created_at, name_snapshot, price_snapshot")
+      .select("id, active, created_at, name_snapshot, price_snapshot, sold_price")
       .eq("studio_id", studioId)
       .gte("created_at", rangeStart)
       .order("created_at", { ascending: false })
+      .limit(500),
+
+    supabase
+      .from("client_memberships")
+      .select(
+        "id, status, created_at, name_snapshot, price_snapshot, signup_fee_snapshot, billing_interval_snapshot",
+      )
+      .eq("studio_id", studioId)
+      .gte("created_at", rangeStart)
+      .order("created_at", { ascending: false })
+      .limit(500),
+
+    supabase
+      .from("instructors")
+      .select("id, first_name, last_name")
+      .eq("studio_id", studioId)
+      .order("first_name", { ascending: true })
       .limit(500),
 
     supabase
@@ -436,6 +316,16 @@ export default async function ReportsPage({
       `Failed to load package report data: ${packagesError.message}`,
     );
   }
+  if (membershipsError) {
+    throw new Error(
+      `Failed to load membership report data: ${membershipsError.message}`,
+    );
+  }
+  if (instructorsError) {
+    throw new Error(
+      `Failed to load instructor report data: ${instructorsError.message}`,
+    );
+  }
   if (activeStudentsError) {
     throw new Error(
       `Failed to load active students count: ${activeStudentsError.message}`,
@@ -446,6 +336,8 @@ export default async function ReportsPage({
   const typedLeads = (leads ?? []) as ClientRow[];
   const typedAppointments = (appointments ?? []) as AppointmentRow[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
+  const typedMemberships = (memberships ?? []) as ClientMembershipRow[];
+  const typedInstructors = (instructors ?? []) as InstructorRow[];
 
   const paidPayments = typedPayments.filter((item) => item.status === "paid");
   const pendingPayments = typedPayments.filter(
@@ -461,6 +353,23 @@ export default async function ReportsPage({
   );
   const averagePaidPayment =
     paidPayments.length > 0 ? revenueTotal / paidPayments.length : 0;
+  const refundedTotal = refundedPayments.reduce(
+    (sum, item) => sum + Number(item.amount ?? 0),
+    0,
+  );
+  const knownFeesTotal = 0;
+  const estimatedNetIncome = revenueTotal - refundedTotal - knownFeesTotal;
+  const packageRevenueSnapshot = typedPackages.reduce(
+    (sum, item) => sum + Number(item.sold_price ?? item.price_snapshot ?? 0),
+    0,
+  );
+  const membershipRevenueSnapshot = typedMemberships.reduce(
+    (sum, item) =>
+      sum +
+      Number(item.price_snapshot ?? 0) +
+      Number(item.signup_fee_snapshot ?? 0),
+    0,
+  );
 
   const leadsOnly = typedLeads.filter((item) => item.status === "lead");
   const convertedLeads = typedLeads.filter((item) => item.status === "active");
@@ -529,284 +438,683 @@ export default async function ReportsPage({
       noShows.length,
   );
 
+  const instructorNameById = new Map(
+    typedInstructors.map((instructor) => [
+      instructor.id,
+      [instructor.first_name ?? "", instructor.last_name ?? ""].join(" ").trim() ||
+        "Unnamed Instructor",
+    ]),
+  );
+
+  const instructorStatsById = new Map<string, InstructorSummary>();
+
+  for (const appointment of typedAppointments) {
+    const instructorId = appointment.instructor_id ?? "unassigned";
+    const existing = instructorStatsById.get(instructorId) ?? {
+      instructorId,
+      name:
+        instructorId === "unassigned"
+          ? "Unassigned"
+          : instructorNameById.get(instructorId) ??
+            `Instructor ${instructorId.slice(0, 8)}`,
+      totalAppointments: 0,
+      attended: 0,
+      scheduled: 0,
+      cancelled: 0,
+      noShows: 0,
+      minutes: 0,
+      revenue: 0,
+    };
+
+    existing.totalAppointments += 1;
+    existing.minutes += Number(appointment.duration_minutes ?? 0);
+
+    if (appointment.status === "attended") existing.attended += 1;
+    if (appointment.status === "scheduled") existing.scheduled += 1;
+    if (appointment.status === "cancelled") existing.cancelled += 1;
+    if (appointment.status === "no_show") existing.noShows += 1;
+    if (appointment.payment_status === "paid") {
+      existing.revenue += Number(appointment.price_amount ?? 0);
+    }
+
+    instructorStatsById.set(instructorId, existing);
+  }
+
+  const instructorSummaries = Array.from(instructorStatsById.values()).sort(
+    (a, b) => b.totalAppointments - a.totalAppointments,
+  );
+  const totalInstructorMinutes = instructorSummaries.reduce(
+    (sum, item) => sum + item.minutes,
+    0,
+  );
+  const totalInstructorRevenue = instructorSummaries.reduce(
+    (sum, item) => sum + item.revenue,
+    0,
+  );
+
   return (
     <div className="space-y-8">
-      <section className="overflow-hidden rounded-[32px] border border-[#E9D5FF] bg-gradient-to-r from-[#2D0B45] via-[#5B197A] to-[#7C2D92] text-white shadow-sm">
-        <div className="flex flex-col gap-6 px-6 py-6 md:flex-row md:items-start md:justify-between md:px-8">
-          <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#F3D7FF]">
-              DanceFlow Reports
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
-              Studio Performance
-            </h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/85 md:text-base">
-              Track revenue, leads, attendance, and package activity for {rangeLabel(range).toLowerCase()}. Use these cards to spot what needs attention and where the studio is growing.
+      <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Reports</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
+              Track studio performance, client activity, revenue, and package usage from one place for {rangeLabel(range).toLowerCase()}.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <RangePill href="/app/reports?range=today" active={range === "today"}>Today</RangePill>
-            <RangePill href="/app/reports?range=month" active={range === "month"}>Month</RangePill>
-            <RangePill href="/app/reports?range=last30" active={range === "last30"}>Last 30 Days</RangePill>
-            <RangePill href="/app/reports?range=quarter" active={range === "quarter"}>Quarter</RangePill>
-            <RangePill href="/app/reports?range=year" active={range === "year"}>Year</RangePill>
-          </div>
-        </div>
-
-        <div className="grid gap-3 border-t border-white/10 bg-black/10 px-6 py-4 md:grid-cols-4 md:px-8">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/65">Range</p>
-            <p className="mt-1 text-sm font-semibold">{rangeLabel(range)}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/65">Paid payments</p>
-            <p className="mt-1 text-sm font-semibold">{fmtNumber(paidPayments.length)}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/65">New client records</p>
-            <p className="mt-1 text-sm font-semibold">{fmtNumber(typedLeads.length)}</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-white/65">Appointments reviewed</p>
-            <p className="mt-1 text-sm font-semibold">{fmtNumber(typedAppointments.length)}</p>
+            <Link href="/app/reports?range=today" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "today" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Today</Link>
+            <Link href="/app/reports?range=month" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "month" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Month</Link>
+            <Link href="/app/reports?range=last30" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "last30" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Last 30 Days</Link>
+            <Link href="/app/reports?range=quarter" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "quarter" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Quarter</Link>
+            <Link href="/app/reports?range=year" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "year" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Year</Link>
           </div>
         </div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="Revenue Collected"
-          value={fmtCurrency(revenueTotal)}
-          helper={`${fmtNumber(paidPayments.length)} paid payments · average ${fmtCurrency(averagePaidPayment)}`}
-          icon={CreditCard}
-          accent="purple"
-        />
-        <MetricCard
-          label="New Leads"
-          value={fmtNumber(leadsOnly.length)}
-          helper={`Conversion rate: ${conversionRate}`}
-          icon={UserPlus}
-          accent="amber"
-        />
-        <MetricCard
-          label="Attendance Rate"
-          value={attendanceRate}
-          helper={`${fmtNumber(attendedAppointments.length)} attended · ${fmtNumber(noShows.length)} no-shows`}
-          icon={CalendarCheck}
-          accent="blue"
-        />
-        <MetricCard
-          label="Active Students"
-          value={fmtNumber(activeStudentsCount ?? 0)}
-          helper="Current active client records across the studio."
-          icon={Users}
-          accent="emerald"
-        />
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Revenue Collected</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+            {fmtCurrency(revenueTotal)}
+          </p>
+          <p className="mt-2 text-sm text-slate-600">
+            {fmtNumber(paidPayments.length)} paid payments in{" "}
+            {rangeLabel(range).toLowerCase()}.
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">New Leads</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+            {fmtNumber(leadsOnly.length)}
+          </p>
+          <p className="mt-2 text-sm text-slate-600">
+            Conversion rate: {conversionRate}
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Attendance Rate</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+            {attendanceRate}
+          </p>
+          <p className="mt-2 text-sm text-slate-600">
+            {fmtNumber(attendedAppointments.length)} attended,{" "}
+            {fmtNumber(noShows.length)} no-shows.
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Active Students</p>
+          <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+            {fmtNumber(activeStudentsCount ?? 0)}
+          </p>
+          <p className="mt-2 text-sm text-slate-600">
+            Current active client records across the studio.
+          </p>
+        </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
-        <ReportPanel
-          title="Revenue snapshot"
-          subtitle="Payments by status, method, and sale type."
-          action={<PanelAction href="/app/payments">Open Payments</PanelAction>}
-        >
-          <div className="grid gap-4 sm:grid-cols-3">
-            <MiniStat label="Paid" value={fmtNumber(paidPayments.length)} />
-            <MiniStat label="Pending" value={fmtNumber(pendingPayments.length)} />
-            <MiniStat label="Refunded" value={fmtNumber(refundedPayments.length)} />
+        <div className="rounded-3xl border border-[#E9D5FF] bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                Basic P&L
+              </p>
+              <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                Estimated Profit & Loss
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                A starter P&L using tracked payments, refunds, and known system data for {rangeLabel(range).toLowerCase()}.
+              </p>
+            </div>
+            <span className="inline-flex w-fit rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-semibold text-[#6B21A8] ring-1 ring-[#E9D5FF]">
+              Starter report
+            </span>
+          </div>
+
+          <div className="mt-6 space-y-3">
+            <div className="flex items-center justify-between rounded-2xl bg-emerald-50 px-4 py-3">
+              <span className="text-sm font-medium text-emerald-900">Income collected</span>
+              <span className="text-sm font-semibold text-emerald-900">{fmtCurrency(revenueTotal)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+              <span className="text-sm font-medium text-slate-700">Refunds recorded</span>
+              <span className="text-sm font-semibold text-slate-950">-{fmtCurrency(refundedTotal)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+              <span className="text-sm font-medium text-slate-700">Known processing/platform fees</span>
+              <span className="text-sm font-semibold text-slate-950">-{fmtCurrency(knownFeesTotal)}</span>
+            </div>
+            <div className="flex items-center justify-between rounded-2xl border border-[#D8B4FE] bg-[#FCF8FF] px-4 py-4">
+              <span className="text-sm font-semibold text-slate-950">Estimated net income</span>
+              <span className="text-xl font-semibold text-[#5B197A]">{fmtCurrency(estimatedNetIncome)}</span>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+            This is an estimated P&L. Manual expenses, instructor payroll, rent, and full fee reconciliation can be added in a later reporting phase.
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-[#E9D5FF] bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                Instructor Stats
+              </p>
+              <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                Instructor Performance Foundation
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Early instructor reporting based on appointment activity in the selected range.
+              </p>
+            </div>
+            <span className="inline-flex w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+              Growth-ready
+            </span>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Instructors</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(instructorSummaries.length)}</p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Teaching Hours</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(Math.round(totalInstructorMinutes / 60))}</p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Paid Lesson Revenue</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtCurrency(totalInstructorRevenue)}</p>
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-3">
+            {instructorSummaries.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                No instructor activity found for this range.
+              </div>
+            ) : (
+              instructorSummaries.slice(0, 5).map((instructor) => (
+                <div key={instructor.instructorId} className="rounded-2xl bg-slate-50 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-semibold text-slate-950">{instructor.name}</p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        {fmtNumber(instructor.attended)} attended · {fmtNumber(instructor.scheduled)} scheduled · {fmtNumber(instructor.noShows)} no-shows
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-slate-950">{fmtNumber(instructor.totalAppointments)}</p>
+                      <p className="text-xs text-slate-500">appointments</p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                Revenue snapshot
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Payments by status, method, and sale type.
+              </p>
+            </div>
+            <Link
+              href="/app/payments"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Open Payments
+            </Link>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Paid</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(paidPayments.length)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Pending</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(pendingPayments.length)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Refunded</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(refundedPayments.length)}
+              </p>
+            </div>
           </div>
 
           <div className="mt-6 grid gap-6 md:grid-cols-2">
             <div>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
                 Payment Methods
               </h3>
-              <BreakdownList
-                entries={topPaymentMethods}
-                emptyMessage="No payment activity in this range."
-              />
+              <div className="mt-3 space-y-3">
+                {topPaymentMethods.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    No payment activity in this range.
+                  </p>
+                ) : (
+                  topPaymentMethods.map(([method, count]) => (
+                    <div
+                      key={method}
+                      className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                    >
+                      <span className="text-sm font-medium text-slate-700">
+                        {labelize(method)}
+                      </span>
+                      <span className="text-sm font-semibold text-slate-950">
+                        {fmtNumber(count)}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
 
             <div>
-              <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
                 Payment Types
               </h3>
-              <BreakdownList
-                entries={topPaymentTypes}
-                emptyMessage="No payment type data in this range."
-              />
+              <div className="mt-3 space-y-3">
+                {topPaymentTypes.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    No payment type data in this range.
+                  </p>
+                ) : (
+                  topPaymentTypes.map(([type, count]) => (
+                    <div
+                      key={type}
+                      className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                    >
+                      <span className="text-sm font-medium text-slate-700">
+                        {labelize(type)}
+                      </span>
+                      <span className="text-sm font-semibold text-slate-950">
+                        {fmtNumber(count)}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
-        </ReportPanel>
 
-        <ReportPanel
-          title="Growth snapshot"
-          subtitle="Lead intake and where interest is coming from."
-          action={<PanelAction href="/app/leads">Open Leads</PanelAction>}
-        >
-          <div className="grid gap-4 sm:grid-cols-3">
-            <MiniStat label="New Leads" value={fmtNumber(leadsOnly.length)} />
-            <MiniStat label="Converted" value={fmtNumber(convertedLeads.length)} />
-            <MiniStat label="Archived" value={fmtNumber(archivedLeads.length)} />
-          </div>
-
-          <div className="mt-6">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Top Lead Sources
-            </h3>
-            <BreakdownList
-              entries={topLeadSources}
-              formatter={sourceLabel}
-              emptyMessage="No lead sources recorded in this range."
-            />
-          </div>
-
-          <div className="mt-6 rounded-2xl border border-[#E9D5FF] bg-[#FCF8FF] p-4">
-            <p className="text-sm font-semibold text-[#6B21A8]">Lead Conversion Rate</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">{conversionRate}</p>
-            <p className="mt-1 text-sm leading-5 text-slate-600">
-              Based on new leads and clients converted to active during this range.
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Average Paid Payment</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {fmtCurrency(averagePaidPayment)}
             </p>
           </div>
-        </ReportPanel>
-      </section>
+        </div>
 
-      <section className="grid gap-6 xl:grid-cols-2">
-        <ReportPanel
-          title="Attendance snapshot"
-          subtitle="Appointment outcomes for the selected date range."
-        >
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <MiniStat label="Scheduled" value={fmtNumber(scheduledAppointments.length)} />
-            <MiniStat label="Attended" value={fmtNumber(attendedAppointments.length)} />
-            <MiniStat label="Cancelled" value={fmtNumber(cancelledAppointments.length)} />
-            <MiniStat label="No-Shows" value={fmtNumber(noShows.length)} />
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                Growth snapshot
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Lead intake and where interest is coming from.
+              </p>
+            </div>
+            <Link
+              href="/app/leads"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Open Leads
+            </Link>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">New Leads</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(leadsOnly.length)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Converted</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(convertedLeads.length)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Archived</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(archivedLeads.length)}
+              </p>
+            </div>
           </div>
 
           <div className="mt-6">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Top Lead Sources
+            </h3>
+            <div className="mt-3 space-y-3">
+              {topLeadSources.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No lead sources recorded in this range.
+                </p>
+              ) : (
+                topLeadSources.map(([source, count]) => (
+                  <div
+                    key={source}
+                    className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      {sourceLabel(source)}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-950">
+                      {fmtNumber(count)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Lead Conversion Rate</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {conversionRate}
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+            Attendance snapshot
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Appointment outcomes for the selected date range.
+          </p>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Scheduled</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(scheduledAppointments.length)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Attended</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(attendedAppointments.length)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Cancelled</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(cancelledAppointments.length)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">No-Shows</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(noShows.length)}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
               Appointment Types
             </h3>
-            <BreakdownList
-              entries={topAppointmentTypes}
-              emptyMessage="No appointment activity in this range."
-            />
+            <div className="mt-3 space-y-3">
+              {topAppointmentTypes.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No appointment activity in this range.
+                </p>
+              ) : (
+                topAppointmentTypes.map(([type, count]) => (
+                  <div
+                    key={type}
+                    className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      {labelize(type)}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-950">
+                      {fmtNumber(count)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-        </ReportPanel>
+        </div>
 
-        <ReportPanel
-          title="Packages snapshot"
-          subtitle="Package activity and top-selling package names."
-          action={<PanelAction href="/app/packages">Open Packages</PanelAction>}
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <MiniStat label="Packages Sold" value={fmtNumber(typedPackages.length)} />
-            <MiniStat label="Distinct Packages" value={fmtNumber(topPackages.length)} />
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+            Packages snapshot
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Package activity and top-selling package names.
+          </p>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Packages Sold</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(typedPackages.length)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Package Revenue Snapshot</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtCurrency(packageRevenueSnapshot)}
+              </p>
+            </div>
           </div>
 
           <div className="mt-6">
-            <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
               Top Packages
             </h3>
-            <BreakdownList
-              entries={topPackages}
-              formatter={(value) => value}
-              emptyMessage="No package sales in this range."
-            />
+            <div className="mt-3 space-y-3">
+              {topPackages.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No package sales in this range.
+                </p>
+              ) : (
+                topPackages.map(([name, count]) => (
+                  <div
+                    key={name}
+                    className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      {name}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-950">
+                      {fmtNumber(count)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
-        </ReportPanel>
+        </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
-        <ReportPanel
-          title="Recent payments"
-          subtitle="Latest payment activity in the selected range."
-          action={<PanelAction href="/app/payments">View All</PanelAction>}
-        >
-          <div className="space-y-3">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+            Membership snapshot
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Recurring revenue foundation for Growth-tier reporting.
+          </p>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Memberships Started</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(typedMemberships.length)}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Membership Revenue Snapshot</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtCurrency(membershipRevenueSnapshot)}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+            Deeper recurring revenue, retention, and monthly/YTD comparisons can be unlocked as Growth reporting matures.
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+            Advanced reports roadmap
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Reports stay available to paid studios, with deeper analytics gated by tier.
+          </p>
+
+          <div className="mt-6 grid gap-3">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+              <p className="text-sm font-semibold text-emerald-900">Starter</p>
+              <p className="mt-1 text-sm text-emerald-800">Core reports, basic P&L, clients, packages, payments, and attendance.</p>
+            </div>
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+              <p className="text-sm font-semibold text-blue-900">Growth</p>
+              <p className="mt-1 text-sm text-blue-800">Recurring revenue, retention, instructor activity summaries, and deeper monthly/YTD views.</p>
+            </div>
+            <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4">
+              <p className="text-sm font-semibold text-purple-900">Pro</p>
+              <p className="mt-1 text-sm text-purple-800">Events, tickets, discovery conversion, group-class session attendance, instructor utilization, exports, and advanced P&L.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                Recent payments
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Latest payment activity in the selected range.
+              </p>
+            </div>
+            <Link
+              href="/app/payments"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              View all
+            </Link>
+          </div>
+
+          <div className="mt-6 space-y-3">
             {typedPayments.length === 0 ? (
-              <EmptyState message="No payments found for this range." />
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                No payments found for this range.
+              </div>
             ) : (
               typedPayments.slice(0, 8).map((payment) => (
                 <div
                   key={payment.id}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-[#D8B4FE] hover:bg-[#FCF8FF]"
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-semibold text-slate-900">
                       {fmtCurrency(Number(payment.amount ?? 0))}
                     </p>
                     <span
-                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${paymentStatusBadgeClass(
+                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${paymentStatusBadgeClass(
                         payment.status,
                       )}`}
                     >
                       {labelize(payment.status)}
                     </span>
-                    <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                    <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700">
                       {labelize(payment.payment_method)}
                     </span>
                   </div>
 
-                  <p className="mt-2 text-sm font-medium text-slate-700">
+                  <p className="mt-2 text-sm text-slate-700">
                     {getClientName(payment.clients)}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
-                    {labelize(payment.payment_type)} • {labelize(payment.source)} • {fmtDateTime(payment.created_at)}
+                    {labelize(payment.payment_type)} •{" "}
+                    {labelize(payment.source)} •{" "}
+                    {fmtDateTime(payment.created_at)}
                   </p>
                 </div>
               ))
             )}
           </div>
-        </ReportPanel>
+        </div>
 
-        <ReportPanel
-          title="Export data"
-          subtitle="Download studio data for bookkeeping, tax prep, or deeper analysis."
-        >
-          <div className="grid gap-3 sm:grid-cols-2">
-            <ExportLink
-              href="/app/reports/export/clients"
-              label="Clients CSV"
-              helper="Names, contact details, statuses, and lead source fields."
-            />
-            <ExportLink
-              href="/app/reports/export/appointments"
-              label="Appointments CSV"
-              helper="Lesson and appointment history for the studio."
-            />
-            <ExportLink
-              href="/app/reports/export/payments"
-              label="Payments CSV"
-              helper="Payment records for bookkeeping and reconciliation."
-            />
-            <ExportLink
-              href="/app/reports/export/balances"
-              label="Balances CSV"
-              helper="Client package balances and remaining credits."
-            />
-            <ExportLink
-              href="/app/reports/export/ledger"
-              label="Lesson Ledger CSV"
-              helper="Usage ledger for lesson/package activity."
-            />
-          </div>
-
-          <div className="mt-6 rounded-2xl border border-[#E9D5FF] bg-[#FCF8FF] p-4">
-            <div className="flex items-start gap-3">
-              <div className="rounded-xl bg-white p-2 text-[#6B21A8] shadow-sm">
-                <FileText className="h-4 w-4" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-950">Export tip</p>
-                <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Use the date filter above before exporting when you want to review a specific month, quarter, or year.
-                </p>
-              </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                Export data
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Download studio data for deeper analysis or bookkeeping.
+              </p>
             </div>
           </div>
-        </ReportPanel>
+
+          <div className="mt-6 grid gap-3">
+            <a
+              href="/app/reports/export/clients"
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Export Clients CSV
+            </a>
+            <a
+              href="/app/reports/export/appointments"
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Export Appointments CSV
+            </a>
+            <a
+              href="/app/reports/export/payments"
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Export Payments CSV
+            </a>
+            <a
+              href="/app/reports/export/balances"
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Export Balances CSV
+            </a>
+            <a
+              href="/app/reports/export/ledger"
+              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Export Lesson Ledger CSV
+            </a>
+          </div>
+        </div>
       </section>
     </div>
   );
