@@ -487,6 +487,12 @@ export async function checkInEventRegistrationAction(formData: FormData) {
     redirect("/app/events");
   }
 
+  let nextUrl = resolveReturnUrl({
+    eventId,
+    returnTo,
+    fallbackSuffix: "error=checkin_failed",
+  });
+
   try {
     const { supabase, studioId } = await getStudioContext();
     await validateEventAccess(supabase, eventId, studioId);
@@ -498,85 +504,71 @@ export async function checkInEventRegistrationAction(formData: FormData) {
     });
 
     if (!registration) {
-      redirect(
-        resolveReturnUrl({
-          eventId,
-          returnTo,
-          fallbackSuffix: "error=registration_not_found",
+      nextUrl = resolveReturnUrl({
+        eventId,
+        returnTo,
+        fallbackSuffix: "error=registration_not_found",
+      });
+    } else if (["cancelled", "refunded"].includes(registration.status ?? "")) {
+      nextUrl = resolveReturnUrl({
+        eventId,
+        returnTo,
+        fallbackSuffix: "error=cannot_check_in_cancelled",
+      });
+    } else if (shouldBlockAttendanceForPayment(registration.payment_status)) {
+      nextUrl = resolveReturnUrl({
+        eventId,
+        returnTo,
+        fallbackSuffix: "error=cannot_check_in_unpaid",
+      });
+    } else if (registration.checked_in_at || registration.status === "checked_in") {
+      nextUrl = resolveReturnUrl({
+        eventId,
+        returnTo,
+        fallbackSuffix: "success=already_checked_in",
+      });
+    } else {
+      const now = new Date().toISOString();
+
+      const { error: registrationUpdateError } = await supabase
+        .from("event_registrations")
+        .update({
+          checked_in_at: now,
         })
-      );
-    }
+        .eq("id", registrationId)
+        .eq("event_id", eventId)
+        .eq("studio_id", studioId);
 
-    if (["cancelled", "refunded"].includes(registration.status ?? "")) {
-      redirect(
-        resolveReturnUrl({
-          eventId,
-          returnTo,
-          fallbackSuffix: "error=cannot_check_in_cancelled",
-        })
-      );
-    }
+      if (registrationUpdateError) {
+        throw new Error(registrationUpdateError.message);
+      }
 
-    if (shouldBlockAttendanceForPayment(registration.payment_status)) {
-      redirect(
-        resolveReturnUrl({
-          eventId,
-          returnTo,
-          fallbackSuffix: "error=cannot_check_in_unpaid",
-        })
-      );
-    }
-
-    if (registration.checked_in_at || registration.status === "checked_in") {
-      redirect(
-        resolveReturnUrl({
-          eventId,
-          returnTo,
-          fallbackSuffix: "success=already_checked_in",
-        })
-      );
-    }
-
-    const now = new Date().toISOString();
-
-    const { error: registrationUpdateError } = await supabase
-      .from("event_registrations")
-      .update({
-        checked_in_at: now,
+      await upsertAttendanceStatus({
+        supabase,
+        studioId,
+        registration,
         status: "checked_in",
-      })
-      .eq("id", registrationId)
-      .eq("event_id", eventId);
+        checkedInAt: now,
+        markedAttendedAt: null,
+      });
 
-    if (registrationUpdateError) {
-      throw new Error(registrationUpdateError.message);
-    }
-
-    await upsertAttendanceStatus({
-      supabase,
-      studioId,
-      registration,
-      status: "checked_in",
-      checkedInAt: now,
-      markedAttendedAt: null,
-    });
-
-    redirect(
-      resolveReturnUrl({
+      nextUrl = resolveReturnUrl({
         eventId,
         returnTo,
         fallbackSuffix: "success=checked_in",
-      })
-    );
-  } catch {
-    redirect(
-      resolveReturnUrl({
-        eventId,
-        returnTo,
-        fallbackSuffix: "error=checkin_failed",
-      })
-    );
+      });
+    }
+  } catch (error) {
+    console.error("Event check-in failed", error);
+
+    nextUrl = resolveReturnUrl({
+      eventId,
+      returnTo,
+      fallbackSuffix: "error=checkin_failed",
+    });
   }
+
+  redirect(nextUrl);
 }
 
 export async function markEventRegistrationAttendedAction(formData: FormData) {
