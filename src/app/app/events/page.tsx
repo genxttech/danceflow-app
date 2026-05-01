@@ -237,6 +237,43 @@ function getOrganizer(
   return Array.isArray(value) ? value[0] : value;
 }
 
+function hasPublicDiscoveryBasics(event: EventRow) {
+  return (
+    event.public_directory_enabled &&
+    event.visibility === "public" &&
+    (event.status === "published" || event.status === "open")
+  );
+}
+
+function getEventHostLabel(params: {
+  organizer: { id?: string; name: string; slug: string } | null | undefined;
+  studioHostedEvents: boolean;
+  workspaceName: string;
+}) {
+  if (params.organizer?.name?.trim()) {
+    return params.organizer.name;
+  }
+
+  if (params.studioHostedEvents) {
+    return params.workspaceName;
+  }
+
+  return "Unknown";
+}
+
+function isEventDiscoveryReady(params: {
+  event: EventRow;
+  organizer: { id?: string; name: string; slug: string } | null | undefined;
+  studioHostedEvents: boolean;
+}) {
+  return (
+    hasPublicDiscoveryBasics(params.event) &&
+    (Boolean(params.event.organizer_id) ||
+      Boolean(params.organizer) ||
+      params.studioHostedEvents)
+  );
+}
+
 function eventListingHint(eventType: string, visibility: string) {
   const publicHint =
     visibility === "public"
@@ -466,13 +503,15 @@ export default async function EventsPage() {
   const publicDirectoryCount = typedEvents.filter(
     (event) => event.public_directory_enabled
   ).length;
-  const discoveryReadyCount = typedEvents.filter(
-    (event) =>
-      event.public_directory_enabled &&
-      event.visibility === "public" &&
-      (event.status === "published" || event.status === "open") &&
-      Boolean(event.organizer_id)
-  ).length;
+  const discoveryReadyCount = typedEvents.filter((event) => {
+  const organizer = getOrganizer(event.organizers);
+
+  return isEventDiscoveryReady({
+    event,
+    organizer,
+    studioHostedEvents,
+  });
+}).length;
 
   const totalRegistrations = typedRegistrations.length;
   const totalCheckedIn = typedRegistrations.filter((row) => {
@@ -701,11 +740,17 @@ export default async function EventsPage() {
           <div className="divide-y divide-slate-200">
             {typedEvents.map((event) => {
               const organizer = getOrganizer(event.organizers);
-              const discoveryReady =
-                event.public_directory_enabled &&
-                event.visibility === "public" &&
-                (event.status === "published" || event.status === "open") &&
-                (Boolean(event.organizer_id) || studioHostedEvents);
+const hostLabel = getEventHostLabel({
+  organizer,
+  studioHostedEvents,
+  workspaceName,
+});
+
+const discoveryReady = isEventDiscoveryReady({
+  event,
+  organizer,
+  studioHostedEvents,
+});
 
               const eventRegistrations = registrationsByEventId.get(event.id) ?? [];
               const defaultCurrency =
@@ -800,7 +845,7 @@ export default async function EventsPage() {
                           </span>
                         ) : (
                           <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
-                            No Organizer
+                            Host Not Set
                           </span>
                         )}
 
@@ -816,7 +861,7 @@ export default async function EventsPage() {
                       </div>
 
                       <p className="mt-3 text-sm text-slate-500">
-                        Host: {organizer?.name ?? (studioHostedEvents ? workspaceName : "None")} • /events/{event.slug}
+                        Host: {hostLabel} • /events/{event.slug}
                       </p>
 
                       <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">
