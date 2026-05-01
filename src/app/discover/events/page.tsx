@@ -27,6 +27,8 @@ type EventRow = {
   event_type: string | null;
   start_date: string | null;
   end_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
   visibility: string | null;
   status: string | null;
   public_summary: string | null;
@@ -108,6 +110,84 @@ function formatDateRange(startDate: string | null, endDate: string | null) {
   if (!startDate) return "Date coming soon";
   if (!endDate || endDate === startDate) return formatDate(startDate);
   return `${formatDate(startDate)} – ${formatDate(endDate)}`;
+}
+
+function formatTime(value: string | null) {
+  if (!value) return "";
+
+  const date = new Date(`2000-01-01T${value}`);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatTimeRange(startTime: string | null, endTime: string | null) {
+  const start = formatTime(startTime);
+  const end = formatTime(endTime);
+
+  if (start && end) return `${start} – ${end}`;
+  return start || end;
+}
+
+function weekdayPlural(startDate: string | null) {
+  if (!startDate) return null;
+
+  const date = new Date(`${startDate}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return `${date.toLocaleDateString([], { weekday: "long" })}s`;
+}
+
+function seriesWeekCount(startDate: string | null, endDate: string | null) {
+  if (!startDate || !endDate) return null;
+
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return null;
+  }
+
+  const days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+
+  return Math.floor(days / 7) + 1;
+}
+
+function formatEventSchedule(event: EventRow) {
+  if (event.event_type !== "group_class") {
+    return formatDateRange(event.start_date, event.end_date);
+  }
+
+  const weekday = weekdayPlural(event.start_date);
+  const timeRange = formatTimeRange(event.start_time, event.end_time);
+  const weeks = seriesWeekCount(event.start_date, event.end_date);
+
+  if (event.end_date) {
+    return [
+      weekday,
+      formatDateRange(event.start_date, event.end_date),
+      timeRange,
+      weeks ? `${weeks}-week series` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  return [
+    weekday,
+    event.start_date ? `Starts ${formatDate(event.start_date)}` : null,
+    timeRange,
+    "Ongoing weekly class",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function eventTypeLabel(value: string | null) {
@@ -250,6 +330,8 @@ export default async function DiscoverEventsPage({
         event_type,
         start_date,
         end_date,
+        start_time,
+        end_time,
         visibility,
         status,
         public_summary,
@@ -496,7 +578,7 @@ organizer?.slug ?? "",
       ): row is {
         event: EventRow;
         studio: StudioRow;
-        organizer: OrganizerRow;
+        organizer: OrganizerRow | undefined;
         eventStyleRows: EventStyleRow[];
         distanceMiles: number | null;
       } => Boolean(row)
@@ -652,7 +734,7 @@ organizer?.slug ?? "",
                     >
                       <p className="font-medium text-slate-950">{event.name}</p>
                       <p className="mt-1 text-sm text-slate-500">
-                        {formatDateRange(event.start_date, event.end_date)} ·{" "}
+                        {formatEventSchedule(event)} ·{" "}
                         {organizer?.name || hostStudioName(studio)}
                       </p>
                     </Link>
@@ -927,10 +1009,7 @@ organizer?.slug ?? "",
                           </span>
 
                           <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700">
-                            {formatDateRange(
-                              event.start_date,
-                              event.end_date
-                            )}
+                            {formatEventSchedule(event)}
                           </span>
 
                           <span
@@ -1036,3 +1115,4 @@ organizer?.slug ?? "",
     </>
   );
 }
+

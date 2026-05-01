@@ -32,7 +32,9 @@ type EventRow = {
   postal_code: string | null;
   timezone: string;
   start_date: string;
-  end_date: string;
+  end_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
   cover_image_url: string | null;
   visibility: string;
   featured: boolean;
@@ -182,9 +184,9 @@ function eventTypeBadgeClass(value: string) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
-function formatDateRange(startDate: string, endDate: string) {
+function formatDateRange(startDate: string, endDate: string | null) {
   const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
+  const end = new Date(`${endDate ?? startDate}T00:00:00`);
 
   const startText = start.toLocaleDateString([], {
     weekday: "short",
@@ -200,7 +202,80 @@ function formatDateRange(startDate: string, endDate: string) {
     year: "numeric",
   });
 
-  return startDate === endDate ? startText : `${startText} – ${endText}`;
+  return !endDate || startDate === endDate ? startText : `${startText} – ${endText}`;
+}
+
+function formatTime(value: string | null) {
+  if (!value) return "";
+
+  const date = new Date(`2000-01-01T${value}`);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatTimeRange(startTime: string | null, endTime: string | null) {
+  const start = formatTime(startTime);
+  const end = formatTime(endTime);
+
+  if (start && end) return `${start} – ${end}`;
+  return start || end;
+}
+
+function weekdayPlural(startDate: string) {
+  const date = new Date(`${startDate}T00:00:00`);
+  return `${date.toLocaleDateString([], { weekday: "long" })}s`;
+}
+
+function seriesWeekCount(startDate: string, endDate: string | null) {
+  if (!endDate) return null;
+
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return null;
+  }
+
+  const days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+
+  return Math.floor(days / 7) + 1;
+}
+
+function formatEventSchedule(event: EventRow) {
+  if (event.event_type !== "group_class") {
+    return formatDateRange(event.start_date, event.end_date);
+  }
+
+  const timeRange = formatTimeRange(event.start_time, event.end_time);
+
+  if (event.end_date) {
+    const weeks = seriesWeekCount(event.start_date, event.end_date);
+
+    return [
+      weekdayPlural(event.start_date),
+      formatDateRange(event.start_date, event.end_date),
+      timeRange,
+      weeks ? `${weeks}-week series` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  return [
+    weekdayPlural(event.start_date),
+    `Starts ${formatDateRange(event.start_date, event.start_date)}`,
+    timeRange,
+    "Ongoing weekly class",
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function formatDateTime(value: string | null) {
@@ -404,6 +479,8 @@ export default async function PublicEventDetailPage({
       timezone,
       start_date,
       end_date,
+      start_time,
+      end_time,
       cover_image_url,
       visibility,
       featured,
@@ -717,8 +794,8 @@ export default async function PublicEventDetailPage({
 
         <div className="grid gap-4 border-t border-slate-200/80 bg-slate-50/70 p-6 md:grid-cols-2 xl:grid-cols-4">
           <InfoCard
-            label="Dates"
-            value={formatDateRange(typedEvent.start_date, typedEvent.end_date)}
+            label={typedEvent.event_type === "group_class" ? "Class Schedule" : "Dates"}
+            value={formatEventSchedule(typedEvent)}
           />
           <InfoCard
             label="Timezone"

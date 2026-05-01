@@ -3,7 +3,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { buildEventLocationQuery, geocodeAddress } from "@/lib/geocoding";
 import {
   EVENT_VISIBILITY_OPTIONS,
   TIMEZONE_OPTIONS,
@@ -41,11 +40,6 @@ type OrganizerRow = {
   active: boolean;
 };
 
-type EventCoordinates = {
-  latitude: number | null;
-  longitude: number | null;
-};
-
 const EVENT_IMAGE_BUCKET = "event-media";
 
 const STYLE_OPTIONS = [
@@ -70,7 +64,6 @@ const DB_EVENT_STATUSES = [
 
 const DB_EVENT_TYPES = [
   "group_class",
-  "special_event",
   "workshop",
   "social_dance",
   "showcase",
@@ -80,6 +73,7 @@ const DB_EVENT_TYPES = [
   "party",
   "festival",
   "retreat",
+  "special_event",
   "other",
 ] as const;
 
@@ -328,12 +322,14 @@ function validateEventPayload(payload: ReturnType<typeof buildEventPayload>) {
   if (!payload.name) return "Event name is required.";
   if (!payload.slug) return "Event slug is required.";
   if (!payload.startDate) return "Start date is required.";
-  if (!payload.endDate) return "End date is required.";
+  if (!payload.endDate && payload.eventType !== "group_class") {
+    return "End date is required.";
+  }
 
   const enumError = validateEventEnums(payload);
   if (enumError) return enumError;
 
-  if (payload.endDate < payload.startDate) {
+  if (payload.endDate && payload.endDate < payload.startDate) {
     return "End date cannot be before start date.";
   }
 
@@ -576,6 +572,145 @@ async function replaceEventStyles(params: {
   }
 }
 
+const ONGOING_GROUP_CLASS_INITIAL_WEEKS = 12;
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function toDateValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function buildWeeklyGroupClassSessions(payload: ReturnType<typeof buildEventPayload>) {
+  if (payload.eventType !== "group_class" || !payload.startDate) {
+    return [];
+  }
+
+  const start = new Date(`${payload.startDate}T00:00:00`);
+
+  if (Number.isNaN(start.getTime())) {
+    return [];
+  }
+
+  const end = payload.endDate
+    ? new Date(`${payload.endDate}T00:00:00`)
+    : addDays(start, 7 * (ONGOING_GROUP_CLASS_INITIAL_WEEKS - 1));
+
+  if (Number.isNaN(end.getTime()) || end < start) {
+    return [];
+  }
+
+  const sessions: Array<{
+    session_date: string;
+    start_time: string | null;
+    end_time: string | null;
+    session_label: string;
+    status: string;
+  }> = [];
+
+  let cursor = start;
+  let week = 1;
+
+  while (cursor <= end) {
+    sessions.push({
+      session_date: toDateValue(cursor),
+      start_time: payload.startTime,
+      end_time: payload.endTime,
+      session_label: `Week ${week}`,
+      status: "scheduled",
+    });
+
+    cursor = addDays(cursor, 7);
+    week += 1;
+  }
+
+  return sessions;
+}
+
+async function syncEventSessionsForGroupClass(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  studioId: string;
+  payload: ReturnType<typeof buildEventPayload>;
+}) {
+  const { supabase, eventId, studioId, payload } = params;
+
+  if (payload.eventType !== "group_class") {
+    const { error } = await supabase
+      .from("event_sessions")
+      .update({
+        status: "cancelled",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("event_id", eventId)
+      .eq("studio_id", studioId)
+      .eq("status", "scheduled");
+
+    if (error) {
+      throw new Error(`Could not cancel old group class sessions: ${error.message}`);
+    }
+
+    return;
+  }
+
+  const sessions = buildWeeklyGroupClassSessions(payload);
+
+  if (sessions.length === 0) {
+    return;
+  }
+
+  const rows = sessions.map((session) => ({
+    event_id: eventId,
+    studio_id: studioId,
+    ...session,
+    updated_at: new Date().toISOString(),
+  }));
+
+  const { error: upsertError } = await supabase
+    .from("event_sessions")
+    .upsert(rows, {
+      onConflict: "event_id,session_date",
+    });
+
+  if (upsertError) {
+    throw new Error(`Could not save group class sessions: ${upsertError.message}`);
+  }
+
+  const activeSessionDates = sessions.map((session) => session.session_date);
+
+  const { error: existingError, data: existingRows } = await supabase
+    .from("event_sessions")
+    .select("id, session_date")
+    .eq("event_id", eventId)
+    .eq("studio_id", studioId)
+    .eq("status", "scheduled");
+
+  if (existingError) {
+    throw new Error(`Could not review group class sessions: ${existingError.message}`);
+  }
+
+  const obsoleteIds = (existingRows ?? [])
+    .filter((row) => !activeSessionDates.includes(row.session_date))
+    .map((row) => row.id);
+
+  if (obsoleteIds.length > 0) {
+    const { error: cancelError } = await supabase
+      .from("event_sessions")
+      .update({
+        status: "cancelled",
+        updated_at: new Date().toISOString(),
+      })
+      .in("id", obsoleteIds);
+
+    if (cancelError) {
+      throw new Error(`Could not cancel obsolete group class sessions: ${cancelError.message}`);
+    }
+  }
+}
+
 async function uploadEventCoverImage(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
@@ -637,197 +772,13 @@ async function resolveCoverImageUrl(params: {
   return existingUrl ?? null;
 }
 
-async function resolveEventCoordinates(params: {
-  payload: ReturnType<typeof buildEventPayload>;
-  existingCoordinates?: EventCoordinates;
-}) {
-  const query = buildEventLocationQuery({
-    venueName: params.payload.venueName || null,
-    addressLine1: params.payload.addressLine1 || null,
-    addressLine2: params.payload.addressLine2 || null,
-    city: params.payload.city || null,
-    state: params.payload.state || null,
-    postalCode: params.payload.postalCode || null,
-  });
-
-  if (!query) {
-    return {
-      latitude: null,
-      longitude: null,
-    };
-  }
-
-  const result = await geocodeAddress(query);
-
-  if (result) {
-    return result;
-  }
-
-  return (
-    params.existingCoordinates ?? {
-      latitude: null,
-      longitude: null,
-    }
-  );
-}
-
-type EventSessionRow = {
-  id: string;
-  session_date: string;
-  status: string;
-};
-
-function toUtcDate(value: string) {
-  const date = new Date(`${value}T00:00:00Z`);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function toDateString(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setUTCDate(next.getUTCDate() + days);
-  return next;
-}
-
-function buildGroupClassSessions(params: {
-  eventId: string;
-  studioId: string;
-  payload: ReturnType<typeof buildEventPayload>;
-}) {
-  const { eventId, studioId, payload } = params;
-  const start = toUtcDate(payload.startDate);
-  const end = toUtcDate(payload.endDate);
-
-  if (!start || !end || end < start) {
-    return [];
-  }
-
-  const sessions: Array<{
-    event_id: string;
-    studio_id: string;
-    session_date: string;
-    start_time: string | null;
-    end_time: string | null;
-    session_label: string;
-    status: string;
-    updated_at: string;
-  }> = [];
-
-  let cursor = start;
-  let week = 1;
-  const updatedAt = new Date().toISOString();
-
-  while (cursor <= end) {
-    sessions.push({
-      event_id: eventId,
-      studio_id: studioId,
-      session_date: toDateString(cursor),
-      start_time: payload.startTime,
-      end_time: payload.endTime,
-      session_label: `Week ${week}`,
-      status: "scheduled",
-      updated_at: updatedAt,
-    });
-
-    cursor = addDays(cursor, 7);
-    week += 1;
-  }
-
-  return sessions;
-}
-
-async function syncEventSessions(params: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
-  studioId: string;
-  eventId: string;
-  payload: ReturnType<typeof buildEventPayload>;
-}) {
-  const { supabase, studioId, eventId, payload } = params;
-  const eventType = normalizeDbEventType(payload.eventType);
-
-  if (eventType !== "group_class") {
-    const { error } = await supabase
-      .from("event_sessions")
-      .update({
-        status: "cancelled",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("event_id", eventId)
-      .eq("studio_id", studioId)
-      .neq("status", "cancelled");
-
-    if (error) {
-      throw new Error(`Failed to clear group class sessions: ${error.message}`);
-    }
-
-    return;
-  }
-
-  const sessions = buildGroupClassSessions({
-    eventId,
-    studioId,
-    payload,
-  });
-
-  if (sessions.length === 0) {
-    throw new Error("Group class sessions could not be generated from the selected dates.");
-  }
-
-  const { error: upsertError } = await supabase
-    .from("event_sessions")
-    .upsert(sessions, {
-      onConflict: "event_id,session_date",
-    });
-
-  if (upsertError) {
-    throw new Error(`Failed to save group class sessions: ${upsertError.message}`);
-  }
-
-  const activeSessionDates = new Set(sessions.map((session) => session.session_date));
-
-  const { data: existingSessions, error: existingError } = await supabase
-    .from("event_sessions")
-    .select("id, session_date, status")
-    .eq("event_id", eventId)
-    .eq("studio_id", studioId);
-
-  if (existingError) {
-    throw new Error(`Failed to review group class sessions: ${existingError.message}`);
-  }
-
-  const obsoleteSessionIds = ((existingSessions ?? []) as EventSessionRow[])
-    .filter((session) => !activeSessionDates.has(session.session_date))
-    .filter((session) => session.status !== "cancelled")
-    .map((session) => session.id);
-
-  if (obsoleteSessionIds.length === 0) {
-    return;
-  }
-
-  const { error: cancelError } = await supabase
-    .from("event_sessions")
-    .update({
-      status: "cancelled",
-      updated_at: new Date().toISOString(),
-    })
-    .in("id", obsoleteSessionIds);
-
-  if (cancelError) {
-    throw new Error(`Failed to cancel old group class sessions: ${cancelError.message}`);
-  }
-}
-
 function buildInsertUpdatePayload(params: {
   payload: ReturnType<typeof buildEventPayload>;
   studioId: string;
   organizerId: string | null;
   resolvedCoverImageUrl: string | null;
-  coordinates: EventCoordinates;
 }) {
-  const { payload, studioId, organizerId, resolvedCoverImageUrl, coordinates } = params;
+  const { payload, studioId, organizerId, resolvedCoverImageUrl } = params;
 
   return {
     organizer_id: organizerId || null,
@@ -845,12 +796,10 @@ function buildInsertUpdatePayload(params: {
     city: payload.city || null,
     state: normalizeOptionValue(US_STATE_OPTIONS, payload.state),
     postal_code: payload.postalCode || null,
-    latitude: coordinates.latitude,
-    longitude: coordinates.longitude,
     timezone:
       normalizeOptionValue(TIMEZONE_OPTIONS, payload.timezone) ?? "America/New_York",
     start_date: payload.startDate,
-    end_date: payload.endDate,
+    end_date: payload.endDate || null,
     start_time: payload.startTime,
     end_time: payload.endTime,
     cover_image_url: resolvedCoverImageUrl,
@@ -935,17 +884,12 @@ export async function createEventAction(
       payload: effectivePayload,
     });
 
-    const coordinates = await resolveEventCoordinates({
-      payload: effectivePayload,
-    });
-
     const insertPayload = {
       ...buildInsertUpdatePayload({
         payload: effectivePayload,
         studioId,
         organizerId: effectivePayload.organizerId,
         resolvedCoverImageUrl,
-        coordinates,
       }),
       created_by: userId,
     };
@@ -983,10 +927,10 @@ export async function createEventAction(
       styleKeys: effectivePayload.styleKeys,
     });
 
-    await syncEventSessions({
+    await syncEventSessionsForGroupClass({
       supabase,
-      studioId,
       eventId: event.id,
+      studioId,
       payload: effectivePayload,
     });
   } catch (error) {
@@ -1040,7 +984,7 @@ export async function updateEventAction(
 
     const { data: existingEvent, error: existingEventError } = await supabase
       .from("events")
-      .select("id, cover_image_url, public_cover_image_url, latitude, longitude")
+      .select("id, cover_image_url, public_cover_image_url")
       .eq("id", id)
       .eq("studio_id", studioId)
       .single();
@@ -1079,20 +1023,6 @@ export async function updateEventAction(
       payload: effectivePayload,
     });
 
-    const coordinates = await resolveEventCoordinates({
-      payload: effectivePayload,
-      existingCoordinates: {
-        latitude:
-          typeof existingEvent.latitude === "number"
-            ? existingEvent.latitude
-            : null,
-        longitude:
-          typeof existingEvent.longitude === "number"
-            ? existingEvent.longitude
-            : null,
-      },
-    });
-
     const { error: updateError } = await supabase
       .from("events")
       .update({
@@ -1101,7 +1031,6 @@ export async function updateEventAction(
           studioId,
           organizerId: effectivePayload.organizerId,
           resolvedCoverImageUrl,
-          coordinates,
         }),
         updated_at: new Date().toISOString(),
       })
@@ -1146,10 +1075,10 @@ export async function updateEventAction(
       styleKeys: effectivePayload.styleKeys,
     });
 
-    await syncEventSessions({
+    await syncEventSessionsForGroupClass({
       supabase,
-      studioId,
       eventId: id,
+      studioId,
       payload: effectivePayload,
     });
   } catch (error) {

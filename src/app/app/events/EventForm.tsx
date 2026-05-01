@@ -178,6 +178,54 @@ function getTodayDateValue() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function formatPreviewDate(value: string) {
+  if (!value) return "";
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatWeekdayPlural(value: string) {
+  if (!value) return "";
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const weekday = date.toLocaleDateString([], { weekday: "long" });
+  return `${weekday}s`;
+}
+
+function calculateWeeklySeriesCount(startDate: string, endDate: string) {
+  if (!startDate || !endDate) return null;
+
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return null;
+  }
+
+  if (end < start) return null;
+
+  const days = Math.round(
+    (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  return Math.floor(days / 7) + 1;
+}
+
 function getLocalDateTimeInputValue() {
   const now = new Date();
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
@@ -252,12 +300,32 @@ export default function EventForm({
     initialValues?.styleKeys ?? []
   );
   const [tags, setTags] = useState(initialValues?.tags ?? "");
+  const [startDate, setStartDate] = useState(
+    initialValues?.startDate ?? getTodayDateValue()
+  );
+  const [endDate, setEndDate] = useState(initialValues?.endDate ?? "");
   const [startTime, setStartTime] = useState(initialValues?.startTime ?? "");
   const [endTime, setEndTime] = useState(initialValues?.endTime ?? "");
 
   const suggestedSlug = useMemo(() => slugify(name), [name]);
   const isGroupClass = eventType === "group_class";
   const hasCapacity = capacity.trim() !== "" && Number(capacity) > 0;
+  const groupClassWeekday = isGroupClass ? formatWeekdayPlural(startDate) : "";
+  const groupClassSeriesCount =
+    isGroupClass && endDate
+      ? calculateWeeklySeriesCount(startDate, endDate)
+      : null;
+  const groupClassDatePreview = isGroupClass
+    ? endDate
+      ? `${groupClassWeekday || "Weekly"} · ${formatPreviewDate(
+          startDate
+        )} – ${formatPreviewDate(endDate)}${
+          groupClassSeriesCount ? ` · ${groupClassSeriesCount}-week series` : ""
+        }`
+      : `${groupClassWeekday || "Weekly"} · Starts ${formatPreviewDate(
+          startDate
+        )} · Ongoing weekly class`
+    : "";
 
   const singleOrganizer = organizers.length === 1 ? organizers[0] : null;
   const isStudioHostedEvent = !organizerWorkspace && organizers.length === 0;
@@ -537,30 +605,45 @@ export default function EventForm({
 
               <div>
                 <label htmlFor="startDate" className="mb-1.5 block text-sm font-medium">
-                  Start Date
+                  {isGroupClass ? "First Class Date" : "Start Date"}
+                  <RequiredAsterisk />
                 </label>
                 <input
                   id="startDate"
                   name="startDate"
                   type="date"
                   required
-                  defaultValue={initialValues?.startDate ?? getTodayDateValue()}
+                  value={startDate}
+                  onChange={(e) => setStartDate(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 />
+                {isGroupClass ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    DanceFlow uses this date to determine the weekly class day.
+                  </p>
+                ) : null}
               </div>
 
               <div>
                 <label htmlFor="endDate" className="mb-1.5 block text-sm font-medium">
-                  End Date
+                  {isGroupClass ? "Final Class Date" : "End Date"}
+                  {!isGroupClass ? <RequiredAsterisk /> : null}
                 </label>
                 <input
                   id="endDate"
                   name="endDate"
                   type="date"
-                  required
-                  defaultValue={initialValues?.endDate ?? getTodayDateValue()}
+                  required={!isGroupClass}
+                  value={endDate}
+                  onChange={(e) => setEndDate(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 />
+                {isGroupClass ? (
+                  <p className="mt-1 text-xs text-slate-500">
+                    Leave this blank for an ongoing weekly class. Add a final date
+                    for a limited weekly series.
+                  </p>
+                ) : null}
               </div>
 
               <div>
@@ -590,6 +673,22 @@ export default function EventForm({
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 />
               </div>
+
+              {isGroupClass ? (
+                <div className="md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+                  <p className="font-semibold">Group class schedule</p>
+                  <p className="mt-1 leading-6">
+                    Group classes meet weekly on the day of the first class date.
+                    Use a final class date for a limited series, or leave it blank
+                    for an ongoing weekly class.
+                  </p>
+                  {startDate ? (
+                    <p className="mt-3 rounded-xl bg-white px-3 py-2 font-medium text-slate-800">
+                      Preview: {groupClassDatePreview}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
 
               <div>
                 <label htmlFor="venueName" className="mb-1.5 block text-sm font-medium">

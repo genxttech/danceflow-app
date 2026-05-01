@@ -23,7 +23,7 @@ type EventRow = {
   city: string | null;
   state: string | null;
   start_date: string;
-  end_date: string;
+  end_date: string | null;
   start_time: string | null;
   end_time: string | null;
   visibility: string;
@@ -189,9 +189,9 @@ function visibilityBadgeClass(value: string) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
-function formatDateRange(startDate: string, endDate: string) {
+function formatDateRange(startDate: string, endDate: string | null) {
   const start = new Date(`${startDate}T00:00:00`);
-  const end = new Date(`${endDate}T00:00:00`);
+  const end = new Date(`${endDate ?? startDate}T00:00:00`);
 
   const startText = start.toLocaleDateString([], {
     month: "short",
@@ -205,7 +205,7 @@ function formatDateRange(startDate: string, endDate: string) {
     year: "numeric",
   });
 
-  return startDate === endDate ? startText : `${startText} - ${endText}`;
+  return !endDate || startDate === endDate ? startText : `${startText} - ${endText}`;
 }
 
 function formatTimeRange(startTime: string | null, endTime: string | null) {
@@ -228,6 +228,56 @@ function formatTimeRange(startTime: string | null, endTime: string | null) {
   return `${startText} - ${endText}`;
 }
 
+function weekdayPlural(startDate: string) {
+  const date = new Date(`${startDate}T00:00:00`);
+  return `${date.toLocaleDateString([], { weekday: "long" })}s`;
+}
+
+function seriesWeekCount(startDate: string, endDate: string | null) {
+  if (!endDate) return null;
+
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+    return null;
+  }
+
+  const days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+
+  return Math.floor(days / 7) + 1;
+}
+
+function formatEventSchedule(event: EventRow) {
+  if (event.event_type !== "group_class") {
+    return formatDateRange(event.start_date, event.end_date);
+  }
+
+  const timeRange = formatTimeRange(event.start_time, event.end_time);
+
+  if (event.end_date) {
+    const weeks = seriesWeekCount(event.start_date, event.end_date);
+
+    return [
+      weekdayPlural(event.start_date),
+      formatDateRange(event.start_date, event.end_date),
+      timeRange,
+      weeks ? `${weeks}-week series` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  return [
+    weekdayPlural(event.start_date),
+    `Starts ${formatDateRange(event.start_date, event.start_date)}`,
+    timeRange,
+    "Ongoing weekly class",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function getOrganizer(
   value:
     | { id?: string; name: string; slug: string }
@@ -235,43 +285,6 @@ function getOrganizer(
     | null
 ) {
   return Array.isArray(value) ? value[0] : value;
-}
-
-function hasPublicDiscoveryBasics(event: EventRow) {
-  return (
-    event.public_directory_enabled &&
-    event.visibility === "public" &&
-    (event.status === "published" || event.status === "open")
-  );
-}
-
-function getEventHostLabel(params: {
-  organizer: { id?: string; name: string; slug: string } | null | undefined;
-  studioHostedEvents: boolean;
-  workspaceName: string;
-}) {
-  if (params.organizer?.name?.trim()) {
-    return params.organizer.name;
-  }
-
-  if (params.studioHostedEvents) {
-    return params.workspaceName;
-  }
-
-  return "Unknown";
-}
-
-function isEventDiscoveryReady(params: {
-  event: EventRow;
-  organizer: { id?: string; name: string; slug: string } | null | undefined;
-  studioHostedEvents: boolean;
-}) {
-  return (
-    hasPublicDiscoveryBasics(params.event) &&
-    (Boolean(params.event.organizer_id) ||
-      Boolean(params.organizer) ||
-      params.studioHostedEvents)
-  );
 }
 
 function eventListingHint(eventType: string, visibility: string) {
@@ -413,18 +426,15 @@ export default async function EventsPage() {
     subscriptionPlan = plan;
   }
 
-  const workspaceName =
-  workspace?.public_name?.trim() || workspace?.name?.trim() || "Workspace";
-
-const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
-
-/**
- * Existing studio-created events should display as studio-hosted even when
- * organizer_id is null. Billing/plan checks can control whether studios may
- * create or publish future events, but the event list should not show
- * "Unknown" for live studio-hosted events.
- */
-const studioHostedEvents = !organizerWorkspace;
+  const workspaceName = workspace?.public_name?.trim() || workspace?.name?.trim() || "Workspace";
+  const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
+  const studioHostedEvents =
+    !organizerWorkspace &&
+    canUseStudioHostedEvents({
+      workspace,
+      subscription: latestSubscription,
+      subscriptionPlan,
+    });
   const showCreateEvent = canManageEvents(context.studioRole, context.isPlatformAdmin);
   const showOrganizerProfile = canManageOrganizerProfile(
     context.studioRole,
@@ -506,15 +516,13 @@ const studioHostedEvents = !organizerWorkspace;
   const publicDirectoryCount = typedEvents.filter(
     (event) => event.public_directory_enabled
   ).length;
-  const discoveryReadyCount = typedEvents.filter((event) => {
-  const organizer = getOrganizer(event.organizers);
-
-  return isEventDiscoveryReady({
-    event,
-    organizer,
-    studioHostedEvents,
-  });
-}).length;
+  const discoveryReadyCount = typedEvents.filter(
+    (event) =>
+      event.public_directory_enabled &&
+      event.visibility === "public" &&
+      (event.status === "published" || event.status === "open") &&
+      Boolean(event.organizer_id)
+  ).length;
 
   const totalRegistrations = typedRegistrations.length;
   const totalCheckedIn = typedRegistrations.filter((row) => {
@@ -609,9 +617,8 @@ const studioHostedEvents = !organizerWorkspace;
                 {organizerWorkspace ? "Discovery readiness matters" : "Discovery and organizer publishing"}
               </h2>
               <p className="mt-2 text-sm leading-7 text-orange-900">
-                Discovery-ready events should be public, directory-enabled, and have a clear
-host. Studio-hosted events can use your workspace name; organizer-hosted
-events should be linked to an organizer profile.
+                Discovery-ready events should be public, directory-enabled, and linked to
+                an organizer so dancers can actually find and register for them.
               </p>
             </div>
           </div>
@@ -744,17 +751,11 @@ events should be linked to an organizer profile.
           <div className="divide-y divide-slate-200">
             {typedEvents.map((event) => {
               const organizer = getOrganizer(event.organizers);
-const hostLabel = getEventHostLabel({
-  organizer,
-  studioHostedEvents,
-  workspaceName,
-});
-
-const discoveryReady = isEventDiscoveryReady({
-  event,
-  organizer,
-  studioHostedEvents,
-});
+              const discoveryReady =
+                event.public_directory_enabled &&
+                event.visibility === "public" &&
+                (event.status === "published" || event.status === "open") &&
+                (Boolean(event.organizer_id) || studioHostedEvents);
 
               const eventRegistrations = registrationsByEventId.get(event.id) ?? [];
               const defaultCurrency =
@@ -849,7 +850,7 @@ const discoveryReady = isEventDiscoveryReady({
                           </span>
                         ) : (
                           <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
-                            Host Not Set
+                            No Organizer
                           </span>
                         )}
 
@@ -865,12 +866,11 @@ const discoveryReady = isEventDiscoveryReady({
                       </div>
 
                       <p className="mt-3 text-sm text-slate-500">
-                        Host: {hostLabel} • /events/{event.slug}
+                        Host: {organizer?.name ?? (studioHostedEvents ? workspaceName : "None")} • /events/{event.slug}
                       </p>
 
                       <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">
-                        <span>{formatDateRange(event.start_date, event.end_date)}</span>
-                        <span>{formatTimeRange(event.start_time, event.end_time)}</span>
+                        <span>{formatEventSchedule(event)}</span>
                         <span>
                           {[event.city, event.state].filter(Boolean).join(", ") || "No location"}
                         </span>
