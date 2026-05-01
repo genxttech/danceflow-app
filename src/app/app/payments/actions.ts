@@ -32,6 +32,30 @@ function getNumber(value: string) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
+function getDateValueFromIso(value: string) {
+  return value.slice(0, 10);
+}
+
+function getPaymentDateIso(formData: FormData) {
+  const rawPaymentDate = getString(formData, "paymentDate");
+
+  if (!rawPaymentDate) {
+    return new Date().toISOString();
+  }
+
+  const parsed = new Date(`${rawPaymentDate}T12:00:00`);
+
+  if (Number.isNaN(parsed.getTime())) {
+    return new Date().toISOString();
+  }
+
+  return parsed.toISOString();
+}
+
+function isPaidLikeStatus(value: string) {
+  return ["paid", "processed", "complete", "completed"].includes(value.toLowerCase());
+}
+
 function getFloorRentalDiscountNote(discountPercent: number | null, discountAmount: number | null) {
   if (discountPercent != null && discountPercent > 0) {
     return `Membership floor rental discount applied: ${discountPercent}% off`;
@@ -87,6 +111,7 @@ export async function createPaymentAction(
     const paymentMethod = paymentAction === "manual" ? getString(formData, "paymentMethod") : "card";
     const status = paymentAction === "manual" ? getString(formData, "status") || "paid" : "pending";
     const notes = getString(formData, "notes");
+    const selectedPaymentDateIso = getPaymentDateIso(formData);
 
     if (!clientId) {
       return { error: "Client is required." };
@@ -137,11 +162,13 @@ export async function createPaymentAction(
         return { error: "Selected package template has no items." };
       }
 
-      const purchaseDate = new Date().toISOString().slice(0, 10);
+      const purchaseDate = getDateValueFromIso(selectedPaymentDateIso);
+      const purchaseDateObject = new Date(`${purchaseDate}T12:00:00`);
       const expirationDate =
         packageTemplate.expiration_days != null
           ? new Date(
-              Date.now() + Number(packageTemplate.expiration_days) * 24 * 60 * 60 * 1000
+              purchaseDateObject.getTime() +
+                Number(packageTemplate.expiration_days) * 24 * 60 * 60 * 1000
             )
               .toISOString()
               .slice(0, 10)
@@ -278,7 +305,7 @@ export async function createPaymentAction(
         payment_method: paymentMethod,
         status,
         notes: finalNotes,
-        paid_at: new Date().toISOString(),
+        paid_at: isPaidLikeStatus(status) ? selectedPaymentDateIso : null,
         created_by: user.id,
         payment_type: paymentType,
         source: paymentAction === "manual" ? "manual" : "stripe",
@@ -310,3 +337,4 @@ export async function createPaymentAction(
 
   redirect(getReturnTo(formData, "/app/payments", "payment_logged"));
 }
+

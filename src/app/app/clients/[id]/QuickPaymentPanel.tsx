@@ -63,6 +63,10 @@ function formatShortDate(value: string) {
   }).format(new Date(`${value}T00:00:00`));
 }
 
+function getTodayDateValue() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function billingIntervalLabel(value: string) {
   if (value === "monthly") return "Monthly";
   if (value === "quarterly") return "Quarterly";
@@ -129,6 +133,7 @@ export default function QuickPaymentPanel({
     useState("");
   const [salePrice, setSalePrice] = useState("");
   const [amount, setAmount] = useState("");
+  const [paymentDate, setPaymentDate] = useState(getTodayDateValue());
   const [activePaymentAction, setActivePaymentAction] = useState<
     "manual" | "charge_now" | "send_to_portal" | null
   >(null);
@@ -399,7 +404,25 @@ export default function QuickPaymentPanel({
         ) : null}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
+        <div>
+          <label htmlFor="paymentDate" className="mb-1 block text-sm font-medium">
+            Payment Date
+          </label>
+          <input
+            id="paymentDate"
+            name="paymentDate"
+            type="date"
+            value={paymentDate}
+            onChange={(event) => setPaymentDate(event.target.value)}
+            className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            required
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Use the date the payment or sale actually happened.
+          </p>
+        </div>
+
         <div>
           <label
             htmlFor="paymentMethod"
@@ -416,6 +439,7 @@ export default function QuickPaymentPanel({
             <option value="cash">Cash</option>
             <option value="card">Card</option>
             <option value="check">Check</option>
+            <option value="ach">ACH</option>
             <option value="zelle">Zelle</option>
             <option value="venmo">Venmo</option>
             <option value="other">Other</option>
