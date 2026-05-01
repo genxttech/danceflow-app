@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 
@@ -30,6 +31,8 @@ type PackageDeductionErrorRow = {
   appointment_type: string | null;
   error_message: string | null;
   created_at: string;
+  resolved_at: string | null;
+  resolution_notes: string | null;
 };
 
 function formatDateTime(value: string | null) {
@@ -90,6 +93,63 @@ function hasPaidBillingFootprint(studio: StudioRow) {
 export default async function PlatformAlertsPage() {
   await requirePlatformAdmin();
 
+  async function resolvePlatformErrorAction(formData: FormData) {
+    "use server";
+
+    await requirePlatformAdmin();
+
+    const errorId = String(formData.get("errorId") ?? "").trim();
+
+    if (!errorId) {
+      redirect("/platform/alerts");
+    }
+
+    const supabase = await createClient();
+
+    const { error } = await supabase
+      .from("platform_error_logs")
+      .update({ resolved_at: new Date().toISOString() })
+      .eq("id", errorId)
+      .is("resolved_at", null);
+
+    if (error) {
+      redirect("/platform/alerts?error=resolve_failed");
+    }
+
+    redirect("/platform/alerts?status=resolved");
+  }
+
+
+  async function resolvePackageDeductionErrorAction(formData: FormData) {
+    "use server";
+
+    await requirePlatformAdmin();
+
+    const errorId = String(formData.get("errorId") ?? "").trim();
+    const resolutionNotes = String(formData.get("resolutionNotes") ?? "").trim();
+
+    if (!errorId) {
+      redirect("/platform/alerts");
+    }
+
+    const supabase = await createClient();
+
+    const { error } = await supabase
+      .from("appointment_package_deduction_errors")
+      .update({
+        resolved_at: new Date().toISOString(),
+        resolution_notes: resolutionNotes || null,
+      })
+      .eq("id", errorId)
+      .is("resolved_at", null);
+
+    if (error) {
+      redirect("/platform/alerts?error=package_resolve_failed");
+    }
+
+    redirect("/platform/alerts?status=package_resolved");
+  }
+
   const supabase = await createClient();
 
   const [
@@ -111,7 +171,7 @@ export default async function PlatformAlertsPage() {
     supabase
       .from("appointment_package_deduction_errors")
       .select(
-        "id, appointment_id, studio_id, client_id, client_package_id, appointment_type, error_message, created_at"
+        "id, appointment_id, studio_id, client_id, client_package_id, appointment_type, error_message, created_at, resolved_at, resolution_notes"
       )
       .order("created_at", { ascending: false })
       .limit(100),
@@ -153,10 +213,14 @@ export default async function PlatformAlertsPage() {
     (errorLog) => !errorLog.resolved_at
   );
 
+  const unresolvedPackageDeductionErrors = typedPackageDeductionErrors.filter(
+    (errorLog) => !errorLog.resolved_at
+  );
+
   const totalAlertCount =
     billingRiskAccounts.length +
     unresolvedPlatformErrors.length +
-    typedPackageDeductionErrors.length;
+    unresolvedPackageDeductionErrors.length;
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.42)_0%,rgba(255,255,255,0)_20%)] p-1">
@@ -171,7 +235,7 @@ export default async function PlatformAlertsPage() {
                 Platform Alerts
               </h1>
               <p className="mt-3 text-sm leading-7 text-white/85 md:text-base">
-                Review billing risk, server-side errors, and package deduction issues in one place so problems can be handled before users report them.
+                Review billing risk, backend errors, and package deduction issues in one place so problems can be handled before users report them.
               </p>
             </div>
 
@@ -202,7 +266,7 @@ export default async function PlatformAlertsPage() {
             </div>
 
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <p className="text-sm text-amber-700">Server-Side Errors</p>
+              <p className="text-sm text-amber-700">Backend Errors</p>
               <p className="mt-1 text-2xl font-semibold text-amber-950">
                 {unresolvedPlatformErrors.length}
               </p>
@@ -211,7 +275,7 @@ export default async function PlatformAlertsPage() {
             <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
               <p className="text-sm text-orange-700">Package Deduction Errors</p>
               <p className="mt-1 text-2xl font-semibold text-orange-950">
-                {typedPackageDeductionErrors.length}
+                {unresolvedPackageDeductionErrors.length}
               </p>
             </div>
           </div>
@@ -227,7 +291,7 @@ export default async function PlatformAlertsPage() {
             No platform alerts need review
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-green-800">
-            No billing risk, unresolved server-side error, or package deduction error rows were found.
+            No billing risk, unresolved backend errors, or package deduction issues were found.
           </p>
         </section>
       ) : null}
@@ -242,7 +306,7 @@ export default async function PlatformAlertsPage() {
               Paid-plan access without active subscription
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              These workspaces have a Stripe subscription id but are not active or trialing.
+              These workspaces have a Stripe subscription ID but are not currently active or trialing.
             </p>
           </div>
 
@@ -308,19 +372,19 @@ export default async function PlatformAlertsPage() {
       <section className="rounded-[32px] border border-amber-200 bg-white p-6 shadow-sm">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
-            Server-Side Errors
+            Backend Errors
           </p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-950">
             Unresolved backend errors
           </h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            These are rows from platform_error_logs. Phase 2 can add acknowledgement, resolution workflows, and email notifications.
+            Review unresolved backend errors that may need attention.
           </p>
         </div>
 
         {unresolvedPlatformErrors.length === 0 ? (
           <div className="mt-5 rounded-2xl border border-green-200 bg-green-50 p-5 text-sm text-green-700">
-            No unresolved server-side errors found.
+            No unresolved backend errors found.
           </div>
         ) : (
           <div className="mt-5 space-y-3">
@@ -351,9 +415,26 @@ export default async function PlatformAlertsPage() {
                   </span>
                 </summary>
 
-                <pre className="mt-4 max-h-72 overflow-auto rounded-xl bg-white p-4 text-xs text-slate-700">
-                  {JSON.stringify(errorLog.details ?? {}, null, 2)}
-                </pre>
+                <div className="mt-4 space-y-4">
+                  <pre className="max-h-72 overflow-auto rounded-xl bg-white p-4 text-xs text-slate-700">
+                    {JSON.stringify(errorLog.details ?? {}, null, 2)}
+                  </pre>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white p-4">
+                    <p className="text-sm text-slate-600">
+                      Mark this alert resolved after it has been reviewed or no longer needs action.
+                    </p>
+                    <form action={resolvePlatformErrorAction}>
+                      <input type="hidden" name="errorId" value={errorLog.id} />
+                      <button
+                        type="submit"
+                        className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-800"
+                      >
+                        Mark Resolved
+                      </button>
+                    </form>
+                  </div>
+                </div>
               </details>
             ))}
           </div>
@@ -369,17 +450,17 @@ export default async function PlatformAlertsPage() {
             Appointment package credit issues
           </h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            These rows are created when the attended-appointment deduction trigger catches a non-blocking package credit error.
+            Review appointment package credit issues that may need manual follow-up.
           </p>
         </div>
 
-        {typedPackageDeductionErrors.length === 0 ? (
+        {unresolvedPackageDeductionErrors.length === 0 ? (
           <div className="mt-5 rounded-2xl border border-green-200 bg-green-50 p-5 text-sm text-green-700">
             No package deduction errors found.
           </div>
         ) : (
           <div className="mt-5 space-y-3">
-            {typedPackageDeductionErrors.map((errorLog) => (
+            {unresolvedPackageDeductionErrors.map((errorLog) => (
               <details
                 key={errorLog.id}
                 className="group rounded-2xl border border-orange-200 bg-orange-50 p-4"
@@ -387,10 +468,10 @@ export default async function PlatformAlertsPage() {
                 <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
                   <div>
                     <p className="font-semibold text-orange-950">
-                      {errorLog.appointment_type ?? "Appointment"} package deduction error
+                      {errorLog.appointment_type ?? "Appointment"} package deduction issue
                     </p>
                     <p className="mt-2 line-clamp-2 text-sm text-orange-800">
-                      {errorLog.error_message ?? "Package credit deduction failed."}
+                      {errorLog.error_message ?? "Package credit deduction needs review."}
                     </p>
                     <p className="mt-2 text-xs text-orange-700">
                       {formatDateTime(errorLog.created_at)}
@@ -409,6 +490,35 @@ export default async function PlatformAlertsPage() {
                   <p><span className="font-semibold">Client:</span> {errorLog.client_id ?? "—"}</p>
                   <p><span className="font-semibold">Package:</span> {errorLog.client_package_id ?? "—"}</p>
                 </div>
+
+
+                <form
+                  action={resolvePackageDeductionErrorAction}
+                  className="mt-4 rounded-xl border border-orange-200 bg-white p-4"
+                >
+                  <input type="hidden" name="errorId" value={errorLog.id} />
+                  <label className="block text-sm font-semibold text-slate-800" htmlFor={`resolutionNotes-${errorLog.id}`}>
+                    Resolution notes
+                  </label>
+                  <textarea
+                    id={`resolutionNotes-${errorLog.id}`}
+                    name="resolutionNotes"
+                    rows={3}
+                    placeholder="Example: Applied the correct package credit and confirmed the appointment attendance."
+                    className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
+                  />
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                    <p className="text-sm text-slate-600">
+                      Mark this package credit issue resolved after the client/package record has been reviewed.
+                    </p>
+                    <button
+                      type="submit"
+                      className="rounded-xl bg-orange-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-800"
+                    >
+                      Mark Resolved
+                    </button>
+                  </div>
+                </form>
               </details>
             ))}
           </div>
@@ -417,4 +527,6 @@ export default async function PlatformAlertsPage() {
     </div>
   );
 }
+
+
 
