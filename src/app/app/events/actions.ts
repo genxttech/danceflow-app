@@ -69,6 +69,8 @@ const DB_EVENT_STATUSES = [
 ] as const;
 
 const DB_EVENT_TYPES = [
+  "group_class",
+"special_event",
   "workshop",
   "social_dance",
   "showcase",
@@ -152,7 +154,6 @@ function normalizeDbEventStatus(value: string) {
 function normalizeDbEventType(value: string) {
   const normalized = value.trim().toLowerCase();
 
-  if (normalized === "group_class") return "workshop";
   if (normalized === "special_event") return "other";
   if (normalized === "event") return "other";
 

@@ -413,15 +413,18 @@ export default async function EventsPage() {
     subscriptionPlan = plan;
   }
 
-  const workspaceName = workspace?.public_name?.trim() || workspace?.name?.trim() || "Workspace";
-  const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
-  const studioHostedEvents =
-    !organizerWorkspace &&
-    canUseStudioHostedEvents({
-      workspace,
-      subscription: latestSubscription,
-      subscriptionPlan,
-    });
+  const workspaceName =
+  workspace?.public_name?.trim() || workspace?.name?.trim() || "Workspace";
+
+const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
+
+/**
+ * Existing studio-created events should display as studio-hosted even when
+ * organizer_id is null. Billing/plan checks can control whether studios may
+ * create or publish future events, but the event list should not show
+ * "Unknown" for live studio-hosted events.
+ */
+const studioHostedEvents = !organizerWorkspace;
   const showCreateEvent = canManageEvents(context.studioRole, context.isPlatformAdmin);
   const showOrganizerProfile = canManageOrganizerProfile(
     context.studioRole,
@@ -606,8 +609,9 @@ export default async function EventsPage() {
                 {organizerWorkspace ? "Discovery readiness matters" : "Discovery and organizer publishing"}
               </h2>
               <p className="mt-2 text-sm leading-7 text-orange-900">
-                Discovery-ready events should be public, directory-enabled, and linked to
-                an organizer so dancers can actually find and register for them.
+                Discovery-ready events should be public, directory-enabled, and have a clear
+host. Studio-hosted events can use your workspace name; organizer-hosted
+events should be linked to an organizer profile.
               </p>
             </div>
           </div>
