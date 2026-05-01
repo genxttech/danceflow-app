@@ -287,6 +287,43 @@ function getOrganizer(
   return Array.isArray(value) ? value[0] : value;
 }
 
+function hasPublicDiscoveryBasics(event: EventRow) {
+  return (
+    event.public_directory_enabled &&
+    event.visibility === "public" &&
+    (event.status === "published" || event.status === "open")
+  );
+}
+
+function getEventHostLabel(params: {
+  organizer: { id?: string; name: string; slug: string } | null | undefined;
+  studioHostedEvents: boolean;
+  workspaceName: string;
+}) {
+  if (params.organizer?.name?.trim()) {
+    return params.organizer.name;
+  }
+
+  if (params.studioHostedEvents) {
+    return params.workspaceName;
+  }
+
+  return "Unknown";
+}
+
+function isEventDiscoveryReady(params: {
+  event: EventRow;
+  organizer: { id?: string; name: string; slug: string } | null | undefined;
+  studioHostedEvents: boolean;
+}) {
+  return (
+    hasPublicDiscoveryBasics(params.event) &&
+    (Boolean(params.event.organizer_id) ||
+      Boolean(params.organizer) ||
+      params.studioHostedEvents)
+  );
+}
+
 function eventListingHint(eventType: string, visibility: string) {
   const publicHint =
     visibility === "public"
@@ -426,15 +463,17 @@ export default async function EventsPage() {
     subscriptionPlan = plan;
   }
 
-  const workspaceName = workspace?.public_name?.trim() || workspace?.name?.trim() || "Workspace";
+  const workspaceName =
+    workspace?.public_name?.trim() || workspace?.name?.trim() || "Workspace";
+
   const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
-  const studioHostedEvents =
-    !organizerWorkspace &&
-    canUseStudioHostedEvents({
-      workspace,
-      subscription: latestSubscription,
-      subscriptionPlan,
-    });
+
+  /**
+   * Existing studio-created events should display as studio-hosted when
+   * organizer_id is null. Billing/plan checks can control creation/publishing,
+   * but the event list should not show "Unknown" for valid live studio events.
+   */
+  const studioHostedEvents = !organizerWorkspace;
   const showCreateEvent = canManageEvents(context.studioRole, context.isPlatformAdmin);
   const showOrganizerProfile = canManageOrganizerProfile(
     context.studioRole,
@@ -516,13 +555,15 @@ export default async function EventsPage() {
   const publicDirectoryCount = typedEvents.filter(
     (event) => event.public_directory_enabled
   ).length;
-  const discoveryReadyCount = typedEvents.filter(
-    (event) =>
-      event.public_directory_enabled &&
-      event.visibility === "public" &&
-      (event.status === "published" || event.status === "open") &&
-      Boolean(event.organizer_id)
-  ).length;
+  const discoveryReadyCount = typedEvents.filter((event) => {
+    const organizer = getOrganizer(event.organizers);
+
+    return isEventDiscoveryReady({
+      event,
+      organizer,
+      studioHostedEvents,
+    });
+  }).length;
 
   const totalRegistrations = typedRegistrations.length;
   const totalCheckedIn = typedRegistrations.filter((row) => {
@@ -617,8 +658,9 @@ export default async function EventsPage() {
                 {organizerWorkspace ? "Discovery readiness matters" : "Discovery and organizer publishing"}
               </h2>
               <p className="mt-2 text-sm leading-7 text-orange-900">
-                Discovery-ready events should be public, directory-enabled, and linked to
-                an organizer so dancers can actually find and register for them.
+                Discovery-ready events should be public, directory-enabled, and have a
+                clear host. Studio-hosted events can use your workspace name;
+                organizer-hosted events should be linked to an organizer profile.
               </p>
             </div>
           </div>
@@ -751,11 +793,16 @@ export default async function EventsPage() {
           <div className="divide-y divide-slate-200">
             {typedEvents.map((event) => {
               const organizer = getOrganizer(event.organizers);
-              const discoveryReady =
-                event.public_directory_enabled &&
-                event.visibility === "public" &&
-                (event.status === "published" || event.status === "open") &&
-                (Boolean(event.organizer_id) || studioHostedEvents);
+              const hostLabel = getEventHostLabel({
+                organizer,
+                studioHostedEvents,
+                workspaceName,
+              });
+              const discoveryReady = isEventDiscoveryReady({
+                event,
+                organizer,
+                studioHostedEvents,
+              });
 
               const eventRegistrations = registrationsByEventId.get(event.id) ?? [];
               const defaultCurrency =
@@ -850,7 +897,7 @@ export default async function EventsPage() {
                           </span>
                         ) : (
                           <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
-                            No Organizer
+                            Host Not Set
                           </span>
                         )}
 
@@ -866,7 +913,7 @@ export default async function EventsPage() {
                       </div>
 
                       <p className="mt-3 text-sm text-slate-500">
-                        Host: {organizer?.name ?? (studioHostedEvents ? workspaceName : "None")} • /events/{event.slug}
+                        Host: {hostLabel} • /events/{event.slug}
                       </p>
 
                       <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">
