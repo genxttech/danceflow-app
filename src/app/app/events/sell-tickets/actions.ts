@@ -255,13 +255,17 @@ export async function sellTicketsAction(
   const ticketTypeId = getString(formData, "ticketTypeId");
   const clientId = getString(formData, "clientId");
   const quantity = parsePositiveInteger(getString(formData, "quantity"));
-  const paymentMethod = normalizePaymentMethod(getString(formData, "paymentMethod"));
+  const paymentMethod = normalizePaymentMethod(
+    getString(formData, "paymentMethod")
+  );
   const notes = getString(formData, "notes");
 
   let attendeeFirstName = getString(formData, "attendeeFirstName");
   let attendeeLastName = getString(formData, "attendeeLastName");
   let attendeeEmail = normalizeEmail(getString(formData, "attendeeEmail"));
   let attendeePhone = getString(formData, "attendeePhone");
+
+  let redirectTo = "";
 
   if (!eventId) {
     return { error: "Choose an event." };
@@ -281,7 +285,8 @@ export async function sellTicketsAction(
 
     if (!canSellTickets({ studioRole, isPlatformAdmin })) {
       return {
-        error: "You do not have permission to sell event tickets from this workspace.",
+        error:
+          "You do not have permission to sell event tickets from this workspace.",
       };
     }
 
@@ -301,7 +306,9 @@ export async function sellTicketsAction(
     }
 
     if (event.status === "cancelled" || event.status === "completed") {
-      return { error: "Tickets cannot be sold for a cancelled or completed event." };
+      return {
+        error: "Tickets cannot be sold for a cancelled or completed event.",
+      };
     }
 
     const { data: ticket, error: ticketError } = await supabase
@@ -362,7 +369,10 @@ export async function sellTicketsAction(
 
       if (quantity > remaining) {
         return {
-          error: `Only ${Math.max(remaining, 0)} ticket(s) remain for ${ticket.name}.`,
+          error: `Only ${Math.max(
+            remaining,
+            0
+          )} ticket(s) remain for ${ticket.name}.`,
         };
       }
     }
@@ -390,7 +400,7 @@ export async function sellTicketsAction(
         total_amount: totalPrice,
         currency,
         registration_source: "admin",
-source: "admin",
+        source: "admin",
         notes:
           notes ||
           `Manual ticket sale created from workspace by user ${userId}. Payment method: ${paymentMethod}.`,
@@ -399,7 +409,8 @@ source: "admin",
         stripe_checkout_session_id: null,
         stripe_payment_intent_id: null,
       })
-      .select(`
+      .select(
+        `
         id,
         event_id,
         client_id,
@@ -414,7 +425,8 @@ source: "admin",
         currency,
         checked_in_at,
         stripe_payment_intent_id
-      `)
+      `
+      )
       .single<InsertedRegistrationRow>();
 
     if (registrationError || !registration) {
@@ -425,6 +437,15 @@ source: "admin",
       };
     }
 
+    await logManualEventPayment({
+      supabase,
+      studioId,
+      registration,
+      amount: totalPrice,
+      currency,
+      paymentMethod,
+    });
+
     await insertAttendanceRecord({
       supabase,
       studioId,
@@ -432,7 +453,7 @@ source: "admin",
       clientId: registration.client_id,
     });
 
-    redirect(`/app/events/${event.id}/registrations?success=manual_ticket_sale_created`);
+    redirectTo = `/app/events/${event.id}/registrations?success=manual_ticket_sale_created`;
   } catch (error) {
     return {
       error:
@@ -441,4 +462,6 @@ source: "admin",
           : "Something went wrong while selling tickets.",
     };
   }
+
+  redirect(redirectTo);
 }

@@ -154,88 +154,38 @@ async function getTicketEventAccess(eventId: string): Promise<{
 }
 
 export async function createTicketTypeAction(formData: FormData) {
-  const eventId = getString(formData, "eventId");
-  const name = getString(formData, "name");
-  const description = getString(formData, "description");
-  const ticketKind = getString(formData, "ticketKind") || "general_admission";
-  const price = parseMoney(getString(formData, "price"));
-  const currency = (getString(formData, "currency") || "USD").toUpperCase();
-  const capacity = parseOptionalInteger(getString(formData, "capacity"));
-  const sortOrder = parseOptionalInteger(getString(formData, "sortOrder")) ?? 0;
-  const saleStartsAt = parseOptionalDateTimeLocal(
-    getString(formData, "saleStartsAt")
-  );
-  const saleEndsAt = parseOptionalDateTimeLocal(
-    getString(formData, "saleEndsAt")
-  );
-  const active = getBoolean(formData, "active");
+  let redirectTo = "";
 
-  if (!eventId) {
-    throw new Error("Missing event id.");
-  }
+  try {
+    const eventId = getString(formData, "eventId");
+    const name = getString(formData, "name");
+    const description = getString(formData, "description");
+    const ticketKind = getString(formData, "ticketKind") || "general_admission";
+    const price = parseMoney(getString(formData, "price"));
+    const currency = (getString(formData, "currency") || "USD").toUpperCase();
+    const capacity = parseOptionalInteger(getString(formData, "capacity"));
+    const sortOrder = parseOptionalInteger(getString(formData, "sortOrder")) ?? 0;
+    const saleStartsAt = parseOptionalDateTimeLocal(
+      getString(formData, "saleStartsAt")
+    );
+    const saleEndsAt = parseOptionalDateTimeLocal(
+      getString(formData, "saleEndsAt")
+    );
+    const active = getBoolean(formData, "active");
 
-  if (!name) {
-    throw new Error("Ticket name is required.");
-  }
+    if (!eventId) {
+      throw new Error("Missing event id.");
+    }
 
-  const { supabase, access } = await getTicketEventAccess(eventId);
+    if (!name) {
+      throw new Error("Ticket name is required.");
+    }
 
-  const { error } = await supabase.from("event_ticket_types").insert({
-    event_id: access.event.id,
-    name,
-    description: description || null,
-    ticket_kind: ticketKind,
-    price,
-    currency,
-    capacity,
-    sort_order: sortOrder,
-    sale_starts_at: saleStartsAt,
-    sale_ends_at: saleEndsAt,
-    active,
-  });
+    const { supabase, access } = await getTicketEventAccess(eventId);
 
-  if (error) {
-    throw new Error(`Could not create ticket type: ${error.message}`);
-  }
-
-  redirect(`/app/events/${access.event.id}/tickets`);
-}
-
-export async function updateTicketTypeAction(formData: FormData) {
-  const ticketId = getString(formData, "ticketId");
-  const eventId = getString(formData, "eventId");
-  const name = getString(formData, "name");
-  const description = getString(formData, "description");
-  const ticketKind = getString(formData, "ticketKind") || "general_admission";
-  const price = parseMoney(getString(formData, "price"));
-  const currency = (getString(formData, "currency") || "USD").toUpperCase();
-  const capacity = parseOptionalInteger(getString(formData, "capacity"));
-  const sortOrder = parseOptionalInteger(getString(formData, "sortOrder")) ?? 0;
-  const saleStartsAt = parseOptionalDateTimeLocal(
-    getString(formData, "saleStartsAt")
-  );
-  const saleEndsAt = parseOptionalDateTimeLocal(
-    getString(formData, "saleEndsAt")
-  );
-  const active = getBoolean(formData, "active");
-
-  if (!ticketId) {
-    throw new Error("Missing ticket id.");
-  }
-
-  if (!eventId) {
-    throw new Error("Missing event id.");
-  }
-
-  if (!name) {
-    throw new Error("Ticket name is required.");
-  }
-
-  const { supabase, access } = await getTicketEventAccess(eventId);
-
-  const { error } = await supabase
-    .from("event_ticket_types")
-    .update({
+    const { error } = await supabase.from("event_ticket_types").insert({
+      event_id: access.event.id,
+      studio_id: access.event.studio_id,
       name,
       description: description || null,
       ticket_kind: ticketKind,
@@ -246,14 +196,99 @@ export async function updateTicketTypeAction(formData: FormData) {
       sale_starts_at: saleStartsAt,
       sale_ends_at: saleEndsAt,
       active,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", ticketId)
-    .eq("event_id", access.event.id);
+    });
 
-  if (error) {
-    throw new Error(`Could not update ticket type: ${error.message}`);
+    if (error) {
+      throw new Error(`Could not create ticket type: ${error.message}`);
+    }
+
+    redirectTo = `/app/events/${access.event.id}/tickets`;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Could not create ticket type.";
+
+    const fallbackEventId = getString(formData, "eventId");
+
+    redirect(
+      `/app/events/${encodeURIComponent(
+        fallbackEventId
+      )}/tickets?error=${encodeURIComponent(message)}`
+    );
   }
 
-  redirect(`/app/events/${access.event.id}/tickets`);
+  redirect(redirectTo);
+}
+
+export async function updateTicketTypeAction(formData: FormData) {
+  let redirectTo = "";
+
+  try {
+    const ticketId = getString(formData, "ticketId");
+    const eventId = getString(formData, "eventId");
+    const name = getString(formData, "name");
+    const description = getString(formData, "description");
+    const ticketKind = getString(formData, "ticketKind") || "general_admission";
+    const price = parseMoney(getString(formData, "price"));
+    const currency = (getString(formData, "currency") || "USD").toUpperCase();
+    const capacity = parseOptionalInteger(getString(formData, "capacity"));
+    const sortOrder = parseOptionalInteger(getString(formData, "sortOrder")) ?? 0;
+    const saleStartsAt = parseOptionalDateTimeLocal(
+      getString(formData, "saleStartsAt")
+    );
+    const saleEndsAt = parseOptionalDateTimeLocal(
+      getString(formData, "saleEndsAt")
+    );
+    const active = getBoolean(formData, "active");
+
+    if (!ticketId) {
+      throw new Error("Missing ticket id.");
+    }
+
+    if (!eventId) {
+      throw new Error("Missing event id.");
+    }
+
+    if (!name) {
+      throw new Error("Ticket name is required.");
+    }
+
+    const { supabase, access } = await getTicketEventAccess(eventId);
+
+    const { error } = await supabase
+      .from("event_ticket_types")
+      .update({
+        name,
+        description: description || null,
+        ticket_kind: ticketKind,
+        price,
+        currency,
+        capacity,
+        sort_order: sortOrder,
+        sale_starts_at: saleStartsAt,
+        sale_ends_at: saleEndsAt,
+        active,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", ticketId)
+      .eq("event_id", access.event.id);
+
+    if (error) {
+      throw new Error(`Could not update ticket type: ${error.message}`);
+    }
+
+    redirectTo = `/app/events/${access.event.id}/tickets`;
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Could not update ticket type.";
+
+    const fallbackEventId = getString(formData, "eventId");
+
+    redirect(
+      `/app/events/${encodeURIComponent(
+        fallbackEventId
+      )}/tickets?error=${encodeURIComponent(message)}`
+    );
+  }
+
+  redirect(redirectTo);
 }
