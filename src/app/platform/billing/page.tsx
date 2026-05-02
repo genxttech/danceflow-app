@@ -470,9 +470,35 @@ export default async function PlatformBillingPage() {
   const typedInvoices = (invoices ?? []) as InvoiceRow[];
 
   const studioById = new Map(typedStudios.map((studio) => [studio.id, studio]));
-  const subscriptionByStudioId = new Map(
-    typedSubscriptions.map((subscription) => [subscription.studio_id, subscription])
-  );
+  const subscriptionByStudioId = new Map<string, SubscriptionRow>();
+
+typedSubscriptions
+  .slice()
+  .sort((a, b) => {
+    const priority = (status: string | null) => {
+      if (status === "trialing") return 1;
+      if (status === "active") return 2;
+      if (status === "past_due") return 3;
+      if (status === "canceled") return 4;
+      return 9;
+    };
+
+    const priorityCompare = priority(a.status) - priority(b.status);
+
+    if (priorityCompare !== 0) {
+      return priorityCompare;
+    }
+
+    const aDate = a.trial_ends_at ?? a.current_period_end ?? "";
+    const bDate = b.trial_ends_at ?? b.current_period_end ?? "";
+
+    return bDate.localeCompare(aDate);
+  })
+  .forEach((subscription) => {
+    if (!subscriptionByStudioId.has(subscription.studio_id)) {
+      subscriptionByStudioId.set(subscription.studio_id, subscription);
+    }
+  });
 
   const accountRows = typedStudios.map((studio) => {
     const subscription = subscriptionByStudioId.get(studio.id);
