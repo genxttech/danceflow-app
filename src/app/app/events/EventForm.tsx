@@ -9,10 +9,34 @@ type OrganizerOption = {
   name: string;
 };
 
+type EventLocationSessionFormValue = {
+  sessionDate: string;
+  startTime: string;
+  endTime: string;
+  sessionLabel: string;
+  seriesLabel: string;
+  capacity: string;
+};
+
+type EventLocationFormValue = {
+  locationName: string;
+  venueName: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  capacity: string;
+  sessions: EventLocationSessionFormValue[];
+};
+
 type EventFormState = {
   error?: string;
   success?: string;
 };
+
+type ScheduleMode = "single" | "multi";
 
 type EventFormInitialValues = {
   id?: string;
@@ -49,6 +73,7 @@ type EventFormInitialValues = {
   publicDirectoryEnabled?: boolean;
   beginnerFriendly?: boolean;
   styleKeys?: string[];
+  eventLocations?: EventLocationFormValue[];
 };
 
 type EventFormProps = {
@@ -88,17 +113,125 @@ const EVENT_VISIBILITY_OPTIONS = [
   { value: "public", label: "Public" },
 ] as const;
 
-const STYLE_OPTIONS = [
-  { key: "ballroom", label: "Ballroom" },
-  { key: "latin", label: "Latin" },
-  { key: "country", label: "Country" },
-  { key: "swing", label: "Swing" },
-  { key: "salsa", label: "Salsa" },
-  { key: "bachata", label: "Bachata" },
-  { key: "west_coast_swing", label: "West Coast Swing" },
-  { key: "line_dance", label: "Line Dance" },
-  { key: "nightclub_two_step", label: "Nightclub Two Step" },
-] as const;
+type StyleOption = {
+  key: string;
+  label: string;
+};
+
+type DanceCategoryOption = {
+  key: string;
+  label: string;
+  helper: string;
+};
+
+const DANCE_CATEGORY_OPTIONS: DanceCategoryOption[] = [
+  {
+    key: "country",
+    label: "Country",
+    helper: "Two Step, country Waltz, line dance, and country social dances.",
+  },
+  {
+    key: "ballroom",
+    label: "Ballroom",
+    helper: "Smooth, Standard, Rhythm, and Latin ballroom dances.",
+  },
+  {
+    key: "club_latin",
+    label: "Club / Social Latin",
+    helper: "Salsa, Bachata, Merengue, Kizomba, and Zouk.",
+  },
+  {
+    key: "swing",
+    label: "Swing",
+    helper: "West Coast Swing, East Coast Swing, Lindy Hop, and related dances.",
+  },
+  {
+    key: "other",
+    label: "Other / Mixed",
+    helper: "Use this for mixed events or styles outside the main categories.",
+  },
+];
+
+const DANCE_FOCUS_OPTIONS_BY_CATEGORY: Record<string, StyleOption[]> = {
+  country: [
+    { key: "country", label: "Country / Mixed Country" },
+    { key: "country_two_step", label: "Two Step" },
+    { key: "country_waltz", label: "Waltz" },
+    { key: "country_east_coast_swing", label: "East Coast Swing" },
+    { key: "country_west_coast_swing", label: "West Coast Swing" },
+    { key: "country_nightclub_two_step", label: "Nightclub Two Step" },
+    { key: "country_cha_cha", label: "Cha Cha" },
+    { key: "country_polka", label: "Polka" },
+    { key: "country_triple_two_step", label: "Triple Two Step" },
+    { key: "country_swing", label: "Country Swing" },
+    { key: "country_line_dance", label: "Line Dance" },
+  ],
+  ballroom: [
+    { key: "ballroom", label: "Ballroom / Mixed Ballroom" },
+    { key: "ballroom_waltz", label: "Waltz" },
+    { key: "ballroom_tango", label: "Tango" },
+    { key: "ballroom_foxtrot", label: "Foxtrot" },
+    { key: "ballroom_viennese_waltz", label: "Viennese Waltz" },
+    { key: "ballroom_quickstep", label: "Quickstep" },
+    { key: "ballroom_cha_cha", label: "Cha Cha" },
+    { key: "ballroom_rumba", label: "Rumba" },
+    { key: "ballroom_east_coast_swing", label: "East Coast Swing" },
+    { key: "ballroom_bolero", label: "Bolero" },
+    { key: "ballroom_mambo", label: "Mambo" },
+    { key: "ballroom_samba", label: "Samba" },
+    { key: "ballroom_paso_doble", label: "Paso Doble" },
+    { key: "ballroom_jive", label: "Jive" },
+  ],
+  club_latin: [
+    { key: "latin", label: "Latin / Mixed Latin" },
+    { key: "salsa", label: "Salsa" },
+    { key: "bachata", label: "Bachata" },
+    { key: "merengue", label: "Merengue" },
+    { key: "kizomba", label: "Kizomba" },
+    { key: "zouk", label: "Zouk" },
+  ],
+  swing: [
+    { key: "swing", label: "Swing / Mixed Swing" },
+    { key: "swing_west_coast_swing", label: "West Coast Swing" },
+    { key: "west_coast_swing", label: "West Coast Swing (Legacy)" },
+    { key: "swing_east_coast_swing", label: "East Coast Swing" },
+    { key: "swing_lindy_hop", label: "Lindy Hop" },
+    { key: "swing_balboa", label: "Balboa" },
+    { key: "swing_shag", label: "Shag" },
+  ],
+  other: [
+    { key: "other", label: "Other / Mixed Styles" },
+    { key: "line_dance", label: "Line Dance (Legacy)" },
+    { key: "nightclub_two_step", label: "Nightclub Two Step (Legacy)" },
+    { key: "hip_hop", label: "Hip Hop" },
+    { key: "contemporary", label: "Contemporary" },
+    { key: "ballet", label: "Ballet" },
+  ],
+};
+
+const STYLE_OPTIONS: StyleOption[] = Object.values(
+  DANCE_FOCUS_OPTIONS_BY_CATEGORY,
+).flat();
+
+function getDanceCategoryForStyleKey(styleKey: string) {
+  for (const [categoryKey, options] of Object.entries(
+    DANCE_FOCUS_OPTIONS_BY_CATEGORY,
+  )) {
+    if (options.some((option) => option.key === styleKey)) {
+      return categoryKey;
+    }
+  }
+
+  return "other";
+}
+
+function getInitialDanceCategory(styleKeys: string[]) {
+  const firstStyleKey = styleKeys.find((styleKey) =>
+    STYLE_OPTIONS.some((option) => option.key === styleKey),
+  );
+
+  return firstStyleKey ? getDanceCategoryForStyleKey(firstStyleKey) : "country";
+}
 
 const TIMEZONE_OPTIONS = [
   { value: "America/New_York", label: "Eastern Time" },
@@ -220,7 +353,7 @@ function calculateWeeklySeriesCount(startDate: string, endDate: string) {
   if (end < start) return null;
 
   const days = Math.round(
-    (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+    (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
   );
 
   return Math.floor(days / 7) + 1;
@@ -264,6 +397,88 @@ function getStatusHelpText(status: string) {
   }
 }
 
+function makeBlankSession(
+  params?: Partial<EventLocationSessionFormValue>,
+): EventLocationSessionFormValue {
+  return {
+    sessionDate: params?.sessionDate ?? "",
+    startTime: params?.startTime ?? "",
+    endTime: params?.endTime ?? "",
+    sessionLabel: params?.sessionLabel ?? "",
+    seriesLabel: params?.seriesLabel ?? "",
+    capacity: params?.capacity ?? "",
+  };
+}
+
+function makeBlankLocation(
+  params?: Partial<EventLocationFormValue>,
+): EventLocationFormValue {
+  return {
+    locationName: params?.locationName ?? "",
+    venueName: params?.venueName ?? "",
+    addressLine1: params?.addressLine1 ?? "",
+    addressLine2: params?.addressLine2 ?? "",
+    city: params?.city ?? "",
+    state: params?.state ?? "",
+    postalCode: params?.postalCode ?? "",
+    country: params?.country ?? "US",
+    capacity: params?.capacity ?? "",
+    sessions: params?.sessions?.length ? params.sessions : [makeBlankSession()],
+  };
+}
+
+function buildInitialEventLocations(
+  initialValues: EventFormInitialValues | undefined,
+): EventLocationFormValue[] {
+  if (initialValues?.eventLocations?.length) {
+    return initialValues.eventLocations.map((location) =>
+      makeBlankLocation({
+        ...location,
+        sessions: location.sessions?.length
+          ? location.sessions.map((session) => makeBlankSession(session))
+          : [
+              makeBlankSession({
+                sessionDate: initialValues.startDate ?? "",
+                startTime: initialValues.startTime ?? "",
+                endTime: initialValues.endTime ?? "",
+              }),
+            ],
+      }),
+    );
+  }
+
+  return [
+    makeBlankLocation({
+      locationName: initialValues?.venueName ?? "Primary Location",
+      venueName: initialValues?.venueName ?? "",
+      addressLine1: initialValues?.addressLine1 ?? "",
+      addressLine2: initialValues?.addressLine2 ?? "",
+      city: initialValues?.city ?? "",
+      state: initialValues?.state ?? "",
+      postalCode: initialValues?.postalCode ?? "",
+      country: "US",
+      capacity:
+        initialValues?.capacity != null ? String(initialValues.capacity) : "",
+      sessions: [
+        makeBlankSession({
+          sessionDate: initialValues?.startDate ?? getTodayDateValue(),
+          startTime: initialValues?.startTime ?? "",
+          endTime: initialValues?.endTime ?? "",
+          seriesLabel: initialValues?.endDate ? "Series 1" : "",
+        }),
+      ],
+    }),
+  ];
+}
+
+function shouldUseMultiLocationMode(
+  initialValues: EventFormInitialValues | undefined,
+): boolean {
+  const locations = initialValues?.eventLocations ?? [];
+
+  return locations.length > 0;
+}
+
 export default function EventForm({
   mode,
   organizers,
@@ -275,37 +490,77 @@ export default function EventForm({
 
   const [name, setName] = useState(initialValues?.name ?? "");
   const [slug, setSlug] = useState(initialValues?.slug ?? "");
-  const [eventType, setEventType] = useState(initialValues?.eventType ?? "group_class");
+  const [eventType, setEventType] = useState(
+    initialValues?.eventType ?? "group_class",
+  );
   const [status, setStatus] = useState(initialValues?.status ?? "draft");
-  const [visibility, setVisibility] = useState(initialValues?.visibility ?? "private");
+  const [visibility, setVisibility] = useState(
+    initialValues?.visibility ?? "private",
+  );
   const [capacity, setCapacity] = useState(
-    initialValues?.capacity != null ? String(initialValues.capacity) : ""
+    initialValues?.capacity != null ? String(initialValues.capacity) : "",
   );
   const [registrationRequired, setRegistrationRequired] = useState(
-    initialValues?.registrationRequired ?? true
+    initialValues?.registrationRequired ?? true,
   );
-  const [accountRequiredForRegistration, setAccountRequiredForRegistration] = useState(
-    initialValues?.accountRequiredForRegistration ?? false
-  );
+  const [accountRequiredForRegistration, setAccountRequiredForRegistration] =
+    useState(initialValues?.accountRequiredForRegistration ?? false);
   const [waitlistEnabled, setWaitlistEnabled] = useState(
-    initialValues?.waitlistEnabled ?? false
+    initialValues?.waitlistEnabled ?? false,
   );
   const [publicDirectoryEnabled, setPublicDirectoryEnabled] = useState(
-    initialValues?.publicDirectoryEnabled ?? false
+    initialValues?.publicDirectoryEnabled ?? false,
   );
   const [beginnerFriendly, setBeginnerFriendly] = useState(
-    initialValues?.beginnerFriendly ?? false
+    initialValues?.beginnerFriendly ?? false,
   );
-  const [selectedStyleKeys, setSelectedStyleKeys] = useState<string[]>(
-    initialValues?.styleKeys ?? []
+  const [selectedStyleKeys, setSelectedStyleKeys] = useState<string[]>(() => {
+    const initialStyleKeys = initialValues?.styleKeys ?? [];
+    const initialCategory = getInitialDanceCategory(initialStyleKeys);
+
+    return initialStyleKeys.filter(
+      (styleKey) => getDanceCategoryForStyleKey(styleKey) === initialCategory,
+    );
+  });
+  const [danceCategory, setDanceCategory] = useState(() =>
+    getInitialDanceCategory(selectedStyleKeys),
   );
+  const visibleDanceFocusOptions =
+    DANCE_FOCUS_OPTIONS_BY_CATEGORY[danceCategory] ??
+    DANCE_FOCUS_OPTIONS_BY_CATEGORY.country;
+  const selectedDanceCategory =
+    DANCE_CATEGORY_OPTIONS.find((option) => option.key === danceCategory) ??
+    DANCE_CATEGORY_OPTIONS[0];
   const [tags, setTags] = useState(initialValues?.tags ?? "");
+  const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(() =>
+    shouldUseMultiLocationMode(initialValues) ? "multi" : "single",
+  );
   const [startDate, setStartDate] = useState(
-    initialValues?.startDate ?? getTodayDateValue()
+    initialValues?.startDate ?? getTodayDateValue(),
   );
   const [endDate, setEndDate] = useState(initialValues?.endDate ?? "");
   const [startTime, setStartTime] = useState(initialValues?.startTime ?? "");
   const [endTime, setEndTime] = useState(initialValues?.endTime ?? "");
+  const [eventLocations, setEventLocations] = useState<
+    EventLocationFormValue[]
+  >(() => buildInitialEventLocations(initialValues));
+
+  const primaryLocation = eventLocations[0] ?? makeBlankLocation();
+  const primarySession = primaryLocation.sessions[0] ?? makeBlankSession();
+  const fallbackStartDate =
+    primarySession.sessionDate || startDate || getTodayDateValue();
+  const fallbackEndDate =
+    eventLocations
+      .flatMap((location) =>
+        location.sessions.map((session) => session.sessionDate),
+      )
+      .filter(Boolean)
+      .sort()
+      .at(-1) ||
+    endDate ||
+    fallbackStartDate;
+  const fallbackStartTime = primarySession.startTime || startTime;
+  const fallbackEndTime = primarySession.endTime || endTime;
 
   const suggestedSlug = useMemo(() => slugify(name), [name]);
   const isGroupClass = eventType === "group_class";
@@ -318,12 +573,12 @@ export default function EventForm({
   const groupClassDatePreview = isGroupClass
     ? endDate
       ? `${groupClassWeekday || "Weekly"} · ${formatPreviewDate(
-          startDate
+          startDate,
         )} – ${formatPreviewDate(endDate)}${
           groupClassSeriesCount ? ` · ${groupClassSeriesCount}-week series` : ""
         }`
       : `${groupClassWeekday || "Weekly"} · Starts ${formatPreviewDate(
-          startDate
+          startDate,
         )} · Ongoing weekly class`
     : "";
 
@@ -349,11 +604,123 @@ export default function EventForm({
     }
   }, [publicDirectoryEnabled, visibility]);
 
-  function toggleStyleKey(styleKey: string, checked: boolean) {
+  function handleDanceCategoryChange(categoryKey: string) {
+    setDanceCategory(categoryKey);
     setSelectedStyleKeys((current) =>
-      checked
-        ? Array.from(new Set([...current, styleKey]))
-        : current.filter((item) => item !== styleKey)
+      current.filter(
+        (styleKey) => getDanceCategoryForStyleKey(styleKey) === categoryKey,
+      ),
+    );
+  }
+
+  function toggleStyleKey(styleKey: string, checked: boolean) {
+    const styleCategory = getDanceCategoryForStyleKey(styleKey);
+
+    setDanceCategory(styleCategory);
+    setSelectedStyleKeys((current) => {
+      const currentCategoryOnly = current.filter(
+        (item) => getDanceCategoryForStyleKey(item) === styleCategory,
+      );
+
+      return checked
+        ? Array.from(new Set([...currentCategoryOnly, styleKey]))
+        : currentCategoryOnly.filter((item) => item !== styleKey);
+    });
+  }
+
+  function updateLocationField(
+    locationIndex: number,
+    field: keyof Omit<EventLocationFormValue, "sessions">,
+    value: string,
+  ) {
+    setEventLocations((current) =>
+      current.map((location, index) =>
+        index === locationIndex ? { ...location, [field]: value } : location,
+      ),
+    );
+  }
+
+  function updateSessionField(
+    locationIndex: number,
+    sessionIndex: number,
+    field: keyof EventLocationSessionFormValue,
+    value: string,
+  ) {
+    setEventLocations((current) =>
+      current.map((location, index) => {
+        if (index !== locationIndex) return location;
+
+        return {
+          ...location,
+          sessions: location.sessions.map((session, nestedIndex) =>
+            nestedIndex === sessionIndex
+              ? { ...session, [field]: value }
+              : session,
+          ),
+        };
+      }),
+    );
+  }
+
+  function addEventLocation() {
+    setEventLocations((current) => [
+      ...current,
+      makeBlankLocation({
+        locationName: `Location ${current.length + 1}`,
+        sessions: [
+          makeBlankSession({
+            sessionDate: startDate,
+            startTime,
+            endTime,
+          }),
+        ],
+      }),
+    ]);
+  }
+
+  function removeEventLocation(locationIndex: number) {
+    setEventLocations((current) =>
+      current.length <= 1
+        ? current
+        : current.filter((_, index) => index !== locationIndex),
+    );
+  }
+
+  function addLocationSession(locationIndex: number) {
+    setEventLocations((current) =>
+      current.map((location, index) =>
+        index === locationIndex
+          ? {
+              ...location,
+              sessions: [
+                ...location.sessions,
+                makeBlankSession({
+                  sessionDate: startDate,
+                  startTime,
+                  endTime,
+                }),
+              ],
+            }
+          : location,
+      ),
+    );
+  }
+
+  function removeLocationSession(locationIndex: number, sessionIndex: number) {
+    setEventLocations((current) =>
+      current.map((location, index) => {
+        if (index !== locationIndex) return location;
+
+        return {
+          ...location,
+          sessions:
+            location.sessions.length <= 1
+              ? location.sessions
+              : location.sessions.filter(
+                  (_, nestedIndex) => nestedIndex !== sessionIndex,
+                ),
+        };
+      }),
     );
   }
 
@@ -369,6 +736,21 @@ export default function EventForm({
         value={waitlistEnabled ? "true" : "false"}
       />
 
+      <input
+        type="hidden"
+        name="locationCount"
+        value={scheduleMode === "multi" ? eventLocations.length : 0}
+      />
+      {eventLocations.map((location, locationIndex) => (
+        <div key={`location-hidden-${locationIndex}`}>
+          <input
+            type="hidden"
+            name={`location_${locationIndex}_sessionCount`}
+            value={location.sessions.length}
+          />
+        </div>
+      ))}
+
       {selectedStyleKeys.map((styleKey) => (
         <input key={styleKey} type="hidden" name="styleKeys" value={styleKey} />
       ))}
@@ -380,15 +762,15 @@ export default function EventForm({
               {mode === "edit" ? "Edit Event" : "New Event"}
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">
-  Create public or internal offerings like group classes, socials,
-  workshops, and special events. Pro studios can publish studio-hosted
-  events using the studio name as the public host.
-</p>
+              Create public or internal offerings like group classes, socials,
+              workshops, and special events. Pro studios can publish
+              studio-hosted events using the studio name as the public host.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 gap-3 lg:min-w-[280px]">
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Required fields are marked with an asterisk (*).
+              Fields marked with * are required.
             </div>
 
             <Link
@@ -412,10 +794,10 @@ export default function EventForm({
       </div>
 
       {state.success ? (
-  <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-    {state.success}
-  </div>
-) : null}
+        <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          {state.success}
+        </div>
+      ) : null}
 
       <div className="grid gap-5 xl:grid-cols-[1.08fr_0.92fr] xl:items-start">
         <div className="space-y-5">
@@ -436,29 +818,35 @@ export default function EventForm({
                 </h4>
                 <p className="mt-2 text-sm text-green-800">
                   Group classes are created here as events, not as standard
-                  appointments. After creation, the class can be published publicly,
-                  shared by unlisted link, or kept private for internal scheduling
-                  and roster management.
+                  appointments. After creation, the class can be published
+                  publicly, shared by unlisted link, or kept private for
+                  internal scheduling and roster management.
                 </p>
               </div>
             ) : null}
 
-                        {organizerSelectionLocked && singleOrganizer ? (
+            {organizerSelectionLocked && singleOrganizer ? (
               <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
                 <h4 className="text-base font-semibold text-emerald-900">
                   Organizer-linked event
                 </h4>
                 <p className="mt-2 text-sm text-emerald-800">
-                  This event will be created under <span className="font-medium">{singleOrganizer.name}</span>.
-                  Organizer accounts cannot create events under multiple organizer brands.
+                  This event will be created under{" "}
+                  <span className="font-medium">{singleOrganizer.name}</span>.
+                  Organizer accounts cannot create events under multiple
+                  organizer brands.
                 </p>
               </div>
             ) : null}
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="md:col-span-2">
-                <label htmlFor="name" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="name"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Event Name
+                  <RequiredAsterisk />
                 </label>
                 <input
                   id="name"
@@ -467,12 +855,17 @@ export default function EventForm({
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                  placeholder={isGroupClass ? "Beginner Two Step Class" : "Event name"}
+                  placeholder={
+                    isGroupClass ? "Beginner Two Step Class" : "Event name"
+                  }
                 />
               </div>
 
               <div>
-                <label htmlFor="slug" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="slug"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Slug
                 </label>
                 <input
@@ -489,8 +882,12 @@ export default function EventForm({
               </div>
 
               <div>
-                <label htmlFor="organizerId" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="organizerId"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Event Host
+                  {!isStudioHostedEvent && organizers.length > 0 ? <RequiredAsterisk /> : null}
                 </label>
 
                 {isStudioHostedEvent ? (
@@ -500,18 +897,24 @@ export default function EventForm({
                       Studio-hosted event
                     </p>
                     <p className="mt-1 text-xs text-violet-800">
-                      This Pro studio event will use your studio name as the public event host. No separate organizer is required.
+                      This Pro studio event will use your studio name as the
+                      public event host. No separate organizer is required.
                     </p>
                   </div>
                 ) : organizerSelectionLocked && singleOrganizer ? (
                   <>
-                    <input type="hidden" name="organizerId" value={singleOrganizer.id} />
+                    <input
+                      type="hidden"
+                      name="organizerId"
+                      value={singleOrganizer.id}
+                    />
                     <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3">
                       <p className="text-sm font-medium text-emerald-900">
                         {singleOrganizer.name}
                       </p>
                       <p className="mt-1 text-xs text-emerald-800">
-                        This organizer workspace is locked to its single organizer profile.
+                        This organizer workspace is locked to its single
+                        organizer profile.
                       </p>
                     </div>
                   </>
@@ -539,8 +942,12 @@ export default function EventForm({
               </div>
 
               <div>
-                <label htmlFor="eventType" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="eventType"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Event Type
+                  <RequiredAsterisk />
                 </label>
                 <select
                   id="eventType"
@@ -561,8 +968,12 @@ export default function EventForm({
               </div>
 
               <div>
-                <label htmlFor="status" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="status"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Status
+                  <RequiredAsterisk />
                 </label>
                 <select
                   id="status"
@@ -583,8 +994,12 @@ export default function EventForm({
               </div>
 
               <div>
-                <label htmlFor="visibility" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="visibility"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Visibility
+                  <RequiredAsterisk />
                 </label>
                 <select
                   id="visibility"
@@ -600,112 +1015,311 @@ export default function EventForm({
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-xs text-slate-500">{visibilitySummary}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {visibilitySummary}
+                </p>
               </div>
 
-              <div>
-                <label htmlFor="startDate" className="mb-1.5 block text-sm font-medium">
-                  {isGroupClass ? "First Class Date" : "Start Date"}
-                  <RequiredAsterisk />
-                </label>
-                <input
-                  id="startDate"
-                  name="startDate"
-                  type="date"
-                  required
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                />
-                {isGroupClass ? (
-                  <p className="mt-1 text-xs text-slate-500">
-                    DanceFlow uses this date to determine the weekly class day.
-                  </p>
-                ) : null}
-              </div>
-
-              <div>
-                <label htmlFor="endDate" className="mb-1.5 block text-sm font-medium">
-                  {isGroupClass ? "Final Class Date" : "End Date"}
-                  {!isGroupClass ? <RequiredAsterisk /> : null}
-                </label>
-                <input
-                  id="endDate"
-                  name="endDate"
-                  type="date"
-                  required={!isGroupClass}
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                />
-                {isGroupClass ? (
-                  <p className="mt-1 text-xs text-slate-500">
-                    Leave this blank for an ongoing weekly class. Add a final date
-                    for a limited weekly series.
-                  </p>
-                ) : null}
-              </div>
-
-              <div>
-                <label htmlFor="startTime" className="mb-1.5 block text-sm font-medium">
-                  Start Time
-                </label>
-                <input
-                  id="startTime"
-                  name="startTime"
-                  type="time"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="endTime" className="mb-1.5 block text-sm font-medium">
-                  End Time
-                </label>
-                <input
-                  id="endTime"
-                  name="endTime"
-                  type="time"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                />
-              </div>
-
-              {isGroupClass ? (
-                <div className="md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
-                  <p className="font-semibold">Group class schedule</p>
-                  <p className="mt-1 leading-6">
-                    Group classes meet weekly on the day of the first class date.
-                    Use a final class date for a limited series, or leave it blank
-                    for an ongoing weekly class.
-                  </p>
-                  {startDate ? (
-                    <p className="mt-3 rounded-xl bg-white px-3 py-2 font-medium text-slate-800">
-                      Preview: {groupClassDatePreview}
+              <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h4 className="text-base font-semibold text-slate-950">
+                      Event Schedule & Locations
+                    </h4>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      Choose the simple schedule for one location, or use the
+                      multi-location builder when the same event runs across
+                      different places, dates, or quarterly series.
                     </p>
-                  ) : null}
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-2 md:min-w-[360px]">
+                    <button
+                      type="button"
+                      onClick={() => setScheduleMode("single")}
+                      className={`rounded-xl border px-4 py-3 text-left text-sm font-medium ${
+                        scheduleMode === "single"
+                          ? "border-violet-300 bg-violet-50 text-violet-950"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      Single location
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setScheduleMode("multi")}
+                      className={`rounded-xl border px-4 py-3 text-left text-sm font-medium ${
+                        scheduleMode === "multi"
+                          ? "border-indigo-300 bg-indigo-50 text-indigo-950"
+                          : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                    >
+                      Multi-location / dates
+                    </button>
+                  </div>
                 </div>
+              </div>
+
+              {scheduleMode === "multi" ? (
+                <>
+                  <input
+                    type="hidden"
+                    name="startDate"
+                    value={fallbackStartDate}
+                  />
+                  <input type="hidden" name="endDate" value={fallbackEndDate} />
+                  <input
+                    type="hidden"
+                    name="startTime"
+                    value={fallbackStartTime}
+                  />
+                  <input type="hidden" name="endTime" value={fallbackEndTime} />
+                  <input
+                    type="hidden"
+                    name="venueName"
+                    value={primaryLocation.venueName}
+                  />
+                  <input
+                    type="hidden"
+                    name="addressLine1"
+                    value={primaryLocation.addressLine1}
+                  />
+                  <input
+                    type="hidden"
+                    name="addressLine2"
+                    value={primaryLocation.addressLine2}
+                  />
+                  <input
+                    type="hidden"
+                    name="city"
+                    value={primaryLocation.city}
+                  />
+                  <input
+                    type="hidden"
+                    name="state"
+                    value={primaryLocation.state}
+                  />
+                  <input
+                    type="hidden"
+                    name="postalCode"
+                    value={primaryLocation.postalCode}
+                  />
+                </>
+              ) : null}
+
+              {scheduleMode === "single" ? (
+                <>
+                  <div>
+                    <label
+                      htmlFor="startDate"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      {isGroupClass ? "First Class Date" : "Start Date"}
+                      <RequiredAsterisk />
+                    </label>
+                    <input
+                      id="startDate"
+                      name="startDate"
+                      type="date"
+                      required
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                    />
+                    {isGroupClass ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        DanceFlow uses this date to determine the weekly class
+                        day.
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="endDate"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      {isGroupClass ? "Final Class Date" : "End Date"}
+                      {!isGroupClass ? <RequiredAsterisk /> : null}
+                    </label>
+                    <input
+                      id="endDate"
+                      name="endDate"
+                      type="date"
+                      required={!isGroupClass}
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                    />
+                    {isGroupClass ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Leave this blank for an ongoing weekly class. Add a
+                        final date for a limited weekly series.
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="startTime"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      Start Time
+                    </label>
+                    <input
+                      id="startTime"
+                      name="startTime"
+                      type="time"
+                      value={startTime}
+                      onChange={(e) => setStartTime(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="endTime"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      End Time
+                    </label>
+                    <input
+                      id="endTime"
+                      name="endTime"
+                      type="time"
+                      value={endTime}
+                      onChange={(e) => setEndTime(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                    />
+                  </div>
+
+                  {isGroupClass ? (
+                    <div className="md:col-span-2 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+                      <p className="font-semibold">Group class schedule</p>
+                      <p className="mt-1 leading-6">
+                        Group classes meet weekly on the day of the first class
+                        date. Use a final class date for a limited series, or
+                        leave it blank for an ongoing weekly class.
+                      </p>
+                      {startDate ? (
+                        <p className="mt-3 rounded-xl bg-white px-3 py-2 font-medium text-slate-800">
+                          Preview: {groupClassDatePreview}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+
+                  <div>
+                    <label
+                      htmlFor="venueName"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      Venue Name
+                    </label>
+                    <input
+                      id="venueName"
+                      name="venueName"
+                      defaultValue={initialValues?.venueName ?? ""}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                      placeholder={
+                        isGroupClass
+                          ? "Main Studio"
+                          : "Studio / Hotel / Ballroom / Venue"
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="addressLine1"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      Address Line 1
+                    </label>
+                    <input
+                      id="addressLine1"
+                      name="addressLine1"
+                      defaultValue={initialValues?.addressLine1 ?? ""}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="addressLine2"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      Address Line 2
+                    </label>
+                    <input
+                      id="addressLine2"
+                      name="addressLine2"
+                      defaultValue={initialValues?.addressLine2 ?? ""}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="city"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      City
+                    </label>
+                    <input
+                      id="city"
+                      name="city"
+                      defaultValue={initialValues?.city ?? ""}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="state"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      State
+                    </label>
+                    <select
+                      id="state"
+                      name="state"
+                      defaultValue={initialValues?.state ?? ""}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                    >
+                      <option value="">Select state</option>
+                      {US_STATE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="postalCode"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      Postal Code
+                    </label>
+                    <input
+                      id="postalCode"
+                      name="postalCode"
+                      defaultValue={initialValues?.postalCode ?? ""}
+                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                    />
+                  </div>
+                </>
               ) : null}
 
               <div>
-                <label htmlFor="venueName" className="mb-1.5 block text-sm font-medium">
-                  Venue Name
-                </label>
-                <input
-                  id="venueName"
-                  name="venueName"
-                  defaultValue={initialValues?.venueName ?? ""}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                  placeholder={isGroupClass ? "Main Studio" : "Studio / Hotel / Ballroom / Venue"}
-                />
-              </div>
-
-              <div>
-                <label htmlFor="timezone" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="timezone"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Time Zone
+                  <RequiredAsterisk />
                 </label>
                 <select
                   id="timezone"
@@ -721,75 +1335,402 @@ export default function EventForm({
                 </select>
               </div>
 
-              <div>
-                <label htmlFor="addressLine1" className="mb-1.5 block text-sm font-medium">
-                  Address Line 1
-                </label>
-                <input
-                  id="addressLine1"
-                  name="addressLine1"
-                  defaultValue={initialValues?.addressLine1 ?? ""}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                />
-              </div>
+              {scheduleMode === "multi" ? (
+                <div className="md:col-span-2 rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h4 className="text-base font-semibold text-indigo-950">
+                        Multi-location Schedule Builder
+                      </h4>
+                      <p className="mt-1 text-sm leading-6 text-indigo-800">
+                        Add each real location, then add the dates and times for
+                        that location. Location 1 is the first event location;
+                        it is not separate from the old venue fields.
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={addEventLocation}
+                      className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-indigo-900 shadow-sm ring-1 ring-indigo-200 hover:bg-indigo-100"
+                    >
+                      Add Location
+                    </button>
+                  </div>
+
+                  <div className="mt-4 space-y-4">
+                    {eventLocations.map((location, locationIndex) => (
+                      <div
+                        key={`event-location-${locationIndex}`}
+                        className="rounded-2xl border border-indigo-200 bg-white p-4"
+                      >
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">
+                              Location {locationIndex + 1}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Use names like Dublin January Series or Sunbury
+                              April Series if that helps your staff.
+                            </p>
+                          </div>
+
+                          {eventLocations.length > 1 ? (
+                            <button
+                              type="button"
+                              onClick={() => removeEventLocation(locationIndex)}
+                              className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                            >
+                              Remove Location
+                            </button>
+                          ) : null}
+                        </div>
+
+                        <input
+                          type="hidden"
+                          name={`location_${locationIndex}_sortOrder`}
+                          value={locationIndex}
+                        />
+
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Location Label
+                              <RequiredAsterisk />
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_locationName`}
+                              required
+                              value={location.locationName}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "locationName",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Dublin series / Sunbury series"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Venue Name
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_venueName`}
+                              value={location.venueName}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "venueName",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Studio / ballroom / venue"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Address Line 1
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_addressLine1`}
+                              value={location.addressLine1}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "addressLine1",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Address Line 2
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_addressLine2`}
+                              value={location.addressLine2}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "addressLine2",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              City
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_city`}
+                              value={location.city}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "city",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              State
+                            </label>
+                            <select
+                              name={`location_${locationIndex}_state`}
+                              value={location.state}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "state",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            >
+                              <option value="">Select state</option>
+                              {US_STATE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Postal Code
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_postalCode`}
+                              value={location.postalCode}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "postalCode",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Location Capacity
+                            </label>
+                            <input
+                              name={`location_${locationIndex}_capacity`}
+                              type="number"
+                              min="0"
+                              value={location.capacity}
+                              onChange={(e) =>
+                                updateLocationField(
+                                  locationIndex,
+                                  "capacity",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Optional"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-5 space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="text-sm font-semibold text-slate-950">
+                              Dates & Times
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => addLocationSession(locationIndex)}
+                              className="rounded-xl border border-indigo-200 px-3 py-2 text-sm font-medium text-indigo-900 hover:bg-indigo-50"
+                            >
+                              Add Date/Time
+                            </button>
+                          </div>
+
+                          {location.sessions.map((session, sessionIndex) => (
+                            <div
+                              key={`event-location-${locationIndex}-session-${sessionIndex}`}
+                              className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                            >
+                              <input
+                                type="hidden"
+                                name={`location_${locationIndex}_session_${sessionIndex}_sortOrder`}
+                                value={sessionIndex}
+                              />
+
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    Date
+                                    <RequiredAsterisk />
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_date`}
+                                    type="date"
+                                    required
+                                    value={session.sessionDate}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "sessionDate",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    Series Label
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_seriesLabel`}
+                                    value={session.seriesLabel}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "seriesLabel",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    placeholder="January series / April series"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    Start Time
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_startTime`}
+                                    type="time"
+                                    value={session.startTime}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "startTime",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    End Time
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_endTime`}
+                                    type="time"
+                                    value={session.endTime}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "endTime",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    Session Label
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_label`}
+                                    value={session.sessionLabel}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "sessionLabel",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    placeholder="Week 1 / Day 1 / Optional"
+                                  />
+                                </div>
+
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">
+                                    Session Capacity
+                                  </label>
+                                  <input
+                                    name={`location_${locationIndex}_session_${sessionIndex}_capacity`}
+                                    type="number"
+                                    min="0"
+                                    value={session.capacity}
+                                    onChange={(e) =>
+                                      updateSessionField(
+                                        locationIndex,
+                                        sessionIndex,
+                                        "capacity",
+                                        e.target.value,
+                                      )
+                                    }
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    placeholder="Optional"
+                                  />
+                                </div>
+                              </div>
+
+                              {location.sessions.length > 1 ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    removeLocationSession(
+                                      locationIndex,
+                                      sessionIndex,
+                                    )
+                                  }
+                                  className="mt-3 rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                                >
+                                  Remove Date/Time
+                                </button>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div>
-                <label htmlFor="addressLine2" className="mb-1.5 block text-sm font-medium">
-                  Address Line 2
-                </label>
-                <input
-                  id="addressLine2"
-                  name="addressLine2"
-                  defaultValue={initialValues?.addressLine2 ?? ""}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="city" className="mb-1.5 block text-sm font-medium">
-                  City
-                </label>
-                <input
-                  id="city"
-                  name="city"
-                  defaultValue={initialValues?.city ?? ""}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="state" className="mb-1.5 block text-sm font-medium">
-                  State
-                </label>
-                <select
-                  id="state"
-                  name="state"
-                  defaultValue={initialValues?.state ?? ""}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                <label
+                  htmlFor="coverImageFile"
+                  className="mb-1.5 block text-sm font-medium"
                 >
-                  <option value="">Select state</option>
-                  {US_STATE_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="postalCode" className="mb-1.5 block text-sm font-medium">
-                  Postal Code
-                </label>
-                <input
-                  id="postalCode"
-                  name="postalCode"
-                  defaultValue={initialValues?.postalCode ?? ""}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="coverImageFile" className="mb-1.5 block text-sm font-medium">
                   Cover Image Upload
                 </label>
                 <input
@@ -800,12 +1741,16 @@ export default function EventForm({
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 />
                 <p className="mt-1 text-xs text-slate-500">
-                  Upload a JPG, PNG, or WEBP image. Recommended for the public event page and discovery cards.
+                  Upload a JPG, PNG, or WEBP image. Recommended for the public
+                  event page and discovery cards.
                 </p>
               </div>
 
               <div>
-                <label htmlFor="coverImageUrl" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="coverImageUrl"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Cover Image URL
                 </label>
                 <input
@@ -816,12 +1761,16 @@ export default function EventForm({
                   placeholder="Optional fallback URL"
                 />
                 <p className="mt-1 text-xs text-slate-500">
-                  Optional advanced fallback. If you upload a file, the upload will be used instead.
+                  Optional advanced fallback. If you upload a file, the upload
+                  will be used instead.
                 </p>
               </div>
 
               <div>
-                <label htmlFor="capacity" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="capacity"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Capacity
                 </label>
                 <input
@@ -837,7 +1786,10 @@ export default function EventForm({
               </div>
 
               <div>
-                <label htmlFor="tags" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="tags"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Tags
                 </label>
                 <input
@@ -865,7 +1817,8 @@ export default function EventForm({
                 Public Content
               </h3>
               <p className="mt-1 text-sm text-slate-500">
-                Control the event copy shown on discovery cards and the public event page.
+                Control the event copy shown on discovery cards and the public
+                event page.
               </p>
             </div>
 
@@ -892,7 +1845,10 @@ export default function EventForm({
               </div>
 
               <div>
-                <label htmlFor="description" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="description"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Public Description
                 </label>
                 <textarea
@@ -910,7 +1866,10 @@ export default function EventForm({
               </div>
 
               <div>
-                <label htmlFor="refundPolicy" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="refundPolicy"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Refund Policy
                 </label>
                 <textarea
@@ -924,7 +1883,10 @@ export default function EventForm({
               </div>
 
               <div>
-                <label htmlFor="faq" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="faq"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   FAQ
                 </label>
                 <textarea
@@ -946,7 +1908,8 @@ export default function EventForm({
               Public Discovery
             </h3>
             <p className="mt-2 text-sm text-orange-800">
-              Use these settings to control whether this event appears in the public dance directory.
+              Use these settings to control whether this event appears in the
+              public dance directory.
             </p>
 
             <div className="mt-4 space-y-3">
@@ -963,7 +1926,8 @@ export default function EventForm({
                     Show in public dance directory
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Published/open events with this enabled can appear in public event discovery.
+                    Published/open events with this enabled can appear in public
+                    event discovery.
                   </p>
                 </div>
               </label>
@@ -977,7 +1941,9 @@ export default function EventForm({
                   className="mt-1"
                 />
                 <div>
-                  <p className="font-medium text-slate-900">Beginner-friendly</p>
+                  <p className="font-medium text-slate-900">
+                    Beginner-friendly
+                  </p>
                   <p className="mt-1 text-sm text-slate-600">
                     Add a beginner-friendly badge in public event discovery.
                   </p>
@@ -987,34 +1953,102 @@ export default function EventForm({
           </section>
 
           <section className="rounded-3xl border border-sky-200 bg-sky-50 p-4 shadow-sm md:p-6">
-            <h3 className="text-lg font-semibold text-sky-900">Dance Styles</h3>
+            <h3 className="text-lg font-semibold text-sky-900">
+              Dance Category & Focus
+            </h3>
             <p className="mt-2 text-sm text-sky-800">
-              Assign styles so dancers can find this event in public search filters.
+              Choose the dance world first, then choose the specific dance or
+              dances this class or event will focus on. This keeps a Ballroom
+              class from accidentally being tagged as Country Two Step.
             </p>
 
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {STYLE_OPTIONS.map((style) => {
-                const checked = selectedStyleKeys.includes(style.key);
+            <div className="mt-5 space-y-5">
+              <div>
+                <p className="text-sm font-semibold text-sky-950">
+                  Dance Category <RequiredAsterisk />
+                </p>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  {DANCE_CATEGORY_OPTIONS.map((category) => {
+                    const selected = danceCategory === category.key;
 
-                return (
-                  <label
-                    key={style.key}
-                    className="flex items-center gap-3 rounded-xl border bg-white p-3"
-                  >
-                    <input
-                      type="checkbox"
-                      name="styleKeys"
-                      value={style.key}
-                      checked={checked}
-                      onChange={(e) => toggleStyleKey(style.key, e.target.checked)}
-                      className="h-4 w-4"
-                    />
-                    <span className="text-sm font-medium text-slate-800">
-                      {style.label}
-                    </span>
-                  </label>
-                );
-              })}
+                    return (
+                      <label
+                        key={category.key}
+                        className={`flex cursor-pointer items-start gap-3 rounded-xl border p-4 transition ${
+                          selected
+                            ? "border-sky-500 bg-white shadow-sm"
+                            : "border-sky-200 bg-white/80 hover:bg-white"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="danceCategory"
+                          value={category.key}
+                          checked={selected}
+                          onChange={() => handleDanceCategoryChange(category.key)}
+                          className="mt-1 h-4 w-4"
+                        />
+                        <span>
+                          <span className="block text-sm font-semibold text-slate-900">
+                            {category.label}
+                          </span>
+                          <span className="mt-1 block text-xs leading-5 text-slate-600">
+                            {category.helper}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-sky-950">
+                      Dance Focus
+                      <RequiredAsterisk />
+                    </p>
+                    <p className="mt-1 text-xs text-sky-800">
+                      Showing options for {selectedDanceCategory.label}. Switch
+                      the category above to choose a different dance family.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {visibleDanceFocusOptions.map((style) => {
+                    const checked = selectedStyleKeys.includes(style.key);
+
+                    return (
+                      <label
+                        key={style.key}
+                        className="flex items-center gap-3 rounded-xl border border-sky-200 bg-white p-3"
+                      >
+                        <input
+                          type="checkbox"
+                          value={style.key}
+                          checked={checked}
+                          onChange={(e) =>
+                            toggleStyleKey(style.key, e.target.checked)
+                          }
+                          className="h-4 w-4"
+                        />
+                        <span className="text-sm font-medium text-slate-800">
+                          {style.label}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                {selectedStyleKeys.length === 0 ? (
+                  <p className="mt-3 rounded-xl border border-sky-200 bg-white/80 px-3 py-2 text-xs text-sky-800">
+                    Pick at least one dance focus if you want this event to show
+                    in style-based public discovery filters.
+                  </p>
+                ) : null}
+              </div>
             </div>
           </section>
 
@@ -1023,7 +2057,8 @@ export default function EventForm({
               Registration & Access
             </h3>
             <p className="mt-2 text-sm text-slate-600">
-              Control enrollment behavior, waitlist access, and registration timing.
+              Control enrollment behavior, waitlist access, and registration
+              timing.
             </p>
 
             <div className="mt-4 space-y-3">
@@ -1037,7 +2072,8 @@ export default function EventForm({
                 <div>
                   <p className="font-medium text-slate-900">Featured event</p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Featured events can be promoted higher in public listings later.
+                    Featured events can be promoted higher in public listings
+                    later.
                   </p>
                 </div>
               </label>
@@ -1051,9 +2087,12 @@ export default function EventForm({
                   className="mt-1"
                 />
                 <div>
-                  <p className="font-medium text-slate-900">Registration required</p>
+                  <p className="font-medium text-slate-900">
+                    Registration required
+                  </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Turn this on for offerings that should manage enrollment, roster, and attendance through event registration.
+                    Turn this on for offerings that should manage enrollment,
+                    roster, and attendance through event registration.
                   </p>
                 </div>
               </label>
@@ -1063,7 +2102,9 @@ export default function EventForm({
                   type="checkbox"
                   name="accountRequiredForRegistration"
                   checked={accountRequiredForRegistration}
-                  onChange={(e) => setAccountRequiredForRegistration(e.target.checked)}
+                  onChange={(e) =>
+                    setAccountRequiredForRegistration(e.target.checked)
+                  }
                   className="mt-1"
                 />
                 <div>
@@ -1071,7 +2112,8 @@ export default function EventForm({
                     Account required for registration
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Require a signed-in account before someone can register or enroll.
+                    Require a signed-in account before someone can register or
+                    enroll.
                   </p>
                 </div>
               </label>
@@ -1087,7 +2129,8 @@ export default function EventForm({
                 <div>
                   <p className="font-medium text-slate-900">Enable waitlist</p>
                   <p className="mt-1 text-sm text-slate-600">
-                    When capacity is full, new registrants can join the waitlist instead of being blocked.
+                    When capacity is full, new registrants can join the waitlist
+                    instead of being blocked.
                   </p>
                   {!hasCapacity ? (
                     <p className="mt-2 text-xs text-slate-500">
@@ -1111,7 +2154,8 @@ export default function EventForm({
                   name="registrationOpensAt"
                   type="datetime-local"
                   defaultValue={
-                    initialValues?.registrationOpensAt ?? getLocalDateTimeInputValue()
+                    initialValues?.registrationOpensAt ??
+                    getLocalDateTimeInputValue()
                   }
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 />
@@ -1139,9 +2183,17 @@ export default function EventForm({
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
               <p className="font-medium">Group class publishing model</p>
               <ul className="mt-2 space-y-1 text-blue-800">
-                <li>• Public classes can appear in offerings and event discovery.</li>
-                <li>• Unlisted classes stay hidden from listings but can be shared directly.</li>
-                <li>• Private classes are internal or invite-only and not shown publicly.</li>
+                <li>
+                  • Public classes can appear in offerings and event discovery.
+                </li>
+                <li>
+                  • Unlisted classes stay hidden from listings but can be shared
+                  directly.
+                </li>
+                <li>
+                  • Private classes are internal or invite-only and not shown
+                  publicly.
+                </li>
               </ul>
             </div>
           ) : null}
@@ -1150,7 +2202,9 @@ export default function EventForm({
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
               <p className="font-medium">Public directory enabled</p>
               <p className="mt-2 text-emerald-800">
-                This event will be eligible for the public dance directory when saved with a public host, published/open status, and public discovery enabled.
+                This event will be eligible for the public dance directory when
+                saved with a public host, published/open status, and public
+                discovery enabled.
               </p>
             </div>
           ) : null}
@@ -1159,12 +2213,11 @@ export default function EventForm({
             <div className="rounded-2xl border border-purple-200 bg-purple-50 p-4 text-sm text-purple-900">
               <p className="font-medium">Waitlist is enabled</p>
               <p className="mt-2 text-purple-800">
-                When this event sells out, new registrants will be added to the waitlist and will not
-                be charged until staff promotes them.
+                When this event sells out, new registrants will be added to the
+                waitlist and will not be charged until staff promotes them.
               </p>
             </div>
           ) : null}
-
 
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
             <button
@@ -1182,7 +2235,8 @@ export default function EventForm({
             </button>
 
             <p className="mt-3 text-center text-xs leading-5 text-slate-500">
-              You can save as a draft first, then publish when the event details are ready.
+              You can save as a draft first, then publish when the event details
+              are ready.
             </p>
           </section>
         </div>
@@ -1190,3 +2244,6 @@ export default function EventForm({
     </form>
   );
 }
+
+
+

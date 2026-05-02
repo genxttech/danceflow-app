@@ -40,23 +40,117 @@ type OrganizerRow = {
   active: boolean;
 };
 
+type EventLocationSessionPayload = {
+  sessionDate: string;
+  startTime: string | null;
+  endTime: string | null;
+  sessionLabel: string;
+  seriesLabel: string;
+  capacity: number | null;
+  sortOrder: number;
+};
+
+type EventLocationPayload = {
+  locationName: string;
+  venueName: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  capacity: number | null;
+  sortOrder: number;
+  sessions: EventLocationSessionPayload[];
+};
+
 const EVENT_IMAGE_BUCKET = "event-media";
 
 const EVENT_SLUG_TAKEN_MESSAGE =
   "That event URL is already taken. Please choose a different event slug.";
 
-const STYLE_OPTIONS = [
-  { key: "country", label: "Country" },
-  { key: "ballroom", label: "Ballroom" },
-  { key: "latin", label: "Latin" },
-  { key: "salsa", label: "Salsa" },
-  { key: "bachata", label: "Bachata" },
-  { key: "swing", label: "Swing" },
-  { key: "west_coast_swing", label: "West Coast Swing" },
-  { key: "hip_hop", label: "Hip Hop" },
-  { key: "contemporary", label: "Contemporary" },
-  { key: "ballet", label: "Ballet" },
-] as const;
+type StyleOption = {
+  key: string;
+  label: string;
+};
+
+
+const DANCE_FOCUS_OPTIONS_BY_CATEGORY: Record<string, StyleOption[]> = {
+  country: [
+    { key: "country", label: "Country / Mixed Country" },
+    { key: "country_two_step", label: "Two Step" },
+    { key: "country_waltz", label: "Waltz" },
+    { key: "country_east_coast_swing", label: "East Coast Swing" },
+    { key: "country_west_coast_swing", label: "West Coast Swing" },
+    { key: "country_nightclub_two_step", label: "Nightclub Two Step" },
+    { key: "country_cha_cha", label: "Cha Cha" },
+    { key: "country_polka", label: "Polka" },
+    { key: "country_triple_two_step", label: "Triple Two Step" },
+    { key: "country_swing", label: "Country Swing" },
+    { key: "country_line_dance", label: "Line Dance" },
+  ],
+  ballroom: [
+    { key: "ballroom", label: "Ballroom / Mixed Ballroom" },
+    { key: "ballroom_waltz", label: "Waltz" },
+    { key: "ballroom_tango", label: "Tango" },
+    { key: "ballroom_foxtrot", label: "Foxtrot" },
+    { key: "ballroom_viennese_waltz", label: "Viennese Waltz" },
+    { key: "ballroom_quickstep", label: "Quickstep" },
+    { key: "ballroom_cha_cha", label: "Cha Cha" },
+    { key: "ballroom_rumba", label: "Rumba" },
+    { key: "ballroom_east_coast_swing", label: "East Coast Swing" },
+    { key: "ballroom_bolero", label: "Bolero" },
+    { key: "ballroom_mambo", label: "Mambo" },
+    { key: "ballroom_samba", label: "Samba" },
+    { key: "ballroom_paso_doble", label: "Paso Doble" },
+    { key: "ballroom_jive", label: "Jive" },
+  ],
+  club_latin: [
+    { key: "latin", label: "Latin / Mixed Latin" },
+    { key: "salsa", label: "Salsa" },
+    { key: "bachata", label: "Bachata" },
+    { key: "merengue", label: "Merengue" },
+    { key: "kizomba", label: "Kizomba" },
+    { key: "zouk", label: "Zouk" },
+  ],
+  swing: [
+    { key: "swing", label: "Swing / Mixed Swing" },
+    { key: "swing_west_coast_swing", label: "West Coast Swing" },
+    { key: "west_coast_swing", label: "West Coast Swing (Legacy)" },
+    { key: "swing_east_coast_swing", label: "East Coast Swing" },
+    { key: "swing_lindy_hop", label: "Lindy Hop" },
+    { key: "swing_balboa", label: "Balboa" },
+    { key: "swing_shag", label: "Shag" },
+  ],
+  other: [
+    { key: "other", label: "Other / Mixed Styles" },
+    { key: "line_dance", label: "Line Dance (Legacy)" },
+    { key: "nightclub_two_step", label: "Nightclub Two Step (Legacy)" },
+    { key: "hip_hop", label: "Hip Hop" },
+    { key: "contemporary", label: "Contemporary" },
+    { key: "ballet", label: "Ballet" },
+  ],
+};
+
+const STYLE_OPTIONS: StyleOption[] = Object.values(
+  DANCE_FOCUS_OPTIONS_BY_CATEGORY,
+).flat();
+
+function getDanceCategoryForStyleKey(styleKey: string) {
+  for (const [categoryKey, options] of Object.entries(
+    DANCE_FOCUS_OPTIONS_BY_CATEGORY,
+  )) {
+    if (options.some((option) => option.key === styleKey)) {
+      return categoryKey;
+    }
+  }
+
+  return "other";
+}
+
+function getStyleCategoryCount(styleKeys: string[]) {
+  return new Set(styleKeys.map(getDanceCategoryForStyleKey)).size;
+}
 
 const DB_EVENT_STATUSES = [
   "draft",
@@ -254,6 +348,135 @@ async function getStudioContext() {
   };
 }
 
+function parseEventLocations(formData: FormData): EventLocationPayload[] {
+  const locationCount = parseOptionalInteger(getString(formData, "locationCount")) ?? 0;
+  const locations: EventLocationPayload[] = [];
+
+  for (let locationIndex = 0; locationIndex < locationCount; locationIndex += 1) {
+    const locationName = getString(formData, `location_${locationIndex}_locationName`);
+    const venueName = getString(formData, `location_${locationIndex}_venueName`);
+    const addressLine1 = getString(formData, `location_${locationIndex}_addressLine1`);
+    const addressLine2 = getString(formData, `location_${locationIndex}_addressLine2`);
+    const city = getString(formData, `location_${locationIndex}_city`);
+    const state = getString(formData, `location_${locationIndex}_state`);
+    const postalCode = getString(formData, `location_${locationIndex}_postalCode`);
+    const country = getString(formData, `location_${locationIndex}_country`) || "US";
+    const capacity = parseOptionalInteger(getString(formData, `location_${locationIndex}_capacity`));
+    const sortOrder =
+      parseOptionalInteger(getString(formData, `location_${locationIndex}_sortOrder`)) ??
+      locationIndex;
+
+    const sessionCount =
+      parseOptionalInteger(getString(formData, `location_${locationIndex}_sessionCount`)) ?? 0;
+
+    const sessions: EventLocationSessionPayload[] = [];
+
+    for (let sessionIndex = 0; sessionIndex < sessionCount; sessionIndex += 1) {
+      const sessionDate = getString(
+        formData,
+        `location_${locationIndex}_session_${sessionIndex}_date`
+      );
+      const startTime =
+        getString(
+          formData,
+          `location_${locationIndex}_session_${sessionIndex}_startTime`
+        ) || null;
+      const endTime =
+        getString(
+          formData,
+          `location_${locationIndex}_session_${sessionIndex}_endTime`
+        ) || null;
+      const sessionLabel = getString(
+        formData,
+        `location_${locationIndex}_session_${sessionIndex}_label`
+      );
+      const seriesLabel = getString(
+        formData,
+        `location_${locationIndex}_session_${sessionIndex}_seriesLabel`
+      );
+      const sessionCapacity = parseOptionalInteger(
+        getString(
+          formData,
+          `location_${locationIndex}_session_${sessionIndex}_capacity`
+        )
+      );
+      const sessionSortOrder =
+        parseOptionalInteger(
+          getString(
+            formData,
+            `location_${locationIndex}_session_${sessionIndex}_sortOrder`
+          )
+        ) ?? sessionIndex;
+
+      const hasSessionDetails = Boolean(
+        sessionDate || startTime || endTime || sessionLabel || seriesLabel || sessionCapacity != null
+      );
+
+      if (!hasSessionDetails) {
+        continue;
+      }
+
+      sessions.push({
+        sessionDate,
+        startTime,
+        endTime,
+        sessionLabel,
+        seriesLabel,
+        capacity: sessionCapacity,
+        sortOrder: sessionSortOrder,
+      });
+    }
+
+    const hasLocationDetails = Boolean(
+      locationName ||
+        venueName ||
+        addressLine1 ||
+        addressLine2 ||
+        city ||
+        state ||
+        postalCode ||
+        capacity != null ||
+        sessions.length > 0
+    );
+
+    if (!hasLocationDetails) {
+      continue;
+    }
+
+    locations.push({
+      locationName: locationName || venueName || `Location ${locationIndex + 1}`,
+      venueName,
+      addressLine1,
+      addressLine2,
+      city,
+      state,
+      postalCode,
+      country,
+      capacity,
+      sortOrder,
+      sessions,
+    });
+  }
+
+  return locations;
+}
+
+function normalizeStyleKeysForSingleCategory(styleKeys: string[]) {
+  const uniqueStyleKeys = Array.from(
+    new Set(styleKeys.map((styleKey) => styleKey.trim()).filter(Boolean))
+  );
+
+  if (uniqueStyleKeys.length === 0) {
+    return [];
+  }
+
+  const selectedCategory = getDanceCategoryForStyleKey(uniqueStyleKeys[0]);
+
+  return uniqueStyleKeys.filter(
+    (styleKey) => getDanceCategoryForStyleKey(styleKey) === selectedCategory
+  );
+}
+
 function buildEventPayload(formData: FormData) {
   const rawName = getString(formData, "name");
   const rawSlug = getString(formData, "slug");
@@ -314,16 +537,13 @@ function buildEventPayload(formData: FormData) {
     refundPolicy: getString(formData, "refundPolicy"),
     faq: getString(formData, "faq"),
     tags: normalizeTags(getString(formData, "tags")),
-    styleKeys: Array.from(
-      new Set(
-        formData
-          .getAll("styleKeys")
-          .map((value) => String(value).trim())
-          .filter((value) =>
-            STYLE_OPTIONS.some((option) => option.key === value)
-          )
-      )
+    styleKeys: normalizeStyleKeysForSingleCategory(
+      formData
+        .getAll("styleKeys")
+        .map((value) => String(value).trim())
+        .filter((value) => STYLE_OPTIONS.some((option) => option.key === value))
     ),
+    eventLocations: parseEventLocations(formData),
   };
 }
 
@@ -342,7 +562,7 @@ function validateEventEnums(payload: ReturnType<typeof buildEventPayload>) {
     return "Invalid timezone.";
   }
 
-  if (!payload.state || !isAllowedOptionValue(US_STATE_OPTIONS, payload.state)) {
+  if (payload.state && !isAllowedOptionValue(US_STATE_OPTIONS, payload.state)) {
     return "Invalid state.";
   }
 
@@ -368,6 +588,10 @@ function validateEventPayload(payload: ReturnType<typeof buildEventPayload>) {
     return "Capacity cannot be negative.";
   }
 
+  if (getStyleCategoryCount(payload.styleKeys) > 1) {
+    return "Choose dance focus options from one dance category only.";
+  }
+
   if (
     payload.registrationOpensAt &&
     payload.registrationClosesAt &&
@@ -385,6 +609,30 @@ function validateEventPayload(payload: ReturnType<typeof buildEventPayload>) {
     const maxBytes = 10 * 1024 * 1024;
     if (payload.coverImageFile.size > maxBytes) {
       return "Cover image must be 10 MB or smaller.";
+    }
+  }
+
+  for (const location of payload.eventLocations) {
+    if (location.state && !isAllowedOptionValue(US_STATE_OPTIONS, location.state)) {
+      return "Invalid location state.";
+    }
+
+    if (!location.locationName) {
+      return "Each event location needs a location label.";
+    }
+
+    if (location.capacity != null && location.capacity < 0) {
+      return "Location capacity cannot be negative.";
+    }
+
+    for (const session of location.sessions) {
+      if (!session.sessionDate) {
+        return "Each location date/time row needs a date.";
+      }
+
+      if (session.capacity != null && session.capacity < 0) {
+        return "Session capacity cannot be negative.";
+      }
     }
   }
 
@@ -817,6 +1065,96 @@ async function syncEventSessionsForGroupClass(params: {
   }
 }
 
+async function replaceEventLocationSchedule(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  studioId: string;
+  eventLocations: EventLocationPayload[];
+}) {
+  const { supabase, eventId, studioId, eventLocations } = params;
+
+  if (eventLocations.length === 0) {
+    return;
+  }
+
+  const { error: deleteError } = await supabase
+    .from("event_locations")
+    .delete()
+    .eq("event_id", eventId)
+    .eq("studio_id", studioId);
+
+  if (deleteError) {
+    throw new Error(`Could not clear old event locations: ${deleteError.message}`);
+  }
+
+  const { data: insertedLocations, error: locationsError } = await supabase
+    .from("event_locations")
+    .insert(
+      eventLocations.map((location) => ({
+        event_id: eventId,
+        studio_id: studioId,
+        location_name: location.locationName,
+        venue_name: location.venueName || null,
+        address_line_1: location.addressLine1 || null,
+        address_line_2: location.addressLine2 || null,
+        city: location.city || null,
+        state: location.state || null,
+        postal_code: location.postalCode || null,
+        country: location.country || "US",
+        capacity: location.capacity,
+        sort_order: location.sortOrder,
+        active: true,
+      }))
+    )
+    .select("id, sort_order");
+
+  if (locationsError || !insertedLocations) {
+    throw new Error(
+      `Could not save event locations: ${locationsError?.message ?? "Unknown error."}`
+    );
+  }
+
+  const locationIdBySortOrder = new Map<number, string>();
+
+  insertedLocations.forEach((location) => {
+    locationIdBySortOrder.set(Number(location.sort_order), String(location.id));
+  });
+
+  const sessionRows = eventLocations.flatMap((location) => {
+    const eventLocationId = locationIdBySortOrder.get(location.sortOrder);
+
+    if (!eventLocationId) {
+      return [];
+    }
+
+    return location.sessions.map((session) => ({
+      event_id: eventId,
+      event_location_id: eventLocationId,
+      studio_id: studioId,
+      session_date: session.sessionDate,
+      start_time: session.startTime,
+      end_time: session.endTime,
+      session_label: session.sessionLabel || null,
+      series_label: session.seriesLabel || null,
+      capacity: session.capacity,
+      status: "scheduled",
+      sort_order: session.sortOrder,
+    }));
+  });
+
+  if (sessionRows.length === 0) {
+    return;
+  }
+
+  const { error: sessionsError } = await supabase
+    .from("event_location_sessions")
+    .insert(sessionRows);
+
+  if (sessionsError) {
+    throw new Error(`Could not save event location dates: ${sessionsError.message}`);
+  }
+}
+
 async function uploadEventCoverImage(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
@@ -1044,6 +1382,13 @@ export async function createEventAction(
       studioId,
       payload: effectivePayload,
     });
+
+    await replaceEventLocationSchedule({
+      supabase,
+      eventId: event.id,
+      studioId,
+      eventLocations: effectivePayload.eventLocations,
+    });
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
@@ -1197,6 +1542,13 @@ export async function updateEventAction(
       studioId,
       payload: effectivePayload,
     });
+
+    await replaceEventLocationSchedule({
+      supabase,
+      eventId: id,
+      studioId,
+      eventLocations: effectivePayload.eventLocations,
+    });
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
@@ -1208,6 +1560,7 @@ export async function updateEventAction(
 
 export async function duplicateEventAction(formData: FormData) {
   const eventId = getString(formData, "eventId");
+  let redirectTo = "/app/events";
 
   if (!eventId) {
     redirect("/app/events");
@@ -1328,31 +1681,62 @@ export async function duplicateEventAction(formData: FormData) {
       );
     }
 
-    const [{ data: sourceTags, error: tagsError }, { data: sourceStyles, error: stylesError }, { data: sourceTickets, error: ticketsError }] =
-      await Promise.all([
-        supabase
-          .from("event_tags")
-          .select("tag")
-          .eq("event_id", eventId),
+    const [
+      { data: sourceTags, error: tagsError },
+      { data: sourceStyles, error: stylesError },
+      { data: sourceTickets, error: ticketsError },
+      { data: sourceLocations, error: locationsError },
+    ] = await Promise.all([
+      supabase.from("event_tags").select("tag").eq("event_id", eventId),
 
-        supabase
-          .from("event_public_styles")
-          .select("style_key, display_name")
-          .eq("event_id", eventId),
+      supabase
+        .from("event_public_styles")
+        .select("style_key, display_name")
+        .eq("event_id", eventId),
 
-        supabase
-          .from("event_ticket_types")
-          .select(`
-            name,
-            price,
-            currency,
+      supabase
+        .from("event_ticket_types")
+        .select(`
+          name,
+          price,
+          currency,
+          capacity,
+          active,
+          sale_starts_at,
+          sale_ends_at
+        `)
+        .eq("event_id", eventId),
+
+      supabase
+        .from("event_locations")
+        .select(`
+          id,
+          location_name,
+          venue_name,
+          address_line_1,
+          address_line_2,
+          city,
+          state,
+          postal_code,
+          country,
+          capacity,
+          sort_order,
+          active,
+          event_location_sessions (
+            session_date,
+            start_time,
+            end_time,
+            session_label,
+            series_label,
             capacity,
-            active,
-            sale_starts_at,
-            sale_ends_at
-          `)
-          .eq("event_id", eventId),
-      ]);
+            status,
+            sort_order
+          )
+        `)
+        .eq("event_id", eventId)
+        .eq("studio_id", studioId)
+        .order("sort_order", { ascending: true }),
+    ]);
 
     if (tagsError) {
       throw new Error(`Event copied, but tags could not be loaded: ${tagsError.message}`);
@@ -1364,6 +1748,10 @@ export async function duplicateEventAction(formData: FormData) {
 
     if (ticketsError) {
       throw new Error(`Event copied, but ticket types could not be loaded: ${ticketsError.message}`);
+    }
+
+    if (locationsError) {
+      throw new Error(`Event copied, but locations could not be loaded: ${locationsError.message}`);
     }
 
     if ((sourceTags ?? []).length > 0) {
@@ -1419,17 +1807,52 @@ export async function duplicateEventAction(formData: FormData) {
       }
     }
 
-    redirect(`/app/events/${duplicatedEvent.id}/edit`);
+    if ((sourceLocations ?? []).length > 0) {
+      const normalizedLocations: EventLocationPayload[] = (sourceLocations ?? []).map(
+        (location: any, locationIndex: number) => ({
+          locationName: location.location_name || `Location ${locationIndex + 1}`,
+          venueName: location.venue_name || "",
+          addressLine1: location.address_line_1 || "",
+          addressLine2: location.address_line_2 || "",
+          city: location.city || "",
+          state: location.state || "",
+          postalCode: location.postal_code || "",
+          country: location.country || "US",
+          capacity: location.capacity ?? null,
+          sortOrder: location.sort_order ?? locationIndex,
+          sessions: (location.event_location_sessions ?? [])
+            .filter((session: any) => session.status !== "cancelled")
+            .map((session: any, sessionIndex: number) => ({
+              sessionDate: session.session_date,
+              startTime: session.start_time ?? null,
+              endTime: session.end_time ?? null,
+              sessionLabel: session.session_label || "",
+              seriesLabel: session.series_label || "",
+              capacity: session.capacity ?? null,
+              sortOrder: session.sort_order ?? sessionIndex,
+            })),
+        })
+      );
+
+      await replaceEventLocationSchedule({
+        supabase,
+        eventId: duplicatedEvent.id,
+        studioId,
+        eventLocations: normalizedLocations,
+      });
+    }
+
+    redirectTo = `/app/events/${duplicatedEvent.id}/edit`;
   } catch (error) {
     const message =
       error instanceof Error
         ? error.message
         : "Could not duplicate this event.";
 
-    redirect(
-      `/app/events/${encodeURIComponent(eventId)}?error=${encodeURIComponent(
-        message
-      )}`
-    );
+    redirectTo = `/app/events/${encodeURIComponent(eventId)}?error=${encodeURIComponent(
+      message
+    )}`;
   }
+
+  redirect(redirectTo);
 }
