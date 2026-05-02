@@ -71,6 +71,26 @@ type StudioInvoiceRow = {
   created_at: string;
 };
 
+type PaymentRow = {
+  id: string;
+  studio_id: string;
+  amount: number | null;
+  currency: string | null;
+  status: string | null;
+  payment_type: string | null;
+  source: string | null;
+  paid_at: string | null;
+  created_at: string;
+};
+
+type EventPaymentRow = {
+  id: string;
+  amount: number | null;
+  currency: string | null;
+  status: string | null;
+  created_at: string;
+};
+
 type PlatformErrorLogRow = {
   id: string;
   severity: string;
@@ -169,6 +189,13 @@ function formatMoney(value: number, currency = "USD") {
 const PLATFORM_TICKET_FEE_RATE = 0.035;
 const PAID_REGISTRATION_STATUSES = new Set(["paid", "completed", "succeeded"]);
 const PAID_INVOICE_STATUSES = new Set(["paid", "succeeded"]);
+const PAID_PAYMENT_STATUSES = new Set([
+  "paid",
+  "processed",
+  "succeeded",
+  "complete",
+  "completed",
+]);
 
 function startOfToday() {
   const date = new Date();
@@ -324,6 +351,8 @@ export default async function PlatformDashboardPage() {
     { data: events, error: eventsError },
     { data: registrations, error: registrationsError },
     { data: studioInvoices, error: studioInvoicesError },
+    { data: payments, error: paymentsError },
+    { data: eventPayments, error: eventPaymentsError },
     { data: platformErrorLogs },
     { data: packageDeductionErrors },
   ] = await Promise.all([
@@ -366,6 +395,14 @@ export default async function PlatformDashboardPage() {
       .select("id, studio_id, amount_paid, currency, status, created_at"),
 
     supabase
+      .from("payments")
+      .select("id, studio_id, amount, currency, status, payment_type, source, paid_at, created_at"),
+
+    supabase
+      .from("event_payments")
+      .select("id, amount, currency, status, created_at"),
+
+    supabase
       .from("platform_error_logs")
       .select("id, severity, source, message, created_at, resolved_at")
       .is("resolved_at", null)
@@ -405,12 +442,22 @@ export default async function PlatformDashboardPage() {
     throw new Error(`Failed to load studio invoices: ${studioInvoicesError.message}`);
   }
 
+  if (paymentsError) {
+    throw new Error(`Failed to load payments: ${paymentsError.message}`);
+  }
+
+  if (eventPaymentsError) {
+    throw new Error(`Failed to load event payments: ${eventPaymentsError.message}`);
+  }
+
   const typedStudios = (studios ?? []) as StudioRow[];
   const typedSubscriptions = (subscriptions ?? []) as SubscriptionRow[];
   const typedOrganizers = (organizers ?? []) as OrganizerRow[];
   const typedEvents = (events ?? []) as EventRow[];
   const typedRegistrations = (registrations ?? []) as RegistrationRow[];
   const typedStudioInvoices = (studioInvoices ?? []) as StudioInvoiceRow[];
+  const typedPayments = (payments ?? []) as PaymentRow[];
+  const typedEventPayments = (eventPayments ?? []) as EventPaymentRow[];
   const typedPlatformErrorLogs = (platformErrorLogs ?? []) as PlatformErrorLogRow[];
   const typedPackageDeductionErrors = (packageDeductionErrors ?? []) as PackageDeductionErrorRow[];
 
@@ -483,6 +530,27 @@ export default async function PlatformDashboardPage() {
       );
     }
   }
+
+  const grossStudioPaymentVolume = typedPayments
+    .filter((payment) =>
+      PAID_PAYMENT_STATUSES.has((payment.status ?? "").toLowerCase())
+    )
+    .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+
+  const grossEventPaymentVolume = typedEventPayments
+    .filter((payment) =>
+      PAID_PAYMENT_STATUSES.has((payment.status ?? "").toLowerCase())
+    )
+    .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+
+  const grossSubscriptionPaymentVolume = typedStudioInvoices
+    .filter((invoice) =>
+      PAID_INVOICE_STATUSES.has((invoice.status ?? "").toLowerCase())
+    )
+    .reduce((sum, invoice) => sum + Number(invoice.amount_paid ?? 0), 0);
+
+  const grossPaymentVolume =
+    grossStudioPaymentVolume + grossEventPaymentVolume + grossSubscriptionPaymentVolume;
 
   const studioWorkspaceIds = new Set(studioWorkspaces.map((studio) => studio.id));
   const organizerWorkspaceIds = new Set(organizerWorkspaces.map((studio) => studio.id));
@@ -620,6 +688,14 @@ export default async function PlatformDashboardPage() {
         return sum + amount;
       }, 0);
 
+  const eventPaymentRevenueFor = (start: Date) =>
+    typedEventPayments
+      .filter((payment) =>
+        PAID_PAYMENT_STATUSES.has((payment.status ?? "").toLowerCase())
+      )
+      .filter((payment) => isOnOrAfter(payment.created_at, start))
+      .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
+
   const subscriptionRevenueFor = (start: Date) =>
     typedStudioInvoices
       .filter((invoice) => PAID_INVOICE_STATUSES.has((invoice.status ?? "").toLowerCase()))
@@ -647,11 +723,11 @@ export default async function PlatformDashboardPage() {
   const platformMetrics = [
     {
       label: "Ticket platform fees",
-      description: "3.5% platform fee from paid event registrations.",
+      description: "3.5% platform fee from collected event payments.",
       values: {
-        today: paidRegistrationRevenueFor(todayStart) * PLATFORM_TICKET_FEE_RATE,
-        month: paidRegistrationRevenueFor(monthStart) * PLATFORM_TICKET_FEE_RATE,
-        ytd: paidRegistrationRevenueFor(yearStart) * PLATFORM_TICKET_FEE_RATE,
+        today: eventPaymentRevenueFor(todayStart) * PLATFORM_TICKET_FEE_RATE,
+        month: eventPaymentRevenueFor(monthStart) * PLATFORM_TICKET_FEE_RATE,
+        ytd: eventPaymentRevenueFor(yearStart) * PLATFORM_TICKET_FEE_RATE,
       },
       format: "money" as const,
     },
@@ -767,9 +843,9 @@ export default async function PlatformDashboardPage() {
             </div>
 
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <p className="text-sm text-amber-700">Gross Reg Volume</p>
+              <p className="text-sm text-amber-700">Gross Payment Volume</p>
               <p className="mt-1 text-2xl font-semibold text-amber-950">
-                {formatMoney(grossRegistrationVolume, "USD")}
+                {formatMoney(grossPaymentVolume, "USD")}
               </p>
             </div>
           </div>
@@ -1033,12 +1109,12 @@ export default async function PlatformDashboardPage() {
           </div>
 
           <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Gross Registration Volume</p>
+            <p className="text-sm text-slate-500">Event Registration Value</p>
             <p className="mt-1 text-2xl font-semibold text-slate-900">
               {formatMoney(grossRegistrationVolume, "USD")}
             </p>
             <p className="mt-1 text-sm text-slate-500">
-              Based on paid and partially paid event registrations.
+              Based on registrations marked paid or partially paid. Actual collected payments are shown in Gross Payment Volume.
             </p>
           </div>
         </div>
@@ -1354,7 +1430,7 @@ export default async function PlatformDashboardPage() {
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                 <p className="text-sm text-slate-500">Revenue Mix</p>
                 <p className="mt-1 text-sm text-slate-700">
-                  Platform registrations total {formatMoney(grossRegistrationVolume, "USD")}
+                  Event registration value {formatMoney(grossRegistrationVolume, "USD")}
                 </p>
               </div>
             </div>
