@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireStudioFeature } from "@/lib/billing/access";
+import { duplicateEventAction } from "../actions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   CalendarDays,
@@ -714,6 +715,16 @@ export default async function EventDetailPage({
                 Back to Events
               </Link>
 
+              <form action={duplicateEventAction}>
+                <input type="hidden" name="eventId" value={typedEvent.id} />
+                <button
+                  type="submit"
+                  className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                >
+                  Duplicate Event
+                </button>
+              </form>
+
               <Link
                 href={`/app/events/${typedEvent.id}/edit`}
                 className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
@@ -1224,6 +1235,16 @@ export default async function EventDetailPage({
               >
                 Edit Event
               </Link>
+
+              <form action={duplicateEventAction}>
+                <input type="hidden" name="eventId" value={typedEvent.id} />
+                <button
+                  type="submit"
+                  className="w-full rounded-xl border border-slate-300 px-4 py-3 text-left hover:bg-slate-50"
+                >
+                  Duplicate Event
+                </button>
+              </form>
 
               <Link
                 href={`/app/events/${typedEvent.id}/tickets`}

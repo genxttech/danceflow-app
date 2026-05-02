@@ -42,6 +42,9 @@ type OrganizerRow = {
 
 const EVENT_IMAGE_BUCKET = "event-media";
 
+const EVENT_SLUG_TAKEN_MESSAGE =
+  "That event URL is already taken. Please choose a different event slug.";
+
 const STYLE_OPTIONS = [
   { key: "country", label: "Country" },
   { key: "ballroom", label: "Ballroom" },
@@ -126,6 +129,26 @@ function slugify(value: string) {
     .replace(/^-+|-+$/g, "");
 }
 
+function normalizeEventSlug(params: {
+  requestedSlug: string;
+  fallbackName: string;
+}) {
+  const { requestedSlug, fallbackName } = params;
+  return slugify(requestedSlug || fallbackName);
+}
+
+function isEventSlugUniqueError(
+  error: { code?: string; message?: string } | null | undefined
+) {
+  const message = error?.message?.toLowerCase() ?? "";
+
+  return (
+    error?.code === "23505" &&
+    (message.includes("events_slug_lower_unique_idx") ||
+      message.includes("slug"))
+  );
+}
+
 function sanitizeFileName(value: string) {
   return value
     .toLowerCase()
@@ -190,8 +213,11 @@ function isProStudioWorkspace(params: {
   subscriptionPlan: SubscriptionPlanRow | null | undefined;
 }) {
   return (
-    getEffectiveBillingPlan(params.workspace, params.subscriptionPlan) === "pro" &&
-    isActiveOrTrialing(getEffectiveSubscriptionStatus(params.workspace, params.subscription))
+    getEffectiveBillingPlan(params.workspace, params.subscriptionPlan) ===
+      "pro" &&
+    isActiveOrTrialing(
+      getEffectiveSubscriptionStatus(params.workspace, params.subscription)
+    )
   );
 }
 
@@ -240,12 +266,17 @@ function buildEventPayload(formData: FormData) {
 
   const publicDirectoryEnabled = getBoolean(formData, "publicDirectoryEnabled");
   const requestedVisibility = getString(formData, "visibility") || "public";
-  const computedVisibility = publicDirectoryEnabled ? "public" : requestedVisibility;
+  const computedVisibility = publicDirectoryEnabled
+    ? "public"
+    : requestedVisibility;
 
   return {
     organizerId: getString(formData, "organizerId"),
     name: rawName,
-    slug: rawSlug || slugify(rawName),
+    slug: normalizeEventSlug({
+      requestedSlug: rawSlug,
+      fallbackName: rawName,
+    }),
     eventType: getString(formData, "eventType") || "workshop",
     shortDescription: getString(formData, "shortDescription"),
     description: getString(formData, "description"),
@@ -362,17 +393,15 @@ function validateEventPayload(payload: ReturnType<typeof buildEventPayload>) {
 
 async function ensureSlugAvailable(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
-  studioId: string;
   slug: string;
   excludeEventId?: string;
 }) {
-  const { supabase, studioId, slug, excludeEventId } = params;
+  const { supabase, slug, excludeEventId } = params;
 
   let query = supabase
     .from("events")
     .select("id")
-    .eq("studio_id", studioId)
-    .eq("slug", slug)
+    .ilike("slug", slug)
     .limit(1);
 
   if (excludeEventId) {
@@ -386,6 +415,33 @@ async function ensureSlugAvailable(params: {
   }
 
   return !data;
+}
+
+async function generateUniqueDuplicateEventSlug(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  baseSlug: string;
+}) {
+  const { supabase, baseSlug } = params;
+
+  const cleanBase = slugify(baseSlug || "event") || "event";
+
+  const candidates = [
+    `${cleanBase}-copy`,
+    ...Array.from({ length: 49 }, (_, index) => `${cleanBase}-copy-${index + 2}`),
+  ];
+
+  for (const candidate of candidates) {
+    const available = await ensureSlugAvailable({
+      supabase,
+      slug: candidate,
+    });
+
+    if (available) {
+      return candidate;
+    }
+  }
+
+  return `${cleanBase}-copy-${Date.now()}`;
 }
 
 async function ensureOrganizerValid(params: {
@@ -426,7 +482,9 @@ async function getWorkspaceAndOrganizerPolicy(params: {
     .maybeSingle<WorkspaceRow>();
 
   if (workspaceError) {
-    throw new Error(`Failed to load workspace policy: ${workspaceError.message}`);
+    throw new Error(
+      `Failed to load workspace policy: ${workspaceError.message}`
+    );
   }
 
   const { data: subscriptionRows, error: subscriptionsError } = await supabase
@@ -437,10 +495,13 @@ async function getWorkspaceAndOrganizerPolicy(params: {
     .limit(1);
 
   if (subscriptionsError) {
-    throw new Error(`Failed to load subscription policy: ${subscriptionsError.message}`);
+    throw new Error(
+      `Failed to load subscription policy: ${subscriptionsError.message}`
+    );
   }
 
-  const latestSubscription = ((subscriptionRows ?? []) as SubscriptionRow[])[0] ?? null;
+  const latestSubscription =
+    ((subscriptionRows ?? []) as SubscriptionRow[])[0] ?? null;
   let subscriptionPlan: SubscriptionPlanRow | null = null;
 
   if (latestSubscription?.subscription_plan_id) {
@@ -451,15 +512,21 @@ async function getWorkspaceAndOrganizerPolicy(params: {
       .maybeSingle<SubscriptionPlanRow>();
 
     if (planError) {
-      throw new Error(`Failed to load subscription plan policy: ${planError.message}`);
+      throw new Error(
+        `Failed to load subscription plan policy: ${planError.message}`
+      );
     }
 
     subscriptionPlan = plan;
   }
 
-  const effectiveBillingPlan = getEffectiveBillingPlan(workspace, subscriptionPlan);
+  const effectiveBillingPlan = getEffectiveBillingPlan(
+    workspace,
+    subscriptionPlan
+  );
   const organizerWorkspace =
-    effectiveBillingPlan === "organizer" || isOrganizerWorkspaceName(workspace?.name);
+    effectiveBillingPlan === "organizer" ||
+    isOrganizerWorkspaceName(workspace?.name);
   const studioHostedEvents =
     !organizerWorkspace &&
     isProStudioWorkspace({
@@ -475,11 +542,14 @@ async function getWorkspaceAndOrganizerPolicy(params: {
     .order("name", { ascending: true });
 
   if (organizersError) {
-    throw new Error(`Failed to load organizer policy: ${organizersError.message}`);
+    throw new Error(
+      `Failed to load organizer policy: ${organizersError.message}`
+    );
   }
 
   const typedOrganizers = (organizers ?? []) as OrganizerRow[];
-  const singleOrganizer = typedOrganizers.length === 1 ? typedOrganizers[0] : null;
+  const singleOrganizer =
+    typedOrganizers.length === 1 ? typedOrganizers[0] : null;
 
   return {
     organizerWorkspace,
@@ -541,15 +611,38 @@ async function replaceEventStyles(params: {
   eventId: string;
   styleKeys: string[];
 }) {
-  const { supabase, eventId, styleKeys } = params;
+  const { supabase, eventId } = params;
 
-  const { error: deleteError } = await supabase
+  const styleKeys = Array.from(
+    new Set(params.styleKeys.map((styleKey) => styleKey.trim()).filter(Boolean))
+  );
+
+  const { data: existingRows, error: existingError } = await supabase
     .from("event_public_styles")
-    .delete()
+    .select("id, style_key")
     .eq("event_id", eventId);
 
-  if (deleteError) {
-    throw new Error(`Failed to clear event styles: ${deleteError.message}`);
+  if (existingError) {
+    throw new Error(`Failed to load event styles: ${existingError.message}`);
+  }
+
+  const existingStyleKeys = new Set(
+    (existingRows ?? []).map((row) => String(row.style_key))
+  );
+
+  const styleKeysToRemove = (existingRows ?? [])
+    .filter((row) => !styleKeys.includes(String(row.style_key)))
+    .map((row) => row.id);
+
+  if (styleKeysToRemove.length > 0) {
+    const { error: deleteError } = await supabase
+      .from("event_public_styles")
+      .delete()
+      .in("id", styleKeysToRemove);
+
+    if (deleteError) {
+      throw new Error(`Failed to clear old event styles: ${deleteError.message}`);
+    }
   }
 
   if (styleKeys.length === 0) {
@@ -560,15 +653,18 @@ async function replaceEventStyles(params: {
     event_id: eventId,
     style_key: styleKey,
     display_name:
-      STYLE_OPTIONS.find((option) => option.key === styleKey)?.label ?? styleKey,
+      STYLE_OPTIONS.find((option) => option.key === styleKey)?.label ??
+      styleKey,
   }));
 
-  const { error: insertError } = await supabase
+  const { error: upsertError } = await supabase
     .from("event_public_styles")
-    .insert(rows);
+    .upsert(rows, {
+      onConflict: "event_id,style_key",
+    });
 
-  if (insertError) {
-    throw new Error(`Failed to save event styles: ${insertError.message}`);
+  if (upsertError) {
+    throw new Error(`Failed to save event styles: ${upsertError.message}`);
   }
 }
 
@@ -584,7 +680,9 @@ function toDateValue(date: Date) {
   return date.toISOString().slice(0, 10);
 }
 
-function buildWeeklyGroupClassSessions(payload: ReturnType<typeof buildEventPayload>) {
+function buildWeeklyGroupClassSessions(
+  payload: ReturnType<typeof buildEventPayload>
+) {
   if (payload.eventType !== "group_class" || !payload.startDate) {
     return [];
   }
@@ -650,7 +748,9 @@ async function syncEventSessionsForGroupClass(params: {
       .eq("status", "scheduled");
 
     if (error) {
-      throw new Error(`Could not cancel old group class sessions: ${error.message}`);
+      throw new Error(
+        `Could not cancel old group class sessions: ${error.message}`
+      );
     }
 
     return;
@@ -676,7 +776,9 @@ async function syncEventSessionsForGroupClass(params: {
     });
 
   if (upsertError) {
-    throw new Error(`Could not save group class sessions: ${upsertError.message}`);
+    throw new Error(
+      `Could not save group class sessions: ${upsertError.message}`
+    );
   }
 
   const activeSessionDates = sessions.map((session) => session.session_date);
@@ -689,7 +791,9 @@ async function syncEventSessionsForGroupClass(params: {
     .eq("status", "scheduled");
 
   if (existingError) {
-    throw new Error(`Could not review group class sessions: ${existingError.message}`);
+    throw new Error(
+      `Could not review group class sessions: ${existingError.message}`
+    );
   }
 
   const obsoleteIds = (existingRows ?? [])
@@ -706,7 +810,9 @@ async function syncEventSessionsForGroupClass(params: {
       .in("id", obsoleteIds);
 
     if (cancelError) {
-      throw new Error(`Could not cancel obsolete group class sessions: ${cancelError.message}`);
+      throw new Error(
+        `Could not cancel obsolete group class sessions: ${cancelError.message}`
+      );
     }
   }
 }
@@ -720,9 +826,7 @@ async function uploadEventCoverImage(params: {
   const { supabase, studioId, slug, file } = params;
 
   const safeName = sanitizeFileName(file.name || "cover-image");
-  const extension = safeName.includes(".")
-    ? safeName.split(".").pop()
-    : "jpg";
+  const extension = safeName.includes(".") ? safeName.split(".").pop() : "jpg";
 
   const path = `${studioId}/${slug}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
 
@@ -797,7 +901,8 @@ function buildInsertUpdatePayload(params: {
     state: normalizeOptionValue(US_STATE_OPTIONS, payload.state),
     postal_code: payload.postalCode || null,
     timezone:
-      normalizeOptionValue(TIMEZONE_OPTIONS, payload.timezone) ?? "America/New_York",
+      normalizeOptionValue(TIMEZONE_OPTIONS, payload.timezone) ??
+      "America/New_York",
     start_date: payload.startDate,
     end_date: payload.endDate || null,
     start_time: payload.startTime,
@@ -805,7 +910,8 @@ function buildInsertUpdatePayload(params: {
     cover_image_url: resolvedCoverImageUrl,
     public_cover_image_url: resolvedCoverImageUrl,
     visibility:
-      normalizeOptionValue(EVENT_VISIBILITY_OPTIONS, payload.visibility) ?? "public",
+      normalizeOptionValue(EVENT_VISIBILITY_OPTIONS, payload.visibility) ??
+      "public",
     featured: payload.featured,
     beginner_friendly: payload.beginnerFriendly,
     public_directory_enabled: payload.publicDirectoryEnabled,
@@ -868,12 +974,11 @@ export async function createEventAction(
 
     const slugAvailable = await ensureSlugAvailable({
       supabase,
-      studioId,
       slug: effectivePayload.slug,
     });
 
     if (!slugAvailable) {
-      return { error: "That event slug is already in use." };
+      return { error: EVENT_SLUG_TAKEN_MESSAGE };
     }
 
     const resolvedCoverImageUrl = await resolveCoverImageUrl({
@@ -901,8 +1006,14 @@ export async function createEventAction(
       .single();
 
     if (eventError || !event) {
+      if (isEventSlugUniqueError(eventError)) {
+        return { error: EVENT_SLUG_TAKEN_MESSAGE };
+      }
+
       return {
-        error: `Could not create event: ${eventError?.message ?? "Unknown error."}`,
+        error: `Could not create event: ${
+          eventError?.message ?? "Unknown error."
+        }`,
       };
     }
 
@@ -1005,13 +1116,12 @@ export async function updateEventAction(
 
     const slugAvailable = await ensureSlugAvailable({
       supabase,
-      studioId,
       slug: effectivePayload.slug,
       excludeEventId: id,
     });
 
     if (!slugAvailable) {
-      return { error: "That event slug is already in use." };
+      return { error: EVENT_SLUG_TAKEN_MESSAGE };
     }
 
     const resolvedCoverImageUrl = await resolveCoverImageUrl({
@@ -1019,7 +1129,9 @@ export async function updateEventAction(
       studioId,
       slug: effectivePayload.slug,
       existingUrl:
-        existingEvent.public_cover_image_url ?? existingEvent.cover_image_url ?? null,
+        existingEvent.public_cover_image_url ??
+        existingEvent.cover_image_url ??
+        null,
       payload: effectivePayload,
     });
 
@@ -1038,6 +1150,10 @@ export async function updateEventAction(
       .eq("studio_id", studioId);
 
     if (updateError) {
+      if (isEventSlugUniqueError(updateError)) {
+        return { error: EVENT_SLUG_TAKEN_MESSAGE };
+      }
+
       return {
         error: `Could not update event: ${updateError.message}`,
       };
@@ -1088,4 +1204,232 @@ export async function updateEventAction(
   }
 
   redirect(`/app/events/${id}`);
+}
+
+export async function duplicateEventAction(formData: FormData) {
+  const eventId = getString(formData, "eventId");
+
+  if (!eventId) {
+    redirect("/app/events");
+  }
+
+  try {
+    const { supabase, studioId, userId, error: studioError } =
+      await getStudioContext();
+
+    if (studioError) {
+      throw new Error(studioError);
+    }
+
+    const { data: sourceEvent, error: sourceEventError } = await supabase
+      .from("events")
+      .select(`
+        organizer_id,
+        studio_id,
+        name,
+        slug,
+        event_type,
+        short_description,
+        description,
+        public_summary,
+        public_description,
+        venue_name,
+        address_line_1,
+        address_line_2,
+        city,
+        state,
+        postal_code,
+        timezone,
+        start_date,
+        end_date,
+        start_time,
+        end_time,
+        cover_image_url,
+        public_cover_image_url,
+        visibility,
+        featured,
+        beginner_friendly,
+        public_directory_enabled,
+        registration_required,
+        account_required_for_registration,
+        registration_opens_at,
+        registration_closes_at,
+        capacity,
+        waitlist_enabled,
+        refund_policy,
+        faq
+      `)
+      .eq("id", eventId)
+      .eq("studio_id", studioId)
+      .single();
+
+    if (sourceEventError || !sourceEvent) {
+      throw new Error("Event not found.");
+    }
+
+    const newSlug = await generateUniqueDuplicateEventSlug({
+      supabase,
+      baseSlug: sourceEvent.slug,
+    });
+
+    const { data: duplicatedEvent, error: duplicateError } = await supabase
+      .from("events")
+      .insert({
+        organizer_id: sourceEvent.organizer_id,
+        studio_id: studioId,
+        name: `${sourceEvent.name} Copy`,
+        slug: newSlug,
+        event_type: sourceEvent.event_type,
+        short_description: sourceEvent.short_description,
+        description: sourceEvent.description,
+        public_summary: sourceEvent.public_summary,
+        public_description: sourceEvent.public_description,
+        venue_name: sourceEvent.venue_name,
+        address_line_1: sourceEvent.address_line_1,
+        address_line_2: sourceEvent.address_line_2,
+        city: sourceEvent.city,
+        state: sourceEvent.state,
+        postal_code: sourceEvent.postal_code,
+        timezone: sourceEvent.timezone,
+        start_date: sourceEvent.start_date,
+        end_date: sourceEvent.end_date,
+        start_time: sourceEvent.start_time,
+        end_time: sourceEvent.end_time,
+        cover_image_url: sourceEvent.cover_image_url,
+        public_cover_image_url: sourceEvent.public_cover_image_url,
+        visibility: "private",
+        featured: false,
+        beginner_friendly: sourceEvent.beginner_friendly,
+        public_directory_enabled: false,
+        status: "draft",
+        registration_required: sourceEvent.registration_required,
+        account_required_for_registration:
+          sourceEvent.account_required_for_registration,
+        registration_opens_at: sourceEvent.registration_opens_at,
+        registration_closes_at: sourceEvent.registration_closes_at,
+        capacity: sourceEvent.capacity,
+        waitlist_enabled: sourceEvent.waitlist_enabled,
+        refund_policy: sourceEvent.refund_policy,
+        faq: sourceEvent.faq,
+        created_by: userId,
+      })
+      .select("id")
+      .single();
+
+    if (duplicateError || !duplicatedEvent) {
+      if (isEventSlugUniqueError(duplicateError)) {
+        throw new Error(EVENT_SLUG_TAKEN_MESSAGE);
+      }
+
+      throw new Error(
+        `Could not duplicate event: ${
+          duplicateError?.message ?? "Unknown error."
+        }`
+      );
+    }
+
+    const [{ data: sourceTags, error: tagsError }, { data: sourceStyles, error: stylesError }, { data: sourceTickets, error: ticketsError }] =
+      await Promise.all([
+        supabase
+          .from("event_tags")
+          .select("tag")
+          .eq("event_id", eventId),
+
+        supabase
+          .from("event_public_styles")
+          .select("style_key, display_name")
+          .eq("event_id", eventId),
+
+        supabase
+          .from("event_ticket_types")
+          .select(`
+            name,
+            price,
+            currency,
+            capacity,
+            active,
+            sale_starts_at,
+            sale_ends_at
+          `)
+          .eq("event_id", eventId),
+      ]);
+
+    if (tagsError) {
+      throw new Error(`Event copied, but tags could not be loaded: ${tagsError.message}`);
+    }
+
+    if (stylesError) {
+      throw new Error(`Event copied, but styles could not be loaded: ${stylesError.message}`);
+    }
+
+    if (ticketsError) {
+      throw new Error(`Event copied, but ticket types could not be loaded: ${ticketsError.message}`);
+    }
+
+    if ((sourceTags ?? []).length > 0) {
+      const { error: insertTagsError } = await supabase
+        .from("event_tags")
+        .insert(
+          (sourceTags ?? []).map((tag) => ({
+            event_id: duplicatedEvent.id,
+            tag: tag.tag,
+          }))
+        );
+
+      if (insertTagsError) {
+        throw new Error(`Event copied, but tags could not be saved: ${insertTagsError.message}`);
+      }
+    }
+
+    if ((sourceStyles ?? []).length > 0) {
+      const { error: insertStylesError } = await supabase
+        .from("event_public_styles")
+        .insert(
+          (sourceStyles ?? []).map((style) => ({
+            event_id: duplicatedEvent.id,
+            style_key: style.style_key,
+            display_name: style.display_name,
+          }))
+        );
+
+      if (insertStylesError) {
+        throw new Error(`Event copied, but styles could not be saved: ${insertStylesError.message}`);
+      }
+    }
+
+    if ((sourceTickets ?? []).length > 0) {
+      const { error: insertTicketsError } = await supabase
+        .from("event_ticket_types")
+        .insert(
+          (sourceTickets ?? []).map((ticket) => ({
+            event_id: duplicatedEvent.id,
+            studio_id: studioId,
+            name: ticket.name,
+            price: ticket.price,
+            currency: ticket.currency,
+            capacity: ticket.capacity,
+            active: ticket.active,
+            sale_starts_at: ticket.sale_starts_at,
+            sale_ends_at: ticket.sale_ends_at,
+          }))
+        );
+
+      if (insertTicketsError) {
+        throw new Error(`Event copied, but ticket types could not be saved: ${insertTicketsError.message}`);
+      }
+    }
+
+    redirect(`/app/events/${duplicatedEvent.id}/edit`);
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Could not duplicate this event.";
+
+    redirect(
+      `/app/events/${encodeURIComponent(eventId)}?error=${encodeURIComponent(
+        message
+      )}`
+    );
+  }
 }
