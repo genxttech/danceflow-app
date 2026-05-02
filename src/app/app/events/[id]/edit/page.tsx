@@ -211,6 +211,11 @@ export default async function EditEventPage({
   const typedEventStyles = (eventStyles ?? []) as EventStyleRow[];
   const selectedStyleKeys = typedEventStyles.map((row) => row.style_key);
   const singleOrganizer = typedOrganizers[0] ?? null;
+  const isCopiedDraft =
+    typedEvent.status === "draft" &&
+    typedEvent.visibility === "private" &&
+    typedEvent.public_directory_enabled === false &&
+    typedEvent.name.trim().toLowerCase().endsWith(" copy");
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -269,6 +274,21 @@ export default async function EditEventPage({
             The edit flow should keep organizer ownership aligned to the workspace organizer.
           </p>
         </div>
+      ) : null}
+
+      {isCopiedDraft ? (
+        <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-5 shadow-sm md:p-6">
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-700">
+            Copied Draft
+          </p>
+          <h2 className="mt-2 text-xl font-semibold text-amber-950">
+            You’re editing a copied draft.
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-7 text-amber-900">
+            Review the dates, location, tickets, registration settings, and public details before publishing.
+            The original event was not changed.
+          </p>
+        </section>
       ) : null}
 
       <EventForm
