@@ -7,6 +7,7 @@ import {
   getPlatformSelectedStudioId,
 } from "@/app/platform/actions";
 import { signOutAction } from "@/app/(auth)/actions";
+import { requirePlatformMfa } from "@/lib/auth/platform-mfa";
 
 export default async function PlatformLayout({
   children,
@@ -14,6 +15,7 @@ export default async function PlatformLayout({
   children: React.ReactNode;
 }) {
   await requirePlatformAdmin();
+  await requirePlatformMfa();
 
   const selectedStudioId = await getPlatformSelectedStudioId();
 
@@ -134,6 +136,7 @@ export default async function PlatformLayout({
     </div>
   );
 }
+
 
 
 
