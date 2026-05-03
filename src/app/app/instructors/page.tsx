@@ -1,9 +1,20 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { deactivateInstructorAction } from "./actions";
+import {
+  createInstructorCalendarFeedAction,
+  deactivateInstructorAction,
+  regenerateInstructorCalendarFeedAction,
+} from "./actions";
 import { canManageInstructors } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+
+type InstructorCalendarFeedRow = {
+  instructor_id: string;
+  token: string;
+  active: boolean;
+  last_accessed_at: string | null;
+};
 
 type InstructorRow = {
   id: string;
@@ -15,6 +26,26 @@ type InstructorRow = {
   active: boolean;
   created_at: string;
 };
+
+
+function getAppBaseUrl() {
+  const explicitUrl =
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.NEXT_PUBLIC_BASE_URL;
+
+  if (explicitUrl) return explicitUrl.replace(/\/$/, "");
+
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+
+  return "http://localhost:3000";
+}
+
+function buildInstructorCalendarFeedUrl(token: string) {
+  return `${getAppBaseUrl()}/calendar/instructor/${token}.ics`;
+}
 
 export default async function InstructorsPage() {
   const supabase = await createClient();
@@ -38,6 +69,23 @@ export default async function InstructorsPage() {
   }
 
   const typedInstructors = (instructors ?? []) as InstructorRow[];
+
+  const { data: calendarFeeds, error: calendarFeedsError } = await supabase
+    .from("instructor_calendar_feeds")
+    .select("instructor_id, token, active, last_accessed_at")
+    .eq("studio_id", studioId);
+
+  if (calendarFeedsError) {
+    throw new Error(`Failed to load instructor calendar feeds: ${calendarFeedsError.message}`);
+  }
+
+  const calendarFeedByInstructorId = new Map(
+    ((calendarFeeds ?? []) as InstructorCalendarFeedRow[]).map((feed) => [
+      feed.instructor_id,
+      feed,
+    ])
+  );
+
   const activeCount = typedInstructors.filter((item) => item.active).length;
   const inactiveCount = typedInstructors.filter((item) => !item.active).length;
 
@@ -119,18 +167,25 @@ export default async function InstructorsPage() {
               <th className="px-4 py-3 font-medium">Phone</th>
               <th className="px-4 py-3 font-medium">Specialties</th>
               <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Calendar Sync</th>
               <th className="px-4 py-3 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
             {typedInstructors.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
                   No instructors yet.
                 </td>
               </tr>
             ) : (
-              typedInstructors.map((instructor) => (
+              typedInstructors.map((instructor) => {
+                const calendarFeed = calendarFeedByInstructorId.get(instructor.id);
+                const calendarFeedUrl = calendarFeed?.active
+                  ? buildInstructorCalendarFeedUrl(calendarFeed.token)
+                  : null;
+
+                return (
                 <tr key={instructor.id} className="border-t">
                   <td className="px-4 py-3 font-medium text-slate-900">
                     <Link
@@ -145,6 +200,31 @@ export default async function InstructorsPage() {
                   <td className="px-4 py-3 text-slate-600">{instructor.specialties ?? "—"}</td>
                   <td className="px-4 py-3 text-slate-600">
                     {instructor.active ? "active" : "inactive"}
+                  </td>
+                  <td className="px-4 py-3">
+                    {calendarFeedUrl ? (
+                      <div className="space-y-2">
+                        <input
+                          readOnly
+                          value={calendarFeedUrl}
+                          className="w-full min-w-64 rounded-lg border border-slate-200 bg-slate-50 px-2 py-1 text-xs text-slate-700"
+                          aria-label={`Calendar feed URL for ${instructor.first_name} ${instructor.last_name}`}
+                        />
+                        <form action={regenerateInstructorCalendarFeedAction}>
+                          <input type="hidden" name="instructorId" value={instructor.id} />
+                          <button type="submit" className="text-xs text-slate-900 underline">
+                            Regenerate link
+                          </button>
+                        </form>
+                      </div>
+                    ) : (
+                      <form action={createInstructorCalendarFeedAction}>
+                        <input type="hidden" name="instructorId" value={instructor.id} />
+                        <button type="submit" className="text-slate-900 underline">
+                          Create calendar link
+                        </button>
+                      </form>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
@@ -171,7 +251,8 @@ export default async function InstructorsPage() {
                     </div>
                   </td>
                 </tr>
-              ))
+                );
+              })
             )}
           </tbody>
         </table>
