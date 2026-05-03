@@ -62,8 +62,34 @@ function escapeIcsText(value: string) {
     .replace(/\r?\n/g, "\\n");
 }
 
-function formatIcsDate(value: string) {
+function formatIcsUtcDate(value: string) {
   return new Date(value).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function formatIcsFloatingDate(value: string) {
+  // Appointments are stored as timestamp-with-time-zone values, but the app displays
+  // them as the studio's entered wall-clock time. For subscribed calendars, emitting
+  // DTSTART/DTEND with a trailing Z makes calendar apps convert the time from UTC,
+  // which can show the appointment several hours early. Floating ICS times preserve
+  // the same wall-clock time shown in DanceFlow.
+  const match = value.match(
+    /^(\d{4})[-](\d{2})[-](\d{2})[T\s](\d{2}):(\d{2})(?::(\d{2}))?/
+  );
+
+  if (match) {
+    const [, year, month, day, hour, minute, second = "00"] = match;
+    return `${year}${month}${day}T${hour}${minute}${second}`;
+  }
+
+  const date = new Date(value);
+  const year = String(date.getFullYear()).padStart(4, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hour = String(date.getHours()).padStart(2, "0");
+  const minute = String(date.getMinutes()).padStart(2, "0");
+  const second = String(date.getSeconds()).padStart(2, "0");
+
+  return `${year}${month}${day}T${hour}${minute}${second}`;
 }
 
 function foldIcsLine(line: string) {
@@ -245,7 +271,7 @@ export async function GET(
   }
 
   const calendarName = `DanceFlow - ${typedInstructor.first_name} ${typedInstructor.last_name}`;
-  const now = formatIcsDate(new Date().toISOString());
+  const now = formatIcsUtcDate(new Date().toISOString());
 
   const lines = [
     "BEGIN:VCALENDAR",
@@ -254,7 +280,6 @@ export async function GET(
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeIcsText(calendarName)}`,
-    "X-WR-TIMEZONE:UTC",
   ];
 
   typedAppointments.forEach((appointment) => {
@@ -267,8 +292,8 @@ export async function GET(
       "BEGIN:VEVENT",
       `UID:${appointment.id}@danceflow`,
       `DTSTAMP:${now}`,
-      `DTSTART:${formatIcsDate(appointment.starts_at)}`,
-      `DTEND:${formatIcsDate(appointment.ends_at)}`,
+      `DTSTART:${formatIcsFloatingDate(appointment.starts_at)}`,
+      `DTEND:${formatIcsFloatingDate(appointment.ends_at)}`,
       `SUMMARY:${escapeIcsText(summary)}`,
       `DESCRIPTION:${escapeIcsText(description)}`
     );
@@ -292,4 +317,5 @@ export async function GET(
     },
   });
 }
+
 
