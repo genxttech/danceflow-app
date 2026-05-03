@@ -174,6 +174,7 @@ async function upsertAttendanceLink(params: {
     .select("id")
     .eq("studio_id", studioId)
     .eq("event_registration_id", registrationId)
+    .is("event_session_id", null)
     .maybeSingle<AttendanceLookupRow>();
 
   if (existingError) {
@@ -534,30 +535,16 @@ export async function cancelEventRegistrationAction(formData: FormData) {
       throw new Error(registrationError.message);
     }
 
-    const { data: existingAttendance, error: attendanceLookupError } =
-      await supabase
-        .from("attendance_records")
-        .select("id")
-        .eq("studio_id", studioId)
-        .eq("event_registration_id", registrationId)
-        .maybeSingle<AttendanceLookupRow>();
+    const { error: attendanceUpdateError } = await supabase
+      .from("attendance_records")
+      .update({
+        status: "cancelled",
+      })
+      .eq("studio_id", studioId)
+      .eq("event_registration_id", registrationId);
 
-    if (attendanceLookupError) {
-      throw new Error(attendanceLookupError.message);
-    }
-
-    if (existingAttendance) {
-      const { error: attendanceUpdateError } = await supabase
-        .from("attendance_records")
-        .update({
-          status: "cancelled",
-        })
-        .eq("id", existingAttendance.id)
-        .eq("studio_id", studioId);
-
-      if (attendanceUpdateError) {
-        throw new Error(attendanceUpdateError.message);
-      }
+    if (attendanceUpdateError) {
+      throw new Error(attendanceUpdateError.message);
     }
 
     redirect(buildReturnUrl(eventId, "success=registration_cancelled"));
@@ -909,6 +896,7 @@ export async function upsertEventAttendanceAction(formData: FormData) {
           .select("id")
           .eq("studio_id", studioId)
           .eq("event_registration_id", registrationId)
+          .is("event_session_id", null)
           .maybeSingle<AttendanceLookupRow>();
 
       if (attendanceLookupError) {
@@ -1138,30 +1126,16 @@ export async function refundEventRegistrationAction(formData: FormData) {
       }
     }
 
-    const { data: existingAttendance, error: attendanceLookupError } =
-      await supabase
-        .from("attendance_records")
-        .select("id")
-        .eq("studio_id", studioId)
-        .eq("event_registration_id", registrationId)
-        .maybeSingle<AttendanceLookupRow>();
+    const { error: attendanceUpdateError } = await supabase
+      .from("attendance_records")
+      .update({
+        status: "cancelled",
+      })
+      .eq("studio_id", studioId)
+      .eq("event_registration_id", registrationId);
 
-    if (attendanceLookupError) {
-      throw new Error(attendanceLookupError.message);
-    }
-
-    if (existingAttendance) {
-      const { error: attendanceUpdateError } = await supabase
-        .from("attendance_records")
-        .update({
-          status: "cancelled",
-        })
-        .eq("id", existingAttendance.id)
-        .eq("studio_id", studioId);
-
-      if (attendanceUpdateError) {
-        throw new Error(attendanceUpdateError.message);
-      }
+    if (attendanceUpdateError) {
+      throw new Error(attendanceUpdateError.message);
     }
 
     redirect(buildReturnUrl(eventId, "success=registration_refunded"));
@@ -1169,3 +1143,4 @@ export async function refundEventRegistrationAction(formData: FormData) {
     redirect(buildReturnUrl(eventId, "error=refund_failed"));
   }
 }
+
