@@ -26,11 +26,19 @@ type AppointmentRow = {
   starts_at: string;
   ends_at: string;
   notes: string | null;
-  clients:
-    | { first_name: string; last_name: string }
-    | { first_name: string; last_name: string }[]
-    | null;
-  rooms: { name: string } | { name: string }[] | null;
+  client_id: string | null;
+  room_id: string | null;
+};
+
+type ClientRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+};
+
+type RoomRow = {
+  id: string;
+  name: string | null;
 };
 
 function getAdminClient() {
@@ -44,11 +52,6 @@ function getAdminClient() {
   return createClient(supabaseUrl, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-}
-
-function firstRelationRow<T>(value: T | T[] | null | undefined): T | null {
-  if (!value) return null;
-  return Array.isArray(value) ? value[0] ?? null : value;
 }
 
 function escapeIcsText(value: string) {
@@ -90,12 +93,16 @@ function appointmentTypeLabel(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function buildAppointmentSummary(appointment: AppointmentRow, instructor: InstructorRow) {
-  const client = firstRelationRow(appointment.clients);
+function buildAppointmentSummary(
+  appointment: AppointmentRow,
+  instructor: InstructorRow,
+  client: ClientRow | null
+) {
   const baseTitle = appointment.title?.trim() || appointmentTypeLabel(appointment.appointment_type);
+  const clientName = [client?.first_name, client?.last_name].filter(Boolean).join(" ").trim();
 
-  if (client?.first_name || client?.last_name) {
-    return `${baseTitle}: ${[client.first_name, client.last_name].filter(Boolean).join(" ")}`;
+  if (clientName) {
+    return `${baseTitle}: ${clientName}`;
   }
 
   if (appointment.appointment_type === "floor_space_rental") {
@@ -116,6 +123,10 @@ function buildAppointmentDescription(appointment: AppointmentRow) {
   }
 
   return lines.join("\n");
+}
+
+function uniqueNonEmpty(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
 }
 
 export async function GET(
@@ -177,8 +188,8 @@ export async function GET(
       starts_at,
       ends_at,
       notes,
-      clients(first_name, last_name),
-      rooms(name)
+      client_id,
+      room_id
     `
     )
     .eq("studio_id", typedFeed.studio_id)
@@ -194,6 +205,45 @@ export async function GET(
     });
   }
 
+  const typedAppointments = (appointments ?? []) as AppointmentRow[];
+  const clientIds = uniqueNonEmpty(typedAppointments.map((appointment) => appointment.client_id));
+  const roomIds = uniqueNonEmpty(typedAppointments.map((appointment) => appointment.room_id));
+
+  let clientById = new Map<string, ClientRow>();
+  let roomById = new Map<string, RoomRow>();
+
+  if (clientIds.length > 0) {
+    const { data: clients, error: clientsError } = await supabase
+      .from("clients")
+      .select("id, first_name, last_name")
+      .eq("studio_id", typedFeed.studio_id)
+      .in("id", clientIds);
+
+    if (clientsError) {
+      return new NextResponse(`Could not load calendar clients: ${clientsError.message}`, {
+        status: 500,
+      });
+    }
+
+    clientById = new Map(((clients ?? []) as ClientRow[]).map((client) => [client.id, client]));
+  }
+
+  if (roomIds.length > 0) {
+    const { data: rooms, error: roomsError } = await supabase
+      .from("rooms")
+      .select("id, name")
+      .eq("studio_id", typedFeed.studio_id)
+      .in("id", roomIds);
+
+    if (roomsError) {
+      return new NextResponse(`Could not load calendar rooms: ${roomsError.message}`, {
+        status: 500,
+      });
+    }
+
+    roomById = new Map(((rooms ?? []) as RoomRow[]).map((room) => [room.id, room]));
+  }
+
   const calendarName = `DanceFlow - ${typedInstructor.first_name} ${typedInstructor.last_name}`;
   const now = formatIcsDate(new Date().toISOString());
 
@@ -207,9 +257,10 @@ export async function GET(
     "X-WR-TIMEZONE:UTC",
   ];
 
-  ((appointments ?? []) as AppointmentRow[]).forEach((appointment) => {
-    const room = firstRelationRow(appointment.rooms);
-    const summary = buildAppointmentSummary(appointment, typedInstructor);
+  typedAppointments.forEach((appointment) => {
+    const client = appointment.client_id ? clientById.get(appointment.client_id) ?? null : null;
+    const room = appointment.room_id ? roomById.get(appointment.room_id) ?? null : null;
+    const summary = buildAppointmentSummary(appointment, typedInstructor, client);
     const description = buildAppointmentDescription(appointment);
 
     lines.push(
@@ -241,3 +292,4 @@ export async function GET(
     },
   });
 }
+
