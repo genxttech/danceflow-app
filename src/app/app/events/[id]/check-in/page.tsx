@@ -233,9 +233,21 @@ export default async function EventCheckInPage({
 
   const { id } = await params;
   const query = await searchParams;
-  const q = (query.q ?? "").trim().toLowerCase();
-  const statusFilter = (query.status ?? "ready").trim().toLowerCase();
-  const requestedSessionId = (query.sessionId ?? "").trim();
+    const qRaw = query.q;
+  const statusRaw = query.status;
+  const sessionIdRaw = query.sessionId;
+
+  const q = Array.isArray(qRaw)
+    ? String(qRaw[0] ?? "").trim().toLowerCase()
+    : String(qRaw ?? "").trim().toLowerCase();
+
+  const statusFilter = Array.isArray(statusRaw)
+    ? String(statusRaw[0] ?? "ready").trim().toLowerCase()
+    : String(statusRaw ?? "ready").trim().toLowerCase();
+
+  const requestedSessionId = Array.isArray(sessionIdRaw)
+    ? String(sessionIdRaw[0] ?? "").trim()
+    : String(sessionIdRaw ?? "").trim();
   const banner = getBanner(query);
 
   const supabase = await createClient();
