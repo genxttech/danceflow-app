@@ -2,6 +2,10 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { getBillingPlan } from "@/lib/billing/plans";
+import {
+  createPlatformBroadcastAlertAction,
+  setPlatformBroadcastAlertActiveAction,
+} from "./actions";
 
 type StudioRow = {
   id: string;
@@ -111,6 +115,21 @@ type PackageDeductionErrorRow = {
   created_at: string;
 };
 
+type PlatformBroadcastAlertRow = {
+  id: string;
+  title: string;
+  message: string;
+  alert_type: string;
+  audience: string;
+  active: boolean;
+  dismissible: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  read_more_url: string | null;
+  read_more_label: string | null;
+  created_at: string;
+};
+
 function getPlan(
   value:
     | { code: string; name: string }
@@ -118,6 +137,17 @@ function getPlan(
     | null
 ) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
 function formatDate(value: string | null) {
@@ -167,6 +197,29 @@ function statusBadgeClass(status: string) {
   if (status === "past_due") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
   if (status === "cancelled" || status === "canceled") return "bg-red-50 text-red-700 ring-1 ring-red-200";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function platformAlertTypeClass(type: string) {
+  if (type === "success") return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  if (type === "warning") return "border-amber-200 bg-amber-50 text-amber-950";
+  if (type === "maintenance") return "border-violet-200 bg-violet-50 text-violet-950";
+  if (type === "critical") return "border-rose-200 bg-rose-50 text-rose-950";
+  return "border-sky-200 bg-sky-50 text-sky-950";
+}
+
+function audienceLabel(value: string) {
+  if (value === "all_workspace_users") return "All workspace users";
+  if (value === "studio_owners") return "Studio owners";
+  if (value === "organizers") return "Organizers";
+  if (value === "instructors") return "Instructors";
+  if (value === "independent_instructors") return "Independent instructors";
+  if (value === "portal_users") return "Portal users";
+  if (value === "all_users") return "All users";
+  return value.replaceAll("_", " ");
+}
+
+function alertTypeLabel(value: string) {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function statusLabel(status: string) {
@@ -355,6 +408,7 @@ export default async function PlatformDashboardPage() {
     { data: eventPayments, error: eventPaymentsError },
     { data: platformErrorLogs },
     { data: packageDeductionErrors },
+    { data: platformBroadcastAlerts, error: platformBroadcastAlertsError },
   ] = await Promise.all([
     supabase
   .from("studios")
@@ -416,6 +470,12 @@ export default async function PlatformDashboardPage() {
       )
       .order("created_at", { ascending: false })
       .limit(5),
+
+    supabase
+      .from("platform_alerts")
+      .select("id, title, message, alert_type, audience, active, dismissible, starts_at, ends_at, read_more_url, read_more_label, created_at")
+      .order("created_at", { ascending: false })
+      .limit(8),
   ]);
 
   if (studiosError) {
@@ -446,6 +506,10 @@ export default async function PlatformDashboardPage() {
     throw new Error(`Failed to load payments: ${paymentsError.message}`);
   }
 
+  if (platformBroadcastAlertsError) {
+    throw new Error(`Failed to load platform broadcast alerts: ${platformBroadcastAlertsError.message}`);
+  }
+
   if (eventPaymentsError) {
     throw new Error(`Failed to load event payments: ${eventPaymentsError.message}`);
   }
@@ -460,6 +524,8 @@ export default async function PlatformDashboardPage() {
   const typedEventPayments = (eventPayments ?? []) as EventPaymentRow[];
   const typedPlatformErrorLogs = (platformErrorLogs ?? []) as PlatformErrorLogRow[];
   const typedPackageDeductionErrors = (packageDeductionErrors ?? []) as PackageDeductionErrorRow[];
+  const typedPlatformBroadcastAlerts = (platformBroadcastAlerts ?? []) as PlatformBroadcastAlertRow[];
+  const activePlatformBroadcastAlerts = typedPlatformBroadcastAlerts.filter((alert) => alert.active);
 
   const subscriptionByStudioId = new Map(
     typedSubscriptions.map((subscription) => [subscription.studio_id, subscription])
@@ -848,6 +914,166 @@ export default async function PlatformDashboardPage() {
                 {formatMoney(grossPaymentVolume, "USD")}
               </p>
             </div>
+          </div>
+        </div>
+      </section>
+
+
+      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-primary)]">
+              Platform Broadcasts
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+              Dashboard announcements
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Send temporary notices to user dashboards for maintenance, outages, feature announcements, or important updates. Add an optional Read more link for a knowledgebase article or announcement detail page.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            <span className="font-semibold text-slate-950">{activePlatformBroadcastAlerts.length}</span>{" "}
+            active broadcast{activePlatformBroadcastAlerts.length === 1 ? "" : "s"}
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+          <form action={createPlatformBroadcastAlertAction} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+            <h3 className="text-lg font-semibold text-slate-950">Create broadcast alert</h3>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Keep the dashboard message short. Use Read more for full details, screenshots, or setup instructions.
+            </p>
+
+            <div className="mt-5 grid gap-4">
+              <label className="grid gap-1 text-sm font-medium text-slate-700">
+                Title <span className="sr-only">required</span>
+                <input name="title" required className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" placeholder="Scheduled maintenance" />
+              </label>
+
+              <label className="grid gap-1 text-sm font-medium text-slate-700">
+                Short message <span className="sr-only">required</span>
+                <textarea name="message" required rows={4} className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" placeholder="DanceFlow will be unavailable tonight from 11:00 PM to midnight while we complete maintenance." />
+              </label>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Alert type
+                  <select name="alertType" defaultValue="info" className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950">
+                    <option value="info">Info</option>
+                    <option value="success">Success / Feature</option>
+                    <option value="warning">Warning</option>
+                    <option value="maintenance">Maintenance</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </label>
+
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Audience
+                  <select name="audience" defaultValue="all_workspace_users" className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950">
+                    <option value="all_workspace_users">All workspace users</option>
+                    <option value="studio_owners">Studio owners</option>
+                    <option value="organizers">Organizers</option>
+                    <option value="instructors">Instructors</option>
+                    <option value="independent_instructors">Independent instructors</option>
+                    <option value="portal_users">Portal users</option>
+                    <option value="all_users">All users</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Starts at
+                  <input name="startsAt" type="datetime-local" className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
+                </label>
+
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Ends at
+                  <input name="endsAt" type="datetime-local" className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
+                </label>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-[1fr_180px]">
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Read more URL
+                  <input name="readMoreUrl" className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" placeholder="/help/announcements/calendar-sync" />
+                </label>
+
+                <label className="grid gap-1 text-sm font-medium text-slate-700">
+                  Link label
+                  <input name="readMoreLabel" defaultValue="Read more" className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950" />
+                </label>
+              </div>
+
+              <div className="flex flex-wrap gap-4 text-sm text-slate-700">
+                <label className="inline-flex items-center gap-2">
+                  <input name="active" type="checkbox" defaultChecked className="h-4 w-4 rounded border-slate-300" />
+                  Active now
+                </label>
+                <label className="inline-flex items-center gap-2">
+                  <input name="dismissible" type="checkbox" defaultChecked className="h-4 w-4 rounded border-slate-300" />
+                  Users can dismiss
+                </label>
+              </div>
+
+              <button type="submit" className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-90">
+                Send broadcast alert
+              </button>
+            </div>
+          </form>
+
+          <div className="rounded-3xl border border-slate-200 bg-white p-5">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-950">Recent broadcasts</h3>
+                <p className="mt-1 text-sm text-slate-600">Deactivate an alert when it should stop showing immediately.</p>
+              </div>
+            </div>
+
+            {typedPlatformBroadcastAlerts.length === 0 ? (
+              <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
+                No broadcast alerts have been created yet.
+              </div>
+            ) : (
+              <div className="mt-5 space-y-3">
+                {typedPlatformBroadcastAlerts.map((alert) => (
+                  <div key={alert.id} className={`rounded-2xl border p-4 ${platformAlertTypeClass(alert.alert_type)}`}>
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-semibold">{alert.title}</p>
+                          <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold ring-1 ring-black/5">
+                            {alert.active ? "Active" : "Inactive"}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm leading-6 opacity-90">{alert.message}</p>
+                        <p className="mt-2 text-xs opacity-75">
+                          {alertTypeLabel(alert.alert_type)} • {audienceLabel(alert.audience)} • Created {formatDate(alert.created_at)}
+                        </p>
+                        <p className="mt-1 text-xs opacity-75">
+                          Window: {formatDateTime(alert.starts_at)} to {formatDateTime(alert.ends_at)}
+                        </p>
+                        {alert.read_more_url ? (
+                          <p className="mt-2 text-xs font-semibold underline">
+                            {alert.read_more_label || "Read more"}: {alert.read_more_url}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <form action={setPlatformBroadcastAlertActiveAction}>
+                        <input type="hidden" name="alertId" value={alert.id} />
+                        <input type="hidden" name="active" value={alert.active ? "false" : "true"} />
+                        <button type="submit" className="rounded-xl bg-white/80 px-3 py-2 text-xs font-semibold text-slate-800 ring-1 ring-black/10 hover:bg-white">
+                          {alert.active ? "Deactivate" : "Reactivate"}
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </section>

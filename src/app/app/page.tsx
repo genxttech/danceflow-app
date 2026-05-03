@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { syncStudioNotifications } from "@/lib/notifications/sync";
+import { dismissPlatformBroadcastAlertAction } from "@/app/platform/actions";
 import {
   getAccessibleStudios,
   getCurrentStudioContext,
@@ -135,6 +136,17 @@ type AttendanceRow = {
   status: string;
 };
 
+type PlatformBroadcastAlertRow = {
+  id: string;
+  title: string;
+  message: string;
+  alert_type: string;
+  audience: string;
+  dismissible: boolean;
+  read_more_url: string | null;
+  read_more_label: string | null;
+};
+
 function isOrganizerRole(role: string | null | undefined) {
   const normalized = (role ?? "").trim().toLowerCase();
   return normalized.startsWith("organizer_");
@@ -210,6 +222,85 @@ function eventTypeLabel(value: string) {
   if (value === "festival") return "Festival";
   if (value === "special_event") return "Special Event";
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function platformBroadcastAlertClass(type: string) {
+  if (type === "success") return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  if (type === "warning") return "border-amber-200 bg-amber-50 text-amber-950";
+  if (type === "maintenance") return "border-violet-200 bg-violet-50 text-violet-950";
+  if (type === "critical") return "border-rose-200 bg-rose-50 text-rose-950";
+  return "border-sky-200 bg-sky-50 text-sky-950";
+}
+
+function platformBroadcastAlertLabel(type: string) {
+  if (type === "success") return "Feature Update";
+  if (type === "warning") return "Important Notice";
+  if (type === "maintenance") return "Maintenance";
+  if (type === "critical") return "Critical Alert";
+  return "DanceFlow Notice";
+}
+
+function audienceMatchesWorkspace(params: {
+  audience: string;
+  studioRole: string | null | undefined;
+  organizerWorkspace: boolean;
+}) {
+  const audience = params.audience.trim().toLowerCase();
+  const role = (params.studioRole ?? "").trim().toLowerCase();
+
+  if (audience === "all_users" || audience === "all_workspace_users") return true;
+  if (audience === "studio_owners") return role === "studio_owner" || role === "owner";
+  if (audience === "organizers") return params.organizerWorkspace || role.startsWith("organizer_");
+  if (audience === "instructors") return role.includes("instructor") || role === "studio_owner";
+  if (audience === "independent_instructors") return role.includes("independent_instructor");
+  return false;
+}
+
+function PlatformBroadcastAlerts({ alerts }: { alerts: PlatformBroadcastAlertRow[] }) {
+  if (alerts.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      {alerts.map((alert) => (
+        <div
+          key={alert.id}
+          className={`rounded-[28px] border p-5 shadow-sm ${platformBroadcastAlertClass(
+            alert.alert_type
+          )}`}
+        >
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-75">
+                {platformBroadcastAlertLabel(alert.alert_type)}
+              </p>
+              <h2 className="mt-2 text-lg font-semibold">{alert.title}</h2>
+              <p className="mt-2 text-sm leading-6 opacity-90">{alert.message}</p>
+              {alert.read_more_url ? (
+                <Link
+                  href={alert.read_more_url}
+                  className="mt-3 inline-flex text-sm font-semibold underline underline-offset-4"
+                >
+                  {alert.read_more_label || "Read more"}
+                </Link>
+              ) : null}
+            </div>
+
+            {alert.dismissible ? (
+              <form action={dismissPlatformBroadcastAlertAction} className="shrink-0">
+                <input type="hidden" name="alertId" value={alert.id} />
+                <button
+                  type="submit"
+                  className="rounded-xl bg-white/80 px-3 py-2 text-xs font-semibold text-slate-700 ring-1 ring-black/10 hover:bg-white"
+                >
+                  Dismiss
+                </button>
+              </form>
+            ) : null}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
 }
 
 function statusBadgeClass(status: string) {
@@ -618,6 +709,50 @@ export default async function AppDashboardPage({
 
   const typedNotifications = (notifications ?? []) as NotificationRow[];
 
+  const { data: platformAlertRows, error: platformAlertsError } = await supabase
+    .from("platform_alerts")
+    .select("id, title, message, alert_type, audience, dismissible, read_more_url, read_more_label")
+    .eq("active", true)
+    .or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`)
+    .or(`ends_at.is.null,ends_at.gte.${new Date().toISOString()}`)
+    .order("created_at", { ascending: false });
+
+  if (platformAlertsError) {
+    throw new Error(`Failed to load platform broadcasts: ${platformAlertsError.message}`);
+  }
+
+  const typedPlatformAlerts = (platformAlertRows ?? []) as PlatformBroadcastAlertRow[];
+  const platformAlertIds = typedPlatformAlerts.map((alert) => alert.id);
+  let dismissedPlatformAlertIds = new Set<string>();
+
+  if (platformAlertIds.length > 0) {
+    const { data: dismissalRows, error: dismissalError } = await supabase
+      .from("platform_alert_dismissals")
+      .select("alert_id")
+      .eq("user_id", user.id)
+      .in("alert_id", platformAlertIds);
+
+    if (dismissalError) {
+      throw new Error(`Failed to load dismissed platform broadcasts: ${dismissalError.message}`);
+    }
+
+    dismissedPlatformAlertIds = new Set(
+      (dismissalRows ?? [])
+        .map((row) => (row as { alert_id?: string | null }).alert_id)
+        .filter((id): id is string => Boolean(id))
+    );
+  }
+
+  const visiblePlatformAlerts = typedPlatformAlerts.filter((alert) => {
+    if (alert.dismissible && dismissedPlatformAlertIds.has(alert.id)) return false;
+    return audienceMatchesWorkspace({
+      audience: alert.audience,
+      studioRole: context.studioRole,
+      organizerWorkspace,
+    });
+  });
+
+
   if (organizerWorkspace) {
     const [
       { data: events, error: eventsError },
@@ -697,6 +832,8 @@ export default async function AppDashboardPage({
 
     return (
       <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+        <PlatformBroadcastAlerts alerts={visiblePlatformAlerts} />
+
         {showInviteAcceptedBanner ? (
           <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">
@@ -1111,6 +1248,8 @@ export default async function AppDashboardPage({
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <PlatformBroadcastAlerts alerts={visiblePlatformAlerts} />
+
       {showInviteAcceptedBanner ? (
         <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">
