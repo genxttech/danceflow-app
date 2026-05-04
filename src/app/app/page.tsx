@@ -19,6 +19,7 @@ import { createClient } from "@/lib/supabase/server";
 import { syncStudioNotifications } from "@/lib/notifications/sync";
 import { dismissPlatformBroadcastAlertAction } from "@/app/platform/actions";
 import { dismissWorkspaceOnboardingAction } from "@/app/app/onboarding-actions";
+import { OnboardingCompletionRecorder } from "@/app/app/OnboardingCompletionRecorder";
 import {
   getAccessibleStudios,
   getCurrentStudioContext,
@@ -910,7 +911,7 @@ export default async function AppDashboardPage({
   }
 
   const onboardingDismissed = Boolean(onboardingPreference?.dismissed_at);
-
+  const onboardingCompleted = Boolean(onboardingPreference?.completed_at);
   if (organizerWorkspace) {
     const [
       { data: events, error: eventsError },
@@ -1028,12 +1029,25 @@ export default async function AppDashboardPage({
       },
     ];
 
-    const showOrganizerOnboarding =
-      !onboardingDismissed && organizerOnboardingTasks.some((task) => !task.complete);
+    const organizerOnboardingComplete =
+  organizerOnboardingTasks.length > 0 &&
+  organizerOnboardingTasks.every((task) => task.complete);
+
+const showOrganizerOnboarding =
+  !onboardingDismissed &&
+  !onboardingCompleted &&
+  !organizerOnboardingComplete &&
+  organizerOnboardingTasks.some((task) => !task.complete);
+
+const recordOrganizerOnboardingCompletion =
+  !onboardingDismissed && !onboardingCompleted && organizerOnboardingComplete;
 
     return (
       <main className="space-y-8 p-6 md:p-8">
         <PlatformBroadcastAlerts alerts={visiblePlatformAlerts} />
+        {recordOrganizerOnboardingCompletion ? (
+  <OnboardingCompletionRecorder checklistType="organizer" />
+) : null}
 
         {showInviteAcceptedBanner ? (
           <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
@@ -1492,8 +1506,18 @@ export default async function AppDashboardPage({
     },
   ];
 
-  const showStudioOnboarding =
-    !onboardingDismissed && studioOnboardingTasks.some((task) => !task.complete);
+  const studioOnboardingComplete =
+  studioOnboardingTasks.length > 0 &&
+  studioOnboardingTasks.every((task) => task.complete);
+
+const showStudioOnboarding =
+  !onboardingDismissed &&
+  !onboardingCompleted &&
+  !studioOnboardingComplete &&
+  studioOnboardingTasks.some((task) => !task.complete);
+
+const recordStudioOnboardingCompletion =
+  !onboardingDismissed && !onboardingCompleted && studioOnboardingComplete;
 
   const upcomingAppointments = typedAppointments.filter((item) => {
     const normalizedStatus = (item.status ?? "").trim().toLowerCase();
@@ -1505,6 +1529,9 @@ export default async function AppDashboardPage({
   return (
     <main className="space-y-8 p-6 md:p-8">
       <PlatformBroadcastAlerts alerts={visiblePlatformAlerts} />
+      {recordStudioOnboardingCompletion ? (
+  <OnboardingCompletionRecorder checklistType="studio" />
+) : null}
 
       {showInviteAcceptedBanner ? (
         <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
