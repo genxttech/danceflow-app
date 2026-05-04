@@ -27,8 +27,6 @@ type NotificationItem = {
 
 type ProfileRow = {
   id: string;
-  first_name: string | null;
-  last_name: string | null;
   full_name: string | null;
   email: string | null;
 };
@@ -51,17 +49,20 @@ type NavSection = {
   items: NavItem[];
 };
 
-function buildDisplayName(profile: ProfileRow | null, fallbackEmail: string | null) {
+function buildDisplayName(profile: ProfileRow | null, fallbackEmail: string | null | undefined) {
   const fullName = profile?.full_name?.trim();
-  if (fullName) return fullName;
 
-  const combined = [profile?.first_name ?? "", profile?.last_name ?? ""]
-    .join(" ")
-    .trim();
+  if (fullName) {
+    return fullName;
+  }
 
-  if (combined) return combined;
+  const email = profile?.email?.trim() || fallbackEmail?.trim();
 
-  return fallbackEmail ?? "Unknown User";
+  if (email) {
+    return email.split("@")[0] || email;
+  }
+
+  return "DanceFlow User";
 }
 
 function formatRoleLabel(role: string | null | undefined) {
@@ -427,10 +428,10 @@ export default async function AppLayout({
       .maybeSingle<StudioRow>(),
 
     supabase
-      .from("profiles")
-      .select("id, first_name, last_name, full_name, email")
-      .eq("id", user.id)
-      .maybeSingle<ProfileRow>(),
+  .from("profiles")
+  .select("id, full_name, email")
+  .eq("id", user.id)
+  .maybeSingle<ProfileRow>(),
 
     supabase
       .from("notifications")
