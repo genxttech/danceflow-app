@@ -169,7 +169,9 @@ async function sendClientPortalInviteEmail(params: {
   actionLink: string;
   clientName?: string;
   studioName?: string | null;
+  studioLogoUrl?: string | null;
   portalUrl: string;
+  isIndependentInstructor?: boolean;
 }) {
   const to = params.to.trim().toLowerCase();
 
@@ -179,56 +181,91 @@ async function sendClientPortalInviteEmail(params: {
 
   const greetingName = params.clientName?.trim() || "there";
   const studioName = params.studioName?.trim() || "your studio";
+  const studioLogoUrl = params.studioLogoUrl?.trim() || "";
+  const isIndependentInstructor = params.isIndependentInstructor === true;
+
+  const portalRoleLabel = isIndependentInstructor
+    ? "instructor portal"
+    : "student portal";
+
+  const portalDescription = isIndependentInstructor
+    ? "view your schedule, manage floor-rental activity, and stay connected with the studio"
+    : "view your lessons, packages, payments, and studio updates";
+
   const from = getOutboundFromEmail();
   const resend = getResendClient();
 
-  const subject = `${studioName} invited you to your DanceFlow portal`;
+  const subject = `${studioName} invited you to join their DanceFlow ${
+    isIndependentInstructor ? "instructor" : "student"
+  } portal`;
+
   const text = [
     `Hi ${greetingName},`,
     "",
-    `${studioName} invited you to access your DanceFlow client portal.`,
+    `${studioName} invited you to access your DanceFlow ${portalRoleLabel}.`,
     "",
-    "Use this secure link to sign in and go directly to your portal:",
+    `Through your portal, you can ${portalDescription}.`,
+    "",
+    "Use this secure link to accept the invite and go directly to your portal:",
     params.actionLink,
-    "",
-    "In your portal, you can view updates your studio shares with you, including lesson notes, messages, and other client information.",
     "",
     "If the button does not work, copy and paste the link above into your browser.",
     "",
-    "Thanks,",
-    "The DanceFlow Team",
+    `This invite was sent by ${studioName} through DanceFlow.`,
   ].join("\n");
 
+  const logoHtml = studioLogoUrl
+    ? `<div style="margin: 0 0 14px;"><img src="${escapeHtml(
+        studioLogoUrl
+      )}" alt="${escapeHtml(
+        studioName
+      )} logo" style="display: block; max-height: 72px; max-width: 220px; object-fit: contain; border-radius: 12px; background: white; padding: 6px;" /></div>`
+    : "";
+
   const html = `
-    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6; max-width: 620px; margin: 0 auto;">
+    <div style="font-family: Arial, sans-serif; color: #0f172a; line-height: 1.6; max-width: 640px; margin: 0 auto;">
       <div style="padding: 24px; border-radius: 24px; background: linear-gradient(135deg, #2e1065 0%, #4c1d95 52%, #f97316 100%); color: white;">
+        ${logoHtml}
         <p style="margin: 0 0 8px; font-size: 12px; letter-spacing: 0.18em; text-transform: uppercase; opacity: 0.82;">DanceFlow Portal Invite</p>
-        <h1 style="margin: 0; font-size: 28px; line-height: 1.2;">You have been invited to your client portal</h1>
+        <h1 style="margin: 0; font-size: 28px; line-height: 1.2;">${escapeHtml(
+          studioName
+        )} invited you to their ${escapeHtml(portalRoleLabel)}</h1>
       </div>
 
       <div style="padding: 24px;">
         <p>Hi ${escapeHtml(greetingName)},</p>
-        <p><strong>${escapeHtml(studioName)}</strong> invited you to access your DanceFlow client portal.</p>
-        <p>Click the button below to securely sign in and go directly to your portal.</p>
+        <p><strong>${escapeHtml(
+          studioName
+        )}</strong> invited you to access your DanceFlow ${escapeHtml(
+          portalRoleLabel
+        )}.</p>
+        <p>Through your portal, you can ${escapeHtml(portalDescription)}.</p>
 
         <p style="margin: 28px 0;">
-          <a href="${escapeHtml(params.actionLink)}" style="display: inline-block; background: #4c1d95; color: white; text-decoration: none; padding: 13px 20px; border-radius: 14px; font-weight: 700;">
-            Open My Portal
+          <a href="${escapeHtml(
+            params.actionLink
+          )}" style="display: inline-block; background: #4c1d95; color: white; text-decoration: none; padding: 13px 20px; border-radius: 14px; font-weight: 700;">
+            Accept Invite
           </a>
         </p>
 
-        <p style="font-size: 14px; color: #475569;">
-          In your portal, you can view updates your studio shares with you, including lesson notes, messages, and other client information.
-        </p>
+        <div style="border: 1px solid #e2e8f0; background: #f8fafc; border-radius: 16px; padding: 14px 16px; margin: 24px 0;">
+          <p style="margin: 0; font-size: 14px; color: #475569;">
+            This invite was sent by <strong>${escapeHtml(
+              studioName
+            )}</strong> through DanceFlow so you can access the studio portal they set up for you.
+          </p>
+        </div>
 
         <p style="font-size: 13px; color: #64748b;">
           If the button does not work, copy and paste this secure link into your browser:<br />
-          <a href="${escapeHtml(params.actionLink)}">${escapeHtml(params.actionLink)}</a>
+          <a href="${escapeHtml(params.actionLink)}">${escapeHtml(
+            params.actionLink
+          )}</a>
         </p>
 
-        <p style="margin-top: 28px;">
-          Thanks,<br />
-          The DanceFlow Team
+        <p style="margin-top: 28px; color: #64748b; font-size: 13px;">
+          DanceFlow helps studios manage scheduling, client portals, payments, and communication.
         </p>
       </div>
     </div>
@@ -554,7 +591,7 @@ export async function sendPortalInviteAction(formData: FormData) {
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
-    .select("id, name, public_name, slug")
+    .select("id, name, public_name, public_logo_url, slug")
     .eq("id", studioId)
     .single();
 
@@ -599,12 +636,14 @@ export async function sendPortalInviteAction(formData: FormData) {
     }
 
     await sendClientPortalInviteEmail({
-      to: email,
-      actionLink,
-      clientName: fullName,
-      studioName: studio.public_name || studio.name,
-      portalUrl,
-    });
+  to: email,
+  actionLink,
+  clientName: fullName,
+  studioName: studio.public_name || studio.name,
+  studioLogoUrl: studio.public_logo_url,
+  portalUrl,
+  isIndependentInstructor: client.is_independent_instructor === true,
+});
   } catch {
     redirectWithResult(returnTo, "error", "portal_invite_failed");
   }
