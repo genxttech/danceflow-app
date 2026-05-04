@@ -5,6 +5,7 @@ import {
   Bell,
   CalendarDays,
   CheckCircle2,
+  Circle,
   ClipboardList,
   CreditCard,
   Globe2,
@@ -17,6 +18,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { syncStudioNotifications } from "@/lib/notifications/sync";
 import { dismissPlatformBroadcastAlertAction } from "@/app/platform/actions";
+import { dismissWorkspaceOnboardingAction } from "@/app/app/onboarding-actions";
 import {
   getAccessibleStudios,
   getCurrentStudioContext,
@@ -58,6 +60,17 @@ type SubscriptionPlanRow = {
 
 type ClientRow = {
   id: string;
+  portal_user_id?: string | null;
+};
+
+type InstructorRow = {
+  id: string;
+};
+
+type WorkspaceOnboardingPreferenceRow = {
+  id: string;
+  dismissed_at: string | null;
+  completed_at: string | null;
 };
 
 type HostStudioPortalLink = {
@@ -145,6 +158,14 @@ type PlatformBroadcastAlertRow = {
   dismissible: boolean;
   read_more_url: string | null;
   read_more_label: string | null;
+};
+
+type WorkspaceOnboardingTask = {
+  key: string;
+  title: string;
+  description: string;
+  href: string;
+  complete: boolean;
 };
 
 function isOrganizerRole(role: string | null | undefined) {
@@ -299,6 +320,126 @@ function PlatformBroadcastAlerts({ alerts }: { alerts: PlatformBroadcastAlertRow
           </div>
         </div>
       ))}
+    </section>
+  );
+}
+
+function WorkspaceOnboardingChecklist({
+  checklistType,
+  tasks,
+}: {
+  checklistType: "studio" | "organizer";
+  tasks: WorkspaceOnboardingTask[];
+}) {
+  const completedCount = tasks.filter((task) => task.complete).length;
+  const totalCount = tasks.length;
+  const percentComplete = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  if (totalCount === 0 || completedCount === totalCount) return null;
+
+  const title =
+    checklistType === "organizer"
+      ? "Set up your organizer workspace"
+      : "Set up your studio workspace";
+
+  const subtitle =
+    checklistType === "organizer"
+      ? "Finish the core steps needed to publish events, take registrations, and manage attendees."
+      : "Finish the core steps needed to run scheduling, clients, payments, and portal access smoothly.";
+
+  return (
+    <section className="overflow-hidden rounded-[32px] border border-[#E9D5FF] bg-white shadow-sm">
+      <div className="bg-gradient-to-r from-[#FCF8FF] via-white to-[#FFF7ED] px-6 py-5 md:px-7">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#7C2D92]">
+              Launch Checklist
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              {title}
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              {subtitle}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-[#E9D5FF] bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+            <span className="font-semibold text-slate-950">
+              {completedCount} of {totalCount}
+            </span>{" "}
+            complete
+          </div>
+        </div>
+
+        <div className="mt-5 h-2 overflow-hidden rounded-full bg-[#F3E8FF]">
+          <div
+            className="h-full rounded-full bg-[#7C2D92] transition-all"
+            style={{ width: `${percentComplete}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="grid gap-3 p-6 md:grid-cols-2">
+        {tasks.map((task) => (
+          <Link
+            key={task.key}
+            href={task.href}
+            className={`group rounded-2xl border p-4 transition hover:-translate-y-0.5 hover:shadow-sm ${
+              task.complete
+                ? "border-emerald-200 bg-emerald-50"
+                : "border-slate-200 bg-slate-50 hover:border-[#D8B4FE] hover:bg-white"
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={`mt-0.5 rounded-full p-1 ${
+                  task.complete
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-white text-slate-400 ring-1 ring-slate-200"
+                }`}
+              >
+                {task.complete ? (
+                  <CheckCircle2 className="h-4 w-4" />
+                ) : (
+                  <Circle className="h-4 w-4" />
+                )}
+              </div>
+
+              <div className="min-w-0">
+                <h3 className="text-sm font-semibold text-slate-950">{task.title}</h3>
+                <p className="mt-1 text-sm leading-5 text-slate-600">
+                  {task.description}
+                </p>
+
+                {!task.complete ? (
+                  <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[#6B21A8]">
+                    Complete step
+                    <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
+
+      <div className="border-t border-[#F3E8FF] bg-slate-50/70 px-6 py-4">
+        <form
+          action={dismissWorkspaceOnboardingAction}
+          className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
+        >
+          <input type="hidden" name="checklistType" value={checklistType} />
+          <p className="text-xs leading-5 text-slate-500">
+            This checklist updates automatically as workspace setup items are completed.
+          </p>
+          <button
+            type="submit"
+            className="self-start rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:border-[#D8B4FE] hover:text-[#6B21A8] sm:self-auto"
+          >
+            Hide for now
+          </button>
+        </form>
+      </div>
     </section>
   );
 }
@@ -752,6 +893,23 @@ export default async function AppDashboardPage({
     });
   });
 
+  const checklistType = organizerWorkspace ? "organizer" : "studio";
+
+  const { data: onboardingPreference, error: onboardingPreferenceError } = await supabase
+    .from("workspace_onboarding_preferences")
+    .select("id, dismissed_at, completed_at")
+    .eq("studio_id", studioId)
+    .eq("user_id", user.id)
+    .eq("checklist_type", checklistType)
+    .maybeSingle<WorkspaceOnboardingPreferenceRow>();
+
+  if (onboardingPreferenceError) {
+    throw new Error(
+      `Failed to load onboarding checklist preferences: ${onboardingPreferenceError.message}`
+    );
+  }
+
+  const onboardingDismissed = Boolean(onboardingPreference?.dismissed_at);
 
   if (organizerWorkspace) {
     const [
@@ -822,16 +980,59 @@ export default async function AppDashboardPage({
     const paidRegistrationsCount = typedRegistrations.filter(
       (row) => row.payment_status === "paid" || row.payment_status === "partial"
     ).length;
-    const checkedInRegistrationIds = new Set(
-      typedAttendance
-        .filter((row) => row.status === "checked_in")
-        .map((row) => row.event_registration_id)
-    );
-    const checkedInCount = checkedInRegistrationIds.size;
+    const checkedInCount = typedAttendance.filter((row) => row.status === "attended").length;
     const primaryOrganizer = typedOrganizers[0] ?? null;
 
+    const organizerOnboardingTasks: WorkspaceOnboardingTask[] = [
+      {
+        key: "organizer-profile",
+        title: "Create organizer profile",
+        description: "Confirm the organizer name and workspace details are ready.",
+        href: "/app/settings",
+        complete: Boolean(primaryOrganizer),
+      },
+      {
+        key: "payouts",
+        title: "Connect payouts",
+        description: "Enable Stripe payouts before taking paid registrations.",
+        href: "/app/payments",
+        complete: payoutsReady,
+      },
+      {
+        key: "create-event",
+        title: "Create your first event",
+        description: "Add an event, group class, workshop, competition, or showcase.",
+        href: "/app/events/new",
+        complete: typedEvents.length > 0,
+      },
+      {
+        key: "publish-event",
+        title: "Publish an event",
+        description: "Make an event public or open so dancers can register.",
+        href: "/app/events",
+        complete: publishedCount > 0,
+      },
+      {
+        key: "discovery-ready",
+        title: "Turn on public discovery",
+        description: "List at least one event in discovery so dancers can find it.",
+        href: "/app/events",
+        complete: discoveryReadyCount > 0,
+      },
+      {
+        key: "registration-test",
+        title: "Confirm registration flow",
+        description: "Record at least one paid or partial registration to confirm the event flow.",
+        href: "/app/events/registrations",
+        complete: paidRegistrationsCount > 0,
+      },
+    ];
+
+    const showOrganizerOnboarding =
+      !onboardingDismissed && organizerOnboardingTasks.some((task) => !task.complete);
+
     return (
-      <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <main className="space-y-8 p-6 md:p-8">
         <PlatformBroadcastAlerts alerts={visiblePlatformAlerts} />
 
         {showInviteAcceptedBanner ? (
@@ -848,6 +1049,13 @@ export default async function AppDashboardPage({
                 : `You now have access to ${acceptedInviteCount} workspaces through your invitations.`}
             </p>
           </section>
+        ) : null}
+
+        {showOrganizerOnboarding ? (
+          <WorkspaceOnboardingChecklist
+            checklistType="organizer"
+            tasks={organizerOnboardingTasks}
+          />
         ) : null}
 
         <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
@@ -1039,7 +1247,7 @@ export default async function AppDashboardPage({
                   href="/app/notifications"
                   className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
                 >
-                  Open Notifications
+                  View All
                 </Link>
               }
             >
@@ -1047,21 +1255,23 @@ export default async function AppDashboardPage({
                 <EmptyState>No notifications yet.</EmptyState>
               ) : (
                 <div className="space-y-3">
-                  {typedNotifications.map((item) => (
+                  {typedNotifications.slice(0, 4).map((notification) => (
                     <div
-                      key={item.id}
+                      key={notification.id}
                       className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
                     >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="min-w-0">
-                          <p className="font-medium text-slate-900">{item.title}</p>
-                          {item.body ? (
-                            <p className="mt-1 text-sm text-slate-600">{item.body}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-sm font-semibold text-slate-900">{notification.title}</h3>
+                          {notification.body ? (
+                            <p className="mt-1 text-sm text-slate-600">{notification.body}</p>
                           ) : null}
                         </div>
-                        <div className="shrink-0 text-xs text-slate-500">
-                          {fmtDateTime(item.created_at)}
-                        </div>
+                        {!notification.read_at ? (
+                          <span className="rounded-full bg-[#F97316]/10 px-2 py-1 text-xs font-semibold text-[#C2410C]">
+                            New
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   ))}
@@ -1070,184 +1280,230 @@ export default async function AppDashboardPage({
             </SectionCard>
           </div>
         </section>
-      </div>
+
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <QuickActionCard
+            href="/app/events/new"
+            title="Create Event"
+            description="Build a new class, workshop, competition, showcase, or special event."
+            icon={CalendarDays}
+            primary
+          />
+          <QuickActionCard
+            href="/app/events"
+            title="Manage Events"
+            description="Edit event details, publish visibility, and manage event operations."
+            icon={Ticket}
+          />
+          <QuickActionCard
+            href="/app/events/registrations"
+            title="Registrations"
+            description="Review attendees, payment status, and registration activity."
+            icon={ClipboardList}
+          />
+          <QuickActionCard
+            href="/app/events/check-in"
+            title="Check-In"
+            description="Run event check-in and attendance tracking."
+            icon={CheckCircle2}
+          />
+        </section>
+
+        {!payoutsReady ? (
+          <section className="rounded-[32px] border border-amber-200 bg-amber-50 p-6 shadow-sm">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">
+                  Payments Setup
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                  Connect payouts before taking paid registrations
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-700">
+                  Organizer workspaces need Stripe payouts connected before relying on paid ticket sales,
+                  registration revenue, or refunds.
+                </p>
+              </div>
+              <Link
+                href="/app/payments"
+                className="inline-flex items-center justify-center rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+              >
+                Open Billing & Payments
+              </Link>
+            </div>
+          </section>
+        ) : null}
+      </main>
     );
   }
 
-  const isStudioPro = planCode === "pro";
   const isGrowthOrHigher = planCode === "growth" || planCode === "pro";
-  const canSeeProEventModule =
-  isStudioPro &&
-  (context.isPlatformAdmin ||
-    context.studioRole === "studio_owner" ||
-    context.studioRole === "studio_admin" ||
-    context.studioRole === "front_desk");
-    const showBillingSetupCard =
-    !payoutsReady &&
-    (context.isPlatformAdmin || context.studioRole === "studio_owner");
 
   const [
     { data: clients, error: clientsError },
     { data: appointments, error: appointmentsError },
     { data: memberships, error: membershipsError },
     { data: packages, error: packagesError },
+    { data: instructors, error: instructorsError },
   ] = await Promise.all([
-    supabase.from("clients").select("id").eq("studio_id", studioId),
+    supabase.from("clients").select("id, portal_user_id").eq("studio_id", studioId),
     supabase
       .from("appointments")
       .select("id, title, appointment_type, client_id, instructor_id, room_id, starts_at, status")
       .eq("studio_id", studioId)
+      .gte("starts_at", new Date().toISOString())
       .order("starts_at", { ascending: true })
-      .limit(12),
-    isGrowthOrHigher
-      ? supabase.from("client_memberships").select("id, status").eq("studio_id", studioId)
-      : Promise.resolve({ data: [], error: null }),
+      .limit(8),
+    supabase.from("memberships").select("id, status").eq("studio_id", studioId),
     isGrowthOrHigher
       ? supabase.from("client_packages").select("id, active").eq("studio_id", studioId)
       : Promise.resolve({ data: [], error: null }),
+    supabase.from("instructors").select("id").eq("studio_id", studioId),
   ]);
 
   if (clientsError) {
     throw new Error(`Failed to load dashboard clients: ${clientsError.message}`);
   }
+
   if (appointmentsError) {
     throw new Error(`Failed to load dashboard appointments: ${appointmentsError.message}`);
   }
+
   if (membershipsError) {
     throw new Error(`Failed to load dashboard memberships: ${membershipsError.message}`);
   }
+
   if (packagesError) {
     throw new Error(`Failed to load dashboard packages: ${packagesError.message}`);
+  }
+
+  if (instructorsError) {
+    throw new Error(`Failed to load dashboard instructors: ${instructorsError.message}`);
   }
 
   const typedClients = (clients ?? []) as ClientRow[];
   const typedAppointments = (appointments ?? []) as AppointmentRow[];
   const typedMemberships = (memberships ?? []) as MembershipRow[];
   const typedPackages = (packages ?? []) as PackageRow[];
+  const typedInstructors = (instructors ?? []) as InstructorRow[];
 
-  const appointmentClientIds = Array.from(
-    new Set(typedAppointments.map((item) => item.client_id).filter(Boolean) as string[])
+  const clientIds = Array.from(
+    new Set(typedAppointments.map((item) => item.client_id).filter((id): id is string => Boolean(id)))
   );
-  const appointmentInstructorIds = Array.from(
-    new Set(typedAppointments.map((item) => item.instructor_id).filter(Boolean) as string[])
+  const instructorIds = Array.from(
+    new Set(typedAppointments.map((item) => item.instructor_id).filter((id): id is string => Boolean(id)))
   );
-  const appointmentRoomIds = Array.from(
-    new Set(typedAppointments.map((item) => item.room_id).filter(Boolean) as string[])
+  const roomIds = Array.from(
+    new Set(typedAppointments.map((item) => item.room_id).filter((id): id is string => Boolean(id)))
   );
 
-  const [
-    { data: appointmentClients, error: appointmentClientsError },
-    { data: appointmentInstructors, error: appointmentInstructorsError },
-    { data: appointmentRooms, error: appointmentRoomsError },
-  ] = await Promise.all([
-    appointmentClientIds.length > 0
-      ? supabase
-          .from("clients")
-          .select("id, first_name, last_name")
-          .eq("studio_id", studioId)
-          .in("id", appointmentClientIds)
+  const [clientRowsResult, instructorRowsResult, roomRowsResult] = await Promise.all([
+    clientIds.length > 0
+      ? supabase.from("clients").select("id, first_name, last_name").in("id", clientIds)
       : Promise.resolve({ data: [], error: null }),
-    appointmentInstructorIds.length > 0
-      ? supabase
-          .from("instructors")
-          .select("id, first_name, last_name")
-          .eq("studio_id", studioId)
-          .in("id", appointmentInstructorIds)
+    instructorIds.length > 0
+      ? supabase.from("instructors").select("id, first_name, last_name").in("id", instructorIds)
       : Promise.resolve({ data: [], error: null }),
-    appointmentRoomIds.length > 0
-      ? supabase
-          .from("rooms")
-          .select("id, name")
-          .eq("studio_id", studioId)
-          .in("id", appointmentRoomIds)
+    roomIds.length > 0
+      ? supabase.from("rooms").select("id, name").in("id", roomIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
 
-  if (appointmentClientsError) {
-    throw new Error(`Failed to load dashboard appointment clients: ${appointmentClientsError.message}`);
-  }
-  if (appointmentInstructorsError) {
-    throw new Error(`Failed to load dashboard appointment instructors: ${appointmentInstructorsError.message}`);
-  }
-  if (appointmentRoomsError) {
-    throw new Error(`Failed to load dashboard appointment rooms: ${appointmentRoomsError.message}`);
+  if (clientRowsResult.error) {
+    throw new Error(`Failed to load appointment clients: ${clientRowsResult.error.message}`);
   }
 
-  const appointmentClientMap = new Map(
-    ((appointmentClients ?? []) as AppointmentClientRow[]).map((item) => [item.id, item])
+  if (instructorRowsResult.error) {
+    throw new Error(`Failed to load appointment instructors: ${instructorRowsResult.error.message}`);
+  }
+
+  if (roomRowsResult.error) {
+    throw new Error(`Failed to load appointment rooms: ${roomRowsResult.error.message}`);
+  }
+
+  const clientMap = new Map(
+    ((clientRowsResult.data ?? []) as AppointmentClientRow[]).map((client) => [client.id, client])
   );
-  const appointmentInstructorMap = new Map(
-    ((appointmentInstructors ?? []) as AppointmentInstructorRow[]).map((item) => [item.id, item])
+  const instructorMap = new Map(
+    ((instructorRowsResult.data ?? []) as AppointmentInstructorRow[]).map((instructor) => [
+      instructor.id,
+      instructor,
+    ])
   );
-  const appointmentRoomMap = new Map(
-    ((appointmentRooms ?? []) as AppointmentRoomRow[]).map((item) => [item.id, item])
+  const roomMap = new Map(
+    ((roomRowsResult.data ?? []) as AppointmentRoomRow[]).map((room) => [room.id, room])
   );
 
-  const now = new Date();
-  const upcomingAppointments = typedAppointments.filter((item) => {
-    const startsAt = new Date(item.starts_at);
-    return startsAt >= now && item.status !== "cancelled";
-  });
-
-  const activeMembershipsCount = typedMemberships.filter(
-    (item) => item.status === "active"
+  const activeMembershipsCount = typedMemberships.filter((item) => item.status === "active").length;
+  const activePackagesCount = typedPackages.filter((item) => Boolean(item.active)).length;
+  const invitedPortalUsersCount = typedClients.filter((client) =>
+    Boolean(client.portal_user_id)
   ).length;
 
-  const activePackagesCount = typedPackages.filter((item) => Boolean(item.active)).length;
+  const studioOnboardingTasks: WorkspaceOnboardingTask[] = [
+    {
+      key: "settings",
+      title: "Review studio settings",
+      description: "Confirm your studio profile, public details, and basic workspace settings.",
+      href: "/app/settings",
+      complete: Boolean(workspace?.name),
+    },
+    {
+      key: "instructors",
+      title: "Add instructors",
+      description: "Add at least one instructor so schedules and lessons can be assigned.",
+      href: "/app/instructors",
+      complete: typedInstructors.length > 0,
+    },
+    {
+      key: "clients",
+      title: "Add or import clients",
+      description: "Add your first student/client record or import your client list.",
+      href: "/app/clients",
+      complete: typedClients.length > 0,
+    },
+    {
+      key: "packages",
+      title: "Create or sell packages",
+      description: "Set up lesson package activity so balances and attendance can be tracked.",
+      href: "/app/packages",
+      complete: activePackagesCount > 0,
+    },
+    {
+      key: "schedule",
+      title: "Add your first schedule item",
+      description: "Create a lesson, class, or room activity so the calendar starts working for your team.",
+      href: "/app/schedule",
+      complete: typedAppointments.length > 0,
+    },
+    {
+      key: "payouts",
+      title: "Connect billing and payouts",
+      description: "Enable billing and payouts before relying on paid packages, memberships, or events.",
+      href: "/app/settings/billing",
+      complete: payoutsReady,
+    },
+    {
+      key: "portal-invites",
+      title: "Invite students to the portal",
+      description: "Send at least one portal invite so students can access their schedule and account details.",
+      href: "/app/clients",
+      complete: invitedPortalUsersCount > 0,
+    },
+  ];
 
-  let proEvents: EventRow[] = [];
-  let proRegistrations: RegistrationRow[] = [];
-  let proOrganizers: OrganizerRow[] = [];
+  const showStudioOnboarding =
+    !onboardingDismissed && studioOnboardingTasks.some((task) => !task.complete);
 
-    if (canSeeProEventModule) {
-    const [
-      { data: events, error: eventsError },
-      { data: registrations, error: registrationsError },
-      { data: organizers, error: organizersError },
-    ] = await Promise.all([
-      supabase
-        .from("events")
-        .select(
-          "id, name, slug, event_type, start_date, end_date, visibility, status, featured, public_directory_enabled"
-        )
-        .eq("studio_id", studioId)
-        .order("start_date", { ascending: true })
-        .limit(6),
-      supabase
-        .from("event_registrations")
-        .select("id, payment_status")
-        .eq("studio_id", studioId),
-      supabase
-        .from("organizers")
-        .select("id, name, slug, active")
-        .eq("studio_id", studioId)
-        .order("name", { ascending: true }),
-    ]);
+  const upcomingAppointments = typedAppointments.filter((item) => {
+    const normalizedStatus = (item.status ?? "").trim().toLowerCase();
+    return normalizedStatus !== "cancelled" && normalizedStatus !== "completed";
+  });
 
-    if (eventsError) {
-      throw new Error(`Failed to load pro dashboard events: ${eventsError.message}`);
-    }
-    if (registrationsError) {
-      throw new Error(`Failed to load pro dashboard registrations: ${registrationsError.message}`);
-    }
-    if (organizersError) {
-      throw new Error(`Failed to load pro dashboard organizers: ${organizersError.message}`);
-    }
-
-    proEvents = (events ?? []) as EventRow[];
-    proRegistrations = (registrations ?? []) as RegistrationRow[];
-    proOrganizers = (organizers ?? []) as OrganizerRow[];
-  }
-
-  const planDescriptor =
-    planCode === "pro"
-      ? "Advanced studio operations plus public event tools."
-      : planCode === "growth"
-        ? "Packages, memberships, and payments for stronger day-to-day operations."
-        : "Core CRM and scheduling for a single studio.";
+  const planBadge = planLabel;
 
   return (
-    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+    <main className="space-y-8 p-6 md:p-8">
       <PlatformBroadcastAlerts alerts={visiblePlatformAlerts} />
 
       {showInviteAcceptedBanner ? (
@@ -1266,68 +1522,42 @@ export default async function AppDashboardPage({
         </section>
       ) : null}
 
+      {showStudioOnboarding ? (
+        <WorkspaceOnboardingChecklist
+          checklistType="studio"
+          tasks={studioOnboardingTasks}
+        />
+      ) : null}
+
       {hostStudioPortalLinks.length > 0 ? (
-        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-primary)]">
-                Independent Instructor
-              </p>
-              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-                Host Studio Portal
-              </h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                Access your linked host studio portal to book floor space, view rentals,
-                and manage rental payments.
-              </p>
-            </div>
-          </div>
+        <section className="rounded-[32px] border border-[#E9D5FF] bg-white p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+            Independent Instructor Portal Access
+          </p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-950">
+            Host studio portals are available
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+            You have independent instructor portal access at another studio. Use these links to review
+            your floor-rental schedule, payments, and related host-studio activity.
+          </p>
 
-          <div className="mt-5 grid gap-3">
+          <div className="mt-5 flex flex-wrap gap-3">
             {hostStudioPortalLinks.map((link) => (
-              <div
+              <Link
                 key={link.client_id}
-                className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 md:flex-row md:items-center md:justify-between"
+                href={`/portal/${link.studio_slug}`}
+                className="inline-flex items-center justify-center rounded-xl bg-[#6B21A8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#581C87]"
               >
-                <div>
-                  <p className="text-sm font-semibold text-slate-950">
-                    {link.studio_name}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    Manage your rental activity with this host studio.
-                  </p>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <Link
-                    href={`/portal/${encodeURIComponent(link.studio_slug)}`}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
-                  >
-                    Open Portal
-                  </Link>
-                  <Link
-                    href={`/portal/${encodeURIComponent(link.studio_slug)}/floor-space`}
-                    className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
-                  >
-                    Book Floor Space
-                  </Link>
-                  <Link
-                    href={`/portal/${encodeURIComponent(
-                      link.studio_slug
-                    )}/floor-space/my-rentals`}
-                    className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
-                  >
-                    View Rentals
-                  </Link>
-                </div>
-              </div>
+                Open {link.studio_name} Portal
+              </Link>
             ))}
           </div>
         </section>
       ) : null}
 
-      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
-        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+      <section className="overflow-hidden rounded-[32px] border border-[#E9D5FF] bg-white shadow-sm">
+        <div className="bg-gradient-to-br from-[#4C1D95] via-[#6B21A8] to-[#F97316] px-6 py-8 text-white md:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
@@ -1335,12 +1565,12 @@ export default async function AppDashboardPage({
               </p>
 
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Studio Dashboard
+                Welcome back{workspace?.name ? `, ${workspace.name}` : ""}
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Manage your clients, schedule, payments, packages, memberships, and studio
-                workflows from one branded workspace built for dance studios.
+                Keep your studio moving with quick access to scheduling, clients,
+                payments, notifications, and growth tools.
               </p>
 
               <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-white/80">
@@ -1350,244 +1580,174 @@ export default async function AppDashboardPage({
                     {currentWorkspace?.studioName || workspace?.name || "Studio Workspace"}
                   </span>
                 </span>
-
                 <span
-  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${planBadgeClass(
-    planCode
-  )}`}
->
-  {planLabel}
-</span>
-
-{subscriptionTrialInfo ? (
-  <span className="inline-flex flex-col rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/15">
-    <span>{subscriptionTrialInfo.label}</span>
-    <span className="mt-0.5 text-white/70">{subscriptionTrialInfo.detail}</span>
-  </span>
-) : null}
-
-<span className="text-white/70">{planDescriptor}</span>
+                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${planBadgeClass(
+                    planCode
+                  )}`}
+                >
+                  {planBadge}
+                </span>
+                {subscriptionTrialInfo ? (
+                  <span className="inline-flex flex-col rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/15">
+                    <span>{subscriptionTrialInfo.label}</span>
+                    <span className="mt-0.5 text-white/70">{subscriptionTrialInfo.detail}</span>
+                  </span>
+                ) : null}
               </div>
             </div>
 
             <div className="flex flex-wrap gap-3">
               <Link
-                href="/app/schedule"
+                href="/app/schedule/new"
                 className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
               >
-                Open Schedule
+                New Appointment
               </Link>
-
               <Link
-                href="/app/clients"
-                className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+                href="/app/clients/new"
+                className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[#4C1D95] hover:bg-white/90"
               >
-                Open Clients
+                Add Client
               </Link>
             </div>
           </div>
         </div>
 
-        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="border-t border-[#E9D5FF] bg-[#FCF8FF] px-6 py-5 md:px-8">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Clients" value={typedClients.length} icon={Users} />
             <StatCard
-              label="Upcoming Lessons"
+              label="Upcoming"
               value={upcomingAppointments.length}
               icon={CalendarDays}
-              subtext="Future non-cancelled appointments"
-            />
-            <StatCard label="Unread Notifications" value={unreadCount} icon={Bell} />
-            <StatCard
-              label={isGrowthOrHigher ? "Active Memberships" : "Current Plan"}
-              value={isGrowthOrHigher ? activeMembershipsCount : planLabel}
-              icon={isGrowthOrHigher ? Sparkles : Layers3}
+              subtext="Scheduled appointments ahead"
             />
             <StatCard
-              label={isGrowthOrHigher ? "Active Packages" : "Payout Setup"}
-              value={isGrowthOrHigher ? activePackagesCount : payoutsReady ? "Ready" : "Pending"}
-              icon={isGrowthOrHigher ? ClipboardList : CreditCard}
+              label="Active Memberships"
+              value={activeMembershipsCount}
+              icon={CreditCard}
+            />
+            <StatCard
+              label="Unread Alerts"
+              value={unreadCount}
+              icon={Bell}
+              subtext="Notifications needing review"
             />
           </div>
         </div>
       </section>
 
-            {showBillingSetupCard ? (
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <QuickActionCard
+          href="/app/schedule/new"
+          title="Book Lesson"
+          description="Schedule a private lesson, intro lesson, coaching session, class, or rental."
+          icon={CalendarDays}
+          primary
+        />
+        <QuickActionCard
+          href="/app/clients/new"
+          title="Add Client"
+          description="Create a client profile and keep contact, package, and payment details organized."
+          icon={Users}
+        />
+        <QuickActionCard
+          href="/app/payments"
+          title="Record Payment"
+          description="Post payments, track balances, and keep packages or memberships current."
+          icon={CreditCard}
+        />
+        <QuickActionCard
+          href="/app/events"
+          title="Events"
+          description="Manage workshops, group classes, public events, registrations, and tickets."
+          icon={Ticket}
+        />
+      </section>
+
+      {!payoutsReady ? (
         <section className="rounded-[32px] border border-amber-200 bg-amber-50 p-6 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">
-                Billing setup needed
+                Payments Setup
               </p>
               <h2 className="mt-2 text-xl font-semibold text-slate-950">
-                Connect billing before taking paid transactions
+                Connect payouts before relying on paid sales
               </h2>
-              <p className="mt-2 text-sm leading-7 text-slate-600">
-                Finish billing and payouts setup before relying on paid memberships,
-                packages, or future paid event flows.
+              <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-700">
+                Set up Stripe payouts so your studio can safely collect payments, sell packages,
+                manage memberships, and process event registrations.
               </p>
             </div>
-
             <Link
-              href="/app/settings/billing"
-              className="inline-flex items-center justify-center rounded-xl bg-amber-600 px-4 py-3 text-sm font-medium text-white hover:bg-amber-700"
+              href="/app/payments"
+              className="inline-flex items-center justify-center rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-700"
             >
-              Open Billing &amp; Payouts
+              Open Billing & Payments
             </Link>
           </div>
         </section>
       ) : null}
 
-      <section className="rounded-[32px] border border-[#E9D5FF] bg-gradient-to-br from-[#FCF8FF] via-white to-[#FFF7ED] p-6 shadow-sm md:p-7">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#7C2D92]">
-              Quick Actions
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-              What do you need to do next?
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Jump straight into the daily tasks your front desk, staff, and studio
-              owner use most.
-            </p>
-          </div>
-
-          <Link
-            href="/app/help"
-            className="inline-flex items-center justify-center rounded-xl border border-[#E9D5FF] bg-white px-4 py-2 text-sm font-semibold text-[#6B21A8] transition hover:bg-[#F3E8FF]"
-          >
-            Open Help
-          </Link>
-        </div>
-
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <QuickActionCard
-            href="/app/clients/new"
-            title="Add Client"
-            description="Create a lead or client record and keep follow-up details in one place."
-            icon={Users}
-            primary
-          />
-
-          <QuickActionCard
-            href="/app/schedule"
-            title="Schedule Lesson"
-            description="Open the calendar to schedule lessons, classes, or room activity."
-            icon={CalendarDays}
-          />
-
-          <QuickActionCard
-            href="/app/packages"
-            title="Packages"
-            description="Manage package sales, balances, and client package activity."
-            icon={ClipboardList}
-          />
-
-          <QuickActionCard
-            href="/app/payments"
-            title="Payments"
-            description="Review billing, payouts, and payment-related setup for your studio."
-            icon={CreditCard}
-          />
-
-          {isGrowthOrHigher ? (
-            <QuickActionCard
-              href="/app/memberships"
-              title="Memberships"
-              description="Manage recurring memberships and active revenue workflows."
-              icon={Sparkles}
-            />
-          ) : null}
-
-          {canSeeProEventModule ? (
-            <>
-              <QuickActionCard
-                href="/app/events"
-                title="Events"
-                description="Create and manage public events, group classes, and workshops."
-                icon={Ticket}
-              />
-
-              <QuickActionCard
-                href="/app/events/sell-tickets"
-                title="Sell Tickets"
-                description="Sell event tickets manually from the workspace side."
-                icon={Star}
-              />
-
-              <QuickActionCard
-                href="/app/events/checkin"
-                title="Check-In"
-                description="Open event check-in tools for registrations and arrivals."
-                icon={CheckCircle2}
-              />
-            </>
-          ) : null}
-        </div>
-      </section>
-
       <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
         <SectionCard
-          title="Studio Snapshot"
-          subtitle={
-            isGrowthOrHigher
-              ? "Day-to-day studio operations for your current plan."
-              : "Core CRM and scheduling activity for Starter."
-          }
+          title="Upcoming Schedule"
+          subtitle="The next items on your studio calendar."
           action={
             <Link
               href="/app/schedule"
-              className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
+              className="text-sm font-medium text-[#6B21A8] hover:underline"
             >
               Open Schedule
             </Link>
           }
         >
           {upcomingAppointments.length === 0 ? (
-            <EmptyState>
-              No upcoming lessons or appointments yet. Your schedule will start to fill in
-              here as bookings are added.
-            </EmptyState>
+            <EmptyState>No upcoming appointments yet. Create a lesson or class to get started.</EmptyState>
           ) : (
             <div className="space-y-4">
-              {upcomingAppointments.slice(0, 6).map((item) => {
-                const appointmentLabel = appointmentTypeLabel(item.appointment_type);
-                const clientName = fullName(
-                  item.client_id ? appointmentClientMap.get(item.client_id) : null
-                );
-                const instructorName = fullName(
-                  item.instructor_id ? appointmentInstructorMap.get(item.instructor_id) : null
-                );
-                const roomName = item.room_id
-                  ? appointmentRoomMap.get(item.room_id)?.name?.trim() || null
+              {upcomingAppointments.slice(0, 5).map((appointment) => {
+                const client = appointment.client_id ? clientMap.get(appointment.client_id) : null;
+                const instructor = appointment.instructor_id
+                  ? instructorMap.get(appointment.instructor_id)
                   : null;
-                const fallbackTitle = clientName
-                  ? `${appointmentLabel} — ${clientName}`
-                  : roomName && item.appointment_type === "room_unavailable"
-                    ? `${appointmentLabel} — ${roomName}`
-                    : appointmentLabel;
-                const title = item.title?.trim() || fallbackTitle;
-                const detailLine = compactList([
-                  instructorName ? `Instructor: ${instructorName}` : null,
-                  roomName ? `Room: ${roomName}` : null,
-                  fmtDateTime(item.starts_at),
-                ]);
+                const room = appointment.room_id ? roomMap.get(appointment.room_id) : null;
+                const title =
+                  appointment.title?.trim() || appointmentTypeLabel(appointment.appointment_type);
 
                 return (
                   <div
-                    key={item.id}
+                    key={appointment.id}
                     className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="font-medium text-slate-900">{title}</p>
-                        <p className="mt-1 text-sm text-slate-500">{detailLine}</p>
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+                          <span className="inline-flex rounded-full bg-[#F3E8FF] px-2.5 py-1 text-xs font-medium text-[#6B21A8] ring-1 ring-[#E9D5FF]">
+                            {appointmentTypeLabel(appointment.appointment_type)}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm font-medium text-slate-700">
+                          {fmtDateTime(appointment.starts_at)}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {compactList([
+                            fullName(client) ? `Client: ${fullName(client)}` : null,
+                            fullName(instructor) ? `Instructor: ${fullName(instructor)}` : null,
+                            room?.name ? `Room: ${room.name}` : null,
+                          ]) || "No client, instructor, or room assigned yet."}
+                        </p>
                       </div>
 
-                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                        {item.status || "scheduled"}
-                      </span>
+                      <Link
+                        href={`/app/schedule/${appointment.id}`}
+                        className="inline-flex items-center gap-2 text-sm font-medium text-[#6B21A8] hover:underline"
+                      >
+                        Open
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
                     </div>
                   </div>
                 );
@@ -1598,58 +1758,14 @@ export default async function AppDashboardPage({
 
         <div className="space-y-8">
           <SectionCard
-            title={isGrowthOrHigher ? "Growth Features" : "Starter Plan Focus"}
-            subtitle={
-              isGrowthOrHigher
-                ? "Your Growth workspace includes memberships, packages, and payments."
-                : "Starter stays focused on CRM, scheduling, and core operations."
-            }
-          >
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Packages</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {isGrowthOrHigher ? activePackagesCount : "—"}
-                </p>
-                <p className="mt-2 text-sm text-slate-500">
-                  {isGrowthOrHigher
-                    ? "Active package balances currently in use."
-                    : "Available on Growth and Pro."}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Memberships</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {isGrowthOrHigher ? activeMembershipsCount : "—"}
-                </p>
-                <p className="mt-2 text-sm text-slate-500">
-                  {isGrowthOrHigher
-                    ? "Active memberships in your current studio."
-                    : "Available on Growth and Pro."}
-                </p>
-              </div>
-            </div>
-
-            {!isGrowthOrHigher ? (
-              <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
-                <p className="text-sm leading-7 text-slate-600">
-                  Growth adds packages, memberships, and customer payment operations.
-                  Pro adds public-event and organizer capabilities on top of that.
-                </p>
-              </div>
-            ) : null}
-          </SectionCard>
-
-          <SectionCard
-            title="Recent Alerts"
-            subtitle="Latest notifications for this workspace."
+            title="Recent Notifications"
+            subtitle="Stay on top of payment, schedule, and client updates."
             action={
               <Link
                 href="/app/notifications"
-                className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
+                className="text-sm font-medium text-[#6B21A8] hover:underline"
               >
-                Open Notifications
+                View All
               </Link>
             }
           >
@@ -1657,126 +1773,89 @@ export default async function AppDashboardPage({
               <EmptyState>No notifications yet.</EmptyState>
             ) : (
               <div className="space-y-3">
-                {typedNotifications.map((item) => (
+                {typedNotifications.slice(0, 4).map((notification) => (
                   <div
-                    key={item.id}
+                    key={notification.id}
                     className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="font-medium text-slate-900">{item.title}</p>
-                        {item.body ? (
-                          <p className="mt-1 text-sm text-slate-600">{item.body}</p>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold text-slate-900">{notification.title}</h3>
+                        {notification.body ? (
+                          <p className="mt-1 text-sm text-slate-600">{notification.body}</p>
                         ) : null}
                       </div>
-                      <div className="shrink-0 text-xs text-slate-500">
-                        {fmtDateTime(item.created_at)}
-                      </div>
+                      {!notification.read_at ? (
+                        <span className="rounded-full bg-[#F97316]/10 px-2 py-1 text-xs font-semibold text-[#C2410C]">
+                          New
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 ))}
               </div>
             )}
+          </SectionCard>
+
+          <SectionCard
+            title="Plan & Tools"
+            subtitle="Your current access and upgrade path."
+          >
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm text-slate-500">Current Plan</p>
+                  <h3 className="mt-1 text-lg font-semibold text-slate-950">{planBadge}</h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    {planCode === "starter"
+                      ? "Starter tools are active. Upgrade when you are ready for deeper reporting and automation."
+                      : "Your workspace includes expanded tools for operations, reporting, and growth."}
+                  </p>
+                </div>
+                <Layers3 className="h-5 w-5 text-[#6B21A8]" />
+              </div>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  href="/account/billing"
+                  className="rounded-xl bg-[#6B21A8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#581C87]"
+                >
+                  Manage Plan
+                </Link>
+                <Link
+                  href="/app/reports"
+                  className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-[#D8B4FE] hover:text-[#6B21A8]"
+                >
+                  Open Reports
+                </Link>
+              </div>
+            </div>
           </SectionCard>
         </div>
       </section>
 
-      {canSeeProEventModule ? (
-        <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
-          <SectionCard
-            title="Public Events Module"
-            subtitle="Pro includes organizer/public event capabilities as an added module, not the default dashboard identity."
-            action={
-              <Link
-                href="/app/events"
-                className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
-              >
-                Open Events
-              </Link>
-            }
-          >
-            {proEvents.length === 0 ? (
-              <EmptyState>
-                No public events yet. Pro unlocks this module when you are ready to use it.
-              </EmptyState>
-            ) : (
-              <div className="space-y-4">
-                {proEvents.slice(0, 4).map((event) => (
-                  <div
-                    key={event.id}
-                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-                  >
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-base font-semibold text-slate-900">{event.name}</h3>
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                              event.status
-                            )}`}
-                          >
-                            {event.status}
-                          </span>
-                        </div>
-
-                        <p className="mt-2 text-sm text-slate-500">
-                          {fmtDateRange(event.start_date, event.end_date)}
-                        </p>
-
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                            {eventTypeLabel(event.event_type)}
-                          </span>
-
-                          {event.public_directory_enabled ? (
-                            <span className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 ring-1 ring-sky-200">
-                              Directory On
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <Link
-                        href={`/app/events/${event.slug}`}
-                        className="inline-flex items-center gap-2 text-sm font-medium text-[var(--brand-primary)] hover:underline"
-                      >
-                        Open
-                        <ArrowRight className="h-4 w-4" />
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </SectionCard>
-
-          <SectionCard
-            title="Pro Event Snapshot"
-            subtitle="This section is only visible on Studio Pro."
-          >
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Events</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">{proEvents.length}</p>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Registrations</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {proRegistrations.length}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Organizer Profiles</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {proOrganizers.filter((item) => item.active).length}
-                </p>
-              </div>
-            </div>
-          </SectionCard>
-        </section>
-      ) : null}
-    </div>
+      <section className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
+          <Sparkles className="h-5 w-5 text-[#6B21A8]" />
+          <h3 className="mt-4 text-base font-semibold text-slate-950">Discovery to Leads</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Use public studio and event listings to help dancers find you and turn interest into clients.
+          </p>
+        </div>
+        <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
+          <Globe2 className="h-5 w-5 text-[#6B21A8]" />
+          <h3 className="mt-4 text-base font-semibold text-slate-950">Public Presence</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Keep studio details, event visibility, and profile information ready for public discovery.
+          </p>
+        </div>
+        <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
+          <CheckCircle2 className="h-5 w-5 text-[#6B21A8]" />
+          <h3 className="mt-4 text-base font-semibold text-slate-950">Daily Operations</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Manage scheduling, attendance, packages, payments, and alerts from one workflow-centered dashboard.
+          </p>
+        </div>
+      </section>
+    </main>
   );
 }
