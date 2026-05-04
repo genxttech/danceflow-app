@@ -1368,7 +1368,7 @@ const recordOrganizerOnboardingCompletion =
       .gte("starts_at", new Date().toISOString())
       .order("starts_at", { ascending: true })
       .limit(8),
-    supabase.from("memberships").select("id, status").eq("studio_id", studioId),
+    supabase.from("client_memberships").select("id, status").eq("studio_id", studioId),
     isGrowthOrHigher
       ? supabase.from("client_packages").select("id, active").eq("studio_id", studioId)
       : Promise.resolve({ data: [], error: null }),
