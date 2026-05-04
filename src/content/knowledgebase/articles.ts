@@ -984,6 +984,600 @@ If the client already has a DanceFlow account, use the existing account linking 
 - Use one email per client whenever possible.
 `,
   },
+    {
+    slug: "getting-started-with-organizer-workspace",
+    title: "Getting Started with Your Organizer Workspace",
+    category: "Getting Started",
+    audience: "public",
+    description:
+      "Learn the core steps for setting up an organizer workspace, creating events, and preparing to take registrations.",
+    content: `
+## Overview
+
+Organizer workspaces are built for event organizers who need to create events, sell tickets, manage registrations, and run check-in.
+
+Use this guide when you are setting up an organizer workspace for the first time.
+
+## Step 1: Review your organizer workspace
+
+After signing in, open your organizer dashboard.
+
+Confirm that you are in the correct workspace and that the workspace name matches the organizer or event business you are managing.
+
+## Step 2: Complete organizer settings
+
+Go to your settings area and confirm your organizer information.
+
+Review:
+
+- Organizer name
+- Public display name
+- Contact information
+- Branding or logo, if available
+- Public-facing details
+
+This information helps attendees understand who is hosting the event.
+
+## Step 3: Connect payouts
+
+Before taking paid registrations, connect payouts.
+
+This allows event revenue to be processed correctly and helps avoid problems with paid registrations.
+
+If payouts are not connected, DanceFlow may show a dashboard reminder so you know what still needs to be completed.
+
+## Step 4: Create your first event
+
+Create your first event from the Events area.
+
+Events can include:
+
+- Group classes
+- Workshops
+- Social dances
+- Competitions
+- Showcases
+- Festivals
+- Special events
+
+Choose the event type that best matches what you are running.
+
+## Step 5: Add tickets or registration options
+
+After creating the event, add ticket types or registration options.
+
+Examples:
+
+- General admission
+- Early bird ticket
+- Student ticket
+- Couple registration
+- Spectator ticket
+- Performer or competitor registration
+
+The available options may depend on the type of event you are creating.
+
+## Step 6: Publish the event
+
+When the event details are ready, publish the event.
+
+If you want dancers to find it through public discovery, make sure public visibility and directory settings are enabled.
+
+## Step 7: Test the registration flow
+
+Before promoting the event widely, test the registration process.
+
+Confirm that:
+
+- The event page loads correctly
+- Ticket options are visible
+- Registration details are clear
+- Payment or admin registration works as expected
+- The attendee appears in Manage Registrations
+
+## Step 8: Manage registrations and check-in
+
+As registrations come in, use the event management tools to review attendees, payment status, and check-in status.
+
+On event day, use the Check-In page to mark attendees as arrived.
+`,
+  },
+  {
+    slug: "using-the-workspace-setup-checklist",
+    title: "Using the Workspace Setup Checklist",
+    category: "Getting Started",
+    audience: "public",
+    description:
+      "Learn how the dashboard setup checklist helps studios and organizers complete their first workspace setup steps.",
+    content: `
+## Overview
+
+The workspace setup checklist appears on the dashboard when a studio or organizer workspace still has important setup steps remaining.
+
+The checklist is designed to help new users know what to do next without guessing.
+
+## What the checklist does
+
+The checklist shows the main setup tasks needed to make the workspace useful.
+
+For studio workspaces, it may include tasks like:
+
+- Review studio settings
+- Add instructors
+- Add or import clients
+- Create or sell packages
+- Add a schedule item
+- Connect billing and payouts
+- Invite students to the portal
+
+For organizer workspaces, it may include tasks like:
+
+- Create organizer profile
+- Connect payouts
+- Create first event
+- Publish event
+- Turn on public discovery
+- Confirm registration flow
+
+## How tasks are marked complete
+
+Checklist items update automatically when DanceFlow detects that the related task has been completed.
+
+Examples:
+
+- If you add a client, the client task can be marked complete.
+- If you add an instructor, the instructor task can be marked complete.
+- If you create an event, the event task can be marked complete.
+- If payouts are connected, the payouts task can be marked complete.
+
+This helps the checklist reflect real workspace progress.
+
+## What happens when the checklist is complete
+
+Once all setup tasks are complete, the checklist disappears from the dashboard.
+
+The checklist is meant to guide setup, not permanently take up dashboard space.
+
+## Hiding the checklist
+
+If you do not want to see the checklist right now, use **Hide for now**.
+
+This hides the checklist for your user account and workspace.
+
+## Best practice
+
+Use the checklist as a quick launch guide.
+
+You do not have to complete everything at once. Start with the tasks that matter most for your current workflow, then return to the rest later.
+`,
+  },
+  {
+    slug: "syncing-instructor-schedule-to-calendar",
+    title: "Syncing an Instructor Schedule to Google, Apple, or Outlook Calendar",
+    category: "Scheduling",
+    audience: "public",
+    description:
+      "Learn how instructors can subscribe to their DanceFlow schedule from a mobile or desktop calendar app.",
+    content: `
+## Overview
+
+Instructor calendar sync lets instructors view their DanceFlow schedule inside calendar apps such as Google Calendar, Apple Calendar, Outlook, or a mobile phone calendar.
+
+This is a read-only calendar feed. It helps instructors see their schedule outside DanceFlow without changing appointments from the calendar app.
+
+## What calendar sync is useful for
+
+Calendar sync helps instructors:
+
+- View upcoming lessons
+- See group classes or coaching sessions
+- Keep DanceFlow appointments visible on a phone
+- Avoid checking multiple systems throughout the day
+
+## How it works
+
+DanceFlow creates a private calendar subscription link for the instructor.
+
+The instructor copies that link and adds it to a calendar app as a subscribed calendar.
+
+Once added, appointments from DanceFlow appear in the calendar app.
+
+## Important notes
+
+The calendar feed is read-only.
+
+That means:
+
+- Appointments should still be created in DanceFlow
+- Schedule changes should still be made in DanceFlow
+- Deleting an item from the external calendar does not delete it from DanceFlow
+- Calendar apps may not refresh immediately after a schedule change
+
+## Refresh timing
+
+Google Calendar, Apple Calendar, Outlook, and mobile calendar apps control how often subscribed calendars refresh.
+
+A new or changed appointment may not appear instantly.
+
+If the calendar looks outdated, wait for the calendar app to refresh or remove and re-add the subscription if needed.
+
+## Privacy reminder
+
+The calendar subscription link should be treated like a private link.
+
+Do not post it publicly or share it with someone who should not see the instructor schedule.
+`,
+  },
+  {
+    slug: "creating-multi-location-multi-date-events",
+    title: "Creating Multi-Location and Multi-Date Events",
+    category: "Events",
+    audience: "public",
+    description:
+      "Learn how multi-location and multi-date event setup helps organizers run recurring series without rebuilding the same event repeatedly.",
+    content: `
+## Overview
+
+Some events happen more than once or happen in more than one location.
+
+For example, a 6-week beginner series may repeat every quarter and run in two different locations.
+
+Multi-location and multi-date setup helps organizers manage those situations without creating a completely separate event from scratch every time.
+
+## When to use this setup
+
+Use multi-location and multi-date setup when one event concept has multiple schedules.
+
+Examples:
+
+- A 6-week series in Location 1 in January, April, and July
+- The same 6-week series in Location 2 on different dates
+- A recurring workshop series held in multiple venues
+- A repeated group class series with separate location schedules
+
+## Why this is helpful
+
+This setup reduces duplicate work.
+
+Instead of recreating the same event details over and over, the organizer can keep the core event information together and manage separate location schedules.
+
+## What to enter for each location
+
+For each location, enter details such as:
+
+- Location name
+- Venue name
+- Address
+- City, state, and postal code
+- Capacity, if needed
+- Separate dates and times for that location
+
+## What to enter for each session
+
+Each location can have its own sessions.
+
+A session may include:
+
+- Session date
+- Start time
+- End time
+- Session label
+- Series label
+- Capacity
+- Status
+
+## Best practice
+
+Name locations and series clearly.
+
+Examples:
+
+- Dublin January Series
+- Sunbury April Series
+- Location 1 Summer Session
+- Location 2 Fall Session
+
+Clear naming helps staff, attendees, and organizers understand which schedule they are viewing.
+`,
+  },
+  {
+    slug: "duplicating-an-event",
+    title: "Duplicating an Event",
+    category: "Events",
+    audience: "public",
+    description:
+      "Learn how duplicating an event helps organizers copy event details and avoid recreating complex events manually.",
+    content: `
+## Overview
+
+Duplicating an event creates a new copy of an existing event.
+
+This is useful when you run similar events, classes, workshops, competitions, or showcases more than once.
+
+## Why duplicate an event
+
+Use duplication when you want to reuse event setup details such as:
+
+- Event name and description
+- Event type
+- Ticket setup
+- Registration settings
+- Public visibility settings
+- Location or schedule structure
+- Branding or event details
+
+## What happens when an event is duplicated
+
+The duplicated event should be a separate event from the original.
+
+The original event should not be overwritten.
+
+The new event will usually be created as a draft or private copy so you can review it before publishing.
+
+## What to review after duplicating
+
+After duplicating an event, review:
+
+- Event name
+- Event slug
+- Dates and times
+- Location details
+- Ticket prices
+- Capacity
+- Public visibility
+- Registration deadline
+- Event description
+
+## Recommended workflow
+
+After duplicating an event:
+
+1. Open the duplicated copy.
+2. Update the name and dates.
+3. Confirm the location and ticket information.
+4. Review public visibility.
+5. Publish when ready.
+
+## Best practice
+
+Use duplicate event for recurring or repeated events, but always review the copy before making it public.
+
+This prevents old dates, prices, or location details from accidentally being reused.
+`,
+  },
+  {
+    slug: "selling-tickets-from-admin-side",
+    title: "Selling Tickets from the Admin Side",
+    category: "Events",
+    audience: "public",
+    description:
+      "Learn how staff can manually record event ticket sales from the workspace side.",
+    content: `
+## Overview
+
+Admin-side ticket sales allow studio or organizer staff to record event registrations manually.
+
+This is useful when an attendee pays in person, by cash, by check, by Venmo, by Zelle, or through another approved method outside the public checkout flow.
+
+## When to use admin-side ticket sales
+
+Use this workflow when:
+
+- A customer pays at the front desk
+- A staff member takes a phone registration
+- An attendee pays by cash or check
+- A payment is collected through Venmo or Zelle
+- The organizer needs to manually add an attendee
+
+## What information to enter
+
+When selling tickets manually, enter:
+
+- Attendee first name
+- Attendee last name
+- Attendee email
+- Ticket type
+- Quantity
+- Payment amount
+- Payment method
+- Notes, if needed
+
+## Payment status
+
+If payment has been collected, mark the registration as paid.
+
+If only part of the payment has been collected, use the appropriate partial or unpaid status if available.
+
+## Why accurate entry matters
+
+Manual ticket sales affect:
+
+- Registration counts
+- Event attendee lists
+- Check-in
+- Revenue reporting
+- Payment history
+
+Enter the actual payment details carefully so reports stay accurate.
+
+## Best practice
+
+Use notes for anything that staff may need later.
+
+Examples:
+
+- Paid by Venmo
+- Paid at front desk
+- Comp ticket approved by organizer
+- Balance due at door
+`,
+  },
+  {
+    slug: "checking-in-event-attendees",
+    title: "Checking In Event Attendees",
+    category: "Events",
+    audience: "public",
+    description:
+      "Learn how to use event check-in to track attendance for registrations and group class sessions.",
+    content: `
+## Overview
+
+Event check-in helps staff mark attendees as present when they arrive.
+
+This is useful for workshops, social events, competitions, showcases, and group classes.
+
+## Where to check in attendees
+
+Open the event workspace and go to the Check-In area.
+
+The check-in list shows registered attendees and their current attendance status.
+
+## Basic check-in workflow
+
+On event day:
+
+1. Open the event check-in page.
+2. Find the attendee.
+3. Confirm their registration or payment status if needed.
+4. Mark the attendee as checked in or attended.
+
+## Group class session check-in
+
+Group classes may have multiple class meetings.
+
+For group classes, attendance should be tracked per session when available.
+
+This means a student can attend one class meeting without being marked attended for every class in the series.
+
+## Duplicate check-in protection
+
+DanceFlow is designed to avoid duplicate attendance records for the same attendee and session.
+
+If a staff member tries to check someone in more than once, the system should protect the attendance record from being duplicated.
+
+## Best practice
+
+Before marking attendance, check for:
+
+- Correct event
+- Correct date or session
+- Correct attendee
+- Payment status
+- Ticket quantity or registration notes
+
+Accurate check-in helps reporting and attendance history stay useful.
+`,
+  },
+  {
+    slug: "dashboard-alerts-and-announcements",
+    title: "Understanding Dashboard Alerts and Announcements",
+    category: "Platform Updates",
+    audience: "public",
+    description:
+      "Learn how DanceFlow dashboard alerts are used for maintenance notices, feature updates, and important platform announcements.",
+    content: `
+## Overview
+
+Dashboard alerts and announcements help DanceFlow communicate important information inside the app.
+
+These alerts may appear near the top of a user dashboard when there is something important to know.
+
+## What alerts may be used for
+
+DanceFlow may use dashboard alerts for:
+
+- Scheduled maintenance
+- Temporary service issues
+- New feature announcements
+- Important workflow changes
+- Billing or payout reminders
+- Known issues and workarounds
+
+## Are alerts permanent?
+
+No.
+
+Alerts are intended to be temporary.
+
+They only appear while active or within the scheduled display window.
+
+## Read more links
+
+Some alerts may include a **Read more** link.
+
+Use that link to open a longer article, announcement, or help guide with additional details.
+
+## Dismissible alerts
+
+Some alerts can be dismissed.
+
+If an alert is dismissible, you can hide it after reading it.
+
+Important alerts, such as maintenance or critical platform notices, may not always be dismissible.
+
+## Best practice
+
+Read dashboard alerts when they appear.
+
+They are designed to help users understand changes, avoid confusion, and stay aware of important platform updates.
+`,
+  },
+  {
+    slug: "branded-portal-invite-emails",
+    title: "Understanding Branded Portal Invite Emails",
+    category: "Client Portal",
+    audience: "public",
+    description:
+      "Learn why portal invite emails include the studio name and logo, and what students or independent instructors should expect.",
+    content: `
+## Overview
+
+Portal invite emails help students and independent instructors access their DanceFlow portal.
+
+To make these emails easier to recognize, portal invites may include the studio name and studio logo when available.
+
+## Why the studio name appears
+
+The studio name helps the recipient understand who invited them.
+
+Instead of receiving a generic system email, the recipient can see that the invite came from a specific studio through DanceFlow.
+
+## Why the studio logo may appear
+
+If the studio uploaded a public logo, DanceFlow may show that logo in the invite email.
+
+This makes the email feel more familiar and helps the recipient trust that the invite is related to a studio they know.
+
+## Student portal invites
+
+A student portal invite may allow the student to view information such as:
+
+- Lessons
+- Packages
+- Payments
+- Studio updates
+- Portal account details
+
+## Independent instructor portal invites
+
+An independent instructor portal invite may allow the instructor to view information such as:
+
+- Host studio schedule activity
+- Floor-rental activity
+- Related payments or account details
+- Studio portal access
+
+## What the recipient should do
+
+The recipient should click **Accept Invite** in the email.
+
+If the button does not work, they can copy and paste the secure invite link into their browser.
+
+## Best practice
+
+Studios should keep their public name and logo updated so invite emails are easy for recipients to recognize.
+`,
+  },
 ];
 
 export function getPublicKnowledgebaseArticles() {
