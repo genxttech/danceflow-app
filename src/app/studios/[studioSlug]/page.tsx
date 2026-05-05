@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import FavoriteButton from "@/components/public/FavoriteButton";
@@ -5,6 +6,7 @@ import ShareButton from "@/components/public/ShareButton";
 import PublicLeadForm from "@/app/lead/[studioSlug]/PublicLeadForm";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
+import { JsonLd } from "@/components/seo/JsonLd";
 
 type StudioPageParams = Promise<{
   studioSlug: string;
@@ -70,6 +72,8 @@ type EventRow = {
   public_directory_enabled: boolean | null;
 };
 
+const siteUrl = "https://www.idanceflow.com";
+
 function studioTitle(studio: StudioRow) {
   return studio.public_name?.trim() || studio.name || "Studio";
 }
@@ -81,6 +85,33 @@ function locationLabel(studio: StudioRow) {
 
 function normalizeWebsiteLabel(url: string) {
   return url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+}
+
+function absoluteUrl(value: string | null | undefined) {
+  if (!value) return null;
+
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value;
+  }
+
+  if (value.startsWith("/")) {
+    return `${siteUrl}${value}`;
+  }
+
+  return `${siteUrl}/${value}`;
+}
+
+function studioDescription(studio: StudioRow) {
+  const title = studioTitle(studio);
+  const location = locationLabel(studio);
+
+  return (
+    studio.public_short_description?.trim() ||
+    studio.public_about?.trim() ||
+    `Explore ${title} on DanceFlow, including dance styles, studio offerings, upcoming events, and ways to connect${
+      location !== "Location coming soon" ? ` in ${location}` : ""
+    }.`
+  );
 }
 
 function formatEventDateRange(start: string | null, end: string | null) {
@@ -137,6 +168,92 @@ function eventTypeLabel(value: string | null) {
     default:
       return "Event";
   }
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: StudioPageParams;
+}): Promise<Metadata> {
+  const { studioSlug } = await params;
+  const supabase = await createClient();
+
+  const { data: studio } = await supabase
+    .from("studios")
+    .select(
+      `
+        id,
+        slug,
+        name,
+        public_name,
+        public_directory_enabled,
+        public_short_description,
+        public_about,
+        city,
+        state,
+        postal_code,
+        public_phone,
+        public_email,
+        public_website_url,
+        public_logo_url,
+        public_hero_image_url,
+        public_lead_enabled,
+        public_lead_headline,
+        public_lead_description,
+        public_primary_color,
+        public_lead_cta_text,
+        beginner_friendly
+      `
+    )
+    .eq("slug", studioSlug)
+    .eq("public_directory_enabled", true)
+    .maybeSingle<StudioRow>();
+
+  if (!studio) {
+    return {
+      title: "Studio Profile | DanceFlow",
+      description:
+        "Explore public dance studio profiles, events, classes, and ways to connect through DanceFlow.",
+    };
+  }
+
+  const title = studioTitle(studio);
+  const location = locationLabel(studio);
+  const canonicalUrl = `${siteUrl}/studios/${studio.slug ?? studioSlug}`;
+  const description = studioDescription(studio);
+  const imageUrl =
+    absoluteUrl(studio.public_hero_image_url) ||
+    absoluteUrl(studio.public_logo_url) ||
+    `${siteUrl}/brand/danceflow-home-hero.png`;
+
+  return {
+    title: `${title}${
+      location !== "Location coming soon" ? ` in ${location}` : ""
+    }`,
+    description,
+    alternates: {
+      canonical: canonicalUrl,
+    },
+    openGraph: {
+      title: `${title} | DanceFlow Studio Profile`,
+      description,
+      url: canonicalUrl,
+      siteName: "DanceFlow",
+      type: "website",
+      images: [
+        {
+          url: imageUrl,
+          alt: `${title} on DanceFlow`,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${title} | DanceFlow Studio Profile`,
+      description,
+      images: [imageUrl],
+    },
+  };
 }
 
 export default async function PublicStudioPage({
@@ -293,7 +410,9 @@ export default async function PublicStudioPage({
   }
 
   if (favoriteResult?.error) {
-    throw new Error(`Failed to load studio favorite state: ${favoriteResult.error.message}`);
+    throw new Error(
+      `Failed to load studio favorite state: ${favoriteResult.error.message}`
+    );
   }
 
   const typedStyles = (styles ?? []) as StyleRow[];
@@ -326,6 +445,7 @@ export default async function PublicStudioPage({
       }`
     : studio.public_lead_description?.trim() ||
       "Send a message and this studio can follow up with you directly.";
+
   const leadStudio = {
     ...studio,
     public_intro_booking_enabled: introBookingEnabled,
@@ -333,8 +453,88 @@ export default async function PublicStudioPage({
     intro_booking_window_days: introBookingWindowDays,
   };
 
+  const studioPublicUrl = `${siteUrl}/studios/${studioUrlSlug}`;
+  const studioImageUrl =
+    absoluteUrl(studio.public_hero_image_url) ||
+    absoluteUrl(studio.public_logo_url) ||
+    `${siteUrl}/brand/danceflow-home-hero.png`;
+
+  const styleNames = typedStyles
+    .map((style) => style.display_name || style.style_key)
+    .filter(Boolean);
+
+  const offeringNames = typedOfferings
+    .map((offering) => offering.display_name || offering.offering_key)
+    .filter(Boolean);
+
+  const addressJsonLd =
+    studio.city || studio.state || studio.postal_code
+      ? {
+          "@type": "PostalAddress",
+          addressLocality: studio.city ?? undefined,
+          addressRegion: studio.state ?? undefined,
+          postalCode: studio.postal_code ?? undefined,
+          addressCountry: "US",
+        }
+      : undefined;
+
+  const studioJsonLd = {
+    "@context": "https://schema.org",
+    "@type": ["LocalBusiness", "DanceSchool"],
+    name: title,
+    url: studioPublicUrl,
+    image: studioImageUrl,
+    logo: absoluteUrl(studio.public_logo_url) ?? undefined,
+    description: studioDescription(studio),
+    address: addressJsonLd,
+    telephone: studio.public_phone ?? undefined,
+    email: studio.public_email ?? undefined,
+    sameAs: studio.public_website_url ? [studio.public_website_url] : undefined,
+    areaServed:
+      studio.city || studio.state
+        ? [studio.city, studio.state].filter(Boolean).join(", ")
+        : undefined,
+    knowsAbout: styleNames.length ? styleNames : undefined,
+    makesOffer: offeringNames.length
+      ? offeringNames.map((name) => ({
+          "@type": "Offer",
+          itemOffered: {
+            "@type": "Service",
+            name,
+          },
+        }))
+      : undefined,
+  };
+
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: siteUrl,
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Studios",
+        item: `${siteUrl}/discover/studios`,
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
+        name: title,
+        item: studioPublicUrl,
+      },
+    ],
+  };
+
   return (
     <>
+      <JsonLd data={[studioJsonLd, breadcrumbJsonLd]} />
+
       <PublicSiteHeader currentPath="studios" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-slate-50">
@@ -469,7 +669,8 @@ export default async function PublicStudioPage({
 
                 {typedStyles.length === 0 ? (
                   <p className="mt-4 text-sm text-slate-600">
-                    Dance styles will appear here as this studio updates its public profile.
+                    Dance styles will appear here as this studio updates its
+                    public profile.
                   </p>
                 ) : (
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -492,7 +693,8 @@ export default async function PublicStudioPage({
 
                 {typedOfferings.length === 0 ? (
                   <p className="mt-4 text-sm text-slate-600">
-                    Public offerings will appear here as this studio updates its profile.
+                    Public offerings will appear here as this studio updates its
+                    profile.
                   </p>
                 ) : (
                   <div className="mt-4 flex flex-wrap gap-2">
@@ -560,7 +762,10 @@ export default async function PublicStudioPage({
                               {eventTypeLabel(event.event_type)}
                             </span>
                             <span className="rounded-full bg-orange-50 px-3 py-1 text-xs text-orange-700">
-                              {formatEventDateRange(event.start_date, event.end_date)}
+                              {formatEventDateRange(
+                                event.start_date,
+                                event.end_date
+                              )}
                             </span>
                             {event.beginner_friendly ? (
                               <span className="rounded-full bg-green-50 px-3 py-1 text-xs text-green-700">
@@ -569,7 +774,9 @@ export default async function PublicStudioPage({
                             ) : null}
                           </div>
 
-                          <h3 className="text-lg font-semibold text-slate-950">{event.name}</h3>
+                          <h3 className="text-lg font-semibold text-slate-950">
+                            {event.name}
+                          </h3>
 
                           <p className="text-sm leading-6 text-slate-600">
                             {event.public_summary ||
@@ -686,7 +893,9 @@ export default async function PublicStudioPage({
                     href="/discover/studios"
                     className="rounded-2xl border bg-slate-50 p-4 hover:bg-slate-100"
                   >
-                    <p className="font-medium text-slate-900">Browse other studios</p>
+                    <p className="font-medium text-slate-900">
+                      Browse other studios
+                    </p>
                     <p className="mt-1 text-sm text-slate-600">
                       Compare more options nearby.
                     </p>
@@ -696,7 +905,9 @@ export default async function PublicStudioPage({
                     href="/discover/events"
                     className="rounded-2xl border bg-slate-50 p-4 hover:bg-slate-100"
                   >
-                    <p className="font-medium text-slate-900">Browse public events</p>
+                    <p className="font-medium text-slate-900">
+                      Browse public events
+                    </p>
                     <p className="mt-1 text-sm text-slate-600">
                       Find classes, socials, and workshops.
                     </p>
@@ -707,7 +918,9 @@ export default async function PublicStudioPage({
                       href="/signup"
                       className="rounded-2xl border border-violet-200 bg-violet-50 p-4 hover:bg-violet-100"
                     >
-                      <p className="font-medium text-slate-900">Create a free account</p>
+                      <p className="font-medium text-slate-900">
+                        Create a free account
+                      </p>
                       <p className="mt-1 text-sm text-slate-600">
                         Save favorites and keep track of discovery.
                       </p>
