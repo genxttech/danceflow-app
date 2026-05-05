@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -7,6 +8,7 @@ import RegistrationForm from "./register/RegistrationForm";
 import { retryEventRegistrationCheckoutAction } from "./register/actions";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
+import { JsonLd } from "@/components/seo/JsonLd";
 
 type Params = Promise<{
   slug: string;
@@ -120,6 +122,42 @@ type TicketRegistrationCountRow = {
   ticket_type_id: string | null;
   status: string;
 };
+
+const siteUrl = "https://www.idanceflow.com";
+
+function absoluteUrl(value: string | null | undefined) {
+  if (!value) return null;
+
+  if (value.startsWith("http://") || value.startsWith("https://")) {
+    return value;
+  }
+
+  if (value.startsWith("/")) {
+    return `${siteUrl}${value}`;
+  }
+
+  return `${siteUrl}/${value}`;
+}
+
+function eventDescription(event: EventRow) {
+  return (
+    event.short_description?.trim() ||
+    event.description?.trim() ||
+    `View ${event.name} event details, schedule, registration information, and host details on DanceFlow.`
+  );
+}
+
+function eventLocationLabel(event: EventRow) {
+  return (
+    [event.venue_name, event.city, event.state].filter(Boolean).join(", ") ||
+    "Location coming soon"
+  );
+}
+
+function eventDateTimeForSchema(date: string | null, time: string | null) {
+  if (!date) return undefined;
+  return time ? `${date}T${time}` : date;
+}
 
 function getOrganizer(value: EventRow["organizers"]) {
   return Array.isArray(value) ? value[0] : value;
@@ -445,6 +483,116 @@ function InfoCard({
   );
 }
 
+export async function generateMetadata({
+  params,
+}: {
+  params: Params;
+}): Promise<Metadata> {
+  const { slug } = await params;
+  const supabase = await createClient();
+
+  const { data: event } = await supabase
+    .from("events")
+    .select(`
+      id,
+      name,
+      slug,
+      event_type,
+      short_description,
+      description,
+      venue_name,
+      address_line_1,
+      address_line_2,
+      city,
+      state,
+      postal_code,
+      timezone,
+      start_date,
+      end_date,
+      start_time,
+      end_time,
+      cover_image_url,
+      visibility,
+      featured,
+      status,
+      registration_required,
+      account_required_for_registration,
+      registration_opens_at,
+      registration_closes_at,
+      capacity,
+      waitlist_enabled,
+      refund_policy,
+      faq,
+      organizers (
+        id,
+        name,
+        slug,
+        description,
+        website_url,
+        contact_email
+      ),
+      studios (
+        id,
+        name,
+        slug,
+        public_name,
+        public_short_description,
+        public_about,
+        public_website_url,
+        public_email,
+        public_phone
+      )
+    `)
+    .eq("slug", slug)
+    .eq("status", "published")
+    .in("visibility", ["public", "unlisted"])
+    .maybeSingle<EventRow>();
+
+  if (!event) {
+    return {
+      title: "Event | DanceFlow",
+      description:
+        "Explore public dance events, classes, workshops, competitions, showcases, and registration options on DanceFlow.",
+    };
+  }
+
+  const canonicalUrl = `${siteUrl}/events/${event.slug}`;
+  const description = eventDescription(event);
+  const location = eventLocationLabel(event);
+  const eventType = eventTypeLabel(event.event_type);
+  const imageUrl =
+    absoluteUrl(event.cover_image_url) || `${siteUrl}/brand/danceflow-home-hero.png`;
+
+  return {
+    title: `${event.name} | ${eventType}${
+      location !== "Location coming soon" ? ` in ${location}` : ""
+    }`,
+    description,
+    alternates: {
+      canonical: canonicalUrl,
+    },
+    openGraph: {
+      title: `${event.name} | DanceFlow Event`,
+      description,
+      url: canonicalUrl,
+      siteName: "DanceFlow",
+      type: "website",
+      images: [
+        {
+          url: imageUrl,
+          alt: `${event.name} on DanceFlow`,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: `${event.name} | DanceFlow Event`,
+      description,
+      images: [imageUrl],
+    },
+  };
+}
+
 export default async function PublicEventDetailPage({
   params,
   searchParams,
@@ -654,8 +802,99 @@ export default async function PublicEventDetailPage({
     [typedEvent.city, typedEvent.state, typedEvent.postal_code].filter(Boolean).join(" "),
   ].filter(Boolean);
 
+  const eventPublicUrl = `${siteUrl}/events/${typedEvent.slug}`;
+  const eventImageUrl =
+    absoluteUrl(typedEvent.cover_image_url) ||
+    `${siteUrl}/brand/danceflow-home-hero.png`;
+
+  const eventAddressJsonLd =
+    typedEvent.address_line_1 ||
+    typedEvent.city ||
+    typedEvent.state ||
+    typedEvent.postal_code
+      ? {
+          "@type": "PostalAddress",
+          streetAddress: [typedEvent.address_line_1, typedEvent.address_line_2]
+            .filter(Boolean)
+            .join(" ") || undefined,
+          addressLocality: typedEvent.city ?? undefined,
+          addressRegion: typedEvent.state ?? undefined,
+          postalCode: typedEvent.postal_code ?? undefined,
+          addressCountry: "US",
+        }
+      : undefined;
+
+  const eventOffersJsonLd = visibleTicketTypes.map((ticket) => ({
+    "@type": "Offer",
+    name: ticket.name,
+    description: ticket.description ?? undefined,
+    price: Number(ticket.price ?? 0),
+    priceCurrency: ticket.currency || "USD",
+    availability:
+      ticketRemainingCount(ticket, ticketActiveCountById) === 0
+        ? "https://schema.org/SoldOut"
+        : "https://schema.org/InStock",
+    validFrom: ticket.sale_starts_at ?? undefined,
+    url: `${eventPublicUrl}#registration`,
+  }));
+
+  const eventJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Event",
+    name: typedEvent.name,
+    description: eventDescription(typedEvent),
+    url: eventPublicUrl,
+    image: eventImageUrl,
+    eventAttendanceMode: "https://schema.org/OfflineEventAttendanceMode",
+    eventStatus: "https://schema.org/EventScheduled",
+    startDate: eventDateTimeForSchema(typedEvent.start_date, typedEvent.start_time),
+    endDate:
+      eventDateTimeForSchema(typedEvent.end_date, typedEvent.end_time) ||
+      eventDateTimeForSchema(typedEvent.start_date, typedEvent.end_time),
+    location: {
+      "@type": "Place",
+      name: typedEvent.venue_name || eventLocationLabel(typedEvent),
+      address: eventAddressJsonLd,
+    },
+    organizer: {
+      "@type": "Organization",
+      name: eventHost.name,
+      url: eventHost.websiteUrl ?? undefined,
+      email: eventHost.contactEmail ?? undefined,
+    },
+    offers: eventOffersJsonLd.length ? eventOffersJsonLd : undefined,
+    keywords: typedTags.map((tag) => tag.tag).join(", ") || undefined,
+  };
+
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: siteUrl,
+      },
+      {
+        "@type": "ListItem",
+        position: 2,
+        name: "Events",
+        item: `${siteUrl}/discover/events`,
+      },
+      {
+        "@type": "ListItem",
+        position: 3,
+        name: typedEvent.name,
+        item: eventPublicUrl,
+      },
+    ],
+  };
+
   return (
     <>
+      <JsonLd data={[eventJsonLd, breadcrumbJsonLd]} />
+
       <PublicSiteHeader currentPath="events" isAuthenticated={!!user} />
 
       <main className="min-h-screen bg-slate-50">
@@ -802,26 +1041,14 @@ export default async function PublicEventDetailPage({
           </div>
         </div>
 
-        <div className="grid gap-4 border-t border-slate-200/80 bg-slate-50/70 p-6 md:grid-cols-2 xl:grid-cols-4">
-          <InfoCard
-            label={typedEvent.event_type === "group_class" ? "Class Schedule" : "Dates"}
-            value={formatEventSchedule(typedEvent)}
-          />
-          <InfoCard
-            label="Timezone"
-            value={typedEvent.timezone || "Timezone not set"}
-          />
+        <div className="grid gap-4 border-t bg-slate-50 p-5 sm:grid-cols-2 lg:grid-cols-4">
+          <InfoCard label="Schedule" value={formatEventSchedule(typedEvent)} detail={formatTimeRange(typedEvent.start_time, typedEvent.end_time) || typedEvent.timezone} />
+          <InfoCard label="Location" value={typedEvent.venue_name || "Location coming soon"} detail={[typedEvent.city, typedEvent.state].filter(Boolean).join(", ")} />
           <InfoCard
             label="Capacity"
-            value={
-              typedEvent.capacity == null
-                ? "Open capacity"
-                : `${activeRegistrationCount}/${typedEvent.capacity}`
-            }
+            value={typedEvent.capacity ? `${activeRegistrationCount}/${typedEvent.capacity}` : "Open"}
             detail={
-              typedEvent.capacity == null
-                ? "No overall attendance cap listed"
-                : eventRemainingCapacity != null
+              eventRemainingCapacity != null
                 ? `${eventRemainingCapacity} spots remaining`
                 : undefined
             }
