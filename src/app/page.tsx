@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentUserPlatformRole } from "@/lib/auth/platform";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
-
+import { JsonLd } from "@/components/seo/JsonLd";
 
 const audienceCards = [
   {
@@ -66,6 +66,7 @@ const audienceCards = [
     ],
   },
 ];
+
 function audienceAccentClasses(accent: string) {
   switch (accent) {
     case "orange":
@@ -134,8 +135,79 @@ export default async function HomePage() {
     }
   }
 
+  const siteUrl = "https://www.idanceflow.com";
+
+  const organizationJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: "DanceFlow",
+    url: siteUrl,
+    logo: `${siteUrl}/brand/danceflow-logo.png`,
+    description:
+      "DanceFlow provides dance studio CRM, scheduling, event registration, ticketing, portals, payments, and public discovery tools for the dance community.",
+  };
+
+  const websiteJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    name: "DanceFlow",
+    url: siteUrl,
+    description:
+      "DanceFlow helps dancers discover studios and events while helping studios and organizers manage scheduling, clients, registrations, payments, and portals.",
+    publisher: {
+      "@type": "Organization",
+      name: "DanceFlow",
+      url: siteUrl,
+    },
+  };
+
+  const softwareApplicationJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    name: "DanceFlow",
+    applicationCategory: "BusinessApplication",
+    operatingSystem: "Web",
+    url: siteUrl,
+    description:
+      "DanceFlow is dance studio CRM, scheduling, event registration, ticketing, and public discovery software built for dance studios, organizers, independent instructors, and dancers.",
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "USD",
+      description:
+        "DanceFlow offers public dancer discovery accounts and trial options for studio and organizer workspaces.",
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "DanceFlow",
+      url: siteUrl,
+    },
+  };
+
+  const breadcrumbJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: [
+      {
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: siteUrl,
+      },
+    ],
+  };
+
   return (
     <>
+      <JsonLd
+        data={[
+          organizationJsonLd,
+          websiteJsonLd,
+          softwareApplicationJsonLd,
+          breadcrumbJsonLd,
+        ]}
+      />
+
       <PublicSiteHeader currentPath="home" isAuthenticated={Boolean(user)} />
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_18%,#f8fafc_100%)]">
