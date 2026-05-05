@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import CopyCalendarFeedButton from "@/components/app/CopyCalendarFeedButton";
 
 type EventRow = {
   id: string;
@@ -58,6 +59,7 @@ type WorkspaceRow = {
   id: string;
   name: string | null;
   public_name: string | null;
+  slug: string | null;
   billing_plan: string | null;
   subscription_status: string | null;
 };
@@ -75,7 +77,10 @@ function isOrganizerWorkspaceRole(role: string | null | undefined) {
   return role === "organizer_owner" || role === "organizer_admin";
 }
 
-function canManageEvents(role: string | null | undefined, isPlatformAdminRole: boolean) {
+function canManageEvents(
+  role: string | null | undefined,
+  isPlatformAdminRole: boolean
+) {
   if (isPlatformAdminRole) return true;
 
   return (
@@ -86,12 +91,18 @@ function canManageEvents(role: string | null | undefined, isPlatformAdminRole: b
   );
 }
 
-function canManageOrganizerProfile(role: string | null | undefined, isPlatformAdminRole: boolean) {
+function canManageOrganizerProfile(
+  role: string | null | undefined,
+  isPlatformAdminRole: boolean
+) {
   if (isPlatformAdminRole) return true;
   return role === "organizer_owner" || role === "organizer_admin";
 }
 
-function canManageBilling(role: string | null | undefined, isPlatformAdminRole: boolean) {
+function canManageBilling(
+  role: string | null | undefined,
+  isPlatformAdminRole: boolean
+) {
   if (isPlatformAdminRole) return true;
   return role === "studio_owner" || role === "organizer_owner";
 }
@@ -129,8 +140,11 @@ function canUseStudioHostedEvents(params: {
   subscriptionPlan: SubscriptionPlanRow | null | undefined;
 }) {
   return (
-    getEffectiveBillingPlan(params.workspace, params.subscriptionPlan) === "pro" &&
-    isActiveOrTrialing(getEffectiveSubscriptionStatus(params.workspace, params.subscription))
+    getEffectiveBillingPlan(params.workspace, params.subscriptionPlan) ===
+      "pro" &&
+    isActiveOrTrialing(
+      getEffectiveSubscriptionStatus(params.workspace, params.subscription)
+    )
   );
 }
 
@@ -160,18 +174,36 @@ function eventTypeLabel(value: string) {
   if (value === "festival") return "Festival";
   if (value === "special_event") return "Special Event";
   if (value === "other") return "Other";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function eventTypeBadgeClass(value: string) {
-  if (value === "group_class") return "bg-sky-50 text-sky-700 ring-1 ring-sky-200";
-  if (value === "practice_party") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-  if (value === "workshop") return "bg-violet-50 text-violet-700 ring-1 ring-violet-200";
-  if (value === "social_dance") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
-  if (value === "competition") return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
-  if (value === "showcase") return "bg-fuchsia-50 text-fuchsia-700 ring-1 ring-fuchsia-200";
-  if (value === "festival") return "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200";
-  if (value === "special_event") return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
+  if (value === "group_class") {
+    return "bg-sky-50 text-sky-700 ring-1 ring-sky-200";
+  }
+  if (value === "practice_party") {
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  }
+  if (value === "workshop") {
+    return "bg-violet-50 text-violet-700 ring-1 ring-violet-200";
+  }
+  if (value === "social_dance") {
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  }
+  if (value === "competition") {
+    return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
+  }
+  if (value === "showcase") {
+    return "bg-fuchsia-50 text-fuchsia-700 ring-1 ring-fuchsia-200";
+  }
+  if (value === "festival") {
+    return "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200";
+  }
+  if (value === "special_event") {
+    return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
+  }
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
@@ -183,9 +215,15 @@ function visibilityLabel(value: string) {
 }
 
 function visibilityBadgeClass(value: string) {
-  if (value === "public") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
-  if (value === "unlisted") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-  if (value === "private") return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+  if (value === "public") {
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  }
+  if (value === "unlisted") {
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  }
+  if (value === "private") {
+    return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+  }
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
@@ -205,7 +243,9 @@ function formatDateRange(startDate: string, endDate: string | null) {
     year: "numeric",
   });
 
-  return !endDate || startDate === endDate ? startText : `${startText} - ${endText}`;
+  return !endDate || startDate === endDate
+    ? startText
+    : `${startText} - ${endText}`;
 }
 
 function formatTimeRange(startTime: string | null, endTime: string | null) {
@@ -239,11 +279,17 @@ function seriesWeekCount(startDate: string, endDate: string | null) {
   const start = new Date(`${startDate}T00:00:00`);
   const end = new Date(`${endDate}T00:00:00`);
 
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    end < start
+  ) {
     return null;
   }
 
-  const days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  const days = Math.round(
+    (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+  );
 
   return Math.floor(days / 7) + 1;
 }
@@ -395,7 +441,7 @@ export default async function EventsPage() {
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, public_name, billing_plan, subscription_status")
+      .select("id, name, public_name, slug, billing_plan, subscription_status")
       .eq("id", studioId)
       .maybeSingle<WorkspaceRow>(),
 
@@ -443,10 +489,13 @@ export default async function EventsPage() {
   }
 
   if (subscriptionsError) {
-    throw new Error(`Failed to load subscription: ${subscriptionsError.message}`);
+    throw new Error(
+      `Failed to load subscription: ${subscriptionsError.message}`
+    );
   }
 
-  const latestSubscription = ((subscriptionRows ?? []) as SubscriptionRow[])[0] ?? null;
+  const latestSubscription =
+    ((subscriptionRows ?? []) as SubscriptionRow[])[0] ?? null;
   let subscriptionPlan: SubscriptionPlanRow | null = null;
 
   if (latestSubscription?.subscription_plan_id) {
@@ -474,15 +523,37 @@ export default async function EventsPage() {
    * but the event list should not show "Unknown" for valid live studio events.
    */
   const studioHostedEvents = !organizerWorkspace;
-  const showCreateEvent = canManageEvents(context.studioRole, context.isPlatformAdmin);
+  const showCreateEvent = canManageEvents(
+    context.studioRole,
+    context.isPlatformAdmin
+  );
   const showOrganizerProfile = canManageOrganizerProfile(
     context.studioRole,
     context.isPlatformAdmin
   );
-  const showBilling = canManageBilling(context.studioRole, context.isPlatformAdmin);
+  const showBilling = canManageBilling(
+    context.studioRole,
+    context.isPlatformAdmin
+  );
 
   const typedEvents = (events ?? []) as EventRow[];
   const eventIds = typedEvents.map((event) => event.id);
+
+  const siteUrl = "https://www.idanceflow.com";
+  const organizerFeedSlug =
+    typedEvents
+      .map((event) => getOrganizer(event.organizers)?.slug)
+      .find((slug) => Boolean(slug)) ?? null;
+
+  const studioFeedSlug = workspace?.slug ?? null;
+
+  const calendarFeedUrl = organizerWorkspace
+    ? organizerFeedSlug
+      ? `${siteUrl}/api/public-calendars/organizers/${organizerFeedSlug}/events.ics`
+      : null
+    : studioFeedSlug
+      ? `${siteUrl}/api/public-calendars/studios/${studioFeedSlug}/events.ics`
+      : null;
 
   let typedRegistrations: RegistrationSummaryRow[] = [];
   let typedAttendance: AttendanceSummaryRow[] = [];
@@ -515,11 +586,15 @@ export default async function EventsPage() {
     ]);
 
     if (registrationsError) {
-      throw new Error(`Failed to load event reporting: ${registrationsError.message}`);
+      throw new Error(
+        `Failed to load event reporting: ${registrationsError.message}`
+      );
     }
 
     if (attendanceError) {
-      throw new Error(`Failed to load attendance reporting: ${attendanceError.message}`);
+      throw new Error(
+        `Failed to load attendance reporting: ${attendanceError.message}`
+      );
     }
 
     typedRegistrations = (registrationRows ?? []) as RegistrationSummaryRow[];
@@ -537,7 +612,9 @@ export default async function EventsPage() {
     registrationsByEventId.set(registration.event_id, current);
   }
 
-  const groupClasses = typedEvents.filter((event) => event.event_type === "group_class");
+  const groupClasses = typedEvents.filter(
+    (event) => event.event_type === "group_class"
+  );
   const publishedCount = typedEvents.filter(
     (event) => event.status === "published" || event.status === "open"
   ).length;
@@ -584,7 +661,9 @@ export default async function EventsPage() {
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                {organizerWorkspace ? "DanceFlow Organizer Workspace" : "DanceFlow Events"}
+                {organizerWorkspace
+                  ? "DanceFlow Organizer Workspace"
+                  : "DanceFlow Events"}
               </p>
 
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
@@ -644,7 +723,9 @@ export default async function EventsPage() {
           <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
             <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
               <h2 className="text-lg font-semibold text-sky-950">
-                {organizerWorkspace ? "Publishing controls live here" : "Group Classes Live Here"}
+                {organizerWorkspace
+                  ? "Publishing controls live here"
+                  : "Group Classes Live Here"}
               </h2>
               <p className="mt-2 text-sm leading-7 text-sky-900">
                 {organizerWorkspace
@@ -655,12 +736,15 @@ export default async function EventsPage() {
 
             <div className="rounded-2xl border border-orange-200 bg-orange-50 p-5">
               <h2 className="text-lg font-semibold text-orange-950">
-                {organizerWorkspace ? "Discovery readiness matters" : "Discovery and organizer publishing"}
+                {organizerWorkspace
+                  ? "Discovery readiness matters"
+                  : "Discovery and organizer publishing"}
               </h2>
               <p className="mt-2 text-sm leading-7 text-orange-900">
-                Discovery-ready events should be public, directory-enabled, and have a
-                clear host. Studio-hosted events can use your workspace name;
-                organizer-hosted events should be linked to an organizer profile.
+                Discovery-ready events should be public, directory-enabled, and
+                have a clear host. Studio-hosted events can use your workspace
+                name; organizer-hosted events should be linked to an organizer
+                profile.
               </p>
             </div>
           </div>
@@ -668,23 +752,86 @@ export default async function EventsPage() {
       </section>
 
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
-        <StatCard label="Total Events" value={typedEvents.length} icon={CalendarDays} />
-        <StatCard label="Published / Open" value={publishedCount} icon={Ticket} />
-        <StatCard label="Public Offerings" value={publicOfferingsCount} icon={Globe2} />
-        <StatCard label="Discovery Ready" value={discoveryReadyCount} icon={Star} />
-        <StatCard label="Registrations" value={totalRegistrations} icon={Users} />
+        <StatCard
+          label="Total Events"
+          value={typedEvents.length}
+          icon={CalendarDays}
+        />
+        <StatCard
+          label="Published / Open"
+          value={publishedCount}
+          icon={Ticket}
+        />
+        <StatCard
+          label="Public Offerings"
+          value={publicOfferingsCount}
+          icon={Globe2}
+        />
+        <StatCard
+          label="Discovery Ready"
+          value={discoveryReadyCount}
+          icon={Star}
+        />
+        <StatCard
+          label="Registrations"
+          value={totalRegistrations}
+          icon={Users}
+        />
         <StatCard label="Checked In" value={totalCheckedIn} icon={Sparkles} />
       </div>
+
+      <section className="rounded-[28px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+        <div className="grid gap-5 lg:grid-cols-[1fr_1.15fr] lg:items-center">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="rounded-2xl bg-white p-3 text-emerald-700">
+                <CalendarDays className="h-5 w-5" />
+              </div>
+
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                  Website Calendar Feed
+                </p>
+                <h2 className="mt-1 text-xl font-semibold text-emerald-950">
+                  Add DanceFlow events to your website calendar
+                </h2>
+              </div>
+            </div>
+
+            <p className="mt-4 text-sm leading-7 text-emerald-900">
+              Create and update events once in DanceFlow, then subscribe to this
+              read-only calendar feed from your website calendar, Google
+              Calendar, Apple Calendar, Outlook, or supported calendar plugins.
+            </p>
+          </div>
+
+          <div>
+            {calendarFeedUrl ? (
+              <CopyCalendarFeedButton feedUrl={calendarFeedUrl} />
+            ) : (
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                Calendar feed link is not available yet. Make sure this
+                workspace has a public slug. Organizer workspaces also need an
+                organizer profile connected to at least one event.
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Group Classes</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{groupClasses.length}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {groupClasses.length}
+          </p>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Featured Events</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{featuredCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {featuredCount}
+          </p>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -710,8 +857,8 @@ export default async function EventsPage() {
                   Push more events public
                 </h2>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Public, directory-enabled events are the ones dancers can actually find
-                  through discovery and public listings.
+                  Public, directory-enabled events are the ones dancers can
+                  actually find through discovery and public listings.
                 </p>
               </div>
             </div>
@@ -730,8 +877,8 @@ export default async function EventsPage() {
                   Track registrations and money
                 </h2>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Use this page as the organizer home for ticketing performance, payment
-                  status, and event-by-event revenue.
+                  Use this page as the organizer home for ticketing performance,
+                  payment status, and event-by-event revenue.
                 </p>
               </div>
             </div>
@@ -750,8 +897,8 @@ export default async function EventsPage() {
                   Finish organizer setup
                 </h2>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Make sure billing, organizer profile, and public discovery settings are
-                  complete before launch.
+                  Make sure billing, organizer profile, and public discovery
+                  settings are complete before launch.
                 </p>
               </div>
             </div>
@@ -761,7 +908,9 @@ export default async function EventsPage() {
 
       <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-6 py-4">
-          <h2 className="text-lg font-semibold text-slate-900">Event Listings</h2>
+          <h2 className="text-lg font-semibold text-slate-900">
+            Event Listings
+          </h2>
           <p className="mt-1 text-sm text-slate-500">
             {organizerWorkspace
               ? "All organizer-managed event offerings in one operational view."
@@ -771,10 +920,12 @@ export default async function EventsPage() {
 
         {typedEvents.length === 0 ? (
           <div className="px-6 py-14 text-center">
-            <p className="text-base font-medium text-slate-900">No events yet</p>
+            <p className="text-base font-medium text-slate-900">
+              No events yet
+            </p>
             <p className="mt-2 text-sm text-slate-500">
-              Create your first event offering to start publishing classes, socials,
-              and special events.
+              Create your first event offering to start publishing classes,
+              socials, and special events.
             </p>
 
             {showCreateEvent ? (
@@ -804,9 +955,11 @@ export default async function EventsPage() {
                 studioHostedEvents,
               });
 
-              const eventRegistrations = registrationsByEventId.get(event.id) ?? [];
+              const eventRegistrations =
+                registrationsByEventId.get(event.id) ?? [];
               const defaultCurrency =
-                eventRegistrations.find((row) => row.currency)?.currency ?? "USD";
+                eventRegistrations.find((row) => row.currency)?.currency ??
+                "USD";
 
               const totalRegistrationsForEvent = eventRegistrations.length;
               const paidCount = eventRegistrations.filter(
@@ -817,10 +970,16 @@ export default async function EventsPage() {
               ).length;
               const checkedInCount = eventRegistrations.filter((row) => {
                 const attendance = attendanceByRegistrationId.get(row.id);
-                return attendance?.status === "checked_in" || attendance?.status === "attended";
+                return (
+                  attendance?.status === "checked_in" ||
+                  attendance?.status === "attended"
+                );
               }).length;
               const grossRevenue = eventRegistrations.reduce((sum, row) => {
-                if (row.payment_status !== "paid" && row.payment_status !== "partial") {
+                if (
+                  row.payment_status !== "paid" &&
+                  row.payment_status !== "partial"
+                ) {
                   return sum;
                 }
                 return sum + Number(row.total_amount ?? row.total_price ?? 0);
@@ -831,7 +990,9 @@ export default async function EventsPage() {
                   <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-xl font-semibold text-slate-950">{event.name}</h3>
+                        <h3 className="text-xl font-semibold text-slate-950">
+                          {event.name}
+                        </h3>
 
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
@@ -919,7 +1080,9 @@ export default async function EventsPage() {
                       <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">
                         <span>{formatEventSchedule(event)}</span>
                         <span>
-                          {[event.city, event.state].filter(Boolean).join(", ") || "No location"}
+                          {[event.city, event.state]
+                            .filter(Boolean)
+                            .join(", ") || "No location"}
                         </span>
                       </div>
 
@@ -929,7 +1092,9 @@ export default async function EventsPage() {
 
                       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                          <p className="text-xs text-slate-500">Registrations</p>
+                          <p className="text-xs text-slate-500">
+                            Registrations
+                          </p>
                           <p className="mt-1 text-lg font-semibold text-slate-900">
                             {totalRegistrationsForEvent}
                           </p>
@@ -957,7 +1122,9 @@ export default async function EventsPage() {
                         </div>
 
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-                          <p className="text-xs text-slate-500">Gross Revenue</p>
+                          <p className="text-xs text-slate-500">
+                            Gross Revenue
+                          </p>
                           <p className="mt-1 text-lg font-semibold text-slate-900">
                             {fmtCurrency(grossRevenue, defaultCurrency)}
                           </p>
