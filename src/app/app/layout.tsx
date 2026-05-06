@@ -27,6 +27,8 @@ type NotificationItem = {
 
 type ProfileRow = {
   id: string;
+  first_name: string | null;
+  last_name: string | null;
   full_name: string | null;
   email: string | null;
 };
@@ -49,20 +51,17 @@ type NavSection = {
   items: NavItem[];
 };
 
-function buildDisplayName(profile: ProfileRow | null, fallbackEmail: string | null | undefined) {
+function buildDisplayName(profile: ProfileRow | null, fallbackEmail: string | null) {
   const fullName = profile?.full_name?.trim();
+  if (fullName) return fullName;
 
-  if (fullName) {
-    return fullName;
-  }
+  const combined = [profile?.first_name ?? "", profile?.last_name ?? ""]
+    .join(" ")
+    .trim();
 
-  const email = profile?.email?.trim() || fallbackEmail?.trim();
+  if (combined) return combined;
 
-  if (email) {
-    return email.split("@")[0] || email;
-  }
-
-  return "DanceFlow User";
+  return fallbackEmail ?? "Unknown User";
 }
 
 function formatRoleLabel(role: string | null | undefined) {
@@ -143,6 +142,7 @@ function buildStudioSections(params: {
         title: "Floor Rental",
         items: [
           { label: "Pay Floor Fees", href: "/app/payments", icon: "payments" },
+          { label: "Expenses", href: "/app/expenses", icon: "payments" },
           { label: "Rooms / Floor Space", href: "/app/rooms", icon: "rooms" },
         ],
       },
@@ -216,6 +216,7 @@ function buildStudioSections(params: {
         ...(isFrontDesk || isStudioAdmin || isOwner
           ? [
               { label: "Take Payment / Payouts", href: "/app/payments", icon: "payments" as const },
+              { label: "Expenses", href: "/app/expenses", icon: "payments" as const },
               { label: "Sell Package", href: "/app/packages/sell", icon: "packages" as const },
               { label: "Sell Membership", href: "/app/memberships/sell", icon: "memberships" as const },
               { label: "Client Balances", href: "/app/packages/client-balances", icon: "balances" as const },
@@ -308,6 +309,7 @@ function buildOrganizerSections(params: {
         ...(isOrganizerAdmin
           ? [
               { label: "Ticket Sales & Payments", href: "/app/payments", icon: "payments" as const },
+              { label: "Expenses", href: "/app/expenses", icon: "payments" as const },
               { label: "Reports", href: "/app/reports", icon: "reports" as const },
             ]
           : []),
@@ -428,10 +430,10 @@ export default async function AppLayout({
       .maybeSingle<StudioRow>(),
 
     supabase
-  .from("profiles")
-  .select("id, full_name, email")
-  .eq("id", user.id)
-  .maybeSingle<ProfileRow>(),
+      .from("profiles")
+      .select("id, first_name, last_name, full_name, email")
+      .eq("id", user.id)
+      .maybeSingle<ProfileRow>(),
 
     supabase
       .from("notifications")
