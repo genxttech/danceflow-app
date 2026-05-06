@@ -71,6 +71,18 @@ type EventRegistrationRevenueRow = {
   created_at: string;
 };
 
+type ExpenseRow = {
+  id: string;
+  expense_date: string;
+  vendor_name: string;
+  category: string;
+  amount: number | null;
+  currency: string | null;
+  payment_method: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
 type InstructorRow = {
   id: string;
   first_name: string | null;
@@ -184,19 +196,28 @@ function labelize(value: string | null | undefined) {
   return value.replaceAll("_", " ");
 }
 
+function expenseCategoryLabel(value: string | null | undefined) {
+  if (value === "floor_fee") return "Floor Rental / Floor Fee";
+  if (value === "rent") return "Rent";
+  if (value === "instructor_pay") return "Instructor Pay";
+  if (value === "marketing") return "Marketing";
+  if (value === "software") return "Software";
+  if (value === "supplies") return "Supplies";
+  if (value === "costumes_retail_inventory") return "Costumes / Retail Inventory";
+  if (value === "event_expense") return "Event Expense";
+  if (value === "travel") return "Travel";
+  if (value === "meals") return "Meals";
+  if (value === "utilities") return "Utilities";
+  if (value === "insurance") return "Insurance";
+  if (value === "professional_services") return "Professional Services";
+  return labelize(value);
+}
+
 function paymentStatusBadgeClass(status: string | null) {
   if (status === "paid") return "bg-green-50 text-green-700";
   if (status === "pending") return "bg-amber-50 text-amber-700";
   if (status === "failed") return "bg-red-50 text-red-700";
   if (status === "refunded") return "bg-blue-50 text-blue-700";
-  return "bg-slate-100 text-slate-700";
-}
-
-function appointmentStatusBadgeClass(status: string | null) {
-  if (status === "scheduled") return "bg-sky-50 text-sky-700";
-  if (status === "attended") return "bg-green-50 text-green-700";
-  if (status === "cancelled") return "bg-slate-100 text-slate-700";
-  if (status === "no_show") return "bg-red-50 text-red-700";
   return "bg-slate-100 text-slate-700";
 }
 
@@ -237,7 +258,15 @@ export default async function ReportsPage({
   }
 
   const studioId = context.studioId;
-  const rangeStart = getRangeStart(range).toISOString();
+
+  if (!studioId) {
+    redirect("/app");
+  }
+
+  const rangeStartDate = getRangeStart(range);
+  const rangeStart = rangeStartDate.toISOString();
+  const rangeStartDateOnly = rangeStartDate.toISOString().slice(0, 10);
+  const todayDateOnly = new Date().toISOString().slice(0, 10);
   const nowIso = new Date().toISOString();
 
   const [
@@ -247,6 +276,7 @@ export default async function ReportsPage({
     { data: packages, error: packagesError },
     { data: memberships, error: membershipsError },
     { data: eventRegistrations, error: eventRegistrationsError },
+    { data: expenses, error: expensesError },
     { data: instructors, error: instructorsError },
     { count: activeStudentsCount, error: activeStudentsError },
   ] = await Promise.all([
@@ -320,6 +350,18 @@ export default async function ReportsPage({
       .limit(1000),
 
     supabase
+      .from("expenses")
+      .select(
+        "id, expense_date, vendor_name, category, amount, currency, payment_method, notes, created_at",
+      )
+      .eq("studio_id", studioId)
+      .gte("expense_date", rangeStartDateOnly)
+      .lte("expense_date", todayDateOnly)
+      .order("expense_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(1000),
+
+    supabase
       .from("instructors")
       .select("id, first_name, last_name")
       .eq("studio_id", studioId)
@@ -361,6 +403,11 @@ export default async function ReportsPage({
       `Failed to load event revenue report data: ${eventRegistrationsError.message}`,
     );
   }
+  if (expensesError) {
+    throw new Error(
+      `Failed to load expense report data: ${expensesError.message}`,
+    );
+  }
   if (instructorsError) {
     throw new Error(
       `Failed to load instructor report data: ${instructorsError.message}`,
@@ -379,6 +426,7 @@ export default async function ReportsPage({
   const typedMemberships = (memberships ?? []) as ClientMembershipRow[];
   const typedEventRegistrations =
     (eventRegistrations ?? []) as EventRegistrationRevenueRow[];
+  const typedExpenses = (expenses ?? []) as ExpenseRow[];
   const typedInstructors = (instructors ?? []) as InstructorRow[];
 
   const paidPayments = typedPayments.filter((item) => item.status === "paid");
@@ -410,35 +458,54 @@ export default async function ReportsPage({
       : 0;
 
   const paidEventRegistrations = typedEventRegistrations.filter(
-    (item) =>
-      item.payment_status === "paid" || item.payment_status === "partial",
+    (item) => item.payment_status === "paid" || item.payment_status === "partial",
   );
+
   const refundedEventRegistrations = typedEventRegistrations.filter(
     (item) => item.payment_status === "refunded",
   );
+
   const eventRevenueTotal = paidEventRegistrations.reduce(
-    (sum, item) =>
-      sum + Number(item.total_amount ?? item.total_price ?? 0),
-    0,
-  );
-  const eventRefundedTotal = refundedEventRegistrations.reduce(
-    (sum, item) =>
-      sum + Number(item.total_amount ?? item.total_price ?? 0),
+    (sum, item) => sum + Number(item.total_amount ?? item.total_price ?? 0),
     0,
   );
 
+  const eventRefundedTotal = refundedEventRegistrations.reduce(
+    (sum, item) => sum + Number(item.total_amount ?? item.total_price ?? 0),
+    0,
+  );
+
+  const manualExpensesTotal = typedExpenses.reduce(
+    (sum, item) => sum + Number(item.amount ?? 0),
+    0,
+  );
+
+  const floorFeeExpenseTotal = typedExpenses
+    .filter((item) => item.category === "floor_fee")
+    .reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
+
+  const otherExpensesTotal = manualExpensesTotal - floorFeeExpenseTotal;
+
   const revenueTotal =
     studioPaymentRevenueTotal + eventRevenueTotal + floorRentalRevenueTotal;
+
   const refundedTotal =
     refundedPayments.reduce((sum, item) => sum + Number(item.amount ?? 0), 0) +
     eventRefundedTotal;
+
   const knownFeesTotal = 0;
-  const estimatedNetIncome = revenueTotal - refundedTotal - knownFeesTotal;
-  const paidRevenueItemsCount = paidPayments.length + paidEventRegistrations.length;
+
+  const estimatedNetIncome =
+    revenueTotal - refundedTotal - manualExpensesTotal - knownFeesTotal;
+
+  const paidRevenueItemsCount =
+    paidPayments.length + paidEventRegistrations.length;
+
   const packageRevenueSnapshot = typedPackages.reduce(
     (sum, item) => sum + Number(item.sold_price ?? item.price_snapshot ?? 0),
     0,
   );
+
   const membershipRevenueSnapshot = typedMemberships.reduce(
     (sum, item) =>
       sum +
@@ -449,9 +516,7 @@ export default async function ReportsPage({
 
   const leadsOnly = typedLeads.filter((item) => item.status === "lead");
   const convertedLeads = typedLeads.filter((item) => item.status === "active");
-  const archivedLeads = typedLeads.filter(
-    (item) => item.status === "archived",
-  );
+  const archivedLeads = typedLeads.filter((item) => item.status === "archived");
 
   const attendedAppointments = typedAppointments.filter(
     (item) => item.status === "attended",
@@ -497,21 +562,17 @@ export default async function ReportsPage({
   const topPaymentMethods = sortEntriesDesc(paymentMethodCounts).slice(0, 5);
   const topPaymentTypes = sortEntriesDesc(paymentTypeCounts).slice(0, 5);
   const topLeadSources = sortEntriesDesc(leadSourceCounts).slice(0, 5);
-  const topAppointmentTypes = sortEntriesDesc(appointmentTypeCounts).slice(
-    0,
-    5,
-  );
+  const topAppointmentTypes = sortEntriesDesc(appointmentTypeCounts).slice(0, 5);
   const topPackages = sortEntriesDesc(packageCounts).slice(0, 5);
 
   const conversionRate = percentage(
     convertedLeads.length,
     leadsOnly.length + convertedLeads.length,
   );
+
   const attendanceRate = percentage(
     attendedAppointments.length,
-    attendedAppointments.length +
-      cancelledAppointments.length +
-      noShows.length,
+    attendedAppointments.length + cancelledAppointments.length + noShows.length,
   );
 
   const instructorNameById = new Map(
@@ -559,10 +620,12 @@ export default async function ReportsPage({
   const instructorSummaries = Array.from(instructorStatsById.values()).sort(
     (a, b) => b.totalAppointments - a.totalAppointments,
   );
+
   const totalInstructorMinutes = instructorSummaries.reduce(
     (sum, item) => sum + item.minutes,
     0,
   );
+
   const totalInstructorRevenue = instructorSummaries.reduce(
     (sum, item) => sum + item.revenue,
     0,
@@ -573,19 +636,38 @@ export default async function ReportsPage({
       <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Reports</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+              DanceFlow
+            </p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+              Reports
+            </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
-              Track studio performance, client activity, revenue, and package usage from one place for {rangeLabel(range).toLowerCase()}.
+              Track studio performance, client activity, revenue, expenses, and
+              package usage from one place for {rangeLabel(range).toLowerCase()}.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Link href="/app/reports?range=today" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "today" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Today</Link>
-            <Link href="/app/reports?range=month" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "month" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Month</Link>
-            <Link href="/app/reports?range=last30" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "last30" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Last 30 Days</Link>
-            <Link href="/app/reports?range=quarter" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "quarter" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Quarter</Link>
-            <Link href="/app/reports?range=year" className={`rounded-full border px-4 py-2 text-sm font-medium ${range === "year" ? "border-white bg-white text-slate-950" : "border-white/25 bg-white/10 text-white hover:bg-white/15"}`}>Year</Link>
+            {[
+              ["today", "Today"],
+              ["month", "Month"],
+              ["last30", "Last 30 Days"],
+              ["quarter", "Quarter"],
+              ["year", "Year"],
+            ].map(([value, label]) => (
+              <Link
+                key={value}
+                href={`/app/reports?range=${value}`}
+                className={`rounded-full border px-4 py-2 text-sm font-medium ${
+                  range === value
+                    ? "border-white bg-white text-slate-950"
+                    : "border-white/25 bg-white/10 text-white hover:bg-white/15"
+                }`}
+              >
+                {label}
+              </Link>
+            ))}
           </div>
         </div>
       </section>
@@ -598,17 +680,17 @@ export default async function ReportsPage({
           </p>
           <p className="mt-2 text-sm text-slate-600">
             {fmtNumber(paidRevenueItemsCount)} paid revenue records in{" "}
-            {rangeLabel(range).toLowerCase()}, including event registrations.
+            {rangeLabel(range).toLowerCase()}.
           </p>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">New Leads</p>
+          <p className="text-sm text-slate-500">Expenses Recorded</p>
           <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-            {fmtNumber(leadsOnly.length)}
+            {fmtCurrency(manualExpensesTotal)}
           </p>
           <p className="mt-2 text-sm text-slate-600">
-            Conversion rate: {conversionRate}
+            Includes {fmtCurrency(floorFeeExpenseTotal)} in floor fees.
           </p>
         </div>
 
@@ -645,7 +727,8 @@ export default async function ReportsPage({
                 Profit & Loss Summary
               </h2>
               <p className="mt-1 text-sm leading-6 text-slate-600">
-                Review income, deductions, and net income recorded in DanceFlow for {rangeLabel(range).toLowerCase()}.
+                Review income, refunds, expenses, and estimated net income for{" "}
+                {rangeLabel(range).toLowerCase()}.
               </p>
             </div>
             <span className="inline-flex w-fit rounded-full bg-[#F3E8FF] px-3 py-1 text-xs font-semibold text-[#6B21A8] ring-1 ring-[#E9D5FF]">
@@ -655,37 +738,101 @@ export default async function ReportsPage({
 
           <div className="mt-6 space-y-3">
             <div className="flex items-center justify-between rounded-2xl bg-emerald-50 px-4 py-3">
-              <span className="text-sm font-medium text-emerald-900">Income collected</span>
-              <span className="text-sm font-semibold text-emerald-900">{fmtCurrency(revenueTotal)}</span>
+              <span className="text-sm font-medium text-emerald-900">
+                Income collected
+              </span>
+              <span className="text-sm font-semibold text-emerald-900">
+                {fmtCurrency(revenueTotal)}
+              </span>
             </div>
+
             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
-              <span className="text-sm font-medium text-slate-700">Studio payments</span>
-              <span className="text-sm font-semibold text-slate-950">{fmtCurrency(studioPaymentRevenueTotal)}</span>
+              <span className="text-sm font-medium text-slate-700">
+                Studio payments
+              </span>
+              <span className="text-sm font-semibold text-slate-950">
+                {fmtCurrency(studioPaymentRevenueTotal)}
+              </span>
             </div>
+
             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
-              <span className="text-sm font-medium text-slate-700">Event / ticket registrations</span>
-              <span className="text-sm font-semibold text-slate-950">{fmtCurrency(eventRevenueTotal)}</span>
+              <span className="text-sm font-medium text-slate-700">
+                Event / ticket registrations
+              </span>
+              <span className="text-sm font-semibold text-slate-950">
+                {fmtCurrency(eventRevenueTotal)}
+              </span>
             </div>
+
             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
-              <span className="text-sm font-medium text-slate-700">Floor rental revenue</span>
-              <span className="text-sm font-semibold text-slate-950">{fmtCurrency(floorRentalRevenueTotal)}</span>
+              <span className="text-sm font-medium text-slate-700">
+                Floor rental revenue
+              </span>
+              <span className="text-sm font-semibold text-slate-950">
+                {fmtCurrency(floorRentalRevenueTotal)}
+              </span>
             </div>
+
             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
-              <span className="text-sm font-medium text-slate-700">Refunds recorded</span>
-              <span className="text-sm font-semibold text-slate-950">-{fmtCurrency(refundedTotal)}</span>
+              <span className="text-sm font-medium text-slate-700">
+                Refunds recorded
+              </span>
+              <span className="text-sm font-semibold text-slate-950">
+                -{fmtCurrency(refundedTotal)}
+              </span>
             </div>
+
+            <div className="flex items-center justify-between rounded-2xl bg-rose-50 px-4 py-3">
+              <span className="text-sm font-medium text-rose-900">
+                Expenses recorded
+              </span>
+              <span className="text-sm font-semibold text-rose-900">
+                -{fmtCurrency(manualExpensesTotal)}
+              </span>
+            </div>
+
             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
-              <span className="text-sm font-medium text-slate-700">Known processing/platform fees</span>
-              <span className="text-sm font-semibold text-slate-950">-{fmtCurrency(knownFeesTotal)}</span>
+              <span className="text-sm font-medium text-slate-700">
+                Floor rental / floor fee expenses
+              </span>
+              <span className="text-sm font-semibold text-slate-950">
+                -{fmtCurrency(floorFeeExpenseTotal)}
+              </span>
             </div>
+
+            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+              <span className="text-sm font-medium text-slate-700">
+                Other expenses
+              </span>
+              <span className="text-sm font-semibold text-slate-950">
+                -{fmtCurrency(otherExpensesTotal)}
+              </span>
+            </div>
+
+            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+              <span className="text-sm font-medium text-slate-700">
+                Known processing/platform fees
+              </span>
+              <span className="text-sm font-semibold text-slate-950">
+                -{fmtCurrency(knownFeesTotal)}
+              </span>
+            </div>
+
             <div className="flex items-center justify-between rounded-2xl border border-[#D8B4FE] bg-[#FCF8FF] px-4 py-4">
-              <span className="text-sm font-semibold text-slate-950">Net income</span>
-              <span className="text-xl font-semibold text-[#5B197A]">{fmtCurrency(estimatedNetIncome)}</span>
+              <span className="text-sm font-semibold text-slate-950">
+                Estimated net income
+              </span>
+              <span className="text-xl font-semibold text-[#5B197A]">
+                {fmtCurrency(estimatedNetIncome)}
+              </span>
             </div>
           </div>
 
           <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-            This report summarizes the income and deductions currently recorded for your studio.
+            This report uses revenue, refunds, and manually recorded expenses
+            currently available in DanceFlow. Floor fees paid to outside studios
+            are treated as expenses. Floor rental fees collected by a host studio
+            are treated as revenue.
           </div>
         </div>
 
@@ -710,15 +857,23 @@ export default async function ReportsPage({
           <div className="mt-6 grid gap-4 sm:grid-cols-3">
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Instructors</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(instructorSummaries.length)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(instructorSummaries.length)}
+              </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Teaching Hours</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtNumber(Math.round(totalInstructorMinutes / 60))}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(Math.round(totalInstructorMinutes / 60))}
+              </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Paid Lesson Revenue</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">{fmtCurrency(totalInstructorRevenue)}</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtCurrency(totalInstructorRevenue)}
+              </p>
             </div>
           </div>
 
@@ -729,16 +884,26 @@ export default async function ReportsPage({
               </div>
             ) : (
               instructorSummaries.slice(0, 5).map((instructor) => (
-                <div key={instructor.instructorId} className="rounded-2xl bg-slate-50 p-4">
+                <div
+                  key={instructor.instructorId}
+                  className="rounded-2xl bg-slate-50 p-4"
+                >
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="font-semibold text-slate-950">{instructor.name}</p>
+                      <p className="font-semibold text-slate-950">
+                        {instructor.name}
+                      </p>
                       <p className="mt-1 text-sm text-slate-600">
-                        {fmtNumber(instructor.attended)} attended · {fmtNumber(instructor.scheduled)} scheduled · {fmtNumber(instructor.noShows)} no-shows
+                        {fmtNumber(instructor.attended)} attended ·{" "}
+                        {fmtNumber(instructor.scheduled)} scheduled ·{" "}
+                        {fmtNumber(instructor.noShows)} no-shows
                       </p>
                     </div>
+
                     <div className="text-right">
-                      <p className="text-sm font-semibold text-slate-950">{fmtNumber(instructor.totalAppointments)}</p>
+                      <p className="text-sm font-semibold text-slate-950">
+                        {fmtNumber(instructor.totalAppointments)}
+                      </p>
                       <p className="text-xs text-slate-500">appointments</p>
                     </div>
                   </div>
@@ -757,7 +922,8 @@ export default async function ReportsPage({
                 Revenue snapshot
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                Studio payments plus event registration revenue by status, method, and sale type.
+                Studio payments plus event registration revenue by status,
+                method, and sale type.
               </p>
             </div>
             <Link
@@ -775,18 +941,21 @@ export default async function ReportsPage({
                 {fmtNumber(paidPayments.length)}
               </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Pending</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtNumber(pendingPayments.length)}
               </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Refunded</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtNumber(refundedPayments.length)}
               </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Paid Event Registrations</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
@@ -861,18 +1030,21 @@ export default async function ReportsPage({
                 {fmtCurrency(averagePaidPayment)}
               </p>
             </div>
+
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Studio Payment Revenue</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtCurrency(studioPaymentRevenueTotal)}
               </p>
             </div>
+
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Event/Ticket Revenue</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtCurrency(eventRevenueTotal)}
               </p>
             </div>
+
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Floor Rental Revenue</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
@@ -907,12 +1079,14 @@ export default async function ReportsPage({
                 {fmtNumber(leadsOnly.length)}
               </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Converted</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtNumber(convertedLeads.length)}
               </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Archived</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
@@ -959,6 +1133,127 @@ export default async function ReportsPage({
 
       <section className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                Expenses snapshot
+              </h2>
+              <p className="mt-1 text-sm text-slate-600">
+                Manual business expenses recorded for the selected date range.
+              </p>
+            </div>
+            <Link
+              href="/app/expenses"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Open Expenses
+            </Link>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-3">
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Total Expenses</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtCurrency(manualExpensesTotal)}
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Floor Fees</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtCurrency(floorFeeExpenseTotal)}
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Expense Records</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(typedExpenses.length)}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 space-y-3">
+            {typedExpenses.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                No expenses found for this range.
+              </div>
+            ) : (
+              typedExpenses.slice(0, 5).map((expense) => (
+                <div
+                  key={expense.id}
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-900">
+                        {expense.vendor_name}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {expenseCategoryLabel(expense.category)} •{" "}
+                        {labelize(expense.payment_method)} •{" "}
+                        {new Date(
+                          `${expense.expense_date}T00:00:00`,
+                        ).toLocaleDateString([], {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </p>
+                    </div>
+
+                    <p className="font-semibold text-slate-950">
+                      {fmtCurrency(Number(expense.amount ?? 0))}
+                    </p>
+                  </div>
+
+                  {expense.notes ? (
+                    <p className="mt-2 text-xs leading-5 text-slate-500">
+                      {expense.notes}
+                    </p>
+                  ) : null}
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+            P&L notes
+          </h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Floor fees are separated so independent instructors and studios can
+            understand them correctly.
+          </p>
+
+          <div className="mt-6 space-y-3 text-sm leading-6">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+              <p className="font-semibold">Host studio collecting floor rent</p>
+              <p className="mt-1">
+                Floor rental payments collected from instructors are counted as
+                revenue.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-900">
+              <p className="font-semibold">Instructor paying floor fees</p>
+              <p className="mt-1">
+                Floor fees paid to another studio are counted as expenses when
+                recorded in Expenses.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-700">
+              Future versions can add receipt attachments, deeper category
+              breakdowns, and exportable P&L statements.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold tracking-tight text-slate-950">
             Attendance snapshot
           </h2>
@@ -973,18 +1268,21 @@ export default async function ReportsPage({
                 {fmtNumber(scheduledAppointments.length)}
               </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Attended</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtNumber(attendedAppointments.length)}
               </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Cancelled</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtNumber(cancelledAppointments.length)}
               </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">No-Shows</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
@@ -1036,6 +1334,7 @@ export default async function ReportsPage({
                 {fmtNumber(typedPackages.length)}
               </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Package Revenue Snapshot</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
@@ -1079,7 +1378,7 @@ export default async function ReportsPage({
             Membership snapshot
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-Membership activity recorded for the selected date range.
+            Membership activity recorded for the selected date range.
           </p>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -1089,8 +1388,11 @@ Membership activity recorded for the selected date range.
                 {fmtNumber(typedMemberships.length)}
               </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Membership Revenue Snapshot</p>
+              <p className="text-sm text-slate-500">
+                Membership Revenue Snapshot
+              </p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtCurrency(membershipRevenueSnapshot)}
               </p>
@@ -1098,7 +1400,8 @@ Membership activity recorded for the selected date range.
           </div>
 
           <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-            Use this section to review membership starts and recorded membership revenue for the selected range.
+            Use this section to review membership starts and recorded membership
+            revenue for the selected range.
           </div>
         </div>
 
@@ -1107,7 +1410,8 @@ Membership activity recorded for the selected date range.
             Event revenue snapshot
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Paid event and ticket registrations recorded for the selected date range.
+            Paid event and ticket registrations recorded for the selected date
+            range.
           </p>
 
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -1117,6 +1421,7 @@ Membership activity recorded for the selected date range.
                 {fmtNumber(paidEventRegistrations.length)}
               </p>
             </div>
+
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-sm text-slate-500">Event/Ticket Revenue</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
@@ -1126,7 +1431,8 @@ Membership activity recorded for the selected date range.
           </div>
 
           <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-            Event revenue is calculated from paid event registrations recorded during the selected range.
+            Event revenue is calculated from paid event registrations recorded
+            during the selected range.
           </div>
         </div>
       </section>
@@ -1182,8 +1488,7 @@ Membership activity recorded for the selected date range.
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
                     {labelize(payment.payment_type)} •{" "}
-                    {labelize(payment.source)} •{" "}
-                    {fmtDateTime(payment.created_at)}
+                    {labelize(payment.source)} • {fmtDateTime(payment.created_at)}
                   </p>
                 </div>
               ))
