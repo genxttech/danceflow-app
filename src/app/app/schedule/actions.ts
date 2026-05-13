@@ -180,6 +180,7 @@ function getLocalDayUtcRange(date: string, timeZone = CLOSEOUT_TIME_ZONE) {
   };
 }
 
+
 function appendQueryParam(url: string, key: string, value: string) {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
@@ -783,9 +784,7 @@ function getUsageBenefitTypeForAppointmentType(appointmentType: string) {
 }
 
 async function clearMembershipUsageForAppointment(params: {
-  supabase: Awaited<
-    ReturnType<typeof requireAppointmentCreateAccess>
-  >["supabase"];
+  supabase: Awaited<ReturnType<typeof requireAppointmentCreateAccess>>["supabase"];
   appointmentId: string;
 }) {
   const { supabase, appointmentId } = params;
@@ -823,9 +822,9 @@ async function syncMembershipUsageForAppointment(params: {
   } = params;
 
   await clearMembershipUsageForAppointment({
-        supabase,
-        appointmentId,
-      });
+    supabase,
+    appointmentId,
+  });
 
   if (status !== "attended") return;
 
@@ -1120,7 +1119,7 @@ async function recomputeFloorRentalPaymentStatus(params: {
     .from("payments")
     .select("amount, status")
     .eq("studio_id", studioId)
-    .eq("appointment_id", appointmentId);
+    .eq("external_reference", appointmentId);
 
   if (paymentsError) {
     throw new Error(
@@ -1129,7 +1128,7 @@ async function recomputeFloorRentalPaymentStatus(params: {
   }
 
   const paidTotal = (payments ?? [])
-    .filter((payment) => payment.status === "processed")
+    .filter((payment) => payment.status === "paid")
     .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
 
   let paymentStatus = "unpaid";
@@ -1744,16 +1743,16 @@ export async function updateAppointmentAction(
       String(existingAppointment.starts_at) !== startsAt ||
       String(existingAppointment.ends_at) !== endsAt;
 
-    const lockedStatuses = new Set(["attended", "no_show", "cancelled"]);
-    const editableStatuses = new Set(["scheduled", "confirmed", "booked"]);
-
-    const status = lockedStatuses.has(String(existingAppointment.status))
-      ? existingAppointment.status
-      : existingAppointment.status === "rescheduled"
-        ? "scheduled"
-        : editableStatuses.has(String(existingAppointment.status))
-          ? existingAppointment.status
-          : "scheduled";
+    const status =
+      existingAppointment.status === "attended" ||
+      existingAppointment.status === "no_show" ||
+      existingAppointment.status === "cancelled"
+        ? existingAppointment.status
+        : timeChanged
+          ? "rescheduled"
+          : existingAppointment.status === "rescheduled"
+            ? "rescheduled"
+            : "scheduled";
 
     const conflict = await validateAppointmentConflicts({
       studioId,
@@ -1786,10 +1785,10 @@ export async function updateAppointmentAction(
       billing_note: isFloorSpaceRental(appointmentType) ? null : billingNote,
       price_amount: isFloorSpaceRental(appointmentType) ? priceAmount : null,
       payment_status: isFloorSpaceRental(appointmentType)
-        ? paymentStatus ?? (priceAmount && priceAmount > 0 ? "unpaid" : "waived")
-        : billingType === "free_comped"
-          ? "waived"
-          : existingAppointment.payment_status ?? "unpaid",
+  ? paymentStatus ?? (priceAmount && priceAmount > 0 ? "unpaid" : "waived")
+  : billingType === "free_comped"
+    ? "waived"
+    : existingAppointment.payment_status ?? "unpaid",
       updated_at: new Date().toISOString(),
       ...relations,
     };
@@ -2113,9 +2112,9 @@ export async function cancelAppointmentAction(formData: FormData) {
       }
 
       await clearMembershipUsageForAppointment({
-        supabase,
-        appointmentId,
-      });
+    supabase,
+    appointmentId,
+  });
 
       await queueAppointmentOutboundDelivery({
         supabase,
@@ -2277,7 +2276,7 @@ async function canMarkAppointmentAttendedWithoutPaymentWarning(params: {
   }
 
   if (billingType === "pay_as_you_go") {
-    return ["paid", "waived", "comped", "free"].includes(paymentStatus);
+    return paymentStatus === "paid";
   }
 
   if (billingType === "membership") {
@@ -2559,9 +2558,9 @@ export async function markAppointmentNoShowAction(formData: FormData) {
     }
 
     await clearMembershipUsageForAppointment({
-        supabase,
-        appointmentId,
-      });
+    supabase,
+    appointmentId,
+  });
 
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
@@ -2573,77 +2572,6 @@ export async function markAppointmentNoShowAction(formData: FormData) {
     redirect(getErrorRedirect(formData, fallback, "no_show_failed"));
   }
 }
-
-export async function recordFloorRentalPaymentAction(formData: FormData) {
-  const fallback = "/app/schedule";
-
-  try {
-    const { supabase, studioId, user } = await requireAppointmentEditAccess();
-
-    const appointmentId = getString(formData, "appointmentId");
-    const clientId = getString(formData, "clientId");
-    const amount = getNumberOrNull(getString(formData, "amount"));
-    const paymentMethod = getString(formData, "paymentMethod") || "other";
-    const notes = getString(formData, "notes");
-
-    if (!appointmentId || !clientId) {
-      redirect(getErrorRedirect(formData, fallback, "missing_payment_target"));
-    }
-
-    if (!amount || amount <= 0) {
-      redirect(getErrorRedirect(formData, fallback, "invalid_payment_amount"));
-    }
-
-    const { data: appointment, error: appointmentError } = await supabase
-      .from("appointments")
-      .select("id, appointment_type")
-      .eq("id", appointmentId)
-      .eq("studio_id", studioId)
-      .single();
-
-    if (appointmentError || !appointment) {
-      redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
-    }
-
-    if (appointment.appointment_type !== "floor_space_rental") {
-      redirect(getErrorRedirect(formData, fallback, "not_floor_rental"));
-    }
-
-    const { error: insertError } = await supabase.from("payments").insert({
-      studio_id: studioId,
-      client_id: clientId,
-      appointment_id: appointmentId,
-      amount,
-      payment_method: paymentMethod,
-      status: "processed",
-      notes: notes || null,
-      paid_at: new Date().toISOString(),
-      created_by: user.id,
-      payment_type: "floor_space_rental",
-      source: "appointment",
-    });
-
-    if (insertError) {
-      redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
-    }
-
-    await recomputeFloorRentalPaymentStatus({
-      supabase,
-      studioId,
-      appointmentId,
-    });
-
-    revalidatePath("/app/schedule");
-    revalidatePath(`/app/schedule/${appointmentId}`);
-    revalidatePath(`/app/clients/${clientId}`);
-    redirect(getSuccessRedirect(formData, fallback, "payment_recorded"));
-  } catch (error) {
-    rethrowIfRedirect(error);
-    if (isRedirectError(error)) throw error;
-    redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
-  }
-}
-
 
 export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
   const fallback = "/app/schedule";
@@ -2695,7 +2623,7 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
       status: "paid",
       notes:
         notes ||
-        `Pay-as-you-go lesson payment recorded from daily closeout.`,
+        "Pay-as-you-go lesson payment recorded from daily closeout.",
       paid_at: paidAt,
       created_by: user.id,
       payment_type: "pay_as_you_go_lesson",
@@ -2718,7 +2646,13 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
       .eq("studio_id", studioId);
 
     if (updateError) {
-      redirect(getErrorRedirect(formData, fallback, "appointment_payment_update_failed"));
+      redirect(
+        getErrorRedirect(
+          formData,
+          fallback,
+          "appointment_payment_update_failed",
+        ),
+      );
     }
 
     revalidatePath("/app/schedule");
@@ -2726,10 +2660,82 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
     revalidatePath(`/app/clients/${clientId}`);
 
     const redirectUrl = selectedDate
-      ? `/app/schedule?date=${encodeURIComponent(selectedDate)}&success=payment_recorded`
+      ? `/app/schedule?date=${encodeURIComponent(
+          selectedDate,
+        )}&success=payment_recorded`
       : getSuccessRedirect(formData, fallback, "payment_recorded");
 
     redirect(redirectUrl);
+  } catch (error) {
+    rethrowIfRedirect(error);
+    if (isRedirectError(error)) throw error;
+    redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
+  }
+}
+
+export async function recordFloorRentalPaymentAction(formData: FormData) {
+  const fallback = "/app/schedule";
+
+  try {
+    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+
+    const appointmentId = getString(formData, "appointmentId");
+    const clientId = getString(formData, "clientId");
+    const amount = getNumberOrNull(getString(formData, "amount"));
+    const paymentMethod = getString(formData, "paymentMethod") || "other";
+    const notes = getString(formData, "notes");
+
+    if (!appointmentId || !clientId) {
+      redirect(getErrorRedirect(formData, fallback, "missing_payment_target"));
+    }
+
+    if (!amount || amount <= 0) {
+      redirect(getErrorRedirect(formData, fallback, "invalid_payment_amount"));
+    }
+
+    const { data: appointment, error: appointmentError } = await supabase
+      .from("appointments")
+      .select("id, appointment_type")
+      .eq("id", appointmentId)
+      .eq("studio_id", studioId)
+      .single();
+
+    if (appointmentError || !appointment) {
+      redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
+    }
+
+    if (appointment.appointment_type !== "floor_space_rental") {
+      redirect(getErrorRedirect(formData, fallback, "not_floor_rental"));
+    }
+
+    const { error: insertError } = await supabase.from("payments").insert({
+      studio_id: studioId,
+      client_id: clientId,
+      amount,
+      payment_method: paymentMethod,
+      status: "paid",
+      notes: notes || null,
+      paid_at: new Date().toISOString(),
+      created_by: user.id,
+      payment_type: "floor_space_rental",
+      source: "appointment",
+      external_reference: appointmentId,
+    });
+
+    if (insertError) {
+      redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
+    }
+
+    await recomputeFloorRentalPaymentStatus({
+      supabase,
+      studioId,
+      appointmentId,
+    });
+
+    revalidatePath("/app/schedule");
+    revalidatePath(`/app/schedule/${appointmentId}`);
+    revalidatePath(`/app/clients/${clientId}`);
+    redirect(getSuccessRedirect(formData, fallback, "payment_recorded"));
   } catch (error) {
     rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
@@ -3132,5 +3138,7 @@ export async function deleteLessonRecapAction(formData: FormData) {
     redirect(getErrorRedirect(formData, fallback, "delete_recap_failed"));
   }
 }
+
+
 
 
