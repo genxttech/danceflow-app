@@ -2407,11 +2407,17 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
         "id, client_id, appointment_type, starts_at, client_package_id, price_amount, payment_status, billing_type, status",
       )
       .eq("studio_id", studioId)
-      .gte("starts_at", startsAtMin)
-      .lt("starts_at", startsAtMax)
-      .not("appointment_type", "eq", "floor_space_rental")
-      .in("status", ["scheduled", "confirmed", "booked"])
-      .order("starts_at", { ascending: true });
+.gte("starts_at", startsAtMin)
+.lt("starts_at", startsAtMax)
+.in("appointment_type", [
+  "private_lesson",
+  "group_class",
+  "intro_lesson",
+  "coaching",
+  "practice_party",
+])
+.eq("status", "scheduled")
+.order("starts_at", { ascending: true });
 
     if (appointmentsError) {
       redirect(getErrorRedirect(formData, fallback, "bulk_attendance_failed"));
@@ -2448,7 +2454,7 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
           })
           .eq("id", appointment.id)
           .eq("studio_id", studioId)
-          .in("status", ["scheduled", "confirmed", "booked"]);
+          .eq("status", "scheduled");
 
         if (updateError) {
           skippedCount += 1;

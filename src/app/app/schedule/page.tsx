@@ -407,7 +407,7 @@ function packageHealthClass(health: PackageHealth) {
 function isCloseoutCandidate(appointment: AppointmentRow) {
   return (
     appointment.appointment_type !== "floor_space_rental" &&
-    ["scheduled", "confirmed", "booked"].includes(appointment.status)
+    appointment.status === "scheduled"
   );
 }
 
@@ -723,7 +723,20 @@ export default async function SchedulePage({
   }
 
   if (statusFilter !== "all") {
-    appointmentsQuery = appointmentsQuery.eq("status", statusFilter);
+    if (
+      statusFilter === "scheduled" ||
+      statusFilter === "attended" ||
+      statusFilter === "cancelled" ||
+      statusFilter === "no_show" ||
+      statusFilter === "rescheduled"
+    ) {
+      appointmentsQuery = appointmentsQuery.eq("status", statusFilter);
+    } else {
+      appointmentsQuery = appointmentsQuery.eq(
+        "id",
+        "00000000-0000-0000-0000-000000000000",
+      );
+    }
   }
 
   if (instructorFilter !== "all") {
@@ -780,7 +793,7 @@ export default async function SchedulePage({
       statusFilter === "no_show" ||
       statusFilter === "rescheduled"
     ) {
-      eventsQuery = eventsQuery.eq("id", "__no_event_match__");
+      eventsQuery = eventsQuery.eq("id", "00000000-0000-0000-0000-000000000000");
     } else {
       eventsQuery = eventsQuery.eq("status", statusFilter);
     }
@@ -1834,5 +1847,6 @@ export default async function SchedulePage({
     </div>
   );
 }
+
 
 
