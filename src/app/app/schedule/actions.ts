@@ -807,7 +807,7 @@ async function syncMembershipUsageForAppointment(params: {
   >["supabase"];
   studioId: string;
   appointmentId: string;
-  clientId: string | null;
+  clientId: string;
   appointmentType: string;
   status: string;
   startsAtIso: string;
@@ -1129,7 +1129,7 @@ async function recomputeFloorRentalPaymentStatus(params: {
   }
 
   const paidTotal = (payments ?? [])
-    .filter((payment) => payment.status === "paid")
+    .filter((payment) => payment.status === "processed")
     .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
 
   let paymentStatus = "unpaid";
@@ -2277,9 +2277,7 @@ async function canMarkAppointmentAttendedWithoutPaymentWarning(params: {
   }
 
   if (billingType === "pay_as_you_go") {
-    return ["paid", "waived", "comped", "free", "included"].includes(
-      paymentStatus,
-    );
+    return ["paid", "waived", "comped", "free"].includes(paymentStatus);
   }
 
   if (billingType === "membership") {
@@ -2336,11 +2334,14 @@ export async function markAppointmentAttendedAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "payment_required"));
     }
 
+    const attendedAt = new Date().toISOString();
+
     const { error: updateError } = await supabase
       .from("appointments")
       .update({
         status: "attended",
-        updated_at: new Date().toISOString(),
+        attendance_marked_at: attendedAt,
+        updated_at: attendedAt,
       })
       .eq("id", appointmentId)
       .eq("studio_id", studioId);
@@ -2363,11 +2364,6 @@ export async function markAppointmentAttendedAction(formData: FormData) {
         appointmentType: appointment.appointment_type,
         status: "attended",
         startsAtIso: appointment.starts_at,
-      });
-    } else {
-      await clearMembershipUsageForAppointment({
-        supabase,
-        appointmentId,
       });
     }
 
@@ -2442,11 +2438,14 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
           continue;
         }
 
+        const attendedAt = new Date().toISOString();
+
         const { error: updateError } = await supabase
           .from("appointments")
           .update({
             status: "attended",
-            updated_at: new Date().toISOString(),
+            attendance_marked_at: attendedAt,
+            updated_at: attendedAt,
           })
           .eq("id", appointment.id)
           .eq("studio_id", studioId)
@@ -2472,11 +2471,6 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
             appointmentType: appointment.appointment_type,
             status: "attended",
             startsAtIso: appointment.starts_at,
-          });
-        } else {
-          await clearMembershipUsageForAppointment({
-            supabase,
-            appointmentId: appointment.id,
           });
         }
 
@@ -2621,7 +2615,7 @@ export async function recordFloorRentalPaymentAction(formData: FormData) {
       appointment_id: appointmentId,
       amount,
       payment_method: paymentMethod,
-      status: "paid",
+      status: "processed",
       notes: notes || null,
       paid_at: new Date().toISOString(),
       created_by: user.id,
@@ -2696,7 +2690,6 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
     const { error: insertError } = await supabase.from("payments").insert({
       studio_id: studioId,
       client_id: clientId,
-      appointment_id: appointmentId,
       amount,
       payment_method: paymentMethod,
       status: "paid",
@@ -3139,3 +3132,5 @@ export async function deleteLessonRecapAction(formData: FormData) {
     redirect(getErrorRedirect(formData, fallback, "delete_recap_failed"));
   }
 }
+
+
