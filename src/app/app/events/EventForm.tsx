@@ -28,6 +28,8 @@ type EventLocationFormValue = {
   postalCode: string;
   country: string;
   capacity: string;
+  seriesEndDate: string;
+  seriesCount: string;
   sessions: EventLocationSessionFormValue[];
 };
 
@@ -397,6 +399,51 @@ function getStatusHelpText(status: string) {
   }
 }
 
+
+function addDaysToDateValue(dateValue: string, days: number) {
+  if (!dateValue) return "";
+
+  const date = new Date(`${dateValue}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) return "";
+
+  date.setDate(date.getDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function calculateWeeklyDatesFromSeries(params: {
+  firstDate: string;
+  finalDate: string;
+  sessionCount: string;
+}) {
+  const { firstDate, finalDate, sessionCount } = params;
+
+  if (!firstDate) return [];
+
+  const parsedCount = Number.parseInt(sessionCount, 10);
+  const count = Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 0;
+
+  if (count > 0) {
+    return Array.from({ length: count }, (_, index) =>
+      addDaysToDateValue(firstDate, index * 7),
+    ).filter(Boolean);
+  }
+
+  if (!finalDate || finalDate < firstDate) {
+    return [firstDate];
+  }
+
+  const dates: string[] = [];
+  let cursor = firstDate;
+
+  while (cursor && cursor <= finalDate && dates.length < 104) {
+    dates.push(cursor);
+    cursor = addDaysToDateValue(cursor, 7);
+  }
+
+  return dates;
+}
+
 function makeBlankSession(
   params?: Partial<EventLocationSessionFormValue>,
 ): EventLocationSessionFormValue {
@@ -423,6 +470,8 @@ function makeBlankLocation(
     postalCode: params?.postalCode ?? "",
     country: params?.country ?? "US",
     capacity: params?.capacity ?? "",
+    seriesEndDate: params?.seriesEndDate ?? "",
+    seriesCount: params?.seriesCount ?? "",
     sessions: params?.sessions?.length ? params.sessions : [makeBlankSession()],
   };
 }
@@ -657,6 +706,54 @@ export default function EventForm({
               ? { ...session, [field]: value }
               : session,
           ),
+        };
+      }),
+    );
+  }
+
+
+  function updateLocationSeriesField(
+    locationIndex: number,
+    field: "seriesEndDate" | "seriesCount",
+    value: string,
+  ) {
+    setEventLocations((current) =>
+      current.map((location, index) =>
+        index === locationIndex ? { ...location, [field]: value } : location,
+      ),
+    );
+  }
+
+  function generateWeeklyLocationSeries(locationIndex: number) {
+    setEventLocations((current) =>
+      current.map((location, index) => {
+        if (index !== locationIndex) return location;
+
+        const firstSession = location.sessions[0] ?? makeBlankSession();
+        const firstDate = firstSession.sessionDate || startDate || getTodayDateValue();
+        const dates = calculateWeeklyDatesFromSeries({
+          firstDate,
+          finalDate: location.seriesEndDate,
+          sessionCount: location.seriesCount,
+        });
+
+        return {
+          ...location,
+          sessions: dates.map((date, nestedIndex) => {
+            const existingSession = location.sessions[nestedIndex];
+
+            return makeBlankSession({
+              sessionDate: date,
+              startTime:
+                existingSession?.startTime || firstSession.startTime || startTime,
+              endTime: existingSession?.endTime || firstSession.endTime || endTime,
+              sessionLabel:
+                existingSession?.sessionLabel || `Week ${nestedIndex + 1}`,
+              seriesLabel:
+                existingSession?.seriesLabel || firstSession.seriesLabel || "Series 1",
+              capacity: existingSession?.capacity || location.capacity || "",
+            });
+          }),
         };
       }),
     );
@@ -1552,6 +1649,75 @@ export default function EventForm({
                           </div>
                         </div>
 
+                        {isGroupClass ? (
+                          <div className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-sky-950">
+                                  Weekly group class series
+                                </p>
+                                <p className="mt-1 text-xs leading-5 text-sky-800">
+                                  Use the first date/time below as Week 1, then generate weekly sessions for this location.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => generateWeeklyLocationSeries(locationIndex)}
+                                className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-sky-900 shadow-sm ring-1 ring-sky-200 hover:bg-sky-100"
+                              >
+                                Generate Series
+                              </button>
+                            </div>
+
+                            <div className="mt-3 grid gap-3 md:grid-cols-2">
+                              <div>
+                                <label className="mb-1.5 block text-sm font-medium text-sky-950">
+                                  Final Class Date
+                                </label>
+                                <input
+                                  type="date"
+                                  value={location.seriesEndDate}
+                                  onChange={(e) =>
+                                    updateLocationSeriesField(
+                                      locationIndex,
+                                      "seriesEndDate",
+                                      e.target.value,
+                                    )
+                                  }
+                                  className="w-full rounded-xl border border-sky-200 px-3 py-3 text-sm"
+                                />
+                                <p className="mt-1 text-xs text-sky-800">
+                                  Leave blank if you prefer to use number of sessions.
+                                </p>
+                              </div>
+
+                              <div>
+                                <label className="mb-1.5 block text-sm font-medium text-sky-950">
+                                  Number of Sessions
+                                </label>
+                                <input
+                                  type="number"
+                                  min="1"
+                                  max="104"
+                                  value={location.seriesCount}
+                                  onChange={(e) =>
+                                    updateLocationSeriesField(
+                                      locationIndex,
+                                      "seriesCount",
+                                      e.target.value,
+                                    )
+                                  }
+                                  className="w-full rounded-xl border border-sky-200 px-3 py-3 text-sm"
+                                  placeholder="Example: 6"
+                                />
+                                <p className="mt-1 text-xs text-sky-800">
+                                  This overrides final date when filled in.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
+
                         <div className="mt-5 space-y-3">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-sm font-semibold text-slate-950">
@@ -2244,6 +2410,7 @@ export default function EventForm({
     </form>
   );
 }
+
 
 
 

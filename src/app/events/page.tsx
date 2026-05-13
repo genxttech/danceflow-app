@@ -4,3 +4,4 @@ export default function EventsRedirectPage() {
   redirect("/discover/events");
 }
 
+

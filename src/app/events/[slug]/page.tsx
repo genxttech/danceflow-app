@@ -94,6 +94,31 @@ type EventRow = {
     | null;
 };
 
+type EventLocationSessionRow = {
+  session_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  session_label: string | null;
+  series_label: string | null;
+  capacity: number | null;
+  sort_order: number | null;
+};
+
+type EventLocationRow = {
+  id: string;
+  location_name: string | null;
+  venue_name: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+  capacity: number | null;
+  sort_order: number | null;
+  event_location_sessions: EventLocationSessionRow[] | null;
+};
+
 type TicketTypeRow = {
   id: string;
   name: string;
@@ -326,6 +351,52 @@ function formatDateTime(value: string | null) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatSessionDate(value: string | null) {
+  if (!value) return "Date coming soon";
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function eventLocationDisplayName(location: EventLocationRow) {
+  return location.location_name?.trim() || location.venue_name?.trim() || "Location";
+}
+
+function eventLocationAddressParts(location: EventLocationRow) {
+  return [
+    location.venue_name && location.venue_name !== location.location_name
+      ? location.venue_name
+      : null,
+    location.address_line_1,
+    location.address_line_2,
+    [location.city, location.state, location.postal_code].filter(Boolean).join(" "),
+  ].filter(Boolean) as string[];
+}
+
+function sortLocationSessions(sessions: EventLocationSessionRow[] | null) {
+  return (sessions ?? []).slice().sort((a, b) => {
+    const sortA = Number(a.sort_order ?? 0);
+    const sortB = Number(b.sort_order ?? 0);
+
+    if (sortA !== sortB) return sortA - sortB;
+
+    const dateA = `${a.session_date ?? ""} ${a.start_time ?? ""}`;
+    const dateB = `${b.session_date ?? ""} ${b.start_time ?? ""}`;
+
+    return dateA.localeCompare(dateB);
+  });
 }
 
 function formatCurrency(value: number, currency: string) {
@@ -678,6 +749,7 @@ export default async function PublicEventDetailPage({
     { data: tags, error: tagsError },
     { data: ticketTypes, error: ticketTypesError },
     { data: activeRegistrations, error: activeRegistrationsError },
+    { data: eventLocations, error: eventLocationsError },
     favoriteResult,
   ] = await Promise.all([
     supabase
@@ -711,6 +783,33 @@ export default async function PublicEventDetailPage({
       .eq("event_id", typedEvent.id)
       .not("status", "in", "(cancelled,waitlisted)"),
 
+    supabase
+      .from("event_locations")
+      .select(`
+        id,
+        location_name,
+        venue_name,
+        address_line_1,
+        address_line_2,
+        city,
+        state,
+        postal_code,
+        country,
+        capacity,
+        sort_order,
+        event_location_sessions (
+          session_date,
+          start_time,
+          end_time,
+          session_label,
+          series_label,
+          capacity,
+          sort_order
+        )
+      `)
+      .eq("event_id", typedEvent.id)
+      .order("sort_order", { ascending: true }),
+
     user
       ? supabase
           .from("user_favorites")
@@ -725,6 +824,9 @@ export default async function PublicEventDetailPage({
   if (ticketTypesError) throw new Error(`Failed to load ticket types: ${ticketTypesError.message}`);
   if (activeRegistrationsError) {
     throw new Error(`Failed to load event capacity summary: ${activeRegistrationsError.message}`);
+  }
+  if (eventLocationsError) {
+    throw new Error(`Failed to load event locations: ${eventLocationsError.message}`);
   }
   if (favoriteResult?.error) {
     throw new Error(`Failed to load event favorite state: ${favoriteResult.error.message}`);
@@ -746,6 +848,10 @@ export default async function PublicEventDetailPage({
   const typedTags = (tags ?? []) as EventTagRow[];
   const allActiveTicketTypes = (ticketTypes ?? []) as TicketTypeRow[];
   const typedActiveRegistrations = (activeRegistrations ?? []) as TicketRegistrationCountRow[];
+  const typedEventLocations = ((eventLocations ?? []) as EventLocationRow[])
+    .slice()
+    .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0));
+  const hasDetailedLocations = typedEventLocations.length > 0;
   const isFavorited = Boolean(favoriteResult?.data?.id);
 
   const activeRegistrationCount = typedActiveRegistrations.length;
@@ -1042,8 +1148,26 @@ export default async function PublicEventDetailPage({
         </div>
 
         <div className="grid gap-4 border-t bg-slate-50 p-5 sm:grid-cols-2 lg:grid-cols-4">
-          <InfoCard label="Schedule" value={formatEventSchedule(typedEvent)} detail={formatTimeRange(typedEvent.start_time, typedEvent.end_time) || typedEvent.timezone} />
-          <InfoCard label="Location" value={typedEvent.venue_name || "Location coming soon"} detail={[typedEvent.city, typedEvent.state].filter(Boolean).join(", ")} />
+          <InfoCard
+            label="Schedule"
+            value={formatEventSchedule(typedEvent)}
+            detail={formatTimeRange(typedEvent.start_time, typedEvent.end_time) || typedEvent.timezone}
+          />
+          <InfoCard
+            label="Location"
+            value={
+              hasDetailedLocations
+                ? typedEventLocations.length === 1
+                  ? eventLocationDisplayName(typedEventLocations[0])
+                  : `${typedEventLocations.length} locations`
+                : typedEvent.venue_name || "Location coming soon"
+            }
+            detail={
+              hasDetailedLocations && typedEventLocations.length > 1
+                ? "See dates and locations below"
+                : [typedEvent.city, typedEvent.state].filter(Boolean).join(", ")
+            }
+          />
           <InfoCard
             label="Capacity"
             value={typedEvent.capacity ? `${activeRegistrationCount}/${typedEvent.capacity}` : "Open"}
@@ -1089,15 +1213,96 @@ export default async function PublicEventDetailPage({
           </section>
 
           <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-            <h2 className="text-2xl font-semibold tracking-tight text-slate-950">Location</h2>
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+              {hasDetailedLocations ? "Dates & Locations" : "Location"}
+            </h2>
 
-            <div className="mt-4 space-y-2 text-sm leading-7 text-slate-700">
-              {locationParts.length > 0 ? (
-                locationParts.map((part, index) => <p key={`${part}-${index}`}>{part}</p>)
-              ) : (
-                <p>Location details coming soon.</p>
-              )}
-            </div>
+            {hasDetailedLocations ? (
+              <div className="mt-5 space-y-5">
+                {typedEventLocations.map((location, index) => {
+                  const sessions = sortLocationSessions(location.event_location_sessions);
+                  const addressParts = eventLocationAddressParts(location);
+
+                  return (
+                    <div key={location.id} className="rounded-2xl border bg-slate-50 p-5">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                            Location {index + 1}
+                          </p>
+                          <h3 className="mt-1 text-lg font-semibold text-slate-950">
+                            {eventLocationDisplayName(location)}
+                          </h3>
+                        </div>
+
+                        {location.capacity != null ? (
+                          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                            Capacity {location.capacity}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {addressParts.length > 0 ? (
+                        <div className="mt-3 space-y-1 text-sm leading-6 text-slate-600">
+                          {addressParts.map((part, addressIndex) => (
+                            <p key={`${location.id}-address-${addressIndex}`}>{part}</p>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-3 text-sm text-slate-500">
+                          Address details coming soon.
+                        </p>
+                      )}
+
+                      <div className="mt-5">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {typedEvent.event_type === "group_class" ? "Class dates" : "Event dates"}
+                        </p>
+
+                        {sessions.length > 0 ? (
+                          <div className="mt-3 divide-y rounded-xl border bg-white">
+                            {sessions.map((session, sessionIndex) => (
+                              <div
+                                key={`${location.id}-session-${sessionIndex}`}
+                                className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                              >
+                                <div>
+                                  <p className="text-sm font-medium text-slate-950">
+                                    {session.session_label ||
+                                      session.series_label ||
+                                      `Session ${sessionIndex + 1}`}
+                                  </p>
+                                  <p className="text-sm text-slate-600">
+                                    {formatSessionDate(session.session_date)}
+                                  </p>
+                                </div>
+
+                                <p className="text-sm font-medium text-slate-700">
+                                  {formatTimeRange(session.start_time, session.end_time) ||
+                                    "Time coming soon"}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-sm text-slate-500">
+                            Dates for this location are coming soon.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-4 space-y-2 text-sm leading-7 text-slate-700">
+                {locationParts.length > 0 ? (
+                  locationParts.map((part, index) => <p key={`${part}-${index}`}>{part}</p>)
+                ) : (
+                  <p>Location details coming soon.</p>
+                )}
+              </div>
+            )}
           </section>
 
           <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
@@ -1363,3 +1568,4 @@ export default async function PublicEventDetailPage({
   </>
 );
 }
+

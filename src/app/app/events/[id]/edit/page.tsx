@@ -67,6 +67,31 @@ type EventStyleRow = {
   style_key: string;
 };
 
+type EventLocationSessionRow = {
+  session_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  session_label: string | null;
+  series_label: string | null;
+  capacity: number | null;
+  sort_order: number | null;
+};
+
+type EventLocationRow = {
+  id: string;
+  location_name: string | null;
+  venue_name: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+  capacity: number | null;
+  sort_order: number | null;
+  event_location_sessions: EventLocationSessionRow[] | null;
+};
+
 function isOrganizerWorkspaceName(value: string | null | undefined) {
   const normalized = (value ?? "").trim().toLowerCase();
 
@@ -115,6 +140,7 @@ export default async function EditEventPage({
     { data: organizers, error: organizersError },
     { data: tags, error: tagsError },
     { data: eventStyles, error: eventStylesError },
+    { data: eventLocations, error: eventLocationsError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -182,6 +208,34 @@ export default async function EditEventPage({
       .from("event_public_styles")
       .select("style_key")
       .eq("event_id", id),
+
+    supabase
+      .from("event_locations")
+      .select(`
+        id,
+        location_name,
+        venue_name,
+        address_line_1,
+        address_line_2,
+        city,
+        state,
+        postal_code,
+        country,
+        capacity,
+        sort_order,
+        event_location_sessions (
+          session_date,
+          start_time,
+          end_time,
+          session_label,
+          series_label,
+          capacity,
+          sort_order
+        )
+      `)
+      .eq("event_id", id)
+      .eq("studio_id", studioId)
+      .order("sort_order", { ascending: true }),
   ]);
 
   if (workspaceError) {
@@ -203,6 +257,43 @@ export default async function EditEventPage({
   if (eventStylesError) {
     throw new Error(`Failed to load event styles: ${eventStylesError.message}`);
   }
+
+  if (eventLocationsError) {
+    throw new Error(
+      `Failed to load event locations: ${eventLocationsError.message}`,
+    );
+  }
+
+  const typedEventLocations = (eventLocations ?? []) as EventLocationRow[];
+  const normalizedEventLocations = typedEventLocations.map((location) => {
+    const sessions = (location.event_location_sessions ?? [])
+      .slice()
+      .sort((a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0))
+      .map((session) => ({
+        sessionDate: session.session_date ?? "",
+        startTime: session.start_time ?? "",
+        endTime: session.end_time ?? "",
+        sessionLabel: session.session_label ?? "",
+        seriesLabel: session.series_label ?? "",
+        capacity:
+          session.capacity != null ? String(session.capacity) : "",
+      }));
+
+    return {
+      locationName: location.location_name ?? "",
+      venueName: location.venue_name ?? "",
+      addressLine1: location.address_line_1 ?? "",
+      addressLine2: location.address_line_2 ?? "",
+      city: location.city ?? "",
+      state: location.state ?? "",
+      postalCode: location.postal_code ?? "",
+      country: location.country ?? "US",
+      capacity: location.capacity != null ? String(location.capacity) : "",
+      seriesEndDate: "",
+      seriesCount: "",
+      sessions,
+    };
+  });
 
   const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
   const typedEvent = event as EventRow;
@@ -339,6 +430,7 @@ export default async function EditEventPage({
           faq: typedEvent.faq ?? "",
           tags: typedTags.map((tag) => tag.tag).join(", "),
           styleKeys: selectedStyleKeys,
+          eventLocations: normalizedEventLocations,
         }}
       />
     </div>
