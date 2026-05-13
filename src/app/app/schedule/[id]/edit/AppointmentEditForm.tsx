@@ -80,6 +80,8 @@ type Appointment = {
   client_package_id: string | null;
   price_amount?: number | null;
   payment_status?: string | null;
+  billing_type?: string | null;
+  billing_note?: string | null;
 };
 
 type PackageHealth =
@@ -94,18 +96,20 @@ function toLocalDateTimeInputValue(value: string) {
   const date = new Date(value);
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate()
+    date.getDate(),
   )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function getLowestRemainingValue(items: ClientPackageItem[]) {
   const finiteItems = items.filter(
-    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number"
+    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number",
   );
 
   if (finiteItems.length === 0) return null;
 
-  return Math.min(...finiteItems.map((item) => Number(item.quantity_remaining ?? 0)));
+  return Math.min(
+    ...finiteItems.map((item) => Number(item.quantity_remaining ?? 0)),
+  );
 }
 
 function getPackageHealth(pkg: ClientPackageOption | null): PackageHealth {
@@ -165,6 +169,14 @@ function appointmentTypeLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
+function billingTypeLabel(value: string) {
+  if (value === "package_credit") return "Package Credit";
+  if (value === "membership") return "Membership";
+  if (value === "pay_as_you_go") return "Pay-as-you-go";
+  if (value === "free_comped") return "Free / Comped";
+  return "Package Credit";
+}
+
 function paymentStatusLabel(value: string) {
   if (value === "unpaid") return "Unpaid";
   if (value === "partial") return "Partially Paid";
@@ -214,16 +226,18 @@ function usagePeriodLabel(value: string) {
 
 function benefitTypeLabel(value: string) {
   if (value === "unlimited_group_classes") return "Unlimited Group Classes";
-  if (value === "unlimited_practice_parties") return "Unlimited Practice Parties";
+  if (value === "unlimited_practice_parties")
+    return "Unlimited Practice Parties";
   if (value === "included_private_lessons") return "Included Private Lessons";
   if (value === "event_discount_percent") return "Event Discount Percent";
-  if (value === "floor_rental_discount_percent") return "Floor Rental Discount Percent";
+  if (value === "floor_rental_discount_percent")
+    return "Floor Rental Discount Percent";
   return value.replaceAll("_", " ");
 }
 
 function getBenefitAppliesToAppointmentType(
   benefit: MembershipBenefit,
-  appointmentType: string
+  appointmentType: string,
 ) {
   if (benefit.benefit_type === "included_private_lessons") {
     return appointmentType === "private_lesson";
@@ -246,7 +260,7 @@ function getBenefitAppliesToAppointmentType(
 
 function membershipBenefitSummary(
   benefit: MembershipBenefit,
-  appointmentType: string
+  appointmentType: string,
 ) {
   const applies = getBenefitAppliesToAppointmentType(benefit, appointmentType);
 
@@ -279,8 +293,8 @@ function membershipBenefitSummary(
       benefit.discount_percent != null
         ? `${benefit.discount_percent}% discount`
         : benefit.discount_amount != null
-        ? `${formatCurrency(benefit.discount_amount)} discount`
-        : "Discount";
+          ? `${formatCurrency(benefit.discount_amount)} discount`
+          : "Discount";
     return {
       applies,
       text: `${discount} • ${usagePeriodLabel(benefit.usage_period)}`,
@@ -292,8 +306,8 @@ function membershipBenefitSummary(
       benefit.discount_percent != null
         ? `${benefit.discount_percent}% discount`
         : benefit.discount_amount != null
-        ? `${formatCurrency(benefit.discount_amount)} discount`
-        : "Discount";
+          ? `${formatCurrency(benefit.discount_amount)} discount`
+          : "Discount";
     return {
       applies: false,
       text: `${discount} on events • ${usagePeriodLabel(benefit.usage_period)}`,
@@ -323,21 +337,32 @@ export default function AppointmentEditForm({
   clientMemberships: ClientMembershipOption[];
   linkedPartnersByClientId?: Record<string, ClientOption[]>;
 }) {
-  const [state, formAction, pending] = useActionState(updateAppointmentAction, initialState);
+  const [state, formAction, pending] = useActionState(
+    updateAppointmentAction,
+    initialState,
+  );
 
-  const [appointmentType, setAppointmentType] = useState(appointment.appointment_type);
+  const [appointmentType, setAppointmentType] = useState(
+    appointment.appointment_type,
+  );
   const [clientId, setClientId] = useState(appointment.client_id ?? "");
   const [partnerClientId, setPartnerClientId] = useState(
-    appointment.partner_client_id ?? ""
+    appointment.partner_client_id ?? "",
   );
   const [linkedPackageId, setLinkedPackageId] = useState(
-    appointment.client_package_id ?? ""
+    appointment.client_package_id ?? "",
+  );
+  const [billingType, setBillingType] = useState(
+    appointment.billing_type ?? "package_credit",
+  );
+  const [billingNote, setBillingNote] = useState(
+    appointment.billing_note ?? "",
   );
   const [priceAmount, setPriceAmount] = useState(
-    appointment.price_amount != null ? String(appointment.price_amount) : ""
+    appointment.price_amount != null ? String(appointment.price_amount) : "",
   );
   const [paymentStatus, setPaymentStatus] = useState(
-    appointment.payment_status ?? "unpaid"
+    appointment.payment_status ?? "unpaid",
   );
 
   const selectedPackages = useMemo(() => {
@@ -352,7 +377,7 @@ export default function AppointmentEditForm({
 
   const packageHealth = useMemo(
     () => getPackageHealth(selectedPackage),
-    [selectedPackage]
+    [selectedPackage],
   );
 
   const selectedMembership = useMemo(() => {
@@ -360,7 +385,7 @@ export default function AppointmentEditForm({
     return (
       clientMemberships.find(
         (membership) =>
-          membership.client_id === clientId && membership.status === "active"
+          membership.client_id === clientId && membership.status === "active",
       ) ?? null
     );
   }, [clientId, clientMemberships]);
@@ -375,8 +400,17 @@ export default function AppointmentEditForm({
 
   const matchingBenefits = applicableBenefits.filter((b) => b.summary.applies);
 
+  const showBillingSection =
+    appointmentType !== "floor_space_rental" &&
+    appointmentType !== "room_unavailable";
   const showPackageSection =
-    appointmentType !== "floor_space_rental" && appointmentType !== "event";
+    showBillingSection && billingType === "package_credit";
+  const showMembershipBillingHint =
+    showBillingSection && billingType === "membership";
+  const showPayAsYouGoBillingHint =
+    showBillingSection && billingType === "pay_as_you_go";
+  const showCompedBillingHint =
+    showBillingSection && billingType === "free_comped";
   const showPartnerSection =
     appointmentType === "private_lesson" && clientId.length > 0;
 
@@ -384,7 +418,6 @@ export default function AppointmentEditForm({
     if (!clientId) return [];
     return linkedPartnersByClientId[clientId] ?? [];
   }, [clientId, linkedPartnersByClientId]);
-
 
   return (
     <form action={formAction} className="space-y-8">
@@ -398,15 +431,21 @@ export default function AppointmentEditForm({
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="space-y-6 rounded-2xl border bg-white p-6 shadow-sm">
           <div>
-            <h2 className="text-2xl font-semibold tracking-tight">Edit Appointment</h2>
+            <h2 className="text-2xl font-semibold tracking-tight">
+              Edit Appointment
+            </h2>
             <p className="mt-2 text-slate-600">
-              Update appointment details and review package and membership coverage before saving.
+              Update appointment details and review package and membership
+              coverage before saving.
             </p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <div>
-              <label htmlFor="appointmentType" className="mb-1 block text-sm font-medium">
+              <label
+                htmlFor="appointmentType"
+                className="mb-1 block text-sm font-medium"
+              >
                 Appointment Type
               </label>
               <select
@@ -440,7 +479,10 @@ export default function AppointmentEditForm({
             </div>
 
             <div>
-              <label htmlFor="clientId" className="mb-1 block text-sm font-medium">
+              <label
+                htmlFor="clientId"
+                className="mb-1 block text-sm font-medium"
+              >
                 Client
               </label>
               <select
@@ -465,7 +507,10 @@ export default function AppointmentEditForm({
 
             {showPartnerSection ? (
               <div>
-                <label htmlFor="partnerClientId" className="mb-1 block text-sm font-medium">
+                <label
+                  htmlFor="partnerClientId"
+                  className="mb-1 block text-sm font-medium"
+                >
                   Partner
                 </label>
                 <select
@@ -492,7 +537,10 @@ export default function AppointmentEditForm({
             ) : null}
 
             <div>
-              <label htmlFor="instructorId" className="mb-1 block text-sm font-medium">
+              <label
+                htmlFor="instructorId"
+                className="mb-1 block text-sm font-medium"
+              >
                 Instructor
               </label>
               <select
@@ -511,7 +559,10 @@ export default function AppointmentEditForm({
             </div>
 
             <div>
-              <label htmlFor="roomId" className="mb-1 block text-sm font-medium">
+              <label
+                htmlFor="roomId"
+                className="mb-1 block text-sm font-medium"
+              >
                 Room
               </label>
               <select
@@ -530,7 +581,10 @@ export default function AppointmentEditForm({
             </div>
 
             <div>
-              <label htmlFor="startsAt" className="mb-1 block text-sm font-medium">
+              <label
+                htmlFor="startsAt"
+                className="mb-1 block text-sm font-medium"
+              >
                 Starts At
               </label>
               <input
@@ -544,7 +598,10 @@ export default function AppointmentEditForm({
             </div>
 
             <div>
-              <label htmlFor="endsAt" className="mb-1 block text-sm font-medium">
+              <label
+                htmlFor="endsAt"
+                className="mb-1 block text-sm font-medium"
+              >
                 Ends At
               </label>
               <input
@@ -558,13 +615,113 @@ export default function AppointmentEditForm({
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-              Status updates automatically. Changing the date or time will mark this appointment as <span className="font-medium text-slate-900">Rescheduled</span>.
+              Status updates automatically. Changing the date or time will mark
+              this appointment as{" "}
+              <span className="font-medium text-slate-900">Rescheduled</span>.
             </div>
           </div>
 
+          {showBillingSection ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900">
+                    Lesson Billing
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Choose how this lesson should be covered so closeout can
+                    route it correctly.
+                  </p>
+                </div>
+                <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700">
+                  {billingTypeLabel(billingType)}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="billingType"
+                    className="mb-1 block text-sm font-medium"
+                  >
+                    Billing Type *
+                  </label>
+                  <select
+                    id="billingType"
+                    name="billingType"
+                    value={billingType}
+                    onChange={(e) => {
+                      const nextBillingType = e.target.value;
+                      setBillingType(nextBillingType);
+                      if (nextBillingType !== "package_credit") {
+                        setLinkedPackageId("");
+                      }
+                    }}
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+                  >
+                    <option value="package_credit">Package Credit</option>
+                    <option value="membership">Membership</option>
+                    <option value="pay_as_you_go">Pay-as-you-go</option>
+                    <option value="free_comped">Free / Comped</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="billingNote"
+                    className="mb-1 block text-sm font-medium"
+                  >
+                    Billing Note
+                  </label>
+                  <input
+                    id="billingNote"
+                    name="billingNote"
+                    value={billingNote}
+                    onChange={(e) => setBillingNote(e.target.value)}
+                    placeholder={
+                      billingType === "free_comped"
+                        ? "Example: intro comp, owner approved"
+                        : "Optional"
+                    }
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              {showMembershipBillingHint ? (
+                <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                  Closeout will mark this ready only when active membership
+                  coverage applies.
+                </div>
+              ) : null}
+
+              {showPayAsYouGoBillingHint ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  Pay-as-you-go lessons stay in May Need Review until payment is
+                  recorded.
+                </div>
+              ) : null}
+
+              {showCompedBillingHint ? (
+                <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                  Free / Comped lessons can be closed out without payment or
+                  package credit.
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <>
+              <input type="hidden" name="billingType" value="package_credit" />
+              <input type="hidden" name="billingNote" value="" />
+            </>
+          )}
+
           {showPackageSection ? (
             <div>
-              <label htmlFor="clientPackageId" className="mb-1 block text-sm font-medium">
+              <label
+                htmlFor="clientPackageId"
+                className="mb-1 block text-sm font-medium"
+              >
                 Linked Package
               </label>
               <select
@@ -597,13 +754,14 @@ export default function AppointmentEditForm({
                     Floor Rental Billing
                   </h3>
                   <p className="mt-1 text-sm text-emerald-800">
-                    Keep the rental amount and payment status aligned with the staff payment workflow.
+                    Keep the rental amount and payment status aligned with the
+                    staff payment workflow.
                   </p>
                 </div>
 
                 <span
                   className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${paymentStatusClass(
-                    paymentStatus
+                    paymentStatus,
                   )}`}
                 >
                   {paymentStatusLabel(paymentStatus)}
@@ -612,7 +770,10 @@ export default function AppointmentEditForm({
 
               <div className="mt-4 grid gap-4 md:grid-cols-2">
                 <div>
-                  <label htmlFor="priceAmount" className="mb-1 block text-sm font-medium">
+                  <label
+                    htmlFor="priceAmount"
+                    className="mb-1 block text-sm font-medium"
+                  >
                     Rental Amount
                   </label>
                   <input
@@ -629,7 +790,10 @@ export default function AppointmentEditForm({
                 </div>
 
                 <div>
-                  <label htmlFor="paymentStatus" className="mb-1 block text-sm font-medium">
+                  <label
+                    htmlFor="paymentStatus"
+                    className="mb-1 block text-sm font-medium"
+                  >
                     Payment Status
                   </label>
                   <select
@@ -650,14 +814,20 @@ export default function AppointmentEditForm({
 
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <div className="rounded-xl border border-emerald-200 bg-white p-4">
-                  <p className="text-sm text-emerald-700">Configured rental amount</p>
+                  <p className="text-sm text-emerald-700">
+                    Configured rental amount
+                  </p>
                   <p className="mt-1 text-lg font-semibold text-emerald-950">
-                    {priceAmount ? formatCurrency(Number(priceAmount)) : "Not set"}
+                    {priceAmount
+                      ? formatCurrency(Number(priceAmount))
+                      : "Not set"}
                   </p>
                 </div>
 
                 <div className="rounded-xl border border-emerald-200 bg-white p-4">
-                  <p className="text-sm text-emerald-700">Current payment status</p>
+                  <p className="text-sm text-emerald-700">
+                    Current payment status
+                  </p>
                   <p className="mt-1 text-lg font-semibold text-emerald-950">
                     {paymentStatusLabel(paymentStatus)}
                   </p>
@@ -710,7 +880,8 @@ export default function AppointmentEditForm({
 
             {!showPackageSection ? (
               <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
-                Package linking is not used for {appointmentTypeLabel(appointmentType).toLowerCase()}.
+                Package linking is not used for{" "}
+                {appointmentTypeLabel(appointmentType).toLowerCase()}.
               </div>
             ) : !clientId ? (
               <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
@@ -728,7 +899,7 @@ export default function AppointmentEditForm({
                   </p>
                   <span
                     className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${packageHealthClass(
-                      packageHealth
+                      packageHealth,
                     )}`}
                   >
                     {packageHealthLabel(packageHealth)}
@@ -736,12 +907,15 @@ export default function AppointmentEditForm({
                 </div>
 
                 <p className="mt-3 text-sm text-slate-600">
-                  {summarizeClientPackageItems(selectedPackage.client_package_items)}
+                  {summarizeClientPackageItems(
+                    selectedPackage.client_package_items,
+                  )}
                 </p>
 
                 {"expiration_date" in selectedPackage ? (
                   <p className="mt-2 text-sm text-slate-500">
-                    Expires: {formatShortDate(selectedPackage.expiration_date ?? null)}
+                    Expires:{" "}
+                    {formatShortDate(selectedPackage.expiration_date ?? null)}
                   </p>
                 ) : null}
 
@@ -765,7 +939,8 @@ export default function AppointmentEditForm({
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
             <h3 className="text-xl font-semibold">Membership Benefits</h3>
             <p className="mt-2 text-sm text-slate-600">
-              Check whether the client’s active membership includes or discounts this appointment type.
+              Check whether the client’s active membership includes or discounts
+              this appointment type.
             </p>
 
             {!clientId ? (
@@ -793,14 +968,19 @@ export default function AppointmentEditForm({
                       <p className="text-sm text-slate-500">Billing</p>
                       <p className="mt-1 font-medium text-slate-900">
                         {formatCurrency(selectedMembership.price_snapshot)} /{" "}
-                        {billingIntervalLabel(selectedMembership.billing_interval_snapshot)}
+                        {billingIntervalLabel(
+                          selectedMembership.billing_interval_snapshot,
+                        )}
                       </p>
                     </div>
 
                     <div className="rounded-xl border bg-white p-4">
                       <p className="text-sm text-slate-500">Current Period</p>
                       <p className="mt-1 font-medium text-slate-900">
-                        {formatShortDate(selectedMembership.current_period_start)} –{" "}
+                        {formatShortDate(
+                          selectedMembership.current_period_start,
+                        )}{" "}
+                        –{" "}
                         {formatShortDate(selectedMembership.current_period_end)}
                       </p>
                     </div>
@@ -809,11 +989,13 @@ export default function AppointmentEditForm({
 
                 {matchingBenefits.length > 0 ? (
                   <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-                    This membership includes or discounts the selected appointment type.
+                    This membership includes or discounts the selected
+                    appointment type.
                   </div>
                 ) : (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                    No direct membership benefit applies to {appointmentTypeLabel(appointmentType).toLowerCase()}.
+                    No direct membership benefit applies to{" "}
+                    {appointmentTypeLabel(appointmentType).toLowerCase()}.
                   </div>
                 )}
 

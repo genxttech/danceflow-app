@@ -161,7 +161,7 @@ function toNumber(value: number | string | null | undefined) {
 }
 
 function packageHealthLabel(
-  health: "healthy" | "low" | "depleted" | "expired" | "inactive"
+  health: "healthy" | "low" | "depleted" | "expired" | "inactive",
 ) {
   switch (health) {
     case "healthy":
@@ -180,7 +180,7 @@ function packageHealthLabel(
 }
 
 function packageHealthClass(
-  health: "healthy" | "low" | "depleted" | "expired" | "inactive"
+  health: "healthy" | "low" | "depleted" | "expired" | "inactive",
 ) {
   switch (health) {
     case "healthy":
@@ -199,7 +199,7 @@ function packageHealthClass(
 }
 
 function packageWarningMessage(
-  health: "healthy" | "low" | "depleted" | "expired" | "inactive"
+  health: "healthy" | "low" | "depleted" | "expired" | "inactive",
 ) {
   switch (health) {
     case "low":
@@ -286,7 +286,7 @@ function benefitTypeLabel(value: string) {
 
 function doesBenefitApplyToAppointmentType(
   benefit: MembershipBenefitOption,
-  appointmentType: string
+  appointmentType: string,
 ) {
   const appliesTo = benefit.applies_to?.trim();
 
@@ -317,20 +317,21 @@ function summarizeBenefit(benefit: MembershipBenefitOption) {
 
 function packageSupportsAppointmentType(
   appointmentType: string,
-  clientPackage: ClientPackageOption | null
+  clientPackage: ClientPackageOption | null,
 ) {
   if (!clientPackage) return false;
 
-  const supportedUsageTypes = appointmentTypeToPackageUsageTypes(appointmentType);
+  const supportedUsageTypes =
+    appointmentTypeToPackageUsageTypes(appointmentType);
 
   return clientPackage.client_package_items.some((item) =>
-    item.usage_type ? supportedUsageTypes.includes(item.usage_type) : false
+    item.usage_type ? supportedUsageTypes.includes(item.usage_type) : false,
   );
 }
 
 function computePackageHealth(
   appointmentType: string,
-  clientPackage: ClientPackageOption | null
+  clientPackage: ClientPackageOption | null,
 ): "healthy" | "low" | "depleted" | "expired" | "inactive" {
   if (!clientPackage) return "inactive";
 
@@ -346,10 +347,11 @@ function computePackageHealth(
     }
   }
 
-  const supportedUsageTypes = appointmentTypeToPackageUsageTypes(appointmentType);
+  const supportedUsageTypes =
+    appointmentTypeToPackageUsageTypes(appointmentType);
 
   const relevantItems = clientPackage.client_package_items.filter((item) =>
-    item.usage_type ? supportedUsageTypes.includes(item.usage_type) : false
+    item.usage_type ? supportedUsageTypes.includes(item.usage_type) : false,
   );
 
   if (!relevantItems.length) {
@@ -373,6 +375,14 @@ function computePackageHealth(
   }
 
   return "healthy";
+}
+
+function billingTypeLabel(value: string) {
+  if (value === "package_credit") return "Package Credit";
+  if (value === "membership") return "Membership";
+  if (value === "pay_as_you_go") return "Pay-as-you-go";
+  if (value === "free_comped") return "Free / Comped";
+  return "Package Credit";
 }
 
 function paymentStatusLabel(value: string) {
@@ -403,13 +413,15 @@ export default function AppointmentCreateForm({
 }: AppointmentCreateFormProps) {
   const [state, formAction, pending] = useActionState(
     createAppointmentAction,
-    initialState
+    initialState,
   );
 
   const [appointmentType, setAppointmentType] = useState("private_lesson");
   const [clientId, setClientId] = useState(initialClientId);
   const [partnerClientId, setPartnerClientId] = useState("");
   const [linkedPackageId, setLinkedPackageId] = useState("");
+  const [billingType, setBillingType] = useState("package_credit");
+  const [billingNote, setBillingNote] = useState("");
   const [overrideRoomConflict, setOverrideRoomConflict] = useState(false);
   const [priceAmount, setPriceAmount] = useState("");
   const [paymentStatus, setPaymentStatus] = useState("unpaid");
@@ -418,12 +430,16 @@ export default function AppointmentCreateForm({
     startTime: "",
     endTime: "",
   });
-  const [floorRentalSlots, setFloorRentalSlots] = useState<FloorRentalSlot[]>([]);
+  const [floorRentalSlots, setFloorRentalSlots] = useState<FloorRentalSlot[]>(
+    [],
+  );
   const [alsoBookFloorSpace, setAlsoBookFloorSpace] = useState(false);
   const [hostStudioId, setHostStudioId] = useState("");
   const [hostRoomId, setHostRoomId] = useState("");
   const [isRecurring, setIsRecurring] = useState(false);
-  const [recurrenceEndsMode, setRecurrenceEndsMode] = useState<"count" | "date">("count");
+  const [recurrenceEndsMode, setRecurrenceEndsMode] = useState<
+    "count" | "date"
+  >("count");
 
   useEffect(() => {
     setPartnerClientId("");
@@ -431,7 +447,10 @@ export default function AppointmentCreateForm({
   }, [clientId]);
 
   useEffect(() => {
-    if (appointmentType === "floor_space_rental" || appointmentType === "room_unavailable") {
+    if (
+      appointmentType === "floor_space_rental" ||
+      appointmentType === "room_unavailable"
+    ) {
       setAlsoBookFloorSpace(false);
       setHostStudioId("");
       setHostRoomId("");
@@ -443,6 +462,8 @@ export default function AppointmentCreateForm({
       setClientId("");
       setPartnerClientId("");
       setLinkedPackageId("");
+      setBillingType("package_credit");
+      setBillingNote("");
       setPriceAmount("");
       setPaymentStatus("unpaid");
       setFloorRentalSlots([]);
@@ -450,35 +471,40 @@ export default function AppointmentCreateForm({
   }, [appointmentType]);
 
   const selectedHostStudio = useMemo(
-    () => linkedHostStudios.find((studio) => studio.id === hostStudioId) ?? null,
-    [hostStudioId, linkedHostStudios]
+    () =>
+      linkedHostStudios.find((studio) => studio.id === hostStudioId) ?? null,
+    [hostStudioId, linkedHostStudios],
   );
 
   const selectedHostStudioRooms = selectedHostStudio?.rooms ?? [];
 
   const selectedPackages = useMemo(() => {
-  if (!clientId) return [];
-  return clientPackagesByClientId?.[clientId] ?? [];
-}, [clientId, clientPackagesByClientId]);
+    if (!clientId) return [];
+    return clientPackagesByClientId?.[clientId] ?? [];
+  }, [clientId, clientPackagesByClientId]);
 
   const selectedMembership = useMemo(() => {
-  if (!clientId) return null;
+    if (!clientId) return null;
 
-  const memberships = clientMembershipsByClientId?.[clientId] ?? [];
-  return memberships.find((membership) => membership.status === "active") ?? null;
-}, [clientId, clientMembershipsByClientId]);
+    const memberships = clientMembershipsByClientId?.[clientId] ?? [];
+    return (
+      memberships.find((membership) => membership.status === "active") ?? null
+    );
+  }, [clientId, clientMembershipsByClientId]);
 
   const linkedPartners = useMemo(
     () => linkedPartnersByClientId[clientId] ?? [],
-    [clientId, linkedPartnersByClientId]
+    [clientId, linkedPartnersByClientId],
   );
 
   const selectedPackage =
-    selectedPackages.find((clientPackage) => clientPackage.id === linkedPackageId) ?? null;
+    selectedPackages.find(
+      (clientPackage) => clientPackage.id === linkedPackageId,
+    ) ?? null;
 
   const packageHealth = useMemo(
     () => computePackageHealth(appointmentType, selectedPackage),
-    [appointmentType, selectedPackage]
+    [appointmentType, selectedPackage],
   );
 
   const applicableBenefits = useMemo(() => {
@@ -493,20 +519,28 @@ export default function AppointmentCreateForm({
     }));
   }, [appointmentType, selectedMembership]);
 
-  const matchingBenefits = applicableBenefits.filter((benefit) => benefit.summary.applies);
+  const matchingBenefits = applicableBenefits.filter(
+    (benefit) => benefit.summary.applies,
+  );
 
   const isFloorRental = appointmentType === "floor_space_rental";
   const isUnavailableBlock = appointmentType === "room_unavailable";
   const canRepeatAppointment = !isFloorRental && !isUnavailableBlock;
   const requiresClient = !isUnavailableBlock;
-  const showPackageSection = ![
-    "group_class",
-    "practice_party",
-    "event",
+  const showBillingSection = ![
     "floor_space_rental",
     "room_unavailable",
   ].includes(appointmentType);
-  const showPartnerSection = appointmentType === "private_lesson" && !isUnavailableBlock;
+  const showPackageSection =
+    showBillingSection && billingType === "package_credit";
+  const showMembershipBillingHint =
+    showBillingSection && billingType === "membership";
+  const showPayAsYouGoBillingHint =
+    showBillingSection && billingType === "pay_as_you_go";
+  const showCompedBillingHint =
+    showBillingSection && billingType === "free_comped";
+  const showPartnerSection =
+    appointmentType === "private_lesson" && !isUnavailableBlock;
 
   function addFloorRentalSlot() {
     if (!slotDraft.date || !slotDraft.startTime || !slotDraft.endTime) {
@@ -543,7 +577,7 @@ export default function AppointmentCreateForm({
         value={showPartnerSection ? partnerClientId : ""}
       />
 
-            <input
+      <input
         type="hidden"
         name="alsoBookFloorSpace"
         value={alsoBookFloorSpace ? "true" : "false"}
@@ -565,9 +599,9 @@ export default function AppointmentCreateForm({
               New Appointment
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 md:text-base">
-              Create a new appointment, then review package and membership coverage
-              before saving. The mobile layout is tightened for faster studio use on
-              phones and tablets.
+              Create a new appointment, then review package and membership
+              coverage before saving. The mobile layout is tightened for faster
+              studio use on phones and tablets.
             </p>
           </div>
 
@@ -580,12 +614,12 @@ export default function AppointmentCreateForm({
               {pending
                 ? "Saving..."
                 : isFloorRental
-                ? "Create Floor Rentals"
-                : isUnavailableBlock
-                ? "Block Floor Space"
-                : canRepeatAppointment && isRecurring
-                  ? "Create Recurring Appointments"
-                  : "Create Appointment"}
+                  ? "Create Floor Rentals"
+                  : isUnavailableBlock
+                    ? "Block Floor Space"
+                    : canRepeatAppointment && isRecurring
+                      ? "Create Recurring Appointments"
+                      : "Create Appointment"}
             </button>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -616,7 +650,10 @@ export default function AppointmentCreateForm({
 
             <div className="grid gap-4 md:grid-cols-2">
               <div className="md:col-span-2">
-                <label htmlFor="appointmentType" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="appointmentType"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Appointment Type
                 </label>
                 <select
@@ -633,12 +670,17 @@ export default function AppointmentCreateForm({
                   <option value="practice_party">Practice Party</option>
                   <option value="event">Event</option>
                   <option value="floor_space_rental">Floor Space Rental</option>
-                  <option value="room_unavailable">Room / Floor Unavailable</option>
+                  <option value="room_unavailable">
+                    Room / Floor Unavailable
+                  </option>
                 </select>
               </div>
 
               <div className="md:col-span-2">
-                <label htmlFor="title" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="title"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Title
                 </label>
                 <input
@@ -656,7 +698,10 @@ export default function AppointmentCreateForm({
               </div>
 
               <div>
-                <label htmlFor="clientId" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="clientId"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Client {requiresClient ? "*" : ""}
                 </label>
                 <select
@@ -672,7 +717,11 @@ export default function AppointmentCreateForm({
                   }}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 >
-                  <option value="">{isUnavailableBlock ? "Not needed for unavailable blocks" : "Select client"}</option>
+                  <option value="">
+                    {isUnavailableBlock
+                      ? "Not needed for unavailable blocks"
+                      : "Select client"}
+                  </option>
                   {clients.map((client) => (
                     <option key={client.id} value={client.id}>
                       {client.first_name} {client.last_name}
@@ -707,13 +756,17 @@ export default function AppointmentCreateForm({
                     ))}
                   </select>
                   <p className="mt-1 text-xs text-slate-500">
-                    Optional. Link a student's saved partner for a couple lesson.
+                    Optional. Link a student's saved partner for a couple
+                    lesson.
                   </p>
                 </div>
               ) : null}
 
               <div>
-                <label htmlFor="instructorId" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="instructorId"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Instructor
                 </label>
                 <select
@@ -722,7 +775,11 @@ export default function AppointmentCreateForm({
                   disabled={isUnavailableBlock}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 >
-                  <option value="">{isUnavailableBlock ? "Not needed for unavailable blocks" : "Select instructor"}</option>
+                  <option value="">
+                    {isUnavailableBlock
+                      ? "Not needed for unavailable blocks"
+                      : "Select instructor"}
+                  </option>
                   {instructors.map((instructor) => (
                     <option key={instructor.id} value={instructor.id}>
                       {instructor.first_name} {instructor.last_name}
@@ -732,7 +789,10 @@ export default function AppointmentCreateForm({
               </div>
 
               <div>
-                <label htmlFor="roomId" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="roomId"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Room
                 </label>
                 <select
@@ -740,7 +800,11 @@ export default function AppointmentCreateForm({
                   name="roomId"
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 >
-                  <option value="">{isUnavailableBlock ? "Block whole studio floor" : "Select room"}</option>
+                  <option value="">
+                    {isUnavailableBlock
+                      ? "Block whole studio floor"
+                      : "Select room"}
+                  </option>
                   {rooms.map((room) => (
                     <option key={room.id} value={room.id}>
                       {room.name}
@@ -750,7 +814,10 @@ export default function AppointmentCreateForm({
               </div>
 
               <div>
-                <label htmlFor="startsAt" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="startsAt"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Starts At
                 </label>
                 <input
@@ -764,7 +831,10 @@ export default function AppointmentCreateForm({
               </div>
 
               <div>
-                <label htmlFor="endsAt" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="endsAt"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Ends At
                 </label>
                 <input
@@ -787,9 +857,9 @@ export default function AppointmentCreateForm({
                     Repeat Appointment
                   </h3>
                   <p className="mt-1 text-sm leading-6 text-slate-600">
-                    Create a simple weekly series for recurring lessons. For launch,
-                    each appointment in the series can be edited or canceled one at a
-                    time.
+                    Create a simple weekly series for recurring lessons. For
+                    launch, each appointment in the series can be edited or
+                    canceled one at a time.
                   </p>
                 </div>
 
@@ -825,11 +895,15 @@ export default function AppointmentCreateForm({
                       name="recurrenceEndsMode"
                       value={recurrenceEndsMode}
                       onChange={(e) =>
-                        setRecurrenceEndsMode(e.target.value as "count" | "date")
+                        setRecurrenceEndsMode(
+                          e.target.value as "count" | "date",
+                        )
                       }
                       className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                     >
-                      <option value="count">After a number of appointments</option>
+                      <option value="count">
+                        After a number of appointments
+                      </option>
                       <option value="date">On a specific date</option>
                     </select>
                   </div>
@@ -878,8 +952,16 @@ export default function AppointmentCreateForm({
                 </div>
               ) : (
                 <>
-                  <input type="hidden" name="recurrenceEndsMode" value="count" />
-                  <input type="hidden" name="recurrenceOccurrenceCount" value="1" />
+                  <input
+                    type="hidden"
+                    name="recurrenceEndsMode"
+                    value="count"
+                  />
+                  <input
+                    type="hidden"
+                    name="recurrenceOccurrenceCount"
+                    value="1"
+                  />
                   <input type="hidden" name="recurrenceEndDate" value="" />
                 </>
               )}
@@ -895,7 +977,10 @@ export default function AppointmentCreateForm({
                 Block floor space from portal rentals
               </h2>
               <p className="mt-2 text-sm leading-7 text-amber-900">
-                Use this when the studio needs to prevent independent instructors from booking floor space during a specific time. Choose a room to block one room or leave the room blank to block the whole studio floor.
+                Use this when the studio needs to prevent independent
+                instructors from booking floor space during a specific time.
+                Choose a room to block one room or leave the room blank to block
+                the whole studio floor.
               </p>
             </section>
           ) : null}
@@ -908,26 +993,33 @@ export default function AppointmentCreateForm({
                     Floor Rental Slots
                   </h3>
                   <p className="mt-1 text-sm text-slate-600">
-                    Add one or more rental blocks. Each slot will be created as its own
-                    floor rental appointment.
+                    Add one or more rental blocks. Each slot will be created as
+                    its own floor rental appointment.
                   </p>
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-4">
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium">Slot Date</label>
+                    <label className="mb-1.5 block text-sm font-medium">
+                      Slot Date
+                    </label>
                     <input
                       type="date"
                       value={slotDraft.date}
                       onChange={(e) =>
-                        setSlotDraft((current) => ({ ...current, date: e.target.value }))
+                        setSlotDraft((current) => ({
+                          ...current,
+                          date: e.target.value,
+                        }))
                       }
                       className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                     />
                   </div>
 
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium">Start Time</label>
+                    <label className="mb-1.5 block text-sm font-medium">
+                      Start Time
+                    </label>
                     <input
                       type="time"
                       value={slotDraft.startTime}
@@ -942,7 +1034,9 @@ export default function AppointmentCreateForm({
                   </div>
 
                   <div>
-                    <label className="mb-1.5 block text-sm font-medium">End Time</label>
+                    <label className="mb-1.5 block text-sm font-medium">
+                      End Time
+                    </label>
                     <input
                       type="time"
                       value={slotDraft.endTime}
@@ -1004,113 +1098,220 @@ export default function AppointmentCreateForm({
             </section>
           ) : null}
 
-                {!isUnavailableBlock && canBookHostStudioFloorSpace ? (
-        <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm md:p-7">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">
-              Optional Host Studio Booking
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold text-emerald-950">
-              Also book floor space at a host studio
-            </h2>
-            <p className="mt-2 text-sm leading-7 text-emerald-900">
-              Turn this on when this appointment also needs rented floor space at a linked host studio.
-            </p>
-          </div>
-
-          <div className="mt-6 space-y-5">
-            <label className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-white p-4">
-              <input
-                type="checkbox"
-                checked={alsoBookFloorSpace}
-                onChange={(event) => {
-                  const checked = event.target.checked;
-                  setAlsoBookFloorSpace(checked);
-
-                  if (!checked) {
-                    setHostStudioId("");
-                    setHostRoomId("");
-                  }
-                }}
-                className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
-              />
+          {!isUnavailableBlock && canBookHostStudioFloorSpace ? (
+            <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm md:p-7">
               <div>
-                <p className="text-sm font-semibold text-slate-950">
-                  Book floor space with this appointment
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                  Optional Host Studio Booking
                 </p>
-                <p className="mt-1 text-sm leading-7 text-slate-600">
-                  Use this when the lesson also needs studio floor space at a linked host studio.
+                <h2 className="mt-2 text-2xl font-semibold text-emerald-950">
+                  Also book floor space at a host studio
+                </h2>
+                <p className="mt-2 text-sm leading-7 text-emerald-900">
+                  Turn this on when this appointment also needs rented floor
+                  space at a linked host studio.
                 </p>
               </div>
-            </label>
 
-            {alsoBookFloorSpace ? (
-              <div className="grid gap-5 md:grid-cols-2">
-                <div>
-                  <label
-                    htmlFor="hostStudioIdVisible"
-                    className="block text-sm font-medium text-slate-700"
-                  >
-                    Host studio
-                  </label>
-                  <select
-                    id="hostStudioIdVisible"
-                    value={hostStudioId}
+              <div className="mt-6 space-y-5">
+                <label className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-white p-4">
+                  <input
+                    type="checkbox"
+                    checked={alsoBookFloorSpace}
                     onChange={(event) => {
-                      setHostStudioId(event.target.value);
-                      setHostRoomId("");
-                    }}
-                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-violet-500"
-                  >
-                    <option value="">Choose a host studio</option>
-                    {linkedHostStudios.map((studio) => (
-                      <option key={studio.id} value={studio.id}>
-                        {studio.public_name?.trim() || studio.name || "Unnamed Studio"}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                      const checked = event.target.checked;
+                      setAlsoBookFloorSpace(checked);
 
-                <div>
-                  <label
-                    htmlFor="hostRoomIdVisible"
-                    className="block text-sm font-medium text-slate-700"
-                  >
-                    Room / Floor / Area
-                  </label>
-                  <select
-                    id="hostRoomIdVisible"
-                    value={hostRoomId}
-                    onChange={(event) => setHostRoomId(event.target.value)}
-                    disabled={!hostStudioId}
-                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-violet-500 disabled:bg-slate-100 disabled:text-slate-400"
-                  >
-                    <option value="">
-                      {hostStudioId
-                        ? "General floor space / no specific room"
-                        : "Choose a host studio first"}
-                    </option>
-                    {selectedHostStudioRooms.map((room) => (
-                      <option key={room.id} value={room.id}>
-                        {room.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="mt-2 text-xs leading-5 text-slate-500">
-                    Optional. Choose a room or floor area when the host studio uses
-                    rooms for availability blocks. Leave blank for general floor space.
-                  </p>
-                </div>
+                      if (!checked) {
+                        setHostStudioId("");
+                        setHostRoomId("");
+                      }
+                    }}
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">
+                      Book floor space with this appointment
+                    </p>
+                    <p className="mt-1 text-sm leading-7 text-slate-600">
+                      Use this when the lesson also needs studio floor space at
+                      a linked host studio.
+                    </p>
+                  </div>
+                </label>
+
+                {alsoBookFloorSpace ? (
+                  <div className="grid gap-5 md:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor="hostStudioIdVisible"
+                        className="block text-sm font-medium text-slate-700"
+                      >
+                        Host studio
+                      </label>
+                      <select
+                        id="hostStudioIdVisible"
+                        value={hostStudioId}
+                        onChange={(event) => {
+                          setHostStudioId(event.target.value);
+                          setHostRoomId("");
+                        }}
+                        className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-violet-500"
+                      >
+                        <option value="">Choose a host studio</option>
+                        {linkedHostStudios.map((studio) => (
+                          <option key={studio.id} value={studio.id}>
+                            {studio.public_name?.trim() ||
+                              studio.name ||
+                              "Unnamed Studio"}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="hostRoomIdVisible"
+                        className="block text-sm font-medium text-slate-700"
+                      >
+                        Room / Floor / Area
+                      </label>
+                      <select
+                        id="hostRoomIdVisible"
+                        value={hostRoomId}
+                        onChange={(event) => setHostRoomId(event.target.value)}
+                        disabled={!hostStudioId}
+                        className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-violet-500 disabled:bg-slate-100 disabled:text-slate-400"
+                      >
+                        <option value="">
+                          {hostStudioId
+                            ? "General floor space / no specific room"
+                            : "Choose a host studio first"}
+                        </option>
+                        {selectedHostStudioRooms.map((room) => (
+                          <option key={room.id} value={room.id}>
+                            {room.name}
+                          </option>
+                        ))}
+                      </select>
+                      <p className="mt-2 text-xs leading-5 text-slate-500">
+                        Optional. Choose a room or floor area when the host
+                        studio uses rooms for availability blocks. Leave blank
+                        for general floor space.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : null}
-          </div>
-        </section>
-      ) : null}
+            </section>
+          ) : null}
 
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
+            {showBillingSection ? (
+              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">
+                      Lesson Billing
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Choose how this lesson should be covered so closeout knows
+                      whether it is ready or needs review.
+                    </p>
+                  </div>
+                  <span className="inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700">
+                    {billingTypeLabel(billingType)}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor="billingType"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      Billing Type *
+                    </label>
+                    <select
+                      id="billingType"
+                      name="billingType"
+                      value={billingType}
+                      onChange={(e) => {
+                        const nextBillingType = e.target.value;
+                        setBillingType(nextBillingType);
+                        if (nextBillingType !== "package_credit") {
+                          setLinkedPackageId("");
+                        }
+                      }}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm"
+                    >
+                      <option value="package_credit">Package Credit</option>
+                      <option value="membership">Membership</option>
+                      <option value="pay_as_you_go">Pay-as-you-go</option>
+                      <option value="free_comped">Free / Comped</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="billingNote"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      Billing Note
+                    </label>
+                    <input
+                      id="billingNote"
+                      name="billingNote"
+                      value={billingNote}
+                      onChange={(e) => setBillingNote(e.target.value)}
+                      placeholder={
+                        billingType === "free_comped"
+                          ? "Example: intro comp, owner approved"
+                          : "Optional"
+                      }
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm"
+                    />
+                  </div>
+                </div>
+
+                {showMembershipBillingHint ? (
+                  <div className="mt-4 rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                    Closeout will mark this ready only when active membership
+                    coverage applies.
+                  </div>
+                ) : null}
+
+                {showPayAsYouGoBillingHint ? (
+                  <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                    Pay-as-you-go lessons will stay in May Need Review until
+                    payment is recorded.
+                  </div>
+                ) : null}
+
+                {showCompedBillingHint ? (
+                  <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+                    Free / Comped lessons can be closed out without payment or
+                    package credit. Add a note so staff know why.
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <>
+                <input
+                  type="hidden"
+                  name="billingType"
+                  value="package_credit"
+                />
+                <input type="hidden" name="billingNote" value="" />
+              </>
+            )}
+
             {showPackageSection ? (
               <div>
-                <label htmlFor="clientPackageId" className="mb-1.5 block text-sm font-medium">
+                <label
+                  htmlFor="clientPackageId"
+                  className="mb-1.5 block text-sm font-medium"
+                >
                   Linked Package
                 </label>
                 <select
@@ -1154,7 +1355,10 @@ export default function AppointmentCreateForm({
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <div>
-                    <label htmlFor="priceAmount" className="mb-1.5 block text-sm font-medium">
+                    <label
+                      htmlFor="priceAmount"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
                       Rental Amount
                     </label>
                     <input
@@ -1174,7 +1378,10 @@ export default function AppointmentCreateForm({
                   </div>
 
                   <div>
-                    <label htmlFor="paymentStatus" className="mb-1.5 block text-sm font-medium">
+                    <label
+                      htmlFor="paymentStatus"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
                       Initial Payment Status
                     </label>
                     <select
@@ -1195,8 +1402,8 @@ export default function AppointmentCreateForm({
                 <div className="mt-4 rounded-xl border border-emerald-200 bg-white p-4 text-sm text-emerald-900">
                   <p className="font-medium">Recommended workflow</p>
                   <p className="mt-1 text-emerald-800">
-                    Create the rental as unpaid, then collect payment from the detail
-                    page with Charge, Purchase, or Record Manual Payment.
+                    Create the rental as unpaid, then collect payment from the
+                    detail page with Charge, Purchase, or Record Manual Payment.
                   </p>
                 </div>
               </div>
@@ -1209,7 +1416,10 @@ export default function AppointmentCreateForm({
             )}
 
             <div className="mt-5">
-              <label htmlFor="notes" className="mb-1.5 block text-sm font-medium">
+              <label
+                htmlFor="notes"
+                className="mb-1.5 block text-sm font-medium"
+              >
                 Notes
               </label>
               <textarea
@@ -1231,7 +1441,8 @@ export default function AppointmentCreateForm({
                 <span>
                   Override room conflict warning and continue.
                   <span className="mt-1 block text-xs text-amber-700">
-                    Use this only when you intentionally want to double-book the room.
+                    Use this only when you intentionally want to double-book the
+                    room.
                   </span>
                 </span>
               </label>
@@ -1246,12 +1457,12 @@ export default function AppointmentCreateForm({
                 {pending
                   ? "Saving..."
                   : isFloorRental
-                  ? "Create Floor Rentals"
-                  : isUnavailableBlock
-                    ? "Block Floor Space"
-                    : canRepeatAppointment && isRecurring
-                      ? "Create Recurring Appointments"
-                      : "Create Appointment"}
+                    ? "Create Floor Rentals"
+                    : isUnavailableBlock
+                      ? "Block Floor Space"
+                      : canRepeatAppointment && isRecurring
+                        ? "Create Recurring Appointments"
+                        : "Create Appointment"}
               </button>
             </div>
           </section>
@@ -1268,8 +1479,8 @@ export default function AppointmentCreateForm({
 
             {!showPackageSection ? (
               <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
-                Package linking is not used for{" "}
-                {appointmentTypeLabel(appointmentType).toLowerCase()}.
+                Package linking is only used when Billing Type is Package
+                Credit.
               </div>
             ) : !clientId ? (
               <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
@@ -1287,7 +1498,7 @@ export default function AppointmentCreateForm({
                   </p>
                   <span
                     className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${packageHealthClass(
-                      packageHealth
+                      packageHealth,
                     )}`}
                   >
                     {packageHealthLabel(packageHealth)}
@@ -1295,12 +1506,15 @@ export default function AppointmentCreateForm({
                 </div>
 
                 <p className="mt-3 text-sm text-slate-600">
-                  {summarizeClientPackageItems(selectedPackage.client_package_items)}
+                  {summarizeClientPackageItems(
+                    selectedPackage.client_package_items,
+                  )}
                 </p>
 
                 {"expiration_date" in selectedPackage ? (
                   <p className="mt-2 text-sm text-slate-500">
-                    Expires: {formatShortDate(selectedPackage.expiration_date ?? null)}
+                    Expires:{" "}
+                    {formatShortDate(selectedPackage.expiration_date ?? null)}
                   </p>
                 ) : null}
 
@@ -1326,13 +1540,15 @@ export default function AppointmentCreateForm({
               Membership Benefits
             </h3>
             <p className="mt-2 text-sm text-slate-600">
-              Check whether the client’s active membership includes or discounts this
-              appointment type.
+              Check whether the client’s active membership includes or discounts
+              this appointment type. Use Billing Type = Membership when this
+              appointment should be covered by membership.
             </p>
 
             {isUnavailableBlock ? (
               <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
-                Membership benefits are not used for room or floor unavailable blocks.
+                Membership benefits are not used for room or floor unavailable
+                blocks.
               </div>
             ) : !clientId ? (
               <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
@@ -1359,14 +1575,19 @@ export default function AppointmentCreateForm({
                       <p className="text-sm text-slate-500">Billing</p>
                       <p className="mt-1 font-medium text-slate-900">
                         {formatCurrency(selectedMembership.price_snapshot)} /{" "}
-                        {billingIntervalLabel(selectedMembership.billing_interval_snapshot)}
+                        {billingIntervalLabel(
+                          selectedMembership.billing_interval_snapshot,
+                        )}
                       </p>
                     </div>
 
                     <div className="rounded-xl border bg-white p-4">
                       <p className="text-sm text-slate-500">Current Period</p>
                       <p className="mt-1 font-medium text-slate-900">
-                        {formatShortDate(selectedMembership.current_period_start)} –{" "}
+                        {formatShortDate(
+                          selectedMembership.current_period_start,
+                        )}{" "}
+                        –{" "}
                         {formatShortDate(selectedMembership.current_period_end)}
                       </p>
                     </div>
@@ -1375,7 +1596,8 @@ export default function AppointmentCreateForm({
 
                 {matchingBenefits.length > 0 ? (
                   <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-                    This membership includes or discounts the selected appointment type.
+                    This membership includes or discounts the selected
+                    appointment type.
                   </div>
                 ) : (
                   <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

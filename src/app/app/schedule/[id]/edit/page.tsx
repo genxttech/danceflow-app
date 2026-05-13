@@ -80,6 +80,10 @@ type Appointment = {
   status: string;
   notes: string | null;
   client_package_id: string | null;
+  price_amount: number | null;
+  payment_status: string | null;
+  billing_type: string | null;
+  billing_note: string | null;
 };
 
 type ClientRelationshipRow = {
@@ -121,7 +125,11 @@ export default async function EditAppointmentPage({
         ends_at,
         status,
         notes,
-        client_package_id
+        client_package_id,
+        price_amount,
+        payment_status,
+        billing_type,
+        billing_note
       `)
       .eq("id", id)
       .eq("studio_id", studioId)

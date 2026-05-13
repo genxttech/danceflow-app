@@ -6,6 +6,7 @@ import {
   cancelAppointmentAction,
   markAppointmentAttendedAction,
   markAppointmentNoShowAction,
+  recordPayAsYouGoLessonPaymentAction,
 } from "./actions";
 import {
   CalendarDays,
@@ -60,25 +61,29 @@ type AppointmentRow = {
   title: string | null;
   appointment_type: string;
   status: string;
+  client_id: string | null;
   starts_at: string;
   ends_at: string;
   client_package_id: string | null;
   price_amount: number | string | null;
   payment_status: string | null;
+  billing_type: string | null;
+  billing_note: string | null;
   is_recurring: boolean;
   recurrence_series_id: string | null;
   clients:
     | { first_name: string; last_name: string; referral_source?: string | null }
-    | { first_name: string; last_name: string; referral_source?: string | null }[]
+    | {
+        first_name: string;
+        last_name: string;
+        referral_source?: string | null;
+      }[]
     | null;
   instructors:
     | { id?: string; first_name: string; last_name: string }
     | { id?: string; first_name: string; last_name: string }[]
     | null;
-  rooms:
-    | { id?: string; name: string }
-    | { id?: string; name: string }[]
-    | null;
+  rooms: { id?: string; name: string } | { id?: string; name: string }[] | null;
   client_packages:
     | {
         name_snapshot: string;
@@ -107,10 +112,7 @@ type EventRow = {
   venue_name: string | null;
   city: string | null;
   state: string | null;
-  organizers:
-    | { name: string }
-    | { name: string }[]
-    | null;
+  organizers: { name: string } | { name: string }[] | null;
 };
 
 type ScheduleListItem =
@@ -125,18 +127,92 @@ type ScheduleListItem =
       event: EventRow;
     };
 
+const CLOSEOUT_TIME_ZONE = "America/New_York";
+
 function startOfLocalDate(date: string) {
   return new Date(`${date}T00:00:00`);
 }
 
-function endOfLocalDate(date: string) {
-  const start = startOfLocalDate(date);
-  return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
-}
-
 function addDaysLocal(date: string, days: number) {
   const start = startOfLocalDate(date);
-  return new Date(start.getFullYear(), start.getMonth(), start.getDate() + days);
+  return new Date(
+    start.getFullYear(),
+    start.getMonth(),
+    start.getDate() + days,
+  );
+}
+
+function getTimeZoneParts(value: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(value);
+
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+
+  return {
+    year: Number(map.get("year")),
+    month: Number(map.get("month")),
+    day: Number(map.get("day")),
+    hour: Number(map.get("hour")),
+    minute: Number(map.get("minute")),
+    second: Number(map.get("second")),
+  };
+}
+
+function getTimeZoneOffsetMs(value: Date, timeZone: string) {
+  const parts = getTimeZoneParts(value, timeZone);
+
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+
+  return asUtc - value.getTime();
+}
+
+function zonedDateTimeToUtc(
+  date: string,
+  time: string,
+  timeZone = CLOSEOUT_TIME_ZONE,
+) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute, second = 0] = time.split(":").map(Number);
+
+  const utcGuess = new Date(Date.UTC(year, month - 1, day, hour, minute, second));
+  const offset = getTimeZoneOffsetMs(utcGuess, timeZone);
+
+  return new Date(utcGuess.getTime() - offset);
+}
+
+function getLocalDayUtcRange(date: string, timeZone = CLOSEOUT_TIME_ZONE) {
+  const start = zonedDateTimeToUtc(date, "00:00:00", timeZone);
+
+  const [year, month, day] = date.split("-").map(Number);
+  const nextLocalDate = new Date(Date.UTC(year, month - 1, day + 1));
+  const nextDate = nextLocalDate.toISOString().slice(0, 10);
+
+  const end = zonedDateTimeToUtc(nextDate, "00:00:00", timeZone);
+
+  return {
+    startIso: start.toISOString(),
+    endIso: end.toISOString(),
+  };
+}
+
+function getDateInTimeZone(value: string, timeZone = CLOSEOUT_TIME_ZONE) {
+  const parts = getTimeZoneParts(new Date(value), timeZone);
+  return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
 function getBaseDate(raw?: string) {
@@ -232,8 +308,12 @@ function eventTypeBadgeClass(type: string) {
 function getClientName(
   value:
     | { first_name: string; last_name: string; referral_source?: string | null }
-    | { first_name: string; last_name: string; referral_source?: string | null }[]
-    | null
+    | {
+        first_name: string;
+        last_name: string;
+        referral_source?: string | null;
+      }[]
+    | null,
 ) {
   const client = Array.isArray(value) ? value[0] : value;
   return client ? `${client.first_name} ${client.last_name}` : "Unknown Client";
@@ -242,8 +322,12 @@ function getClientName(
 function getClientReferralSource(
   value:
     | { first_name: string; last_name: string; referral_source?: string | null }
-    | { first_name: string; last_name: string; referral_source?: string | null }[]
-    | null
+    | {
+        first_name: string;
+        last_name: string;
+        referral_source?: string | null;
+      }[]
+    | null,
 ) {
   const client = Array.isArray(value) ? value[0] : value;
   return client?.referral_source ?? null;
@@ -253,40 +337,44 @@ function getInstructorName(
   value:
     | { id?: string; first_name: string; last_name: string }
     | { id?: string; first_name: string; last_name: string }[]
-    | null
+    | null,
 ) {
   const instructor = Array.isArray(value) ? value[0] : value;
-  return instructor ? `${instructor.first_name} ${instructor.last_name}` : "Unassigned";
+  return instructor
+    ? `${instructor.first_name} ${instructor.last_name}`
+    : "Unassigned";
 }
 
 function getRoomName(
-  value: { id?: string; name: string } | { id?: string; name: string }[] | null
+  value: { id?: string; name: string } | { id?: string; name: string }[] | null,
 ) {
   const room = Array.isArray(value) ? value[0] : value;
   return room?.name ?? "No room";
 }
 
-function getOrganizerName(
-  value: { name: string } | { name: string }[] | null
-) {
+function getOrganizerName(value: { name: string } | { name: string }[] | null) {
   const organizer = Array.isArray(value) ? value[0] : value;
   return organizer?.name ?? "Organizer";
 }
 
 function getLowestRemainingValue(items: ClientPackageItem[]) {
   const finiteItems = items.filter(
-    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number"
+    (item) => !item.is_unlimited && typeof item.quantity_remaining === "number",
   );
 
   if (finiteItems.length === 0) return null;
 
-  return Math.min(...finiteItems.map((item) => Number(item.quantity_remaining ?? 0)));
+  return Math.min(
+    ...finiteItems.map((item) => Number(item.quantity_remaining ?? 0)),
+  );
 }
 
-function getPackageHealth(pkg: {
-  active?: boolean | null;
-  client_package_items?: ClientPackageItem[] | null;
-} | null): PackageHealth {
+function getPackageHealth(
+  pkg: {
+    active?: boolean | null;
+    client_package_items?: ClientPackageItem[] | null;
+  } | null,
+): PackageHealth {
   if (!pkg) return "unknown";
   if (pkg.active === false) return "inactive";
 
@@ -323,30 +411,85 @@ function isCloseoutCandidate(appointment: AppointmentRow) {
   );
 }
 
+function normalizeBillingType(value: string | null | undefined) {
+  if (
+    value === "package_credit" ||
+    value === "membership" ||
+    value === "pay_as_you_go" ||
+    value === "free_comped"
+  ) {
+    return value;
+  }
+
+  return "package_credit";
+}
+
 function hasPaymentCleared(appointment: AppointmentRow) {
   const status = (appointment.payment_status ?? "").toLowerCase();
   return ["paid", "waived", "comped", "free", "included"].includes(status);
 }
 
 function isSameLocalDate(value: string, date: string) {
-  return value.slice(0, 10) === date;
+  return getDateInTimeZone(value) === date;
 }
 
 function mayNeedPaymentReview(appointment: AppointmentRow) {
-  if (!isCloseoutCandidate(appointment)) return false;
-  if (hasPaymentCleared(appointment)) return false;
+  return getCloseoutReviewReason(appointment) !== null;
+}
 
-  const amountDue = Number(appointment.price_amount ?? 0);
-  if (amountDue <= 0) return false;
+function getCloseoutReviewReason(appointment: AppointmentRow) {
+  if (!isCloseoutCandidate(appointment)) return null;
+  if (hasPaymentCleared(appointment)) return null;
+
+  const billingType = normalizeBillingType(appointment.billing_type);
+
+  if (billingType === "free_comped") return null;
+
+  if (billingType === "pay_as_you_go") {
+    return "Payment has not been recorded for this pay-as-you-go lesson.";
+  }
+
+  if (billingType === "membership") {
+    return "Membership coverage should be reviewed before bulk closeout.";
+  }
 
   const pkg = Array.isArray(appointment.client_packages)
     ? appointment.client_packages[0]
     : appointment.client_packages;
 
-  if (!pkg) return true;
+  if (!pkg) {
+    return "No valid package credit is linked to this lesson.";
+  }
 
   const packageHealth = getPackageHealth(pkg);
-  return packageHealth === "depleted" || packageHealth === "inactive" || packageHealth === "unknown";
+
+  if (packageHealth === "depleted") {
+    return "The selected package has no remaining credits.";
+  }
+
+  if (packageHealth === "inactive") {
+    return "The selected package is inactive.";
+  }
+
+  if (packageHealth === "unknown") {
+    return "Package credit could not be verified.";
+  }
+
+  return null;
+}
+
+function billingTypeLabel(value: string | null | undefined) {
+  const billingType = normalizeBillingType(value ?? null);
+
+  if (billingType === "membership") return "Membership";
+  if (billingType === "pay_as_you_go") return "Pay-as-you-go";
+  if (billingType === "free_comped") return "Free / Comped";
+  return "Package Credit";
+}
+
+function getPaymentAmountDefault(appointment: AppointmentRow) {
+  const amount = Number(appointment.price_amount ?? 0);
+  return amount > 0 ? amount.toFixed(2) : "";
 }
 
 function StatCard({
@@ -428,9 +571,10 @@ function getBanner(search: {
 
     return {
       kind: "success" as const,
-      message: skipped > 0
-        ? `${marked} lessons marked attended. ${skippedParts.join("; ") || `${skipped} skipped`}.`
-        : `${marked} lessons marked attended.`,
+      message:
+        skipped > 0
+          ? `${marked} lessons marked attended. ${skippedParts.join("; ") || `${skipped} skipped`}.`
+          : `${marked} lessons marked attended.`,
     };
   }
 
@@ -472,14 +616,16 @@ function getBanner(search: {
   if (search.error === "payment_required") {
     return {
       kind: "error" as const,
-      message: "Payment, package credit, membership coverage, or a comped status is needed before this lesson can be marked attended.",
+      message:
+        "Payment, package credit, membership coverage, or a comped status is needed before this lesson can be marked attended.",
     };
   }
 
   if (search.error === "bulk_attendance_failed") {
     return {
       kind: "error" as const,
-      message: "Could not complete daily closeout. Please try again or mark lessons individually.",
+      message:
+        "Could not complete daily closeout. Please try again or mark lessons individually.",
     };
   }
 
@@ -525,23 +671,27 @@ export default async function SchedulePage({
   const role = context.studioRole ?? "";
   const studioId = context.studioId;
 
-  const selectedDateStart = startOfLocalDate(baseDate);
-  const todayStart = selectedDateStart.toISOString();
-  const todayEnd = endOfLocalDate(baseDate).toISOString();
-  const next7End = addDaysLocal(baseDate, 7).toISOString();
+  const { startIso: todayStart, endIso: todayEnd } =
+    getLocalDayUtcRange(baseDate);
+  const next7LocalDate = addDaysLocal(baseDate, 7).toISOString().slice(0, 10);
+  const next7End = getLocalDayUtcRange(next7LocalDate).startIso;
 
   let appointmentsQuery = supabase
     .from("appointments")
-    .select(`
+    .select(
+      `
       id,
       title,
       appointment_type,
       status,
+      client_id,
       starts_at,
       ends_at,
       client_package_id,
       price_amount,
       payment_status,
+      billing_type,
+      billing_note,
       is_recurring,
       recurrence_series_id,
       clients:clients!appointments_client_id_fkey ( first_name, last_name, referral_source ),
@@ -557,14 +707,19 @@ export default async function SchedulePage({
           is_unlimited
         )
       )
-    `)
+    `,
+    )
     .eq("studio_id", studioId)
     .order("starts_at", { ascending: true });
 
   if (scope === "today") {
-    appointmentsQuery = appointmentsQuery.gte("starts_at", todayStart).lt("starts_at", todayEnd);
+    appointmentsQuery = appointmentsQuery
+      .gte("starts_at", todayStart)
+      .lt("starts_at", todayEnd);
   } else if (scope === "next7") {
-    appointmentsQuery = appointmentsQuery.gte("starts_at", todayStart).lt("starts_at", next7End);
+    appointmentsQuery = appointmentsQuery
+      .gte("starts_at", todayStart)
+      .lt("starts_at", next7End);
   }
 
   if (statusFilter !== "all") {
@@ -581,7 +736,8 @@ export default async function SchedulePage({
 
   let eventsQuery = supabase
     .from("events")
-    .select(`
+    .select(
+      `
       id,
       name,
       slug,
@@ -596,19 +752,24 @@ export default async function SchedulePage({
       city,
       state,
       organizers ( name )
-    `)
+    `,
+    )
     .eq("studio_id", studioId)
     .in("status", ["draft", "published"])
     .not("visibility", "eq", "private")
     .order("start_date", { ascending: true });
 
-  const todayDate = todayStart.slice(0, 10);
-  const next7Date = next7End.slice(0, 10);
+  const todayDate = baseDate;
+  const next7Date = next7LocalDate;
 
   if (scope === "today") {
-    eventsQuery = eventsQuery.lte("start_date", todayDate).gte("end_date", todayDate);
+    eventsQuery = eventsQuery
+      .lte("start_date", todayDate)
+      .gte("end_date", todayDate);
   } else if (scope === "next7") {
-    eventsQuery = eventsQuery.lte("start_date", next7Date).gte("end_date", todayDate);
+    eventsQuery = eventsQuery
+      .lte("start_date", next7Date)
+      .gte("end_date", todayDate);
   }
 
   if (statusFilter !== "all") {
@@ -648,7 +809,9 @@ export default async function SchedulePage({
   ]);
 
   if (appointmentsError) {
-    throw new Error(`Failed to load appointments: ${appointmentsError.message}`);
+    throw new Error(
+      `Failed to load appointments: ${appointmentsError.message}`,
+    );
   }
 
   if (eventsError) {
@@ -661,10 +824,14 @@ export default async function SchedulePage({
       const isPublicIntro =
         appointment.appointment_type === "intro_lesson" &&
         referralSource === "public_intro_booking";
-      const isFloorRental = appointment.appointment_type === "floor_space_rental";
+      const isFloorRental =
+        appointment.appointment_type === "floor_space_rental";
 
       if (sourceFilter === "public_intro" && !isPublicIntro) return false;
-      if (sourceFilter === "intro_lessons" && appointment.appointment_type !== "intro_lesson") {
+      if (
+        sourceFilter === "intro_lessons" &&
+        appointment.appointment_type !== "intro_lesson"
+      ) {
         return false;
       }
       if (sourceFilter === "floor_rentals" && !isFloorRental) return false;
@@ -677,9 +844,13 @@ export default async function SchedulePage({
 
       const referralSource = getClientReferralSource(appointment.clients);
       const clientName = getClientName(appointment.clients).toLowerCase();
-      const instructorName = getInstructorName(appointment.instructors).toLowerCase();
+      const instructorName = getInstructorName(
+        appointment.instructors,
+      ).toLowerCase();
       const roomName = getRoomName(appointment.rooms).toLowerCase();
-      const typeLabel = appointmentTypeLabel(appointment.appointment_type).toLowerCase();
+      const typeLabel = appointmentTypeLabel(
+        appointment.appointment_type,
+      ).toLowerCase();
       const title = (appointment.title ?? "").toLowerCase();
       const recurringLabel = appointment.is_recurring ? "recurring" : "";
       const publicIntroLabel =
@@ -747,19 +918,26 @@ export default async function SchedulePage({
     })),
   ].sort((a, b) => a.sort_key.localeCompare(b.sort_key));
 
-  const scheduledCount = typedAppointments.filter((a) => a.status === "scheduled").length;
-  const attendedCount = typedAppointments.filter((a) => a.status === "attended").length;
+  const scheduledCount = typedAppointments.filter(
+    (a) => a.status === "scheduled",
+  ).length;
+  const attendedCount = typedAppointments.filter(
+    (a) => a.status === "attended",
+  ).length;
   const recurringCount = typedAppointments.filter((a) => a.is_recurring).length;
   const floorRentalCount = typedAppointments.filter(
-    (a) => a.appointment_type === "floor_space_rental"
+    (a) => a.appointment_type === "floor_space_rental",
   ).length;
   const dailyCloseoutAppointments = typedAppointments.filter(
-    (appointment) => isSameLocalDate(appointment.starts_at, baseDate) && isCloseoutCandidate(appointment)
+    (appointment) =>
+      isSameLocalDate(appointment.starts_at, baseDate) &&
+      isCloseoutCandidate(appointment),
   );
-  const dailyCloseoutNeedsReview = dailyCloseoutAppointments.filter(mayNeedPaymentReview);
+  const dailyCloseoutNeedsReview =
+    dailyCloseoutAppointments.filter(mayNeedPaymentReview);
   const dailyCloseoutReadyCount = Math.max(
     dailyCloseoutAppointments.length - dailyCloseoutNeedsReview.length,
-    0
+    0,
   );
   const currentScheduleHref = `/app/schedule${buildQuery({
     q: params.q || undefined,
@@ -797,7 +975,9 @@ export default async function SchedulePage({
                 Schedule Command Center
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Manage appointments, event visibility, attendance, floor rentals, and the daily operating flow from one branded workspace view.
+                Manage appointments, event visibility, attendance, floor
+                rentals, and the daily operating flow from one branded workspace
+                view.
               </p>
             </div>
 
@@ -806,7 +986,8 @@ export default async function SchedulePage({
                 href={`/app/schedule/calendar${buildQuery({
                   view: "week",
                   date: baseDate,
-                  instructor: instructorFilter !== "all" ? instructorFilter : undefined,
+                  instructor:
+                    instructorFilter !== "all" ? instructorFilter : undefined,
                   room: roomFilter !== "all" ? roomFilter : undefined,
                   status: statusFilter !== "all" ? statusFilter : undefined,
                 })}`}
@@ -819,7 +1000,8 @@ export default async function SchedulePage({
                 href={`/app/schedule/calendar${buildQuery({
                   view: "agenda",
                   date: baseDate,
-                  instructor: instructorFilter !== "all" ? instructorFilter : undefined,
+                  instructor:
+                    instructorFilter !== "all" ? instructorFilter : undefined,
                   room: roomFilter !== "all" ? roomFilter : undefined,
                   status: statusFilter !== "all" ? statusFilter : undefined,
                 })}`}
@@ -842,30 +1024,33 @@ export default async function SchedulePage({
 
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                        <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
               <h2 className="text-lg font-semibold text-sky-950">
                 See your day at a glance
               </h2>
               <p className="mt-2 text-sm leading-7 text-sky-900">
-                Use this page to see lessons, floor rentals, and event items in one place so it is easier to manage the day.
+                Use this page to see lessons, floor rentals, and event items in
+                one place so it is easier to manage the day.
               </p>
             </div>
 
-          <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
               <h2 className="text-lg font-semibold text-violet-950">
                 Use filters to find what you need faster
               </h2>
               <p className="mt-2 text-sm leading-7 text-violet-900">
-                Filter by date, instructor, room, or status to narrow the schedule and focus on the appointments that matter right now.
+                Filter by date, instructor, room, or status to narrow the
+                schedule and focus on the appointments that matter right now.
               </p>
             </div>
 
-                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
               <h2 className="text-lg font-semibold text-amber-950">
                 Keep lessons moving smoothly
               </h2>
               <p className="mt-2 text-sm leading-7 text-amber-900">
-                Open an appointment to update attendance, check package details, and make quick changes without losing your place.
+                Open an appointment to update attendance, check package details,
+                and make quick changes without losing your place.
               </p>
             </div>
           </div>
@@ -873,12 +1058,28 @@ export default async function SchedulePage({
       </section>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
-        <StatCard label="Visible Items" value={mixedItems.length} icon={ClipboardList} />
-        <StatCard label="Appointments" value={typedAppointments.length} icon={CalendarDays} />
+        <StatCard
+          label="Visible Items"
+          value={mixedItems.length}
+          icon={ClipboardList}
+        />
+        <StatCard
+          label="Appointments"
+          value={typedAppointments.length}
+          icon={CalendarDays}
+        />
         <StatCard label="Events" value={eventCount} icon={Sparkles} />
-        <StatCard label="Scheduled" value={scheduledCount} icon={CalendarDays} />
+        <StatCard
+          label="Scheduled"
+          value={scheduledCount}
+          icon={CalendarDays}
+        />
         <StatCard label="Recurring" value={recurringCount} icon={Repeat2} />
-        <StatCard label="Floor Rentals" value={floorRentalCount} icon={DoorOpen} />
+        <StatCard
+          label="Floor Rentals"
+          value={floorRentalCount}
+          icon={DoorOpen}
+        />
       </div>
       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
@@ -894,15 +1095,24 @@ export default async function SchedulePage({
                 Mark eligible lessons attended for {formatDate(baseDate)}
               </h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                Use this at the end of the day to quickly close out lessons. Lessons that need payment, package credit, membership coverage, or review are skipped instead of being marked attended.
+                Use this at the end of the day to quickly close out lessons.
+                Lessons that need payment, package credit, membership coverage,
+                or review are skipped instead of being marked attended.
               </p>
             </div>
           </div>
 
           {canMarkAttendance(role) ? (
-            <form action={bulkMarkDailyAppointmentsAttendedAction} className="shrink-0">
+            <form
+              action={bulkMarkDailyAppointmentsAttendedAction}
+              className="shrink-0"
+            >
               <input type="hidden" name="date" value={baseDate} />
-              <input type="hidden" name="returnTo" value={currentScheduleHref} />
+              <input
+                type="hidden"
+                name="returnTo"
+                value={currentScheduleHref}
+              />
               <button
                 type="submit"
                 disabled={dailyCloseoutAppointments.length === 0}
@@ -916,12 +1126,15 @@ export default async function SchedulePage({
 
         <div className="mt-5 grid gap-4 md:grid-cols-3">
           <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
-            <p className="text-sm font-medium text-green-800">Ready to close out</p>
+            <p className="text-sm font-medium text-green-800">
+              Ready to close out
+            </p>
             <p className="mt-2 text-3xl font-semibold text-green-950">
               {dailyCloseoutReadyCount}
             </p>
             <p className="mt-1 text-xs text-green-800">
-              Lessons that appear ready based on this page. The server checks payment and credit rules again before updating.
+              Lessons that appear ready based on this page. The server checks
+              payment and credit rules again before updating.
             </p>
           </div>
 
@@ -934,20 +1147,162 @@ export default async function SchedulePage({
               {dailyCloseoutNeedsReview.length}
             </p>
             <p className="mt-1 text-xs text-amber-800">
-              Pay-as-you-go or missing-credit lessons should be reviewed before attendance is completed.
+              Pay-as-you-go or missing-credit lessons should be reviewed before
+              attendance is completed.
             </p>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm font-medium text-slate-700">Included in today's closeout</p>
+            <p className="text-sm font-medium text-slate-700">
+              Included in today's closeout
+            </p>
             <p className="mt-2 text-3xl font-semibold text-slate-950">
               {dailyCloseoutAppointments.length}
             </p>
             <p className="mt-1 text-xs text-slate-500">
-              Scheduled lessons for the selected date. Floor rentals, cancelled lessons, no-shows, and already attended lessons are not included.
+              Scheduled lessons for the selected date. Floor rentals, cancelled
+              lessons, no-shows, and already attended lessons are not included.
             </p>
           </div>
         </div>
+
+        {dailyCloseoutNeedsReview.length > 0 ? (
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/60 p-4">
+            <div className="flex items-start gap-3">
+              <div className="rounded-xl bg-amber-100 p-2 text-amber-700">
+                <AlertTriangle className="h-4 w-4" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-amber-950">
+                  Lessons that need review
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-amber-900">
+                  These lessons are skipped by bulk closeout until payment,
+                  package credit, membership coverage, or billing details are
+                  corrected.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 space-y-3">
+              {dailyCloseoutNeedsReview.map((appointment) => {
+                const reason =
+                  getCloseoutReviewReason(appointment) ??
+                  "This lesson needs review before closeout.";
+                const billingType = normalizeBillingType(appointment.billing_type);
+                const isPayAsYouGo = billingType === "pay_as_you_go";
+                const clientName = getClientName(appointment.clients);
+
+                return (
+                  <div
+                    key={appointment.id}
+                    className="rounded-2xl border border-amber-200 bg-white p-4 shadow-sm"
+                  >
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
+                          <span>{formatDateTime(appointment.starts_at)}</span>
+                          <span>•</span>
+                          <span>{appointmentTypeLabel(appointment.appointment_type)}</span>
+                          <span>•</span>
+                          <span>{billingTypeLabel(appointment.billing_type)}</span>
+                        </div>
+                        <h4 className="mt-1 text-base font-semibold text-slate-950">
+                          {clientName}
+                        </h4>
+                        <p className="mt-1 text-sm text-amber-800">{reason}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Instructor: {getInstructorName(appointment.instructors)} • Room: {getRoomName(appointment.rooms)}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col gap-3 xl:min-w-[360px]">
+                        {isPayAsYouGo && appointment.client_id ? (
+                          <form
+                            action={recordPayAsYouGoLessonPaymentAction}
+                            className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+                          >
+                            <input
+                              type="hidden"
+                              name="appointmentId"
+                              value={appointment.id}
+                            />
+                            <input
+                              type="hidden"
+                              name="clientId"
+                              value={appointment.client_id}
+                            />
+                            <input
+                              type="hidden"
+                              name="returnTo"
+                              value={currentScheduleHref}
+                            />
+
+                            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                              <label className="block text-xs font-medium text-slate-600">
+                                Amount
+                                <input
+                                  name="amount"
+                                  type="number"
+                                  min="0.01"
+                                  step="0.01"
+                                  defaultValue={getPaymentAmountDefault(appointment)}
+                                  placeholder="0.00"
+                                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                  required
+                                />
+                              </label>
+
+                              <label className="block text-xs font-medium text-slate-600">
+                                Method
+                                <select
+                                  name="paymentMethod"
+                                  defaultValue="cash"
+                                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                >
+                                  <option value="cash">Cash</option>
+                                  <option value="card">Card</option>
+                                  <option value="check">Check</option>
+                                  <option value="venmo">Venmo</option>
+                                  <option value="zelle">Zelle</option>
+                                  <option value="other">Other</option>
+                                </select>
+                              </label>
+
+                              <button
+                                type="submit"
+                                className="self-end rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+                              >
+                                Record payment
+                              </button>
+                            </div>
+                          </form>
+                        ) : null}
+
+                        <div className="flex flex-wrap gap-2 xl:justify-end">
+                          <Link
+                            href={`/app/schedule/${appointment.id}/edit`}
+                            className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                          >
+                            Edit lesson
+                          </Link>
+                          {appointment.client_id ? (
+                            <Link
+                              href={`/app/clients/${appointment.client_id}`}
+                              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              Client details
+                            </Link>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <form className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -956,9 +1311,12 @@ export default async function SchedulePage({
             <Filter className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Filter the schedule</h2>
+            <h2 className="text-lg font-semibold text-slate-900">
+              Filter the schedule
+            </h2>
             <p className="mt-1 text-sm text-slate-500">
-              Narrow the view by date scope, source, instructor, room, and status to get the right operational picture quickly.
+              Narrow the view by date scope, source, instructor, room, and
+              status to get the right operational picture quickly.
             </p>
           </div>
         </div>
@@ -1024,7 +1382,10 @@ export default async function SchedulePage({
           </div>
 
           <div>
-            <label htmlFor="instructor" className="mb-1 block text-sm font-medium">
+            <label
+              htmlFor="instructor"
+              className="mb-1 block text-sm font-medium"
+            >
               Instructor
             </label>
             <select
@@ -1102,7 +1463,9 @@ export default async function SchedulePage({
       <div className="space-y-4">
         {mixedItems.length === 0 ? (
           <div className="rounded-[28px] border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-sm">
-            <p className="text-base font-medium text-slate-900">No schedule items match your current filters.</p>
+            <p className="text-base font-medium text-slate-900">
+              No schedule items match your current filters.
+            </p>
             <p className="mt-2 text-sm text-slate-500">
               Adjust the filters above to broaden the schedule view.
             </p>
@@ -1129,7 +1492,7 @@ export default async function SchedulePage({
 
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                            event.status
+                            event.status,
                           )}`}
                         >
                           {event.status}
@@ -1137,7 +1500,7 @@ export default async function SchedulePage({
 
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${eventTypeBadgeClass(
-                            event.event_type
+                            event.event_type,
                           )}`}
                         >
                           {eventTypeLabel(event.event_type)}
@@ -1154,7 +1517,9 @@ export default async function SchedulePage({
 
                       <div className="mt-3 grid gap-x-8 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
                         <div className="min-w-0">
-                          <p className="text-xs uppercase tracking-wide text-slate-400">When</p>
+                          <p className="text-xs uppercase tracking-wide text-slate-400">
+                            When
+                          </p>
                           <p className="mt-1 text-sm font-medium text-slate-900">
                             {formatEventDateRange(event)}
                           </p>
@@ -1175,7 +1540,9 @@ export default async function SchedulePage({
                           </p>
                           <p className="mt-1 text-sm font-medium text-slate-900">
                             {event.venue_name ||
-                              [event.city, event.state].filter(Boolean).join(", ") ||
+                              [event.city, event.state]
+                                .filter(Boolean)
+                                .join(", ") ||
                               "No location"}
                           </p>
                         </div>
@@ -1221,7 +1588,8 @@ export default async function SchedulePage({
             const isPublicIntro =
               appointment.appointment_type === "intro_lesson" &&
               referralSource === "public_intro_booking";
-            const isFloorRental = appointment.appointment_type === "floor_space_rental";
+            const isFloorRental =
+              appointment.appointment_type === "floor_space_rental";
 
             const isFinalStatus =
               appointment.status === "attended" ||
@@ -1229,9 +1597,7 @@ export default async function SchedulePage({
               appointment.status === "no_show";
 
             const showAttendanceActions =
-              !isFinalStatus &&
-              canMarkAttendance(role) &&
-              !isFloorRental;
+              !isFinalStatus && canMarkAttendance(role) && !isFloorRental;
 
             return (
               <div
@@ -1250,7 +1616,7 @@ export default async function SchedulePage({
 
                       <span
                         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                          appointment.status
+                          appointment.status,
                         )}`}
                       >
                         {appointment.status}
@@ -1258,7 +1624,7 @@ export default async function SchedulePage({
 
                       <span
                         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${appointmentTypeBadgeClass(
-                          appointment.appointment_type
+                          appointment.appointment_type,
                         )}`}
                       >
                         {isFloorRental
@@ -1281,7 +1647,7 @@ export default async function SchedulePage({
                       {!isFloorRental && pkg && packageHealth ? (
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${packageHealthClass(
-                            packageHealth
+                            packageHealth,
                           )}`}
                         >
                           {packageHealthLabel(packageHealth)}
@@ -1290,24 +1656,30 @@ export default async function SchedulePage({
                     </div>
 
                     <p className="mt-2 text-sm text-slate-600">
-                      {appointment.title || appointmentTypeLabel(appointment.appointment_type)}
+                      {appointment.title ||
+                        appointmentTypeLabel(appointment.appointment_type)}
                     </p>
 
                     {appointment.is_recurring ? (
                       <p className="mt-1 text-xs text-slate-500">
-                        Attendance applies per lesson. Cancellation can affect this lesson or this and future.
+                        Attendance applies per lesson. Cancellation can affect
+                        this lesson or this and future.
                       </p>
                     ) : null}
 
                     {isFloorRental ? (
                       <p className="mt-1 text-xs text-slate-500">
-                        Independent instructor floor rental. No package deduction. Instructor and room may be optionally assigned for internal tracking.
+                        Independent instructor floor rental. No package
+                        deduction. Instructor and room may be optionally
+                        assigned for internal tracking.
                       </p>
                     ) : null}
 
                     <div className="mt-3 grid gap-x-8 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
                       <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-wide text-slate-400">Start</p>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                          Start
+                        </p>
                         <p className="mt-1 text-sm font-medium text-slate-900">
                           {formatDateTime(appointment.starts_at)}
                         </p>
@@ -1323,7 +1695,9 @@ export default async function SchedulePage({
                       </div>
 
                       <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-wide text-slate-400">Room</p>
+                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                          Room
+                        </p>
                         <p className="mt-1 text-sm font-medium text-slate-900">
                           {getRoomName(appointment.rooms)}
                         </p>
@@ -1338,12 +1712,15 @@ export default async function SchedulePage({
                             ? "No package deduction"
                             : pkg
                               ? `${pkg.name_snapshot} — ${summarizeClientPackageItems(
-                                  pkg.client_package_items ?? []
+                                  pkg.client_package_items ?? [],
                                 )}`
                               : "—"}
                         </p>
 
-                        {!isFloorRental && pkg && packageHealth && packageHealth !== "healthy" ? (
+                        {!isFloorRental &&
+                        pkg &&
+                        packageHealth &&
+                        packageHealth !== "healthy" ? (
                           <p className="mt-1 text-xs text-slate-500">
                             {packageHealth === "low_balance"
                               ? "Linked package is running low."
@@ -1380,8 +1757,16 @@ export default async function SchedulePage({
                 {showAttendanceActions ? (
                   <div className="mt-4 flex flex-wrap gap-3 border-t pt-4">
                     <form action={markAppointmentAttendedAction}>
-                      <input type="hidden" name="appointmentId" value={appointment.id} />
-                      <input type="hidden" name="returnTo" value={currentScheduleHref} />
+                      <input
+                        type="hidden"
+                        name="appointmentId"
+                        value={appointment.id}
+                      />
+                      <input
+                        type="hidden"
+                        name="returnTo"
+                        value={currentScheduleHref}
+                      />
                       <button
                         type="submit"
                         className="rounded-xl bg-green-600 px-4 py-2 text-white hover:bg-green-700"
@@ -1391,8 +1776,16 @@ export default async function SchedulePage({
                     </form>
 
                     <form action={markAppointmentNoShowAction}>
-                      <input type="hidden" name="appointmentId" value={appointment.id} />
-                      <input type="hidden" name="returnTo" value={currentScheduleHref} />
+                      <input
+                        type="hidden"
+                        name="appointmentId"
+                        value={appointment.id}
+                      />
+                      <input
+                        type="hidden"
+                        name="returnTo"
+                        value={currentScheduleHref}
+                      />
                       <button
                         type="submit"
                         className="rounded-xl bg-amber-500 px-4 py-2 text-white hover:bg-amber-600"
@@ -1402,8 +1795,16 @@ export default async function SchedulePage({
                     </form>
 
                     <form action={cancelAppointmentAction}>
-                      <input type="hidden" name="appointmentId" value={appointment.id} />
-                      <input type="hidden" name="cancelScope" value="this_lesson_only" />
+                      <input
+                        type="hidden"
+                        name="appointmentId"
+                        value={appointment.id}
+                      />
+                      <input
+                        type="hidden"
+                        name="cancelScope"
+                        value="this_lesson_only"
+                      />
                       <button
                         type="submit"
                         className="rounded-xl border border-red-200 px-4 py-2 text-red-700 hover:bg-red-50"
@@ -1414,10 +1815,14 @@ export default async function SchedulePage({
                   </div>
                 ) : null}
 
-                {isFloorRental && !isFinalStatus && canEditAppointments(role) ? (
+                {isFloorRental &&
+                !isFinalStatus &&
+                canEditAppointments(role) ? (
                   <div className="mt-4 border-t pt-4">
                     <p className="text-xs text-slate-500">
-                      Floor space rentals are shown on the schedule for visibility, but they do not use standard lesson attendance and package workflows.
+                      Floor space rentals are shown on the schedule for
+                      visibility, but they do not use standard lesson attendance
+                      and package workflows.
                     </p>
                   </div>
                 ) : null}
@@ -1429,3 +1834,5 @@ export default async function SchedulePage({
     </div>
   );
 }
+
+
