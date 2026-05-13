@@ -2652,6 +2652,7 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
     const amount = getNumberOrNull(getString(formData, "amount"));
     const paymentMethod = getString(formData, "paymentMethod") || "other";
     const notes = getString(formData, "notes");
+    const selectedDate = getString(formData, "date");
 
     if (!appointmentId || !clientId) {
       redirect(getErrorRedirect(formData, fallback, "missing_payment_target"));
@@ -2672,35 +2673,30 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
     }
 
-    if (appointment.appointment_type === "floor_space_rental") {
-      redirect(getErrorRedirect(formData, fallback, "not_lesson_payment"));
-    }
-
     if (appointment.client_id !== clientId) {
-      redirect(getErrorRedirect(formData, fallback, "missing_payment_target"));
+      redirect(getErrorRedirect(formData, fallback, "payment_client_mismatch"));
     }
 
-    const billingType = normalizeLessonBillingType(
-      appointment.billing_type,
-      appointment.appointment_type,
-    );
-
-    if (billingType !== "pay_as_you_go") {
+    if (appointment.billing_type !== "pay_as_you_go") {
       redirect(getErrorRedirect(formData, fallback, "not_pay_as_you_go"));
     }
+
+    const paidAt = new Date().toISOString();
 
     const { error: insertError } = await supabase.from("payments").insert({
       studio_id: studioId,
       client_id: clientId,
-      appointment_id: appointmentId,
       amount,
       payment_method: paymentMethod,
-      status: "processed",
-      notes: notes || null,
-      paid_at: new Date().toISOString(),
+      status: "paid",
+      notes:
+        notes ||
+        `Pay-as-you-go lesson payment recorded from daily closeout.`,
+      paid_at: paidAt,
       created_by: user.id,
-      payment_type: "lesson",
-      source: "appointment",
+      payment_type: "pay_as_you_go_lesson",
+      source: "schedule_closeout",
+      external_reference: appointmentId,
     });
 
     if (insertError) {
@@ -2712,19 +2708,24 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
       .update({
         price_amount: amount,
         payment_status: "paid",
-        updated_at: new Date().toISOString(),
+        updated_at: paidAt,
       })
       .eq("id", appointmentId)
       .eq("studio_id", studioId);
 
     if (updateError) {
-      redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
+      redirect(getErrorRedirect(formData, fallback, "appointment_payment_update_failed"));
     }
 
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
     revalidatePath(`/app/clients/${clientId}`);
-    redirect(getSuccessRedirect(formData, fallback, "payment_recorded"));
+
+    const redirectUrl = selectedDate
+      ? `/app/schedule?date=${encodeURIComponent(selectedDate)}&success=payment_recorded`
+      : getSuccessRedirect(formData, fallback, "payment_recorded");
+
+    redirect(redirectUrl);
   } catch (error) {
     rethrowIfRedirect(error);
     if (isRedirectError(error)) throw error;
