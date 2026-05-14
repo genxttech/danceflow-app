@@ -78,6 +78,27 @@ type RegistrationSummaryRow = {
   status: string;
 };
 
+type EventLocationSessionRow = {
+  event_location_id: string | null;
+  session_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  sort_order: number | null;
+};
+
+type EventLocationRow = {
+  id: string;
+  event_id: string;
+  location_name: string | null;
+  venue_name: string | null;
+  city: string | null;
+  state: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  sort_order: number | null;
+  event_location_sessions: EventLocationSessionRow[] | null;
+};
+
 const STYLE_OPTIONS = [
   { key: "country", label: "Country" },
   { key: "ballroom", label: "Ballroom" },
@@ -152,11 +173,17 @@ function seriesWeekCount(startDate: string | null, endDate: string | null) {
   const start = new Date(`${startDate}T00:00:00`);
   const end = new Date(`${endDate}T00:00:00`);
 
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    end < start
+  ) {
     return null;
   }
 
-  const days = Math.round((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  const days = Math.round(
+    (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
+  );
 
   return Math.floor(days / 7) + 1;
 }
@@ -186,6 +213,117 @@ function formatEventSchedule(event: EventRow) {
     event.start_date ? `Starts ${formatDate(event.start_date)}` : null,
     timeRange,
     "Ongoing weekly class",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function weekdayPluralFromDate(value: string | null) {
+  if (!value) return null;
+
+  const date = new Date(`${value}T00:00:00`);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return `${date.toLocaleDateString([], { weekday: "long" })}s`;
+}
+
+function joinHumanList(values: string[]) {
+  if (values.length === 0) return null;
+  if (values.length === 1) return values[0];
+  if (values.length === 2) return `${values[0]} & ${values[1]}`;
+
+  return `${values.slice(0, -1).join(", ")} & ${values[values.length - 1]}`;
+}
+
+function formatEventScheduleFromLocations(
+  event: EventRow,
+  locations: EventLocationRow[],
+) {
+  const sessions = locations.flatMap((location) =>
+    (location.event_location_sessions ?? []).map((session) => ({
+      ...session,
+      locationId: location.id,
+    })),
+  );
+
+  if (sessions.length === 0) {
+    return formatEventSchedule(event);
+  }
+
+  const datedSessions = sessions
+    .filter((session) => session.session_date)
+    .sort((a, b) => {
+      const dateA = `${a.session_date ?? ""} ${a.start_time ?? ""}`;
+      const dateB = `${b.session_date ?? ""} ${b.start_time ?? ""}`;
+
+      return dateA.localeCompare(dateB);
+    });
+
+  if (datedSessions.length === 0) {
+    return formatEventSchedule(event);
+  }
+
+  const firstSession = datedSessions[0];
+  const lastSession = datedSessions[datedSessions.length - 1];
+
+  const weekdayOrder = [
+    "Sundays",
+    "Mondays",
+    "Tuesdays",
+    "Wednesdays",
+    "Thursdays",
+    "Fridays",
+    "Saturdays",
+  ];
+
+  const weekdaySet = new Set<string>();
+  for (const session of datedSessions) {
+    const weekday = weekdayPluralFromDate(session.session_date);
+    if (weekday) weekdaySet.add(weekday);
+  }
+
+  const weekdays = weekdayOrder.filter((day) => weekdaySet.has(day));
+  const weekdayLabel = joinHumanList(weekdays);
+  const dateRange = formatDateRange(
+    firstSession.session_date,
+    lastSession.session_date,
+  );
+
+  const uniqueLocationCount = new Set(
+    datedSessions.map((session) => session.locationId),
+  ).size;
+
+  const firstTimeRange = formatTimeRange(
+    firstSession.start_time,
+    firstSession.end_time,
+  );
+  const allSameTime = datedSessions.every(
+    (session) =>
+      session.start_time === firstSession.start_time &&
+      session.end_time === firstSession.end_time,
+  );
+
+  const sessionCountByLocation = new Map<string, number>();
+  for (const session of datedSessions) {
+    sessionCountByLocation.set(
+      session.locationId,
+      (sessionCountByLocation.get(session.locationId) ?? 0) + 1,
+    );
+  }
+
+  const uniqueSessionCounts = [...new Set(sessionCountByLocation.values())];
+  const seriesLabel =
+    event.event_type === "group_class" && uniqueSessionCounts.length === 1
+      ? `${uniqueSessionCounts[0]}-week series`
+      : null;
+
+  return [
+    weekdayLabel,
+    dateRange,
+    allSameTime ? firstTimeRange : "Multiple times",
+    uniqueLocationCount > 1 ? `${uniqueLocationCount} locations` : null,
+    seriesLabel,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -269,7 +407,7 @@ function haversineMiles(
   lat1: number,
   lng1: number,
   lat2: number,
-  lng2: number
+  lng2: number,
 ) {
   const toRad = (value: number) => (value * Math.PI) / 180;
   const earthRadiusMiles = 3958.8;
@@ -279,9 +417,7 @@ function haversineMiles(
 
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) *
-      Math.cos(toRad(lat2)) *
-      Math.sin(dLng / 2) ** 2;
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
 
   const c = 2 * Math.asin(Math.sqrt(a));
   return earthRadiusMiles * c;
@@ -318,6 +454,7 @@ export default async function DiscoverEventsPage({
     { data: organizers, error: organizersError },
     { data: eventStyles, error: eventStylesError },
     { data: registrations, error: registrationsError },
+    { data: eventLocations, error: eventLocationsError },
   ] = await Promise.all([
     supabase
       .from("events")
@@ -347,7 +484,7 @@ export default async function DiscoverEventsPage({
         latitude,
         longitude,
         created_at
-      `
+      `,
       )
       .eq("visibility", "public")
       .eq("public_directory_enabled", true)
@@ -366,7 +503,7 @@ export default async function DiscoverEventsPage({
         latitude,
         longitude,
         public_directory_enabled
-      `
+      `,
     ),
 
     supabase
@@ -378,7 +515,7 @@ export default async function DiscoverEventsPage({
         slug,
         studio_id,
         active
-      `
+      `,
       )
       .eq("active", true),
 
@@ -390,6 +527,30 @@ export default async function DiscoverEventsPage({
       .from("event_registrations")
       .select("event_id, status")
       .not("status", "in", "(cancelled,waitlisted)"),
+
+    supabase
+      .from("event_locations")
+      .select(
+        `
+        id,
+        event_id,
+        location_name,
+        venue_name,
+        city,
+        state,
+        latitude,
+        longitude,
+        sort_order,
+        event_location_sessions (
+          event_location_id,
+          session_date,
+          start_time,
+          end_time,
+          sort_order
+        )
+      `,
+      )
+      .order("sort_order", { ascending: true }),
   ]);
 
   if (eventsError) {
@@ -410,7 +571,13 @@ export default async function DiscoverEventsPage({
 
   if (registrationsError) {
     throw new Error(
-      `Failed to load registration summaries: ${registrationsError.message}`
+      `Failed to load registration summaries: ${registrationsError.message}`,
+    );
+  }
+
+  if (eventLocationsError) {
+    throw new Error(
+      `Failed to load event locations: ${eventLocationsError.message}`,
     );
   }
 
@@ -419,6 +586,7 @@ export default async function DiscoverEventsPage({
   const typedOrganizers = (organizers ?? []) as OrganizerRow[];
   const typedEventStyles = (eventStyles ?? []) as EventStyleRow[];
   const typedRegistrations = (registrations ?? []) as RegistrationSummaryRow[];
+  const typedEventLocations = (eventLocations ?? []) as EventLocationRow[];
 
   const favoriteEventIds = new Set<string>();
 
@@ -429,12 +597,12 @@ export default async function DiscoverEventsPage({
       .eq("user_id", user.id)
       .in(
         "event_id",
-        typedEvents.map((event) => event.id)
+        typedEvents.map((event) => event.id),
       );
 
     if (favoritesError) {
       throw new Error(
-        `Failed to load event favorites: ${favoritesError.message}`
+        `Failed to load event favorites: ${favoritesError.message}`,
       );
     }
 
@@ -447,7 +615,7 @@ export default async function DiscoverEventsPage({
 
   const studioById = new Map(typedStudios.map((studio) => [studio.id, studio]));
   const organizerById = new Map(
-    typedOrganizers.map((organizer) => [organizer.id, organizer])
+    typedOrganizers.map((organizer) => [organizer.id, organizer]),
   );
 
   const stylesByEventId = new Map<string, EventStyleRow[]>();
@@ -457,6 +625,13 @@ export default async function DiscoverEventsPage({
     stylesByEventId.set(row.event_id, current);
   }
 
+  const locationsByEventId = new Map<string, EventLocationRow[]>();
+  for (const location of typedEventLocations) {
+    const current = locationsByEventId.get(location.event_id) ?? [];
+    current.push(location);
+    locationsByEventId.set(location.event_id, current);
+  }
+
   const activeRegistrationCountByEventId = new Map<string, number>();
   for (const row of typedRegistrations) {
     const current = activeRegistrationCountByEventId.get(row.event_id) ?? 0;
@@ -464,7 +639,9 @@ export default async function DiscoverEventsPage({
   }
 
   const hasAnyGeocodedEvents = typedEvents.some((event) => {
-    const studio = event.studio_id ? studioById.get(event.studio_id) : undefined;
+    const studio = event.studio_id
+      ? studioById.get(event.studio_id)
+      : undefined;
     const lat = event.latitude ?? studio?.latitude ?? null;
     const lng = event.longitude ?? studio?.longitude ?? null;
 
@@ -476,44 +653,54 @@ export default async function DiscoverEventsPage({
     searchLatitude !== null &&
     searchLongitude !== null;
 
-  const usingCurrentLocation =
-    requestedCurrentLocation && hasAnyGeocodedEvents;
+  const usingCurrentLocation = requestedCurrentLocation && hasAnyGeocodedEvents;
 
   const filteredEvents = typedEvents
     .map((event) => {
       if (
-  (!event.organizer_id && !event.studio_id) ||
-  !event.public_directory_enabled ||
-  !event.slug
-) {
-  return null;
-}
+        (!event.organizer_id && !event.studio_id) ||
+        !event.public_directory_enabled ||
+        !event.slug
+      ) {
+        return null;
+      }
 
-let organizer: OrganizerRow | undefined;
+      let organizer: OrganizerRow | undefined;
 
-if (event.organizer_id) {
-  organizer = organizerById.get(event.organizer_id);
-  if (!organizer || !organizer.active) return null;
-}
+      if (event.organizer_id) {
+        organizer = organizerById.get(event.organizer_id);
+        if (!organizer || !organizer.active) return null;
+      }
 
-      const studio = event.studio_id ? studioById.get(event.studio_id) : undefined;
+      const studio = event.studio_id
+        ? studioById.get(event.studio_id)
+        : undefined;
       if (!studio || !studio.public_directory_enabled) return null;
 
       const eventStyleRows = stylesByEventId.get(event.id) ?? [];
+      const eventLocationsForEvent = locationsByEventId.get(event.id) ?? [];
       let distanceMiles: number | null = null;
 
       if (beginner && !event.beginner_friendly) return null;
 
       if (usingCurrentLocation) {
-        const lat = event.latitude ?? studio.latitude;
-        const lng = event.longitude ?? studio.longitude;
+        const firstGeocodedLocation = eventLocationsForEvent.find(
+          (location) =>
+            location.latitude !== null && location.longitude !== null,
+        );
+        const lat =
+          event.latitude ?? firstGeocodedLocation?.latitude ?? studio.latitude;
+        const lng =
+          event.longitude ??
+          firstGeocodedLocation?.longitude ??
+          studio.longitude;
 
         if (lat !== null && lng !== null) {
           distanceMiles = haversineMiles(
             searchLatitude!,
             searchLongitude!,
             lat,
-            lng
+            lng,
           );
 
           if (distanceMiles > radius) return null;
@@ -538,7 +725,7 @@ if (event.organizer_id) {
         const hasStyle = eventStyleRows.some(
           (row) =>
             row.style_key.toLowerCase() === style ||
-            row.display_name.toLowerCase() === style
+            row.display_name.toLowerCase() === style,
         );
 
         if (!hasStyle) return null;
@@ -552,11 +739,17 @@ if (event.organizer_id) {
           eventTypeLabel(event.event_type),
           hostStudioName(studio),
           organizer?.name ?? "",
-organizer?.slug ?? "",
+          organizer?.slug ?? "",
           studio.city ?? "",
           studio.state ?? "",
           event.postal_code ?? "",
           studio.postal_code ?? "",
+          ...eventLocationsForEvent.flatMap((location) => [
+            location.location_name ?? "",
+            location.venue_name ?? "",
+            location.city ?? "",
+            location.state ?? "",
+          ]),
           ...eventStyleRows.map((row) => row.display_name),
         ]
           .join(" ")
@@ -570,19 +763,21 @@ organizer?.slug ?? "",
         studio,
         organizer,
         eventStyleRows,
+        eventLocations: eventLocationsForEvent,
         distanceMiles,
       };
     })
     .filter(
       (
-        row
+        row,
       ): row is {
         event: EventRow;
         studio: StudioRow;
         organizer: OrganizerRow | undefined;
         eventStyleRows: EventStyleRow[];
+        eventLocations: EventLocationRow[];
         distanceMiles: number | null;
-      } => Boolean(row)
+      } => Boolean(row),
     )
     .sort((a, b) => {
       if (usingCurrentLocation) {
@@ -592,11 +787,30 @@ organizer?.slug ?? "",
         );
       }
 
-      const aDate = a.event.start_date
-        ? new Date(a.event.start_date).getTime()
+      const firstSessionDate = (row: {
+        event: EventRow;
+        eventLocations: EventLocationRow[];
+      }) => {
+        const sessions = row.eventLocations
+          .flatMap((location) => location.event_location_sessions ?? [])
+          .filter((session) => session.session_date)
+          .sort((sessionA, sessionB) =>
+            `${sessionA.session_date ?? ""} ${sessionA.start_time ?? ""}`.localeCompare(
+              `${sessionB.session_date ?? ""} ${sessionB.start_time ?? ""}`,
+            ),
+          );
+
+        return sessions[0]?.session_date ?? row.event.start_date;
+      };
+
+      const aStart = firstSessionDate(a);
+      const bStart = firstSessionDate(b);
+
+      const aDate = aStart
+        ? new Date(aStart).getTime()
         : Number.MAX_SAFE_INTEGER;
-      const bDate = b.event.start_date
-        ? new Date(b.event.start_date).getTime()
+      const bDate = bStart
+        ? new Date(bStart).getTime()
         : Number.MAX_SAFE_INTEGER;
 
       return aDate - bDate;
@@ -727,22 +941,30 @@ organizer?.slug ?? "",
 
               <div className="mt-5 grid gap-3">
                 {newlyAddedEvents.length > 0 ? (
-                  newlyAddedEvents.map(({ event, studio, organizer }) => (
-                    <Link
-                      key={event.id}
-                      href={`/events/${event.slug}`}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-white hover:shadow-sm"
-                    >
-                      <p className="font-medium text-slate-950">{event.name}</p>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {formatEventSchedule(event)} ·{" "}
-                        {organizer?.name || hostStudioName(studio)}
-                      </p>
-                    </Link>
-                  ))
+                  newlyAddedEvents.map(
+                    ({ event, studio, organizer, eventLocations }) => (
+                      <Link
+                        key={event.id}
+                        href={`/events/${event.slug}`}
+                        className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 hover:bg-white hover:shadow-sm"
+                      >
+                        <p className="font-medium text-slate-950">
+                          {event.name}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-500">
+                          {formatEventScheduleFromLocations(
+                            event,
+                            eventLocations,
+                          )}{" "}
+                          · {organizer?.name || hostStudioName(studio)}
+                        </p>
+                      </Link>
+                    ),
+                  )
                 ) : (
                   <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
-                    Newly added events will appear here as public events go live.
+                    Newly added events will appear here as public events go
+                    live.
                   </div>
                 )}
               </div>
@@ -973,6 +1195,7 @@ organizer?.slug ?? "",
                   studio,
                   organizer,
                   eventStyleRows,
+                  eventLocations,
                   distanceMiles,
                 }) => {
                   const activeCount =
@@ -1010,7 +1233,10 @@ organizer?.slug ?? "",
                           </span>
 
                           <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700">
-                            {formatEventSchedule(event)}
+                            {formatEventScheduleFromLocations(
+                              event,
+                              eventLocations,
+                            )}
                           </span>
 
                           <span
@@ -1043,8 +1269,7 @@ organizer?.slug ?? "",
                                 : "Host coming soon"}
                             </p>
 
-                            {usingCurrentLocation &&
-                            distanceMiles !== null ? (
+                            {usingCurrentLocation && distanceMiles !== null ? (
                               <p className="mt-1 text-xs font-medium text-violet-600">
                                 {distanceMiles.toFixed(1)} miles away
                               </p>
@@ -1067,7 +1292,9 @@ organizer?.slug ?? "",
                             <FavoriteButton
                               targetType="event"
                               targetId={event.id}
-                              initiallyFavorited={favoriteEventIds.has(event.id)}
+                              initiallyFavorited={favoriteEventIds.has(
+                                event.id,
+                              )}
                               isAuthenticated={!!user}
                               returnPath="/discover/events"
                             />
@@ -1113,7 +1340,7 @@ organizer?.slug ?? "",
                       </div>
                     </article>
                   );
-                }
+                },
               )}
             </div>
           )}
@@ -1124,6 +1351,4 @@ organizer?.slug ?? "",
     </>
   );
 }
-
-
 
