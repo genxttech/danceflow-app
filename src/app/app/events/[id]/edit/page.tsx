@@ -92,6 +92,17 @@ type EventLocationRow = {
   event_location_sessions: EventLocationSessionRow[] | null;
 };
 
+type EventScheduleItemRow = {
+  schedule_date: string;
+  start_time: string;
+  end_time: string | null;
+  title: string;
+  description: string | null;
+  presenter_name: string | null;
+  location_label: string | null;
+  sort_order: number | null;
+};
+
 function isOrganizerWorkspaceName(value: string | null | undefined) {
   const normalized = (value ?? "").trim().toLowerCase();
 
@@ -115,11 +126,7 @@ function toDatetimeLocal(value: string | null) {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
-export default async function EditEventPage({
-  params,
-}: {
-  params: Params;
-}) {
+export default async function EditEventPage({ params }: { params: Params }) {
   const { id } = await params;
   const supabase = await createClient();
 
@@ -141,6 +148,7 @@ export default async function EditEventPage({
     { data: tags, error: tagsError },
     { data: eventStyles, error: eventStylesError },
     { data: eventLocations, error: eventLocationsError },
+    { data: eventScheduleItems, error: eventScheduleItemsError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -150,7 +158,8 @@ export default async function EditEventPage({
 
     supabase
       .from("events")
-      .select(`
+      .select(
+        `
         id,
         organizer_id,
         name,
@@ -186,7 +195,8 @@ export default async function EditEventPage({
         waitlist_enabled,
         refund_policy,
         faq
-      `)
+      `,
+      )
       .eq("id", id)
       .eq("studio_id", studioId)
       .single(),
@@ -204,14 +214,12 @@ export default async function EditEventPage({
       .eq("event_id", id)
       .order("tag", { ascending: true }),
 
-    supabase
-      .from("event_public_styles")
-      .select("style_key")
-      .eq("event_id", id),
+    supabase.from("event_public_styles").select("style_key").eq("event_id", id),
 
     supabase
       .from("event_locations")
-      .select(`
+      .select(
+        `
         id,
         location_name,
         venue_name,
@@ -232,9 +240,31 @@ export default async function EditEventPage({
           capacity,
           sort_order
         )
-      `)
+      `,
+      )
       .eq("event_id", id)
       .eq("studio_id", studioId)
+      .order("sort_order", { ascending: true }),
+
+    supabase
+      .from("event_schedule_items")
+      .select(
+        `
+        schedule_date,
+        start_time,
+        end_time,
+        title,
+        description,
+        presenter_name,
+        location_label,
+        sort_order
+      `,
+      )
+      .eq("event_id", id)
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .order("schedule_date", { ascending: true })
+      .order("start_time", { ascending: true })
       .order("sort_order", { ascending: true }),
   ]);
 
@@ -264,6 +294,12 @@ export default async function EditEventPage({
     );
   }
 
+  if (eventScheduleItemsError) {
+    throw new Error(
+      `Failed to load event schedule: ${eventScheduleItemsError.message}`,
+    );
+  }
+
   const typedEventLocations = (eventLocations ?? []) as EventLocationRow[];
   const normalizedEventLocations = typedEventLocations.map((location) => {
     const sessions = (location.event_location_sessions ?? [])
@@ -275,8 +311,7 @@ export default async function EditEventPage({
         endTime: session.end_time ?? "",
         sessionLabel: session.session_label ?? "",
         seriesLabel: session.series_label ?? "",
-        capacity:
-          session.capacity != null ? String(session.capacity) : "",
+        capacity: session.capacity != null ? String(session.capacity) : "",
       }));
 
     return {
@@ -301,6 +336,17 @@ export default async function EditEventPage({
   const typedTags = (tags ?? []) as EventTagRow[];
   const typedEventStyles = (eventStyles ?? []) as EventStyleRow[];
   const selectedStyleKeys = typedEventStyles.map((row) => row.style_key);
+  const normalizedEventScheduleItems = (
+    (eventScheduleItems ?? []) as EventScheduleItemRow[]
+  ).map((item) => ({
+    scheduleDate: item.schedule_date ?? "",
+    startTime: item.start_time ?? "",
+    endTime: item.end_time ?? "",
+    title: item.title ?? "",
+    description: item.description ?? "",
+    presenterName: item.presenter_name ?? "",
+    locationLabel: item.location_label ?? "",
+  }));
   const singleOrganizer = typedOrganizers[0] ?? null;
   const isCopiedDraft =
     typedEvent.status === "draft" &&
@@ -315,7 +361,9 @@ export default async function EditEventPage({
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                {organizerWorkspace ? "DanceFlow Organizer Workspace" : "DanceFlow Events"}
+                {organizerWorkspace
+                  ? "DanceFlow Organizer Workspace"
+                  : "DanceFlow Events"}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
                 Edit Event
@@ -345,8 +393,8 @@ export default async function EditEventPage({
                 Organizer-linked event editing
               </h2>
               <p className="mt-2 text-sm leading-7 text-sky-900">
-                Organizer workspaces should keep event ownership tied to their single organizer
-                profile whenever possible.
+                Organizer workspaces should keep event ownership tied to their
+                single organizer profile whenever possible.
               </p>
             </div>
           </div>
@@ -362,7 +410,8 @@ export default async function EditEventPage({
             This event belongs to {singleOrganizer.name}
           </h2>
           <p className="mt-2 text-sm leading-7 text-emerald-900">
-            The edit flow should keep organizer ownership aligned to the workspace organizer.
+            The edit flow should keep organizer ownership aligned to the
+            workspace organizer.
           </p>
         </div>
       ) : null}
@@ -376,8 +425,9 @@ export default async function EditEventPage({
             You’re editing a copied draft.
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-7 text-amber-900">
-            Review the dates, location, tickets, registration settings, and public details before publishing.
-            The original event was not changed.
+            Review the dates, location, tickets, registration settings, and
+            public details before publishing. The original event was not
+            changed.
           </p>
         </section>
       ) : null}
@@ -422,8 +472,12 @@ export default async function EditEventPage({
           registrationRequired: typedEvent.registration_required,
           accountRequiredForRegistration:
             typedEvent.account_required_for_registration,
-          registrationOpensAt: toDatetimeLocal(typedEvent.registration_opens_at),
-          registrationClosesAt: toDatetimeLocal(typedEvent.registration_closes_at),
+          registrationOpensAt: toDatetimeLocal(
+            typedEvent.registration_opens_at,
+          ),
+          registrationClosesAt: toDatetimeLocal(
+            typedEvent.registration_closes_at,
+          ),
           capacity: typedEvent.capacity ?? undefined,
           waitlistEnabled: typedEvent.waitlist_enabled,
           refundPolicy: typedEvent.refund_policy ?? "",
@@ -431,6 +485,7 @@ export default async function EditEventPage({
           tags: typedTags.map((tag) => tag.tag).join(", "),
           styleKeys: selectedStyleKeys,
           eventLocations: normalizedEventLocations,
+          eventScheduleItems: normalizedEventScheduleItems,
         }}
       />
     </div>

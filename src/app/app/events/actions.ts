@@ -64,6 +64,17 @@ type EventLocationPayload = {
   sessions: EventLocationSessionPayload[];
 };
 
+type EventScheduleItemPayload = {
+  scheduleDate: string;
+  startTime: string;
+  endTime: string | null;
+  title: string;
+  description: string;
+  presenterName: string;
+  locationLabel: string;
+  sortOrder: number;
+};
+
 const EVENT_IMAGE_BUCKET = "event-media";
 
 const EVENT_SLUG_TAKEN_MESSAGE =
@@ -73,7 +84,6 @@ type StyleOption = {
   key: string;
   label: string;
 };
-
 
 const DANCE_FOCUS_OPTIONS_BY_CATEGORY: Record<string, StyleOption[]> = {
   country: [
@@ -209,8 +219,8 @@ function normalizeTags(value: string) {
       value
         .split(",")
         .map((tag) => tag.trim())
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   );
 }
 
@@ -232,7 +242,7 @@ function normalizeEventSlug(params: {
 }
 
 function isEventSlugUniqueError(
-  error: { code?: string; message?: string } | null | undefined
+  error: { code?: string; message?: string } | null | undefined,
 ) {
   const message = error?.message?.toLowerCase() ?? "";
 
@@ -281,7 +291,7 @@ function isActiveOrTrialing(status: string | null | undefined) {
 
 function getEffectiveBillingPlan(
   workspace: WorkspaceRow | null | undefined,
-  subscriptionPlan: SubscriptionPlanRow | null | undefined
+  subscriptionPlan: SubscriptionPlanRow | null | undefined,
 ) {
   return (
     subscriptionPlan?.code?.trim().toLowerCase() ||
@@ -292,7 +302,7 @@ function getEffectiveBillingPlan(
 
 function getEffectiveSubscriptionStatus(
   workspace: WorkspaceRow | null | undefined,
-  subscription: SubscriptionRow | null | undefined
+  subscription: SubscriptionRow | null | undefined,
 ) {
   return (
     subscription?.status?.trim().toLowerCase() ||
@@ -310,7 +320,7 @@ function isProStudioWorkspace(params: {
     getEffectiveBillingPlan(params.workspace, params.subscriptionPlan) ===
       "pro" &&
     isActiveOrTrialing(
-      getEffectiveSubscriptionStatus(params.workspace, params.subscription)
+      getEffectiveSubscriptionStatus(params.workspace, params.subscription),
     )
   );
 }
@@ -349,67 +359,98 @@ async function getStudioContext() {
 }
 
 function parseEventLocations(formData: FormData): EventLocationPayload[] {
-  const locationCount = parseOptionalInteger(getString(formData, "locationCount")) ?? 0;
+  const locationCount =
+    parseOptionalInteger(getString(formData, "locationCount")) ?? 0;
   const locations: EventLocationPayload[] = [];
 
-  for (let locationIndex = 0; locationIndex < locationCount; locationIndex += 1) {
-    const locationName = getString(formData, `location_${locationIndex}_locationName`);
-    const venueName = getString(formData, `location_${locationIndex}_venueName`);
-    const addressLine1 = getString(formData, `location_${locationIndex}_addressLine1`);
-    const addressLine2 = getString(formData, `location_${locationIndex}_addressLine2`);
+  for (
+    let locationIndex = 0;
+    locationIndex < locationCount;
+    locationIndex += 1
+  ) {
+    const locationName = getString(
+      formData,
+      `location_${locationIndex}_locationName`,
+    );
+    const venueName = getString(
+      formData,
+      `location_${locationIndex}_venueName`,
+    );
+    const addressLine1 = getString(
+      formData,
+      `location_${locationIndex}_addressLine1`,
+    );
+    const addressLine2 = getString(
+      formData,
+      `location_${locationIndex}_addressLine2`,
+    );
     const city = getString(formData, `location_${locationIndex}_city`);
     const state = getString(formData, `location_${locationIndex}_state`);
-    const postalCode = getString(formData, `location_${locationIndex}_postalCode`);
-    const country = getString(formData, `location_${locationIndex}_country`) || "US";
-    const capacity = parseOptionalInteger(getString(formData, `location_${locationIndex}_capacity`));
+    const postalCode = getString(
+      formData,
+      `location_${locationIndex}_postalCode`,
+    );
+    const country =
+      getString(formData, `location_${locationIndex}_country`) || "US";
+    const capacity = parseOptionalInteger(
+      getString(formData, `location_${locationIndex}_capacity`),
+    );
     const sortOrder =
-      parseOptionalInteger(getString(formData, `location_${locationIndex}_sortOrder`)) ??
-      locationIndex;
+      parseOptionalInteger(
+        getString(formData, `location_${locationIndex}_sortOrder`),
+      ) ?? locationIndex;
 
     const sessionCount =
-      parseOptionalInteger(getString(formData, `location_${locationIndex}_sessionCount`)) ?? 0;
+      parseOptionalInteger(
+        getString(formData, `location_${locationIndex}_sessionCount`),
+      ) ?? 0;
 
     const sessions: EventLocationSessionPayload[] = [];
 
     for (let sessionIndex = 0; sessionIndex < sessionCount; sessionIndex += 1) {
       const sessionDate = getString(
         formData,
-        `location_${locationIndex}_session_${sessionIndex}_date`
+        `location_${locationIndex}_session_${sessionIndex}_date`,
       );
       const startTime =
         getString(
           formData,
-          `location_${locationIndex}_session_${sessionIndex}_startTime`
+          `location_${locationIndex}_session_${sessionIndex}_startTime`,
         ) || null;
       const endTime =
         getString(
           formData,
-          `location_${locationIndex}_session_${sessionIndex}_endTime`
+          `location_${locationIndex}_session_${sessionIndex}_endTime`,
         ) || null;
       const sessionLabel = getString(
         formData,
-        `location_${locationIndex}_session_${sessionIndex}_label`
+        `location_${locationIndex}_session_${sessionIndex}_label`,
       );
       const seriesLabel = getString(
         formData,
-        `location_${locationIndex}_session_${sessionIndex}_seriesLabel`
+        `location_${locationIndex}_session_${sessionIndex}_seriesLabel`,
       );
       const sessionCapacity = parseOptionalInteger(
         getString(
           formData,
-          `location_${locationIndex}_session_${sessionIndex}_capacity`
-        )
+          `location_${locationIndex}_session_${sessionIndex}_capacity`,
+        ),
       );
       const sessionSortOrder =
         parseOptionalInteger(
           getString(
             formData,
-            `location_${locationIndex}_session_${sessionIndex}_sortOrder`
-          )
+            `location_${locationIndex}_session_${sessionIndex}_sortOrder`,
+          ),
         ) ?? sessionIndex;
 
       const hasSessionDetails = Boolean(
-        sessionDate || startTime || endTime || sessionLabel || seriesLabel || sessionCapacity != null
+        sessionDate ||
+        startTime ||
+        endTime ||
+        sessionLabel ||
+        seriesLabel ||
+        sessionCapacity != null,
       );
 
       if (!hasSessionDetails) {
@@ -429,14 +470,14 @@ function parseEventLocations(formData: FormData): EventLocationPayload[] {
 
     const hasLocationDetails = Boolean(
       locationName ||
-        venueName ||
-        addressLine1 ||
-        addressLine2 ||
-        city ||
-        state ||
-        postalCode ||
-        capacity != null ||
-        sessions.length > 0
+      venueName ||
+      addressLine1 ||
+      addressLine2 ||
+      city ||
+      state ||
+      postalCode ||
+      capacity != null ||
+      sessions.length > 0,
     );
 
     if (!hasLocationDetails) {
@@ -444,7 +485,8 @@ function parseEventLocations(formData: FormData): EventLocationPayload[] {
     }
 
     locations.push({
-      locationName: locationName || venueName || `Location ${locationIndex + 1}`,
+      locationName:
+        locationName || venueName || `Location ${locationIndex + 1}`,
       venueName,
       addressLine1,
       addressLine2,
@@ -461,9 +503,71 @@ function parseEventLocations(formData: FormData): EventLocationPayload[] {
   return locations;
 }
 
+function parseEventScheduleItems(
+  formData: FormData,
+): EventScheduleItemPayload[] {
+  const itemCount =
+    parseOptionalInteger(getString(formData, "scheduleItemCount")) ?? 0;
+  const items: EventScheduleItemPayload[] = [];
+
+  for (let itemIndex = 0; itemIndex < itemCount; itemIndex += 1) {
+    const scheduleDate = getString(formData, `scheduleItem_${itemIndex}_date`);
+    const startTime = getString(
+      formData,
+      `scheduleItem_${itemIndex}_startTime`,
+    );
+    const endTime =
+      getString(formData, `scheduleItem_${itemIndex}_endTime`) || null;
+    const title = getString(formData, `scheduleItem_${itemIndex}_title`);
+    const description = getString(
+      formData,
+      `scheduleItem_${itemIndex}_description`,
+    );
+    const presenterName = getString(
+      formData,
+      `scheduleItem_${itemIndex}_presenterName`,
+    );
+    const locationLabel = getString(
+      formData,
+      `scheduleItem_${itemIndex}_locationLabel`,
+    );
+    const sortOrder =
+      parseOptionalInteger(
+        getString(formData, `scheduleItem_${itemIndex}_sortOrder`),
+      ) ?? itemIndex;
+
+    const hasItemDetails = Boolean(
+      scheduleDate ||
+      startTime ||
+      endTime ||
+      title ||
+      description ||
+      presenterName ||
+      locationLabel,
+    );
+
+    if (!hasItemDetails) {
+      continue;
+    }
+
+    items.push({
+      scheduleDate,
+      startTime,
+      endTime,
+      title,
+      description,
+      presenterName,
+      locationLabel,
+      sortOrder,
+    });
+  }
+
+  return items;
+}
+
 function normalizeStyleKeysForSingleCategory(styleKeys: string[]) {
   const uniqueStyleKeys = Array.from(
-    new Set(styleKeys.map((styleKey) => styleKey.trim()).filter(Boolean))
+    new Set(styleKeys.map((styleKey) => styleKey.trim()).filter(Boolean)),
   );
 
   if (uniqueStyleKeys.length === 0) {
@@ -473,7 +577,7 @@ function normalizeStyleKeysForSingleCategory(styleKeys: string[]) {
   const selectedCategory = getDanceCategoryForStyleKey(uniqueStyleKeys[0]);
 
   return uniqueStyleKeys.filter(
-    (styleKey) => getDanceCategoryForStyleKey(styleKey) === selectedCategory
+    (styleKey) => getDanceCategoryForStyleKey(styleKey) === selectedCategory,
   );
 }
 
@@ -524,13 +628,13 @@ function buildEventPayload(formData: FormData) {
     registrationRequired: getBoolean(formData, "registrationRequired"),
     accountRequiredForRegistration: getBoolean(
       formData,
-      "accountRequiredForRegistration"
+      "accountRequiredForRegistration",
     ),
     registrationOpensAt: parseOptionalDateTimeLocal(
-      getString(formData, "registrationOpensAt")
+      getString(formData, "registrationOpensAt"),
     ),
     registrationClosesAt: parseOptionalDateTimeLocal(
-      getString(formData, "registrationClosesAt")
+      getString(formData, "registrationClosesAt"),
     ),
     capacity,
     waitlistEnabled,
@@ -541,9 +645,12 @@ function buildEventPayload(formData: FormData) {
       formData
         .getAll("styleKeys")
         .map((value) => String(value).trim())
-        .filter((value) => STYLE_OPTIONS.some((option) => option.key === value))
+        .filter((value) =>
+          STYLE_OPTIONS.some((option) => option.key === value),
+        ),
     ),
     eventLocations: parseEventLocations(formData),
+    eventScheduleItems: parseEventScheduleItems(formData),
   };
 }
 
@@ -613,7 +720,10 @@ function validateEventPayload(payload: ReturnType<typeof buildEventPayload>) {
   }
 
   for (const location of payload.eventLocations) {
-    if (location.state && !isAllowedOptionValue(US_STATE_OPTIONS, location.state)) {
+    if (
+      location.state &&
+      !isAllowedOptionValue(US_STATE_OPTIONS, location.state)
+    ) {
       return "Invalid location state.";
     }
 
@@ -636,6 +746,20 @@ function validateEventPayload(payload: ReturnType<typeof buildEventPayload>) {
     }
   }
 
+  for (const scheduleItem of payload.eventScheduleItems) {
+    if (!scheduleItem.scheduleDate) {
+      return "Each event schedule item needs a date.";
+    }
+
+    if (!scheduleItem.startTime) {
+      return "Each event schedule item needs a start time.";
+    }
+
+    if (!scheduleItem.title) {
+      return "Each event schedule item needs a title.";
+    }
+  }
+
   return null;
 }
 
@@ -646,11 +770,7 @@ async function ensureSlugAvailable(params: {
 }) {
   const { supabase, slug, excludeEventId } = params;
 
-  let query = supabase
-    .from("events")
-    .select("id")
-    .ilike("slug", slug)
-    .limit(1);
+  let query = supabase.from("events").select("id").ilike("slug", slug).limit(1);
 
   if (excludeEventId) {
     query = query.neq("id", excludeEventId);
@@ -675,7 +795,10 @@ async function generateUniqueDuplicateEventSlug(params: {
 
   const candidates = [
     `${cleanBase}-copy`,
-    ...Array.from({ length: 49 }, (_, index) => `${cleanBase}-copy-${index + 2}`),
+    ...Array.from(
+      { length: 49 },
+      (_, index) => `${cleanBase}-copy-${index + 2}`,
+    ),
   ];
 
   for (const candidate of candidates) {
@@ -731,7 +854,7 @@ async function getWorkspaceAndOrganizerPolicy(params: {
 
   if (workspaceError) {
     throw new Error(
-      `Failed to load workspace policy: ${workspaceError.message}`
+      `Failed to load workspace policy: ${workspaceError.message}`,
     );
   }
 
@@ -744,7 +867,7 @@ async function getWorkspaceAndOrganizerPolicy(params: {
 
   if (subscriptionsError) {
     throw new Error(
-      `Failed to load subscription policy: ${subscriptionsError.message}`
+      `Failed to load subscription policy: ${subscriptionsError.message}`,
     );
   }
 
@@ -761,7 +884,7 @@ async function getWorkspaceAndOrganizerPolicy(params: {
 
     if (planError) {
       throw new Error(
-        `Failed to load subscription plan policy: ${planError.message}`
+        `Failed to load subscription plan policy: ${planError.message}`,
       );
     }
 
@@ -770,7 +893,7 @@ async function getWorkspaceAndOrganizerPolicy(params: {
 
   const effectiveBillingPlan = getEffectiveBillingPlan(
     workspace,
-    subscriptionPlan
+    subscriptionPlan,
   );
   const organizerWorkspace =
     effectiveBillingPlan === "organizer" ||
@@ -791,7 +914,7 @@ async function getWorkspaceAndOrganizerPolicy(params: {
 
   if (organizersError) {
     throw new Error(
-      `Failed to load organizer policy: ${organizersError.message}`
+      `Failed to load organizer policy: ${organizersError.message}`,
     );
   }
 
@@ -862,7 +985,9 @@ async function replaceEventStyles(params: {
   const { supabase, eventId } = params;
 
   const styleKeys = Array.from(
-    new Set(params.styleKeys.map((styleKey) => styleKey.trim()).filter(Boolean))
+    new Set(
+      params.styleKeys.map((styleKey) => styleKey.trim()).filter(Boolean),
+    ),
   );
 
   const { data: existingRows, error: existingError } = await supabase
@@ -875,7 +1000,7 @@ async function replaceEventStyles(params: {
   }
 
   const existingStyleKeys = new Set(
-    (existingRows ?? []).map((row) => String(row.style_key))
+    (existingRows ?? []).map((row) => String(row.style_key)),
   );
 
   const styleKeysToRemove = (existingRows ?? [])
@@ -889,7 +1014,9 @@ async function replaceEventStyles(params: {
       .in("id", styleKeysToRemove);
 
     if (deleteError) {
-      throw new Error(`Failed to clear old event styles: ${deleteError.message}`);
+      throw new Error(
+        `Failed to clear old event styles: ${deleteError.message}`,
+      );
     }
   }
 
@@ -929,7 +1056,7 @@ function toDateValue(date: Date) {
 }
 
 function buildWeeklyGroupClassSessions(
-  payload: ReturnType<typeof buildEventPayload>
+  payload: ReturnType<typeof buildEventPayload>,
 ) {
   if (payload.eventType !== "group_class" || !payload.startDate) {
     return [];
@@ -997,7 +1124,7 @@ async function syncEventSessionsForGroupClass(params: {
 
     if (error) {
       throw new Error(
-        `Could not cancel old group class sessions: ${error.message}`
+        `Could not cancel old group class sessions: ${error.message}`,
       );
     }
 
@@ -1025,7 +1152,7 @@ async function syncEventSessionsForGroupClass(params: {
 
   if (upsertError) {
     throw new Error(
-      `Could not save group class sessions: ${upsertError.message}`
+      `Could not save group class sessions: ${upsertError.message}`,
     );
   }
 
@@ -1040,7 +1167,7 @@ async function syncEventSessionsForGroupClass(params: {
 
   if (existingError) {
     throw new Error(
-      `Could not review group class sessions: ${existingError.message}`
+      `Could not review group class sessions: ${existingError.message}`,
     );
   }
 
@@ -1059,7 +1186,7 @@ async function syncEventSessionsForGroupClass(params: {
 
     if (cancelError) {
       throw new Error(
-        `Could not cancel obsolete group class sessions: ${cancelError.message}`
+        `Could not cancel obsolete group class sessions: ${cancelError.message}`,
       );
     }
   }
@@ -1084,7 +1211,9 @@ async function replaceEventLocationSchedule(params: {
     .eq("studio_id", studioId);
 
   if (deleteError) {
-    throw new Error(`Could not clear old event locations: ${deleteError.message}`);
+    throw new Error(
+      `Could not clear old event locations: ${deleteError.message}`,
+    );
   }
 
   const { data: insertedLocations, error: locationsError } = await supabase
@@ -1104,13 +1233,13 @@ async function replaceEventLocationSchedule(params: {
         capacity: location.capacity,
         sort_order: location.sortOrder,
         active: true,
-      }))
+      })),
     )
     .select("id, sort_order");
 
   if (locationsError || !insertedLocations) {
     throw new Error(
-      `Could not save event locations: ${locationsError?.message ?? "Unknown error."}`
+      `Could not save event locations: ${locationsError?.message ?? "Unknown error."}`,
     );
   }
 
@@ -1151,7 +1280,59 @@ async function replaceEventLocationSchedule(params: {
     .insert(sessionRows);
 
   if (sessionsError) {
-    throw new Error(`Could not save event location dates: ${sessionsError.message}`);
+    throw new Error(
+      `Could not save event location dates: ${sessionsError.message}`,
+    );
+  }
+}
+
+async function replaceEventScheduleItems(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  studioId: string;
+  organizerId: string | null;
+  scheduleItems: EventScheduleItemPayload[];
+}) {
+  const { supabase, eventId, studioId, organizerId, scheduleItems } = params;
+
+  const { error: deleteError } = await supabase
+    .from("event_schedule_items")
+    .delete()
+    .eq("event_id", eventId)
+    .eq("studio_id", studioId);
+
+  if (deleteError) {
+    throw new Error(
+      `Could not clear old event schedule: ${deleteError.message}`,
+    );
+  }
+
+  if (scheduleItems.length === 0) {
+    return;
+  }
+
+  const { error: insertError } = await supabase
+    .from("event_schedule_items")
+    .insert(
+      scheduleItems.map((item) => ({
+        event_id: eventId,
+        studio_id: studioId,
+        organizer_id: organizerId || null,
+        schedule_date: item.scheduleDate,
+        start_time: item.startTime,
+        end_time: item.endTime || null,
+        title: item.title,
+        description: item.description || null,
+        presenter_name: item.presenterName || null,
+        location_label: item.locationLabel || null,
+        sort_order: item.sortOrder,
+        active: true,
+        updated_at: new Date().toISOString(),
+      })),
+    );
+
+  if (insertError) {
+    throw new Error(`Could not save event schedule: ${insertError.message}`);
   }
 }
 
@@ -1267,11 +1448,15 @@ function buildInsertUpdatePayload(params: {
 
 export async function createEventAction(
   _prevState: ActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<ActionState> {
   try {
-    const { supabase, studioId, userId, error: studioError } =
-      await getStudioContext();
+    const {
+      supabase,
+      studioId,
+      userId,
+      error: studioError,
+    } = await getStudioContext();
 
     if (studioError) {
       return { error: studioError };
@@ -1360,7 +1545,7 @@ export async function createEventAction(
         effectivePayload.tags.map((tag) => ({
           event_id: event.id,
           tag,
-        }))
+        })),
       );
 
       if (tagsError) {
@@ -1389,6 +1574,14 @@ export async function createEventAction(
       studioId,
       eventLocations: effectivePayload.eventLocations,
     });
+
+    await replaceEventScheduleItems({
+      supabase,
+      eventId: event.id,
+      studioId,
+      organizerId: effectivePayload.organizerId || null,
+      scheduleItems: effectivePayload.eventScheduleItems,
+    });
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
@@ -1400,7 +1593,7 @@ export async function createEventAction(
 
 export async function updateEventAction(
   _prevState: ActionState,
-  formData: FormData
+  formData: FormData,
 ): Promise<ActionState> {
   const id = getString(formData, "id");
 
@@ -1520,7 +1713,7 @@ export async function updateEventAction(
         effectivePayload.tags.map((tag) => ({
           event_id: id,
           tag,
-        }))
+        })),
       );
 
       if (tagsError) {
@@ -1549,6 +1742,14 @@ export async function updateEventAction(
       studioId,
       eventLocations: effectivePayload.eventLocations,
     });
+
+    await replaceEventScheduleItems({
+      supabase,
+      eventId: id,
+      studioId,
+      organizerId: effectivePayload.organizerId || null,
+      scheduleItems: effectivePayload.eventScheduleItems,
+    });
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
@@ -1567,8 +1768,12 @@ export async function duplicateEventAction(formData: FormData) {
   }
 
   try {
-    const { supabase, studioId, userId, error: studioError } =
-      await getStudioContext();
+    const {
+      supabase,
+      studioId,
+      userId,
+      error: studioError,
+    } = await getStudioContext();
 
     if (studioError) {
       throw new Error(studioError);
@@ -1576,7 +1781,8 @@ export async function duplicateEventAction(formData: FormData) {
 
     const { data: sourceEvent, error: sourceEventError } = await supabase
       .from("events")
-      .select(`
+      .select(
+        `
         organizer_id,
         studio_id,
         name,
@@ -1611,7 +1817,8 @@ export async function duplicateEventAction(formData: FormData) {
         waitlist_enabled,
         refund_policy,
         faq
-      `)
+      `,
+      )
       .eq("id", eventId)
       .eq("studio_id", studioId)
       .single();
@@ -1677,7 +1884,7 @@ export async function duplicateEventAction(formData: FormData) {
       throw new Error(
         `Could not duplicate event: ${
           duplicateError?.message ?? "Unknown error."
-        }`
+        }`,
       );
     }
 
@@ -1686,6 +1893,7 @@ export async function duplicateEventAction(formData: FormData) {
       { data: sourceStyles, error: stylesError },
       { data: sourceTickets, error: ticketsError },
       { data: sourceLocations, error: locationsError },
+      { data: sourceScheduleItems, error: scheduleItemsError },
     ] = await Promise.all([
       supabase.from("event_tags").select("tag").eq("event_id", eventId),
 
@@ -1696,7 +1904,8 @@ export async function duplicateEventAction(formData: FormData) {
 
       supabase
         .from("event_ticket_types")
-        .select(`
+        .select(
+          `
           name,
           price,
           currency,
@@ -1704,12 +1913,14 @@ export async function duplicateEventAction(formData: FormData) {
           active,
           sale_starts_at,
           sale_ends_at
-        `)
+        `,
+        )
         .eq("event_id", eventId),
 
       supabase
         .from("event_locations")
-        .select(`
+        .select(
+          `
           id,
           location_name,
           venue_name,
@@ -1732,26 +1943,63 @@ export async function duplicateEventAction(formData: FormData) {
             status,
             sort_order
           )
-        `)
+        `,
+        )
         .eq("event_id", eventId)
         .eq("studio_id", studioId)
+        .order("sort_order", { ascending: true }),
+
+      supabase
+        .from("event_schedule_items")
+        .select(
+          `
+          schedule_date,
+          start_time,
+          end_time,
+          title,
+          description,
+          presenter_name,
+          location_label,
+          sort_order,
+          active
+        `,
+        )
+        .eq("event_id", eventId)
+        .eq("studio_id", studioId)
+        .eq("active", true)
+        .order("schedule_date", { ascending: true })
+        .order("start_time", { ascending: true })
         .order("sort_order", { ascending: true }),
     ]);
 
     if (tagsError) {
-      throw new Error(`Event copied, but tags could not be loaded: ${tagsError.message}`);
+      throw new Error(
+        `Event copied, but tags could not be loaded: ${tagsError.message}`,
+      );
     }
 
     if (stylesError) {
-      throw new Error(`Event copied, but styles could not be loaded: ${stylesError.message}`);
+      throw new Error(
+        `Event copied, but styles could not be loaded: ${stylesError.message}`,
+      );
     }
 
     if (ticketsError) {
-      throw new Error(`Event copied, but ticket types could not be loaded: ${ticketsError.message}`);
+      throw new Error(
+        `Event copied, but ticket types could not be loaded: ${ticketsError.message}`,
+      );
     }
 
     if (locationsError) {
-      throw new Error(`Event copied, but locations could not be loaded: ${locationsError.message}`);
+      throw new Error(
+        `Event copied, but locations could not be loaded: ${locationsError.message}`,
+      );
+    }
+
+    if (scheduleItemsError) {
+      throw new Error(
+        `Event copied, but schedule items could not be loaded: ${scheduleItemsError.message}`,
+      );
     }
 
     if ((sourceTags ?? []).length > 0) {
@@ -1761,11 +2009,13 @@ export async function duplicateEventAction(formData: FormData) {
           (sourceTags ?? []).map((tag) => ({
             event_id: duplicatedEvent.id,
             tag: tag.tag,
-          }))
+          })),
         );
 
       if (insertTagsError) {
-        throw new Error(`Event copied, but tags could not be saved: ${insertTagsError.message}`);
+        throw new Error(
+          `Event copied, but tags could not be saved: ${insertTagsError.message}`,
+        );
       }
     }
 
@@ -1777,11 +2027,13 @@ export async function duplicateEventAction(formData: FormData) {
             event_id: duplicatedEvent.id,
             style_key: style.style_key,
             display_name: style.display_name,
-          }))
+          })),
         );
 
       if (insertStylesError) {
-        throw new Error(`Event copied, but styles could not be saved: ${insertStylesError.message}`);
+        throw new Error(
+          `Event copied, but styles could not be saved: ${insertStylesError.message}`,
+        );
       }
     }
 
@@ -1799,40 +2051,42 @@ export async function duplicateEventAction(formData: FormData) {
             active: ticket.active,
             sale_starts_at: ticket.sale_starts_at,
             sale_ends_at: ticket.sale_ends_at,
-          }))
+          })),
         );
 
       if (insertTicketsError) {
-        throw new Error(`Event copied, but ticket types could not be saved: ${insertTicketsError.message}`);
+        throw new Error(
+          `Event copied, but ticket types could not be saved: ${insertTicketsError.message}`,
+        );
       }
     }
 
     if ((sourceLocations ?? []).length > 0) {
-      const normalizedLocations: EventLocationPayload[] = (sourceLocations ?? []).map(
-        (location: any, locationIndex: number) => ({
-          locationName: location.location_name || `Location ${locationIndex + 1}`,
-          venueName: location.venue_name || "",
-          addressLine1: location.address_line_1 || "",
-          addressLine2: location.address_line_2 || "",
-          city: location.city || "",
-          state: location.state || "",
-          postalCode: location.postal_code || "",
-          country: location.country || "US",
-          capacity: location.capacity ?? null,
-          sortOrder: location.sort_order ?? locationIndex,
-          sessions: (location.event_location_sessions ?? [])
-            .filter((session: any) => session.status !== "cancelled")
-            .map((session: any, sessionIndex: number) => ({
-              sessionDate: session.session_date,
-              startTime: session.start_time ?? null,
-              endTime: session.end_time ?? null,
-              sessionLabel: session.session_label || "",
-              seriesLabel: session.series_label || "",
-              capacity: session.capacity ?? null,
-              sortOrder: session.sort_order ?? sessionIndex,
-            })),
-        })
-      );
+      const normalizedLocations: EventLocationPayload[] = (
+        sourceLocations ?? []
+      ).map((location: any, locationIndex: number) => ({
+        locationName: location.location_name || `Location ${locationIndex + 1}`,
+        venueName: location.venue_name || "",
+        addressLine1: location.address_line_1 || "",
+        addressLine2: location.address_line_2 || "",
+        city: location.city || "",
+        state: location.state || "",
+        postalCode: location.postal_code || "",
+        country: location.country || "US",
+        capacity: location.capacity ?? null,
+        sortOrder: location.sort_order ?? locationIndex,
+        sessions: (location.event_location_sessions ?? [])
+          .filter((session: any) => session.status !== "cancelled")
+          .map((session: any, sessionIndex: number) => ({
+            sessionDate: session.session_date,
+            startTime: session.start_time ?? null,
+            endTime: session.end_time ?? null,
+            sessionLabel: session.session_label || "",
+            seriesLabel: session.series_label || "",
+            capacity: session.capacity ?? null,
+            sortOrder: session.sort_order ?? sessionIndex,
+          })),
+      }));
 
       await replaceEventLocationSchedule({
         supabase,
@@ -1840,6 +2094,35 @@ export async function duplicateEventAction(formData: FormData) {
         studioId,
         eventLocations: normalizedLocations,
       });
+    }
+
+    if ((sourceScheduleItems ?? []).length > 0) {
+      const { error: insertScheduleItemsError } = await supabase
+        .from("event_schedule_items")
+        .insert(
+          (sourceScheduleItems ?? [])
+            .filter((item: any) => item.active !== false)
+            .map((item: any, itemIndex: number) => ({
+              event_id: duplicatedEvent.id,
+              studio_id: studioId,
+              organizer_id: sourceEvent.organizer_id || null,
+              schedule_date: item.schedule_date,
+              start_time: item.start_time,
+              end_time: item.end_time,
+              title: item.title,
+              description: item.description,
+              presenter_name: item.presenter_name,
+              location_label: item.location_label,
+              sort_order: item.sort_order ?? itemIndex,
+              active: true,
+            })),
+        );
+
+      if (insertScheduleItemsError) {
+        throw new Error(
+          `Event copied, but schedule items could not be saved: ${insertScheduleItemsError.message}`,
+        );
+      }
     }
 
     redirectTo = `/app/events/${duplicatedEvent.id}/edit`;
@@ -1850,7 +2133,7 @@ export async function duplicateEventAction(formData: FormData) {
         : "Could not duplicate this event.";
 
     redirectTo = `/app/events/${encodeURIComponent(eventId)}?error=${encodeURIComponent(
-      message
+      message,
     )}`;
   }
 

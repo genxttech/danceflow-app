@@ -28,9 +28,17 @@ type EventLocationFormValue = {
   postalCode: string;
   country: string;
   capacity: string;
-  seriesEndDate: string;
-  seriesCount: string;
   sessions: EventLocationSessionFormValue[];
+};
+
+type EventScheduleItemFormValue = {
+  scheduleDate: string;
+  startTime: string;
+  endTime: string;
+  title: string;
+  description: string;
+  presenterName: string;
+  locationLabel: string;
 };
 
 type EventFormState = {
@@ -76,6 +84,7 @@ type EventFormInitialValues = {
   beginnerFriendly?: boolean;
   styleKeys?: string[];
   eventLocations?: EventLocationFormValue[];
+  eventScheduleItems?: EventScheduleItemFormValue[];
 };
 
 type EventFormProps = {
@@ -145,7 +154,8 @@ const DANCE_CATEGORY_OPTIONS: DanceCategoryOption[] = [
   {
     key: "swing",
     label: "Swing",
-    helper: "West Coast Swing, East Coast Swing, Lindy Hop, and related dances.",
+    helper:
+      "West Coast Swing, East Coast Swing, Lindy Hop, and related dances.",
   },
   {
     key: "other",
@@ -399,51 +409,6 @@ function getStatusHelpText(status: string) {
   }
 }
 
-
-function addDaysToDateValue(dateValue: string, days: number) {
-  if (!dateValue) return "";
-
-  const date = new Date(`${dateValue}T00:00:00`);
-
-  if (Number.isNaN(date.getTime())) return "";
-
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function calculateWeeklyDatesFromSeries(params: {
-  firstDate: string;
-  finalDate: string;
-  sessionCount: string;
-}) {
-  const { firstDate, finalDate, sessionCount } = params;
-
-  if (!firstDate) return [];
-
-  const parsedCount = Number.parseInt(sessionCount, 10);
-  const count = Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 0;
-
-  if (count > 0) {
-    return Array.from({ length: count }, (_, index) =>
-      addDaysToDateValue(firstDate, index * 7),
-    ).filter(Boolean);
-  }
-
-  if (!finalDate || finalDate < firstDate) {
-    return [firstDate];
-  }
-
-  const dates: string[] = [];
-  let cursor = firstDate;
-
-  while (cursor && cursor <= finalDate && dates.length < 104) {
-    dates.push(cursor);
-    cursor = addDaysToDateValue(cursor, 7);
-  }
-
-  return dates;
-}
-
 function makeBlankSession(
   params?: Partial<EventLocationSessionFormValue>,
 ): EventLocationSessionFormValue {
@@ -470,10 +435,36 @@ function makeBlankLocation(
     postalCode: params?.postalCode ?? "",
     country: params?.country ?? "US",
     capacity: params?.capacity ?? "",
-    seriesEndDate: params?.seriesEndDate ?? "",
-    seriesCount: params?.seriesCount ?? "",
     sessions: params?.sessions?.length ? params.sessions : [makeBlankSession()],
   };
+}
+
+function makeBlankEventScheduleItem(): EventScheduleItemFormValue {
+  return {
+    scheduleDate: getTodayDateValue(),
+    startTime: "",
+    endTime: "",
+    title: "",
+    description: "",
+    presenterName: "",
+    locationLabel: "",
+  };
+}
+
+function buildInitialEventScheduleItems(
+  initialValues: EventFormInitialValues | undefined,
+): EventScheduleItemFormValue[] {
+  return initialValues?.eventScheduleItems?.length
+    ? initialValues.eventScheduleItems.map((item) => ({
+        scheduleDate: item.scheduleDate ?? getTodayDateValue(),
+        startTime: item.startTime ?? "",
+        endTime: item.endTime ?? "",
+        title: item.title ?? "",
+        description: item.description ?? "",
+        presenterName: item.presenterName ?? "",
+        locationLabel: item.locationLabel ?? "",
+      }))
+    : [];
 }
 
 function buildInitialEventLocations(
@@ -593,6 +584,9 @@ export default function EventForm({
   const [eventLocations, setEventLocations] = useState<
     EventLocationFormValue[]
   >(() => buildInitialEventLocations(initialValues));
+  const [eventScheduleItems, setEventScheduleItems] = useState<
+    EventScheduleItemFormValue[]
+  >(() => buildInitialEventScheduleItems(initialValues));
 
   const primaryLocation = eventLocations[0] ?? makeBlankLocation();
   const primarySession = primaryLocation.sessions[0] ?? makeBlankSession();
@@ -711,54 +705,6 @@ export default function EventForm({
     );
   }
 
-
-  function updateLocationSeriesField(
-    locationIndex: number,
-    field: "seriesEndDate" | "seriesCount",
-    value: string,
-  ) {
-    setEventLocations((current) =>
-      current.map((location, index) =>
-        index === locationIndex ? { ...location, [field]: value } : location,
-      ),
-    );
-  }
-
-  function generateWeeklyLocationSeries(locationIndex: number) {
-    setEventLocations((current) =>
-      current.map((location, index) => {
-        if (index !== locationIndex) return location;
-
-        const firstSession = location.sessions[0] ?? makeBlankSession();
-        const firstDate = firstSession.sessionDate || startDate || getTodayDateValue();
-        const dates = calculateWeeklyDatesFromSeries({
-          firstDate,
-          finalDate: location.seriesEndDate,
-          sessionCount: location.seriesCount,
-        });
-
-        return {
-          ...location,
-          sessions: dates.map((date, nestedIndex) => {
-            const existingSession = location.sessions[nestedIndex];
-
-            return makeBlankSession({
-              sessionDate: date,
-              startTime:
-                existingSession?.startTime || firstSession.startTime || startTime,
-              endTime: existingSession?.endTime || firstSession.endTime || endTime,
-              sessionLabel:
-                existingSession?.sessionLabel || `Week ${nestedIndex + 1}`,
-              seriesLabel:
-                existingSession?.seriesLabel || firstSession.seriesLabel || "Series 1",
-              capacity: existingSession?.capacity || location.capacity || "",
-            });
-          }),
-        };
-      }),
-    );
-  }
-
   function addEventLocation() {
     setEventLocations((current) => [
       ...current,
@@ -821,6 +767,35 @@ export default function EventForm({
     );
   }
 
+  function addEventScheduleItem() {
+    setEventScheduleItems((current) => [
+      ...current,
+      {
+        ...makeBlankEventScheduleItem(),
+        scheduleDate:
+          current.at(-1)?.scheduleDate || startDate || getTodayDateValue(),
+      },
+    ]);
+  }
+
+  function updateEventScheduleItem(
+    itemIndex: number,
+    field: keyof EventScheduleItemFormValue,
+    value: string,
+  ) {
+    setEventScheduleItems((current) =>
+      current.map((item, index) =>
+        index === itemIndex ? { ...item, [field]: value } : item,
+      ),
+    );
+  }
+
+  function removeEventScheduleItem(itemIndex: number) {
+    setEventScheduleItems((current) =>
+      current.filter((_, index) => index !== itemIndex),
+    );
+  }
+
   return (
     <form action={formAction} className="space-y-5 md:space-y-6">
       {mode === "edit" && initialValues?.id ? (
@@ -837,6 +812,11 @@ export default function EventForm({
         type="hidden"
         name="locationCount"
         value={scheduleMode === "multi" ? eventLocations.length : 0}
+      />
+      <input
+        type="hidden"
+        name="scheduleItemCount"
+        value={eventScheduleItems.length}
       />
       {eventLocations.map((location, locationIndex) => (
         <div key={`location-hidden-${locationIndex}`}>
@@ -984,7 +964,9 @@ export default function EventForm({
                   className="mb-1.5 block text-sm font-medium"
                 >
                   Event Host
-                  {!isStudioHostedEvent && organizers.length > 0 ? <RequiredAsterisk /> : null}
+                  {!isStudioHostedEvent && organizers.length > 0 ? (
+                    <RequiredAsterisk />
+                  ) : null}
                 </label>
 
                 {isStudioHostedEvent ? (
@@ -1649,75 +1631,6 @@ export default function EventForm({
                           </div>
                         </div>
 
-                        {isGroupClass ? (
-                          <div className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold text-sky-950">
-                                  Weekly group class series
-                                </p>
-                                <p className="mt-1 text-xs leading-5 text-sky-800">
-                                  Use the first date/time below as Week 1, then generate weekly sessions for this location.
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => generateWeeklyLocationSeries(locationIndex)}
-                                className="rounded-xl bg-white px-3 py-2 text-sm font-semibold text-sky-900 shadow-sm ring-1 ring-sky-200 hover:bg-sky-100"
-                              >
-                                Generate Series
-                              </button>
-                            </div>
-
-                            <div className="mt-3 grid gap-3 md:grid-cols-2">
-                              <div>
-                                <label className="mb-1.5 block text-sm font-medium text-sky-950">
-                                  Final Class Date
-                                </label>
-                                <input
-                                  type="date"
-                                  value={location.seriesEndDate}
-                                  onChange={(e) =>
-                                    updateLocationSeriesField(
-                                      locationIndex,
-                                      "seriesEndDate",
-                                      e.target.value,
-                                    )
-                                  }
-                                  className="w-full rounded-xl border border-sky-200 px-3 py-3 text-sm"
-                                />
-                                <p className="mt-1 text-xs text-sky-800">
-                                  Leave blank if you prefer to use number of sessions.
-                                </p>
-                              </div>
-
-                              <div>
-                                <label className="mb-1.5 block text-sm font-medium text-sky-950">
-                                  Number of Sessions
-                                </label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  max="104"
-                                  value={location.seriesCount}
-                                  onChange={(e) =>
-                                    updateLocationSeriesField(
-                                      locationIndex,
-                                      "seriesCount",
-                                      e.target.value,
-                                    )
-                                  }
-                                  className="w-full rounded-xl border border-sky-200 px-3 py-3 text-sm"
-                                  placeholder="Example: 6"
-                                />
-                                <p className="mt-1 text-xs text-sky-800">
-                                  This overrides final date when filled in.
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
-
                         <div className="mt-5 space-y-3">
                           <div className="flex items-center justify-between gap-3">
                             <p className="text-sm font-semibold text-slate-950">
@@ -1891,6 +1804,213 @@ export default function EventForm({
                   </div>
                 </div>
               ) : null}
+
+              <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h4 className="text-base font-semibold text-slate-950">
+                      Optional Event Schedule
+                    </h4>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      Add a public agenda for workshops, socials, competitions,
+                      showcases, festivals, or multi-day events. Items are
+                      grouped by date on the public event page.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={addEventScheduleItem}
+                    className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100"
+                  >
+                    Add Schedule Item
+                  </button>
+                </div>
+
+                {eventScheduleItems.length === 0 ? (
+                  <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm text-slate-500">
+                    No schedule items added. The public Event Schedule card will
+                    stay hidden.
+                  </p>
+                ) : (
+                  <div className="mt-4 space-y-4">
+                    {eventScheduleItems.map((item, itemIndex) => (
+                      <div
+                        key={`event-schedule-item-${itemIndex}`}
+                        className="rounded-2xl border border-slate-200 bg-white p-4"
+                      >
+                        <input
+                          type="hidden"
+                          name={`scheduleItem_${itemIndex}_sortOrder`}
+                          value={itemIndex}
+                        />
+
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">
+                              Schedule Item {itemIndex + 1}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Date, start time, and title are required when an
+                              item is added.
+                            </p>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => removeEventScheduleItem(itemIndex)}
+                            className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                          >
+                            Remove Item
+                          </button>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Schedule Date
+                              <RequiredAsterisk />
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_date`}
+                              type="date"
+                              required
+                              value={item.scheduleDate}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "scheduleDate",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Title
+                              <RequiredAsterisk />
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_title`}
+                              required
+                              value={item.title}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "title",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Beginner Salsa Class"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Start Time
+                              <RequiredAsterisk />
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_startTime`}
+                              type="time"
+                              required
+                              value={item.startTime}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "startTime",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              End Time
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_endTime`}
+                              type="time"
+                              value={item.endTime}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "endTime",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Presenter / Instructor
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_presenterName`}
+                              value={item.presenterName}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "presenterName",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Optional"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Room / Location Label
+                            </label>
+                            <input
+                              name={`scheduleItem_${itemIndex}_locationLabel`}
+                              value={item.locationLabel}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "locationLabel",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Main Ballroom / Studio B / Optional"
+                            />
+                          </div>
+
+                          <div className="md:col-span-2">
+                            <label className="mb-1.5 block text-sm font-medium">
+                              Description
+                            </label>
+                            <textarea
+                              name={`scheduleItem_${itemIndex}_description`}
+                              rows={3}
+                              value={item.description}
+                              onChange={(e) =>
+                                updateEventScheduleItem(
+                                  itemIndex,
+                                  "description",
+                                  e.target.value,
+                                )
+                              }
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Optional details for this block."
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               <div>
                 <label
@@ -2151,7 +2271,9 @@ export default function EventForm({
                           name="danceCategory"
                           value={category.key}
                           checked={selected}
-                          onChange={() => handleDanceCategoryChange(category.key)}
+                          onChange={() =>
+                            handleDanceCategoryChange(category.key)
+                          }
                           className="mt-1 h-4 w-4"
                         />
                         <span>
@@ -2410,6 +2532,7 @@ export default function EventForm({
     </form>
   );
 }
+
 
 
 
