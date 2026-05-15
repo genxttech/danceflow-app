@@ -57,6 +57,8 @@ type StudioRow = {
   latitude: number | null;
   longitude: number | null;
   public_directory_enabled: boolean;
+  billing_plan: string | null;
+  subscription_status: string | null;
 };
 
 type OrganizerRow = {
@@ -117,6 +119,15 @@ const RADIUS_OPTIONS = [10, 25, 50, 100];
 function hostStudioName(studio: StudioRow | undefined) {
   if (!studio) return "Studio";
   return studio.public_name?.trim() || studio.name;
+}
+
+function hasActivePublicAccess(studio: {
+  billing_plan?: string | null;
+  subscription_status?: string | null;
+}) {
+  const status = (studio.subscription_status ?? "").trim().toLowerCase();
+
+  return status === "active" || status === "trialing";
 }
 
 function formatDate(value: string | null) {
@@ -502,7 +513,9 @@ export default async function DiscoverEventsPage({
         postal_code,
         latitude,
         longitude,
-        public_directory_enabled
+        public_directory_enabled,
+        billing_plan,
+        subscription_status
       `,
     ),
 
@@ -582,7 +595,7 @@ export default async function DiscoverEventsPage({
   }
 
   const typedEvents = (events ?? []) as EventRow[];
-  const typedStudios = (studios ?? []) as StudioRow[];
+  const typedStudios = ((studios ?? []) as StudioRow[]).filter(hasActivePublicAccess);
   const typedOrganizers = (organizers ?? []) as OrganizerRow[];
   const typedEventStyles = (eventStyles ?? []) as EventStyleRow[];
   const typedRegistrations = (registrations ?? []) as RegistrationSummaryRow[];
@@ -1351,4 +1364,6 @@ export default async function DiscoverEventsPage({
     </>
   );
 }
+
+
 

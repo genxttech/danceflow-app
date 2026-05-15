@@ -11,6 +11,11 @@ type OrganizerRow = {
   slug: string | null;
 };
 
+type StudioAccessRow = {
+  billing_plan: string | null;
+  subscription_status: string | null;
+};
+
 type EventRow = {
   id: string;
   name: string;
@@ -30,9 +35,26 @@ type EventRow = {
   start_time: string | null;
   end_time: string | null;
   updated_at: string | null;
+  studios: StudioAccessRow | StudioAccessRow[] | null;
 };
 
 const siteUrl = "https://www.idanceflow.com";
+
+function hasActivePublicAccess(studio: {
+  billing_plan?: string | null;
+  subscription_status?: string | null;
+} | null | undefined) {
+  if (!studio) return false;
+
+  const status = (studio.subscription_status ?? "").trim().toLowerCase();
+
+  return status === "active" || status === "trialing";
+}
+
+function getStudio(value: EventRow["studios"]) {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
 
 function escapeIcsText(value: string | null | undefined) {
   return String(value ?? "")
@@ -216,7 +238,11 @@ export async function GET(
         end_date,
         start_time,
         end_time,
-        updated_at
+        updated_at,
+        studios (
+          billing_plan,
+          subscription_status
+        )
       `
     )
     .eq("organizer_id", organizer.id)
@@ -236,6 +262,9 @@ export async function GET(
   }
 
   const organizerName = organizer.name || "DanceFlow Organizer";
+  const publicEvents = ((events ?? []) as EventRow[]).filter((event) =>
+    hasActivePublicAccess(getStudio(event.studios)),
+  );
 
   const calendarLines = [
     "BEGIN:VCALENDAR",
@@ -248,9 +277,7 @@ export async function GET(
       `Public DanceFlow events for ${organizerName}`
     )}`,
     "X-WR-TIMEZONE:America/New_York",
-    ...((events ?? []) as EventRow[]).map((event) =>
-      buildEventIcs(event, organizerName)
-    ),
+    ...publicEvents.map((event) => buildEventIcs(event, organizerName)),
     "END:VCALENDAR",
   ].filter(Boolean);
 

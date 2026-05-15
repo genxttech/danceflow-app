@@ -11,6 +11,8 @@ type StudioRow = {
   public_name: string | null;
   slug: string | null;
   public_directory_enabled: boolean | null;
+  billing_plan: string | null;
+  subscription_status: string | null;
 };
 
 type EventRow = {
@@ -35,6 +37,15 @@ type EventRow = {
 };
 
 const siteUrl = "https://www.idanceflow.com";
+
+function hasActivePublicAccess(studio: {
+  billing_plan?: string | null;
+  subscription_status?: string | null;
+}) {
+  const status = (studio.subscription_status ?? "").trim().toLowerCase();
+
+  return status === "active" || status === "trialing";
+}
 
 function escapeIcsText(value: string | null | undefined) {
   return String(value ?? "")
@@ -176,7 +187,7 @@ export async function GET(
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
-    .select("id, name, public_name, slug, public_directory_enabled")
+    .select("id, name, public_name, slug, public_directory_enabled, billing_plan, subscription_status")
     .eq("slug", studioSlug)
     .eq("public_directory_enabled", true)
     .maybeSingle<StudioRow>();
@@ -190,7 +201,7 @@ export async function GET(
     });
   }
 
-  if (!studio) {
+  if (!studio || !hasActivePublicAccess(studio)) {
     return new NextResponse("Studio calendar not found.", {
       status: 404,
       headers: {

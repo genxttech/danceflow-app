@@ -79,6 +79,9 @@ type EventRow = {
         public_website_url?: string | null;
         public_email?: string | null;
         public_phone?: string | null;
+        billing_plan?: string | null;
+        subscription_status?: string | null;
+        public_directory_enabled?: boolean | null;
       }
     | {
         id?: string;
@@ -90,6 +93,9 @@ type EventRow = {
         public_website_url?: string | null;
         public_email?: string | null;
         public_phone?: string | null;
+        billing_plan?: string | null;
+        subscription_status?: string | null;
+        public_directory_enabled?: boolean | null;
       }[]
     | null;
 };
@@ -193,6 +199,15 @@ function eventLocationLabel(event: EventRow) {
 function eventDateTimeForSchema(date: string | null, time: string | null) {
   if (!date) return undefined;
   return time ? `${date}T${time}` : date;
+}
+
+function hasActivePublicAccess(studio: {
+  billing_plan?: string | null;
+  subscription_status?: string | null;
+}) {
+  const status = (studio.subscription_status ?? "").trim().toLowerCase();
+
+  return status === "active" || status === "trialing";
 }
 
 function getOrganizer(value: EventRow["organizers"]) {
@@ -704,7 +719,10 @@ export async function generateMetadata({
         public_about,
         public_website_url,
         public_email,
-        public_phone
+        public_phone,
+        public_directory_enabled,
+        billing_plan,
+        subscription_status
       )
     `,
     )
@@ -722,6 +740,16 @@ export async function generateMetadata({
   }
 
   const canonicalUrl = `${siteUrl}/events/${event.slug}`;
+  const studio = getStudio(event.studios);
+
+  if (studio && !hasActivePublicAccess(studio)) {
+    return {
+      title: "Event | DanceFlow",
+      description:
+        "Explore public dance events, classes, workshops, competitions, showcases, and registration options on DanceFlow.",
+    };
+  }
+
   const description = eventDescription(event);
   const location = eventLocationLabel(event);
   const eventType = eventTypeLabel(event.event_type);
@@ -826,7 +854,10 @@ export default async function PublicEventDetailPage({
         public_about,
         public_website_url,
         public_email,
-        public_phone
+        public_phone,
+        public_directory_enabled,
+        billing_plan,
+        subscription_status
       )
     `,
     )
@@ -840,6 +871,9 @@ export default async function PublicEventDetailPage({
   const typedEvent = event as EventRow;
   const organizer = getOrganizer(typedEvent.organizers);
   const studio = getStudio(typedEvent.studios);
+
+  if (studio && !hasActivePublicAccess(studio)) notFound();
+
   const eventHost = getEventHost({ organizer, studio });
 
   const [
@@ -1904,5 +1938,8 @@ export default async function PublicEventDetailPage({
     </>
   );
 }
+
+
+
 
 

@@ -9,12 +9,40 @@ export const revalidate = 3600;
 type PublicStudioSitemapRow = {
   slug: string | null;
   updated_at: string | null;
+  billing_plan: string | null;
+  subscription_status: string | null;
 };
 
 type PublicEventSitemapRow = {
   slug: string | null;
   updated_at: string | null;
+  studios:
+    | {
+        billing_plan: string | null;
+        subscription_status: string | null;
+      }
+    | {
+        billing_plan: string | null;
+        subscription_status: string | null;
+      }[]
+    | null;
 };
+
+function hasActivePublicAccess(studio: {
+  billing_plan?: string | null;
+  subscription_status?: string | null;
+} | null | undefined) {
+  if (!studio) return false;
+
+  const status = (studio.subscription_status ?? "").trim().toLowerCase();
+
+  return status === "active" || status === "trialing";
+}
+
+function getStudio(value: PublicEventSitemapRow["studios"]) {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
 
 function safeDate(value: string | null | undefined) {
   if (!value) return new Date();
@@ -97,14 +125,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const [{ data: studios }, { data: events }] = await Promise.all([
       supabase
         .from("studios")
-        .select("slug, updated_at")
+        .select("slug, updated_at, billing_plan, subscription_status")
         .eq("public_directory_enabled", true)
         .not("slug", "is", null)
         .order("updated_at", { ascending: false }),
 
       supabase
         .from("events")
-        .select("slug, updated_at")
+        .select("slug, updated_at, studios ( billing_plan, subscription_status )")
         .eq("status", "published")
         .eq("visibility", "public")
         .eq("public_directory_enabled", true)
@@ -115,7 +143,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const studioRoutes: MetadataRoute.Sitemap = (
       (studios ?? []) as PublicStudioSitemapRow[]
     )
-      .filter((studio) => Boolean(studio.slug))
+      .filter((studio) => Boolean(studio.slug) && hasActivePublicAccess(studio))
       .map((studio) => ({
         url: `${siteUrl}/studios/${studio.slug}`,
         lastModified: safeDate(studio.updated_at),
@@ -126,7 +154,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const eventRoutes: MetadataRoute.Sitemap = (
       (events ?? []) as PublicEventSitemapRow[]
     )
-      .filter((event) => Boolean(event.slug))
+      .filter((event) => Boolean(event.slug) && hasActivePublicAccess(getStudio(event.studios)))
       .map((event) => ({
         url: `${siteUrl}/events/${event.slug}`,
         lastModified: safeDate(event.updated_at),

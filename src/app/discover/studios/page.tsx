@@ -34,6 +34,8 @@ type StudioRow = {
   public_logo_url: string | null;
   public_hero_image_url: string | null;
   beginner_friendly: boolean;
+  billing_plan: string | null;
+  subscription_status: string | null;
   created_at: string | null;
 };
 
@@ -91,6 +93,15 @@ function normalizeZip(value: string | null) {
 function toNumber(value: string | undefined) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hasActivePublicAccess(studio: {
+  billing_plan?: string | null;
+  subscription_status?: string | null;
+}) {
+  const status = (studio.subscription_status ?? "").trim().toLowerCase();
+
+  return status === "active" || status === "trialing";
 }
 
 function haversineMiles(
@@ -165,6 +176,8 @@ export default async function DiscoverStudiosPage({
         public_logo_url,
         public_hero_image_url,
         beginner_friendly,
+        billing_plan,
+        subscription_status,
         created_at
       `
       )
@@ -194,7 +207,7 @@ export default async function DiscoverStudiosPage({
     );
   }
 
-  const typedStudios = (studios ?? []) as StudioRow[];
+  const typedStudios = ((studios ?? []) as StudioRow[]).filter(hasActivePublicAccess);
   const typedStyles = (styles ?? []) as StudioStyleRow[];
   const typedOfferings = (offerings ?? []) as StudioOfferingRow[];
 

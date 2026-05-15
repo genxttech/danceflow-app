@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import FavoriteButton from "@/components/public/FavoriteButton";
 import ShareButton from "@/components/public/ShareButton";
@@ -38,6 +39,8 @@ type StudioRow = {
   public_primary_color: string | null;
   public_lead_cta_text: string | null;
   beginner_friendly: boolean;
+  billing_plan: string | null;
+  subscription_status: string | null;
 };
 
 type StyleRow = {
@@ -85,6 +88,15 @@ function locationLabel(studio: StudioRow) {
 
 function normalizeWebsiteLabel(url: string) {
   return url.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+}
+
+function hasActivePublicAccess(studio: {
+  billing_plan?: string | null;
+  subscription_status?: string | null;
+}) {
+  const status = (studio.subscription_status ?? "").trim().toLowerCase();
+
+  return status === "active" || status === "trialing";
 }
 
 function absoluteUrl(value: string | null | undefined) {
@@ -202,14 +214,16 @@ export async function generateMetadata({
         public_lead_description,
         public_primary_color,
         public_lead_cta_text,
-        beginner_friendly
+        beginner_friendly,
+        billing_plan,
+        subscription_status
       `
     )
     .eq("slug", studioSlug)
     .eq("public_directory_enabled", true)
     .maybeSingle<StudioRow>();
 
-  if (!studio) {
+  if (!studio || !hasActivePublicAccess(studio)) {
     return {
       title: "Studio Profile | DanceFlow",
       description:
@@ -297,7 +311,9 @@ export default async function PublicStudioPage({
         public_lead_description,
         public_primary_color,
         public_lead_cta_text,
-        beginner_friendly
+        beginner_friendly,
+        billing_plan,
+        subscription_status
       `
     )
     .eq("slug", studioSlug)
@@ -308,7 +324,7 @@ export default async function PublicStudioPage({
     throw new Error(`Failed to load studio: ${studioError.message}`);
   }
 
-  if (!studio) {
+  if (!studio || !hasActivePublicAccess(studio)) {
     return (
       <>
         <PublicSiteHeader currentPath="studios" isAuthenticated={!!user} />
