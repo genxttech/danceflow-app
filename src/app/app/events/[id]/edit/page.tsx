@@ -103,6 +103,25 @@ type EventScheduleItemRow = {
   sort_order: number | null;
 };
 
+type GuestCoachBlockRow = {
+  lesson_date: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  duration_minutes: number | null;
+  buffer_minutes: number | null;
+  price: number | string | null;
+  location_label: string | null;
+};
+
+type GuestCoachRow = {
+  id: string;
+  name: string | null;
+  bio: string | null;
+  photo_url: string | null;
+  active: boolean | null;
+  event_private_lesson_blocks: GuestCoachBlockRow[] | null;
+};
+
 function isOrganizerWorkspaceName(value: string | null | undefined) {
   const normalized = (value ?? "").trim().toLowerCase();
 
@@ -149,6 +168,7 @@ export default async function EditEventPage({ params }: { params: Params }) {
     { data: eventStyles, error: eventStylesError },
     { data: eventLocations, error: eventLocationsError },
     { data: eventScheduleItems, error: eventScheduleItemsError },
+    { data: guestCoaches, error: guestCoachesError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -266,6 +286,31 @@ export default async function EditEventPage({ params }: { params: Params }) {
       .order("schedule_date", { ascending: true })
       .order("start_time", { ascending: true })
       .order("sort_order", { ascending: true }),
+
+    supabase
+      .from("event_guest_coaches")
+      .select(
+        `
+        id,
+        name,
+        bio,
+        photo_url,
+        active,
+        event_private_lesson_blocks (
+          lesson_date,
+          start_time,
+          end_time,
+          duration_minutes,
+          buffer_minutes,
+          price,
+          location_label
+        )
+      `,
+      )
+      .eq("event_id", id)
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .order("created_at", { ascending: true }),
   ]);
 
   if (workspaceError) {
@@ -297,6 +342,12 @@ export default async function EditEventPage({ params }: { params: Params }) {
   if (eventScheduleItemsError) {
     throw new Error(
       `Failed to load event schedule: ${eventScheduleItemsError.message}`,
+    );
+  }
+
+  if (guestCoachesError) {
+    throw new Error(
+      `Failed to load guest coaches: ${guestCoachesError.message}`,
     );
   }
 
@@ -347,6 +398,25 @@ export default async function EditEventPage({ params }: { params: Params }) {
     presenterName: item.presenter_name ?? "",
     locationLabel: item.location_label ?? "",
   }));
+
+  const normalizedGuestCoaches = ((guestCoaches ?? []) as GuestCoachRow[]).map(
+    (coach) => ({
+      id: coach.id,
+      name: coach.name ?? "",
+      bio: coach.bio ?? "",
+      photoUrl: coach.photo_url ?? "",
+      active: coach.active ?? true,
+      blocks: (coach.event_private_lesson_blocks ?? []).map((block) => ({
+        lessonDate: block.lesson_date ?? "",
+        startTime: block.start_time ?? "",
+        endTime: block.end_time ?? "",
+        durationMinutes: String(block.duration_minutes ?? 45),
+        bufferMinutes: String(block.buffer_minutes ?? 0),
+        price: block.price != null ? String(block.price) : "0",
+        locationLabel: block.location_label ?? "",
+      })),
+    }),
+  );
   const singleOrganizer = typedOrganizers[0] ?? null;
   const isCopiedDraft =
     typedEvent.status === "draft" &&
@@ -486,8 +556,10 @@ export default async function EditEventPage({ params }: { params: Params }) {
           styleKeys: selectedStyleKeys,
           eventLocations: normalizedEventLocations,
           eventScheduleItems: normalizedEventScheduleItems,
+          guestCoaches: normalizedGuestCoaches,
         }}
       />
     </div>
   );
 }
+

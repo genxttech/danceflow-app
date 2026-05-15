@@ -946,6 +946,45 @@ async function handleEventRegistrationCheckoutCompleted(
   return true;
 }
 
+
+async function handleEventPrivateLessonCheckoutCompleted(
+  supabase: SupabaseClient,
+  session: Stripe.Checkout.Session
+) {
+  const source = getString(session.metadata?.source);
+  if (source !== "event_private_lesson_slot") return false;
+
+  const slotId = getString(session.metadata?.slot_id);
+  if (!slotId) {
+    throw new Error("Private lesson checkout missing slot_id metadata.");
+  }
+
+  if (session.payment_status !== "paid") {
+    return true;
+  }
+
+  const paymentIntentId = getString(session.payment_intent);
+
+  const { error: slotUpdateError } = await supabase
+    .from("event_private_lesson_slots")
+    .update({
+      status: "booked",
+      payment_status: "paid",
+      stripe_checkout_session_id: session.id,
+      stripe_payment_intent_id: paymentIntentId,
+      booked_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", slotId)
+    .in("status", ["available", "held"]);
+
+  if (slotUpdateError) {
+    throw new Error(slotUpdateError.message);
+  }
+
+  return true;
+}
+
 async function handleEventRegistrationRefundUpdated(
   supabase: SupabaseClient,
   refund: Stripe.Refund
@@ -1243,6 +1282,16 @@ async function handleCheckoutSessionCompleted(
   );
 
   if (handledStudioSubscription) {
+    return;
+  }
+
+
+  const handledPrivateLessonSlot = await handleEventPrivateLessonCheckoutCompleted(
+    supabase,
+    session
+  );
+
+  if (handledPrivateLessonSlot) {
     return;
   }
 
@@ -1803,3 +1852,4 @@ case "customer.subscription.deleted": {
     });
   }
 }
+

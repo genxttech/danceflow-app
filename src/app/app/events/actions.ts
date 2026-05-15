@@ -75,6 +75,27 @@ type EventScheduleItemPayload = {
   sortOrder: number;
 };
 
+type GuestCoachBlockPayload = {
+  lessonDate: string;
+  startTime: string;
+  endTime: string;
+  durationMinutes: number;
+  bufferMinutes: number;
+  price: number;
+  locationLabel: string;
+  sortOrder: number;
+};
+
+type GuestCoachPayload = {
+  id: string;
+  name: string;
+  bio: string;
+  photoUrl: string;
+  active: boolean;
+  sortOrder: number;
+  blocks: GuestCoachBlockPayload[];
+};
+
 const EVENT_IMAGE_BUCKET = "event-media";
 
 const EVENT_SLUG_TAKEN_MESSAGE =
@@ -210,6 +231,12 @@ function parseOptionalDateTimeLocal(value: string) {
 function parseOptionalInteger(value: string) {
   if (!value.trim()) return null;
   const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseOptionalNumber(value: string) {
+  if (!value.trim()) return null;
+  const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -565,6 +592,100 @@ function parseEventScheduleItems(
   return items;
 }
 
+function parseGuestCoaches(formData: FormData): GuestCoachPayload[] {
+  const coachCount =
+    parseOptionalInteger(getString(formData, "guestCoachCount")) ?? 0;
+  const coaches: GuestCoachPayload[] = [];
+
+  for (let coachIndex = 0; coachIndex < coachCount; coachIndex += 1) {
+    const name = getString(formData, `guestCoach_${coachIndex}_name`);
+    const bio = getString(formData, `guestCoach_${coachIndex}_bio`);
+    const photoUrl = getString(formData, `guestCoach_${coachIndex}_photoUrl`);
+    const id = getString(formData, `guestCoach_${coachIndex}_id`);
+    const active = getBoolean(formData, `guestCoach_${coachIndex}_active`);
+
+    const blockCount =
+      parseOptionalInteger(
+        getString(formData, `guestCoach_${coachIndex}_blockCount`),
+      ) ?? 0;
+
+    const blocks: GuestCoachBlockPayload[] = [];
+
+    for (let blockIndex = 0; blockIndex < blockCount; blockIndex += 1) {
+      const lessonDate = getString(
+        formData,
+        `guestCoach_${coachIndex}_block_${blockIndex}_lessonDate`,
+      );
+      const startTime = getString(
+        formData,
+        `guestCoach_${coachIndex}_block_${blockIndex}_startTime`,
+      );
+      const endTime = getString(
+        formData,
+        `guestCoach_${coachIndex}_block_${blockIndex}_endTime`,
+      );
+      const durationMinutes =
+        parseOptionalInteger(
+          getString(
+            formData,
+            `guestCoach_${coachIndex}_block_${blockIndex}_durationMinutes`,
+          ),
+        ) ?? 45;
+      const bufferMinutes =
+        parseOptionalInteger(
+          getString(
+            formData,
+            `guestCoach_${coachIndex}_block_${blockIndex}_bufferMinutes`,
+          ),
+        ) ?? 0;
+      const price =
+        parseOptionalNumber(
+          getString(formData, `guestCoach_${coachIndex}_block_${blockIndex}_price`),
+        ) ?? 0;
+      const locationLabel = getString(
+        formData,
+        `guestCoach_${coachIndex}_block_${blockIndex}_locationLabel`,
+      );
+
+      if (!lessonDate || !startTime || !endTime || durationMinutes <= 0) {
+        continue;
+      }
+
+      blocks.push({
+        lessonDate,
+        startTime,
+        endTime,
+        durationMinutes,
+        bufferMinutes: Math.max(0, bufferMinutes),
+        price: Math.max(0, price),
+        locationLabel,
+        sortOrder: blockIndex,
+      });
+    }
+
+    if (!name && blocks.length === 0) {
+      continue;
+    }
+
+    if (!name) {
+      throw new Error("Guest coach name is required when adding lesson slots.");
+    }
+
+    coaches.push({
+      id,
+      name,
+      bio,
+      photoUrl,
+      active,
+      sortOrder: coachIndex,
+      blocks,
+    });
+  }
+
+  return coaches;
+}
+
+
 function normalizeStyleKeysForSingleCategory(styleKeys: string[]) {
   const uniqueStyleKeys = Array.from(
     new Set(styleKeys.map((styleKey) => styleKey.trim()).filter(Boolean)),
@@ -651,6 +772,7 @@ function buildEventPayload(formData: FormData) {
     ),
     eventLocations: parseEventLocations(formData),
     eventScheduleItems: parseEventScheduleItems(formData),
+    guestCoaches: parseGuestCoaches(formData),
   };
 }
 
@@ -1336,6 +1458,158 @@ async function replaceEventScheduleItems(params: {
   }
 }
 
+function toSlotDateTimeIso(lessonDate: string, time: string) {
+  const parsed = new Date(`${lessonDate}T${time}:00`);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
+  }
+
+  return parsed.toISOString();
+}
+
+function addMinutesIso(isoValue: string, minutes: number) {
+  const parsed = new Date(isoValue);
+  parsed.setMinutes(parsed.getMinutes() + minutes);
+  return parsed.toISOString();
+}
+
+function buildPrivateLessonSlotRows(params: {
+  eventId: string;
+  coachId: string;
+  blockId: string;
+  studioId: string;
+  organizerId: string | null;
+  block: GuestCoachBlockPayload;
+}) {
+  const { eventId, coachId, blockId, studioId, organizerId, block } = params;
+  const firstStartIso = toSlotDateTimeIso(block.lessonDate, block.startTime);
+  const blockEndIso = toSlotDateTimeIso(block.lessonDate, block.endTime);
+
+  if (!firstStartIso || !blockEndIso) {
+    return [];
+  }
+
+  const rows = [];
+  const stepMinutes = block.durationMinutes + block.bufferMinutes;
+  let slotStartIso = firstStartIso;
+
+  while (new Date(addMinutesIso(slotStartIso, block.durationMinutes)) <= new Date(blockEndIso)) {
+    const slotEndIso = addMinutesIso(slotStartIso, block.durationMinutes);
+
+    rows.push({
+      event_id: eventId,
+      coach_id: coachId,
+      block_id: blockId,
+      studio_id: studioId,
+      organizer_id: organizerId,
+      starts_at: slotStartIso,
+      ends_at: slotEndIso,
+      price: block.price,
+      location_label: block.locationLabel || null,
+      status: "available",
+      payment_status: "unpaid",
+      updated_at: new Date().toISOString(),
+    });
+
+    slotStartIso = addMinutesIso(slotStartIso, Math.max(5, stepMinutes));
+  }
+
+  return rows;
+}
+
+async function replaceGuestCoachPrivateLessons(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  studioId: string;
+  organizerId: string | null;
+  guestCoaches: GuestCoachPayload[];
+}) {
+  const { supabase, eventId, studioId, organizerId, guestCoaches } = params;
+
+  const { error: deleteError } = await supabase
+    .from("event_guest_coaches")
+    .delete()
+    .eq("event_id", eventId)
+    .eq("studio_id", studioId);
+
+  if (deleteError) {
+    throw new Error(`Could not clear old guest coaches: ${deleteError.message}`);
+  }
+
+  for (const coach of guestCoaches) {
+    const { data: insertedCoach, error: coachError } = await supabase
+      .from("event_guest_coaches")
+      .insert({
+        event_id: eventId,
+        studio_id: studioId,
+        organizer_id: organizerId,
+        name: coach.name,
+        bio: coach.bio || null,
+        photo_url: coach.photoUrl || null,
+        active: coach.active,
+        updated_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+
+    if (coachError || !insertedCoach) {
+      throw new Error(
+        `Could not save guest coach: ${coachError?.message ?? "Unknown error."}`,
+      );
+    }
+
+    for (const block of coach.blocks) {
+      const { data: insertedBlock, error: blockError } = await supabase
+        .from("event_private_lesson_blocks")
+        .insert({
+          event_id: eventId,
+          coach_id: insertedCoach.id,
+          studio_id: studioId,
+          organizer_id: organizerId,
+          lesson_date: block.lessonDate,
+          start_time: block.startTime,
+          end_time: block.endTime,
+          duration_minutes: block.durationMinutes,
+          buffer_minutes: block.bufferMinutes,
+          price: block.price,
+          location_label: block.locationLabel || null,
+          active: coach.active,
+          updated_at: new Date().toISOString(),
+        })
+        .select("id")
+        .single();
+
+      if (blockError || !insertedBlock) {
+        throw new Error(
+          `Could not save guest coach availability: ${blockError?.message ?? "Unknown error."}`,
+        );
+      }
+
+      const slotRows = buildPrivateLessonSlotRows({
+        eventId,
+        coachId: insertedCoach.id,
+        blockId: insertedBlock.id,
+        studioId,
+        organizerId,
+        block,
+      });
+
+      if (slotRows.length === 0) {
+        continue;
+      }
+
+      const { error: slotsError } = await supabase
+        .from("event_private_lesson_slots")
+        .insert(slotRows);
+
+      if (slotsError) {
+        throw new Error(`Could not generate private lesson slots: ${slotsError.message}`);
+      }
+    }
+  }
+}
+
+
 async function uploadEventCoverImage(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
@@ -1582,6 +1856,14 @@ export async function createEventAction(
       organizerId: effectivePayload.organizerId || null,
       scheduleItems: effectivePayload.eventScheduleItems,
     });
+
+    await replaceGuestCoachPrivateLessons({
+      supabase,
+      eventId: event.id,
+      studioId,
+      organizerId: effectivePayload.organizerId || null,
+      guestCoaches: effectivePayload.guestCoaches,
+    });
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
@@ -1749,6 +2031,14 @@ export async function updateEventAction(
       studioId,
       organizerId: effectivePayload.organizerId || null,
       scheduleItems: effectivePayload.eventScheduleItems,
+    });
+
+    await replaceGuestCoachPrivateLessons({
+      supabase,
+      eventId: id,
+      studioId,
+      organizerId: effectivePayload.organizerId || null,
+      guestCoaches: effectivePayload.guestCoaches,
     });
   } catch (error) {
     return {
@@ -2139,3 +2429,4 @@ export async function duplicateEventAction(formData: FormData) {
 
   redirect(redirectTo);
 }
+

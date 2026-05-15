@@ -41,6 +41,25 @@ type EventScheduleItemFormValue = {
   locationLabel: string;
 };
 
+type GuestCoachBlockFormValue = {
+  lessonDate: string;
+  startTime: string;
+  endTime: string;
+  durationMinutes: string;
+  bufferMinutes: string;
+  price: string;
+  locationLabel: string;
+};
+
+type GuestCoachFormValue = {
+  id?: string;
+  name: string;
+  bio: string;
+  photoUrl: string;
+  active: boolean;
+  blocks: GuestCoachBlockFormValue[];
+};
+
 type EventFormState = {
   error?: string;
   success?: string;
@@ -85,6 +104,7 @@ type EventFormInitialValues = {
   styleKeys?: string[];
   eventLocations?: EventLocationFormValue[];
   eventScheduleItems?: EventScheduleItemFormValue[];
+  guestCoaches?: GuestCoachFormValue[];
 };
 
 type EventFormProps = {
@@ -467,6 +487,43 @@ function buildInitialEventScheduleItems(
     : [];
 }
 
+function makeBlankGuestCoachBlock(
+  params?: Partial<GuestCoachBlockFormValue>,
+): GuestCoachBlockFormValue {
+  return {
+    lessonDate: params?.lessonDate ?? getTodayDateValue(),
+    startTime: params?.startTime ?? "",
+    endTime: params?.endTime ?? "",
+    durationMinutes: params?.durationMinutes ?? "45",
+    bufferMinutes: params?.bufferMinutes ?? "0",
+    price: params?.price ?? "",
+    locationLabel: params?.locationLabel ?? "",
+  };
+}
+
+function makeBlankGuestCoach(
+  params?: Partial<GuestCoachFormValue>,
+): GuestCoachFormValue {
+  return {
+    id: params?.id,
+    name: params?.name ?? "",
+    bio: params?.bio ?? "",
+    photoUrl: params?.photoUrl ?? "",
+    active: params?.active ?? true,
+    blocks: params?.blocks?.length
+      ? params.blocks.map((block) => makeBlankGuestCoachBlock(block))
+      : [makeBlankGuestCoachBlock()],
+  };
+}
+
+function buildInitialGuestCoaches(
+  initialValues: EventFormInitialValues | undefined,
+): GuestCoachFormValue[] {
+  return (initialValues?.guestCoaches ?? []).map((coach) =>
+    makeBlankGuestCoach(coach),
+  );
+}
+
 function buildInitialEventLocations(
   initialValues: EventFormInitialValues | undefined,
 ): EventLocationFormValue[] {
@@ -587,6 +644,9 @@ export default function EventForm({
   const [eventScheduleItems, setEventScheduleItems] = useState<
     EventScheduleItemFormValue[]
   >(() => buildInitialEventScheduleItems(initialValues));
+  const [guestCoaches, setGuestCoaches] = useState<GuestCoachFormValue[]>(() =>
+    buildInitialGuestCoaches(initialValues),
+  );
 
   const primaryLocation = eventLocations[0] ?? makeBlankLocation();
   const primarySession = primaryLocation.sessions[0] ?? makeBlankSession();
@@ -796,6 +856,74 @@ export default function EventForm({
     );
   }
 
+  function addGuestCoach() {
+    setGuestCoaches((current) => [...current, makeBlankGuestCoach()]);
+  }
+
+  function removeGuestCoach(coachIndex: number) {
+    setGuestCoaches((current) =>
+      current.filter((_, index) => index !== coachIndex),
+    );
+  }
+
+  function updateGuestCoach(
+    coachIndex: number,
+    field: keyof Omit<GuestCoachFormValue, "blocks">,
+    value: string | boolean,
+  ) {
+    setGuestCoaches((current) =>
+      current.map((coach, index) =>
+        index === coachIndex ? { ...coach, [field]: value } : coach,
+      ),
+    );
+  }
+
+  function addGuestCoachBlock(coachIndex: number) {
+    setGuestCoaches((current) =>
+      current.map((coach, index) =>
+        index === coachIndex
+          ? { ...coach, blocks: [...coach.blocks, makeBlankGuestCoachBlock()] }
+          : coach,
+      ),
+    );
+  }
+
+  function removeGuestCoachBlock(coachIndex: number, blockIndex: number) {
+    setGuestCoaches((current) =>
+      current.map((coach, index) => {
+        if (index !== coachIndex) return coach;
+        return {
+          ...coach,
+          blocks:
+            coach.blocks.length <= 1
+              ? coach.blocks
+              : coach.blocks.filter(
+                  (_, nestedIndex) => nestedIndex !== blockIndex,
+                ),
+        };
+      }),
+    );
+  }
+
+  function updateGuestCoachBlock(
+    coachIndex: number,
+    blockIndex: number,
+    field: keyof GuestCoachBlockFormValue,
+    value: string,
+  ) {
+    setGuestCoaches((current) =>
+      current.map((coach, index) => {
+        if (index !== coachIndex) return coach;
+        return {
+          ...coach,
+          blocks: coach.blocks.map((block, nestedIndex) =>
+            nestedIndex === blockIndex ? { ...block, [field]: value } : block,
+          ),
+        };
+      }),
+    );
+  }
+
   return (
     <form action={formAction} className="space-y-5 md:space-y-6">
       {mode === "edit" && initialValues?.id ? (
@@ -826,6 +954,16 @@ export default function EventForm({
             value={location.sessions.length}
           />
         </div>
+      ))}
+
+      <input type="hidden" name="guestCoachCount" value={guestCoaches.length} />
+      {guestCoaches.map((coach, coachIndex) => (
+        <input
+          key={`guest-coach-${coachIndex}-block-count`}
+          type="hidden"
+          name={`guestCoach_${coachIndex}_blockCount`}
+          value={coach.blocks.length}
+        />
       ))}
 
       {selectedStyleKeys.map((styleKey) => (
@@ -2012,6 +2150,211 @@ export default function EventForm({
                 )}
               </div>
 
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                  <div>
+                    <h4 className="text-base font-semibold text-slate-950">
+                      Guest Coach Private Lessons
+                    </h4>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      Optional. Add guest coaches and availability blocks. Slots are
+                      generated from each block when the event is saved.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addGuestCoach}
+                    className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100"
+                  >
+                    Add Guest Coach
+                  </button>
+                </div>
+
+                {guestCoaches.length === 0 ? (
+                  <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+                    No guest coach lesson slots added.
+                  </p>
+                ) : (
+                  <div className="mt-5 space-y-5">
+                    {guestCoaches.map((coach, coachIndex) => (
+                      <div key={`guest-coach-${coachIndex}`} className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <input type="hidden" name={`guestCoach_${coachIndex}_id`} value={coach.id ?? ""} />
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              Guest Coach {coachIndex + 1}
+                            </p>
+                            <h5 className="mt-1 text-base font-semibold text-slate-950">
+                              {coach.name || "New Guest Coach"}
+                            </h5>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeGuestCoach(coachIndex)}
+                            className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                          >
+                            Remove Coach
+                          </button>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 md:grid-cols-2">
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">Coach Name</label>
+                            <input
+                              name={`guestCoach_${coachIndex}_name`}
+                              value={coach.name}
+                              onChange={(e) => updateGuestCoach(coachIndex, "name", e.target.value)}
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="Guest coach name"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1.5 block text-sm font-medium">Photo URL, optional</label>
+                            <input
+                              name={`guestCoach_${coachIndex}_photoUrl`}
+                              value={coach.photoUrl}
+                              onChange={(e) => updateGuestCoach(coachIndex, "photoUrl", e.target.value)}
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              placeholder="https://..."
+                            />
+                          </div>
+                          <div className="md:col-span-2">
+                            <label className="mb-1.5 block text-sm font-medium">Coach Bio, optional</label>
+                            <textarea
+                              name={`guestCoach_${coachIndex}_bio`}
+                              value={coach.bio}
+                              onChange={(e) => updateGuestCoach(coachIndex, "bio", e.target.value)}
+                              rows={3}
+                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                            />
+                          </div>
+                          <label className="flex items-center gap-3 rounded-xl border bg-slate-50 p-3 text-sm">
+                            <input
+                              type="checkbox"
+                              name={`guestCoach_${coachIndex}_active`}
+                              checked={coach.active}
+                              onChange={(e) => updateGuestCoach(coachIndex, "active", e.target.checked)}
+                            />
+                            Active / visible
+                          </label>
+                        </div>
+
+                        <div className="mt-5 space-y-4">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900">Availability Blocks</p>
+                              <p className="text-xs text-slate-500">Each block creates fixed purchasable lesson slots.</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => addGuestCoachBlock(coachIndex)}
+                              className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                            >
+                              Add Block
+                            </button>
+                          </div>
+
+                          {coach.blocks.map((block, blockIndex) => (
+                            <div key={`guest-coach-${coachIndex}-block-${blockIndex}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="text-sm font-semibold text-slate-900">Block {blockIndex + 1}</p>
+                                <button
+                                  type="button"
+                                  onClick={() => removeGuestCoachBlock(coachIndex, blockIndex)}
+                                  className="text-sm font-medium text-red-600 hover:text-red-700"
+                                >
+                                  Remove
+                                </button>
+                              </div>
+
+                              <div className="mt-4 grid gap-4 md:grid-cols-3">
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">Date</label>
+                                  <input
+                                    type="date"
+                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_lessonDate`}
+                                    value={block.lessonDate}
+                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "lessonDate", e.target.value)}
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">Start Time</label>
+                                  <input
+                                    type="time"
+                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_startTime`}
+                                    value={block.startTime}
+                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "startTime", e.target.value)}
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">End Time</label>
+                                  <input
+                                    type="time"
+                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_endTime`}
+                                    value={block.endTime}
+                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "endTime", e.target.value)}
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">Lesson Length</label>
+                                  <input
+                                    type="number"
+                                    min="5"
+                                    step="5"
+                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_durationMinutes`}
+                                    value={block.durationMinutes}
+                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "durationMinutes", e.target.value)}
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">Buffer Minutes</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="5"
+                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_bufferMinutes`}
+                                    value={block.bufferMinutes}
+                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "bufferMinutes", e.target.value)}
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="mb-1.5 block text-sm font-medium">Price</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.01"
+                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_price`}
+                                    value={block.price}
+                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "price", e.target.value)}
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    placeholder="150.00"
+                                  />
+                                </div>
+                                <div className="md:col-span-3">
+                                  <label className="mb-1.5 block text-sm font-medium">Room / Location Label, optional</label>
+                                  <input
+                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_locationLabel`}
+                                    value={block.locationLabel}
+                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "locationLabel", e.target.value)}
+                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    placeholder="Main Ballroom, Studio B, etc."
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label
                   htmlFor="coverImageFile"
@@ -2532,6 +2875,7 @@ export default function EventForm({
     </form>
   );
 }
+
 
 
 

@@ -136,6 +136,40 @@ type EventScheduleItemRow = {
   sort_order: number | null;
 };
 
+type EventPrivateLessonSlotRow = {
+  id: string;
+  starts_at: string;
+  ends_at: string;
+  price: number;
+  location_label: string | null;
+  status: string;
+  payment_status: string;
+  event_guest_coaches:
+    | {
+        id: string;
+        name: string;
+        bio: string | null;
+        photo_url: string | null;
+      }
+    | {
+        id: string;
+        name: string;
+        bio: string | null;
+        photo_url: string | null;
+      }[]
+    | null;
+};
+
+type GroupedCoachSlots = {
+  coach: {
+    id: string;
+    name: string;
+    bio: string | null;
+    photo_url: string | null;
+  };
+  slots: EventPrivateLessonSlotRow[];
+};
+
 type TicketTypeRow = {
   id: string;
   name: string;
@@ -199,6 +233,162 @@ function eventLocationLabel(event: EventRow) {
 function eventDateTimeForSchema(date: string | null, time: string | null) {
   if (!date) return undefined;
   return time ? `${date}T${time}` : date;
+}
+
+function getCoach(value: EventPrivateLessonSlotRow["event_guest_coaches"]) {
+  return Array.isArray(value) ? (value[0] ?? null) : value;
+}
+
+function formatSlotDateTimeRange(
+  startsAt: string,
+  endsAt: string,
+  timeZone?: string,
+) {
+  const start = new Date(startsAt);
+  const end = new Date(endsAt);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return "Time coming soon";
+  }
+
+  const dateLabel = start.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    ...(timeZone ? { timeZone } : {}),
+  });
+
+  const startLabel = start.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    ...(timeZone ? { timeZone } : {}),
+  });
+
+  const endLabel = end.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    ...(timeZone ? { timeZone } : {}),
+  });
+
+  return `${dateLabel} · ${startLabel} – ${endLabel}`;
+}
+
+function formatSlotDateLabel(startsAt: string, timeZone?: string) {
+  const start = new Date(startsAt);
+
+  if (Number.isNaN(start.getTime())) {
+    return "Date coming soon";
+  }
+
+  return start.toLocaleDateString([], {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    ...(timeZone ? { timeZone } : {}),
+  });
+}
+
+function formatSlotTimeRange(
+  startsAt: string,
+  endsAt: string,
+  timeZone?: string,
+) {
+  const start = new Date(startsAt);
+  const end = new Date(endsAt);
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return "Time coming soon";
+  }
+
+  const startLabel = start.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    ...(timeZone ? { timeZone } : {}),
+  });
+
+  const endLabel = end.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+    ...(timeZone ? { timeZone } : {}),
+  });
+
+  return `${startLabel} – ${endLabel}`;
+}
+
+function slotDateKey(startsAt: string, timeZone?: string) {
+  const start = new Date(startsAt);
+
+  if (Number.isNaN(start.getTime())) {
+    return "unknown";
+  }
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    ...(timeZone ? { timeZone } : {}),
+  }).formatToParts(start);
+
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+
+  return `${map.get("year")}-${map.get("month")}-${map.get("day")}`;
+}
+
+function groupPrivateLessonSlotsByDate(
+  slots: EventPrivateLessonSlotRow[],
+  timeZone?: string,
+) {
+  const groups = new Map<
+    string,
+    {
+      dateLabel: string;
+      slots: EventPrivateLessonSlotRow[];
+    }
+  >();
+
+  for (const slot of slots) {
+    const key = slotDateKey(slot.starts_at, timeZone);
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        dateLabel: formatSlotDateLabel(slot.starts_at, timeZone),
+        slots: [],
+      });
+    }
+
+    groups.get(key)?.slots.push(slot);
+  }
+
+  return Array.from(groups.entries()).map(([dateKey, group]) => ({
+    dateKey,
+    dateLabel: group.dateLabel,
+    slots: group.slots.sort((a, b) => a.starts_at.localeCompare(b.starts_at)),
+  }));
+}
+
+function groupPrivateLessonSlotsByCoach(slots: EventPrivateLessonSlotRow[]) {
+  const groups = new Map<string, GroupedCoachSlots>();
+
+  for (const slot of slots) {
+    const coach = getCoach(slot.event_guest_coaches);
+    if (!coach) continue;
+
+    if (!groups.has(coach.id)) {
+      groups.set(coach.id, {
+        coach,
+        slots: [],
+      });
+    }
+
+    groups.get(coach.id)?.slots.push(slot);
+  }
+
+  return Array.from(groups.values()).map((group) => ({
+    ...group,
+    slots: group.slots.sort((a, b) => a.starts_at.localeCompare(b.starts_at)),
+  }));
 }
 
 function hasActivePublicAccess(studio: {
@@ -882,6 +1072,7 @@ export default async function PublicEventDetailPage({
     { data: activeRegistrations, error: activeRegistrationsError },
     { data: eventLocations, error: eventLocationsError },
     { data: eventScheduleItems, error: eventScheduleItemsError },
+    { data: privateLessonSlots, error: privateLessonSlotsError },
     favoriteResult,
   ] = await Promise.all([
     supabase
@@ -966,6 +1157,30 @@ export default async function PublicEventDetailPage({
       .order("start_time", { ascending: true })
       .order("sort_order", { ascending: true }),
 
+    supabase
+      .from("event_private_lesson_slots")
+      .select(
+        `
+        id,
+        starts_at,
+        ends_at,
+        price,
+        location_label,
+        status,
+        payment_status,
+        event_guest_coaches:coach_id (
+          id,
+          name,
+          bio,
+          photo_url
+        )
+      `,
+      )
+      .eq("event_id", typedEvent.id)
+      .eq("status", "available")
+      .eq("payment_status", "unpaid")
+      .order("starts_at", { ascending: true }),
+
     user
       ? supabase
           .from("user_favorites")
@@ -988,6 +1203,16 @@ export default async function PublicEventDetailPage({
   if (eventLocationsError) {
     throw new Error(
       `Failed to load event locations: ${eventLocationsError.message}`,
+    );
+  }
+  if (eventScheduleItemsError) {
+    throw new Error(
+      `Failed to load event schedule: ${eventScheduleItemsError.message}`,
+    );
+  }
+  if (privateLessonSlotsError) {
+    throw new Error(
+      `Failed to load private lesson slots: ${privateLessonSlotsError.message}`,
     );
   }
   if (favoriteResult?.error) {
@@ -1034,6 +1259,14 @@ export default async function PublicEventDetailPage({
     });
   const groupedScheduleItems = groupScheduleItemsByDate(
     typedEventScheduleItems,
+  );
+  const typedPrivateLessonSlots = (
+    (privateLessonSlots ?? []) as EventPrivateLessonSlotRow[]
+  )
+    .slice()
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+  const privateLessonSlotGroups = groupPrivateLessonSlotsByCoach(
+    typedPrivateLessonSlots,
   );
   const isFavorited = Boolean(favoriteResult?.data?.id);
 
@@ -1611,6 +1844,205 @@ export default async function PublicEventDetailPage({
                   )}
                 </section>
 
+                {privateLessonSlotGroups.length > 0 ? (
+                  <section className="rounded-[2rem] border border-purple-100 bg-white p-5 shadow-sm sm:p-8">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-600">
+                          Add-on lessons
+                        </p>
+                        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                          Guest Coach Private Lessons
+                        </h2>
+                      </div>
+                      <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">
+                        Limited slots
+                      </span>
+                    </div>
+
+                    <p className="mt-3 text-sm leading-6 text-slate-600">
+                      Reserve a private lesson with a guest coach. Choose a
+                      coach, pick an available time, then enter your details
+                      once you are ready to pay.
+                    </p>
+
+                    <div className="mt-6 space-y-4">
+                      {privateLessonSlotGroups.map(({ coach, slots }) => {
+                        const groupedSlots = groupPrivateLessonSlotsByDate(
+                          slots,
+                          typedEvent.timezone,
+                        );
+                        const prices = slots.map((slot) =>
+                          Number(slot.price ?? 0),
+                        );
+                        const minPrice = Math.min(...prices);
+                        const maxPrice = Math.max(...prices);
+                        const priceLabel =
+                          minPrice === maxPrice
+                            ? formatCurrency(minPrice, "USD")
+                            : `${formatCurrency(minPrice, "USD")} – ${formatCurrency(maxPrice, "USD")}`;
+
+                        return (
+                          <details
+                            key={coach.id}
+                            className="group rounded-2xl border bg-slate-50 p-4 open:bg-white sm:p-5"
+                          >
+                            <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
+                              <div className="flex min-w-0 gap-3 sm:gap-4">
+                                {coach.photo_url ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={coach.photo_url}
+                                    alt=""
+                                    className="h-14 w-14 shrink-0 rounded-2xl object-cover ring-1 ring-slate-200 sm:h-20 sm:w-20"
+                                  />
+                                ) : (
+                                  <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-purple-50 text-lg font-semibold text-purple-700 ring-1 ring-purple-100 sm:h-20 sm:w-20">
+                                    {coach.name.slice(0, 1).toUpperCase()}
+                                  </div>
+                                )}
+
+                                <div className="min-w-0">
+                                  <h3 className="text-base font-semibold text-slate-950 sm:text-lg">
+                                    {coach.name}
+                                  </h3>
+                                  <p className="mt-1 text-sm text-slate-600">
+                                    {slots.length} available{" "}
+                                    {slots.length === 1 ? "slot" : "slots"} ·{" "}
+                                    {priceLabel}
+                                  </p>
+                                  {coach.bio ? (
+                                    <p className="mt-2 line-clamp-2 text-sm leading-6 text-slate-600 group-open:line-clamp-none">
+                                      {coach.bio}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+
+                              <span className="shrink-0 rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 group-open:bg-slate-950 group-open:text-white">
+                                <span className="group-open:hidden">
+                                  View times
+                                </span>
+                                <span className="hidden group-open:inline">
+                                  Hide
+                                </span>
+                              </span>
+                            </summary>
+
+                            <div className="mt-5 space-y-5">
+                              {groupedSlots.map((dateGroup) => (
+                                <div key={`${coach.id}-${dateGroup.dateKey}`}>
+                                  <h4 className="text-sm font-semibold text-slate-950">
+                                    {dateGroup.dateLabel}
+                                  </h4>
+
+                                  <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+                                    {dateGroup.slots.map((slot) => (
+                                      <details
+                                        key={slot.id}
+                                        className="group/slot rounded-2xl border bg-white p-3 open:border-purple-200 open:bg-purple-50/30"
+                                      >
+                                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+                                          <div>
+                                            <p className="text-sm font-semibold text-slate-950">
+                                              {formatSlotTimeRange(
+                                                slot.starts_at,
+                                                slot.ends_at,
+                                                typedEvent.timezone,
+                                              )}
+                                            </p>
+                                            <p className="mt-1 text-xs text-slate-500">
+                                              {slot.location_label ||
+                                                "Location shared by organizer"}
+                                            </p>
+                                          </div>
+                                          <div className="text-right">
+                                            <p className="text-sm font-semibold text-slate-950">
+                                              {formatCurrency(
+                                                slot.price,
+                                                "USD",
+                                              )}
+                                            </p>
+                                            <p className="mt-1 text-xs font-medium text-purple-700 group-open/slot:hidden">
+                                              Select
+                                            </p>
+                                            <p className="mt-1 hidden text-xs font-medium text-purple-700 group-open/slot:block">
+                                              Selected
+                                            </p>
+                                          </div>
+                                        </summary>
+
+                                        <form
+                                          action="/api/events/private-lessons/checkout"
+                                          method="post"
+                                          className="mt-4 border-t pt-4"
+                                        >
+                                          <input
+                                            type="hidden"
+                                            name="slotId"
+                                            value={slot.id}
+                                          />
+                                          <input
+                                            type="hidden"
+                                            name="eventSlug"
+                                            value={typedEvent.slug}
+                                          />
+
+                                          <p className="mb-3 rounded-xl bg-white px-3 py-2 text-xs leading-5 text-slate-600 ring-1 ring-slate-200">
+                                            Selected: {coach.name} ·{" "}
+                                            {formatSlotDateTimeRange(
+                                              slot.starts_at,
+                                              slot.ends_at,
+                                              typedEvent.timezone,
+                                            )}
+                                          </p>
+
+                                          <div className="grid gap-2">
+                                            <input
+                                              name="buyerName"
+                                              required
+                                              placeholder="Your name"
+                                              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                            <input
+                                              name="buyerEmail"
+                                              type="email"
+                                              required
+                                              placeholder="Email"
+                                              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                            <input
+                                              name="buyerPhone"
+                                              placeholder="Phone, optional"
+                                              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                            <textarea
+                                              name="buyerNotes"
+                                              placeholder="Anything you want the coach to know, optional"
+                                              rows={2}
+                                              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                            <button
+                                              type="submit"
+                                              className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+                                            >
+                                              Continue to payment
+                                            </button>
+                                          </div>
+                                        </form>
+                                      </details>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ) : null}
+
                 <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
                   <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                     Ticket Options
@@ -1938,8 +2370,6 @@ export default async function PublicEventDetailPage({
     </>
   );
 }
-
-
 
 
 
