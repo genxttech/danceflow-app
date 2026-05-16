@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
-import PublicLegalLinks from "@/components/public/PublicLegalLinks";
+
 
 export const metadata: Metadata = {
   title: "Privacy Policy | DanceFlow",
@@ -80,7 +80,7 @@ export default function Page() {
         </section>
       </main>
 
-      <PublicLegalLinks />
+      
       <PublicSiteFooter />
     </>
   );
