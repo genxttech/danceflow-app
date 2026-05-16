@@ -20,6 +20,7 @@ import {
   unlinkPortalAccessAction,
   updateIndependentInstructorSettingsAction,
   adjustLessonCountCorrectionAction,
+  addClientAccountLedgerEntryAction,
 } from "./actions";
 import {
   cancelMembershipAtPeriodEndAction,
@@ -123,6 +124,18 @@ type LedgerRow = {
   notes: string | null;
   created_at: string;
   appointment_id: string | null;
+};
+
+type ClientAccountLedgerRow = {
+  id: string;
+  entry_date: string;
+  entry_type: string;
+  direction: "credit" | "debit";
+  amount: number;
+  description: string | null;
+  reference_type: string | null;
+  reference_id: string | null;
+  created_at: string;
 };
 
 type LeadActivityRow = {
@@ -474,6 +487,28 @@ function paymentTypeBadgeClass(value: string | null) {
   return "bg-slate-100 text-slate-700";
 }
 
+function accountLedgerTypeLabel(value: string) {
+  if (value === "credit_added") return "Credit Added";
+  if (value === "credit_applied") return "Credit Applied";
+  if (value === "charge_added") return "Charge Added";
+  if (value === "payment_received") return "Payment Received";
+  if (value === "refund_credit") return "Refund Credit";
+  if (value === "manual_adjustment") return "Manual Adjustment";
+  if (value === "floor_fee_credit") return "Floor Fee Credit";
+  if (value === "floor_fee_charge") return "Floor Fee Charge";
+  if (value === "package_purchase") return "Package Purchase";
+  if (value === "lesson_charge") return "Lesson Charge";
+  if (value === "reversal") return "Reversal";
+  return value.replaceAll("_", " ");
+}
+
+function accountDirectionBadgeClass(direction: string) {
+  if (direction === "credit") return "bg-green-50 text-green-700";
+  if (direction === "debit") return "bg-amber-50 text-amber-700";
+  return "bg-slate-100 text-slate-700";
+}
+
+
 function paymentMethodLabel(value: string) {
   if (value === "bank_transfer") return "Bank Transfer";
   return value.replaceAll("_", " ");
@@ -581,6 +616,13 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "success" as const,
       message: "Independent instructor settings updated.",
+    };
+  }
+
+  if (search.success === "account_ledger_entry_saved") {
+    return {
+      kind: "success" as const,
+      message: "Client account ledger entry saved.",
     };
   }
 
@@ -795,6 +837,34 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.error === "account_ledger_missing_fields") {
+    return {
+      kind: "error" as const,
+      message: "Amount, type, date, and notes are required for account ledger entries.",
+    };
+  }
+
+  if (search.error === "account_ledger_invalid_amount") {
+    return {
+      kind: "error" as const,
+      message: "Enter a valid account ledger amount greater than zero.",
+    };
+  }
+
+  if (search.error === "account_ledger_invalid_type") {
+    return {
+      kind: "error" as const,
+      message: "Choose a valid account ledger entry type.",
+    };
+  }
+
+  if (search.error === "account_ledger_save_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not save the client account ledger entry.",
+    };
+  }
+
   if (search.error === "missing_default_payment_method") {
     return {
       kind: "error" as const,
@@ -963,6 +1033,7 @@ export default async function ClientDetailPage({
     { data: recentAppointments, error: recentError },
     { data: payments, error: paymentsError },
     { data: ledger, error: ledgerError },
+    { data: accountLedger, error: accountLedgerError },
     { data: leadActivities, error: leadActivitiesError },
     { data: packageTemplates, error: packageTemplatesError },
     { data: membershipPlans, error: membershipPlansError },
@@ -1086,6 +1157,17 @@ export default async function ClientDetailPage({
       .limit(30),
 
     supabase
+      .from("client_account_ledger")
+      .select(
+        "id, entry_date, entry_type, direction, amount, description, reference_type, reference_id, created_at"
+      )
+      .eq("studio_id", studioId)
+      .eq("client_id", id)
+      .order("entry_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(30),
+
+    supabase
       .from("lead_activities")
       .select(`
         id,
@@ -1193,6 +1275,7 @@ export default async function ClientDetailPage({
   if (recentError) throw new Error(`Failed to load recent appointments: ${recentError.message}`);
   if (paymentsError) throw new Error(`Failed to load payments: ${paymentsError.message}`);
   if (ledgerError) throw new Error(`Failed to load lesson ledger: ${ledgerError.message}`);
+  if (accountLedgerError) throw new Error(`Failed to load client account ledger: ${accountLedgerError.message}`);
   if (leadActivitiesError) throw new Error(`Failed to load lead activities: ${leadActivitiesError.message}`);
   if (packageTemplatesError) throw new Error(`Failed to load package templates: ${packageTemplatesError.message}`);
   if (membershipPlansError) throw new Error(`Failed to load membership plans: ${membershipPlansError.message}`);
@@ -1207,6 +1290,7 @@ export default async function ClientDetailPage({
   const typedRecent = (recentAppointments ?? []) as AppointmentRow[];
   const typedPayments = (payments ?? []) as PaymentRow[];
   const typedLedger = (ledger ?? []) as LedgerRow[];
+  const typedAccountLedger = (accountLedger ?? []) as ClientAccountLedgerRow[];
   const typedLeadActivities = (leadActivities ?? []) as LeadActivityRow[];
   const typedPackageTemplates = (packageTemplates ?? []) as PackageTemplateRow[];
   const typedMembershipPlans = (membershipPlans ?? []) as MembershipPlanOption[];
@@ -1332,11 +1416,27 @@ export default async function ClientDetailPage({
   );
   const activePackages = typedPackages.filter((p) => p.active);
   const nextAppointment = typedUpcoming[0];
+  const lastAppointment = typedRecent[0];
+  const upcomingPreviewAppointments = typedUpcoming.slice(0, 5);
+  const recentPreviewAppointments = typedRecent.slice(0, 5);
   const paidPayments = typedPayments.filter((payment) => payment.status === "paid");
   const totalPaid = paidPayments.reduce(
     (sum, payment) => sum + Number(payment.amount ?? 0),
     0
   );
+  const accountCreditTotal = typedAccountLedger
+    .filter((entry) => entry.direction === "credit")
+    .reduce((sum, entry) => sum + Number(entry.amount ?? 0), 0);
+  const accountDebitTotal = typedAccountLedger
+    .filter((entry) => entry.direction === "debit")
+    .reduce((sum, entry) => sum + Number(entry.amount ?? 0), 0);
+  const accountNetBalance = accountCreditTotal - accountDebitTotal;
+  const accountBalanceLabel =
+    accountNetBalance > 0
+      ? "Available Credit"
+      : accountNetBalance < 0
+        ? "Balance Owed"
+        : "Settled";
 
   const isPublicIntroLead = typedClient.referral_source === "public_intro_booking";
   const isEventRegistrationLead = typedClient.referral_source === "event_registration";
@@ -2535,6 +2635,16 @@ export default async function ClientDetailPage({
                   {fmtCurrency(totalPaid)}
                 </p>
               </div>
+
+              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
+                <p className="text-sm text-slate-500">Account Balance</p>
+                <p className={`mt-2 text-xl font-semibold md:text-2xl ${
+                  accountNetBalance < 0 ? "text-rose-700" : "text-[var(--brand-text)]"
+                }`}>
+                  {fmtCurrency(Math.abs(accountNetBalance))}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">{accountBalanceLabel}</p>
+              </div>
             </div>
 
             {nextAppointment ? (
@@ -2885,6 +2995,191 @@ export default async function ClientDetailPage({
             </QuickActionPanel>
           ) : null}
 
+          <SectionCard
+            title="Account Balance"
+            subtitle="Track client-level credits, balances owed, floor fee charges, and truthful account adjustments without changing package history."
+            action={
+              <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${
+                accountNetBalance > 0
+                  ? "bg-green-50 text-green-700"
+                  : accountNetBalance < 0
+                    ? "bg-rose-50 text-rose-700"
+                    : "bg-slate-100 text-slate-700"
+              }`}>
+                {accountBalanceLabel}
+              </span>
+            }
+          >
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+                <p className="text-sm text-slate-500">Available Credit</p>
+                <p className="mt-2 text-2xl font-semibold text-green-700">
+                  {fmtCurrency(Math.max(accountNetBalance, 0))}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+                <p className="text-sm text-slate-500">Balance Owed</p>
+                <p className="mt-2 text-2xl font-semibold text-rose-700">
+                  {fmtCurrency(Math.max(accountDebitTotal - accountCreditTotal, 0))}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+                <p className="text-sm text-slate-500">Ledger Entries</p>
+                <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
+                  {typedAccountLedger.length}
+                </p>
+              </div>
+            </div>
+
+            <details className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-[var(--brand-text)]">
+                Manage account ledger
+              </summary>
+
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Use this only for client-level financial adjustments such as account credit,
+                floor fee balances, debt owed, refund credit, or reversing an incorrect entry.
+                Package lesson counts should still be corrected above.
+              </p>
+
+              {canEditClients(role) ? (
+                <form action={addClientAccountLedgerEntryAction} className="mt-4 grid gap-4">
+                  <input type="hidden" name="clientId" value={typedClient.id} />
+                  <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}`} />
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <div>
+                      <label htmlFor="accountEntryKind" className="mb-1 block text-sm font-medium text-[var(--brand-text)]">
+                        Entry Type
+                      </label>
+                      <select
+                        id="accountEntryKind"
+                        name="entryKind"
+                        required
+                        className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm"
+                        defaultValue="credit_added"
+                      >
+                        <option value="credit_added">Add account credit</option>
+                        <option value="floor_fee_credit">Add floor fee credit</option>
+                        <option value="refund_credit">Add refund credit</option>
+                        <option value="charge_added">Add balance owed</option>
+                        <option value="floor_fee_charge">Add floor fee owed</option>
+                        <option value="lesson_charge">Add lesson charge</option>
+                        <option value="manual_adjustment_credit">Manual credit adjustment</option>
+                        <option value="manual_adjustment_debit">Manual debit adjustment</option>
+                        <option value="reversal_credit">Reversal credit</option>
+                        <option value="reversal_debit">Reversal debit</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label htmlFor="accountAmount" className="mb-1 block text-sm font-medium text-[var(--brand-text)]">
+                        Amount
+                      </label>
+                      <input
+                        id="accountAmount"
+                        name="amount"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        required
+                        className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm"
+                        placeholder="85.00"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="accountEntryDate" className="mb-1 block text-sm font-medium text-[var(--brand-text)]">
+                        Entry Date
+                      </label>
+                      <input
+                        id="accountEntryDate"
+                        name="entryDate"
+                        type="date"
+                        required
+                        defaultValue={new Date().toISOString().slice(0, 10)}
+                        className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="accountDescription" className="mb-1 block text-sm font-medium text-[var(--brand-text)]">
+                      Notes / Reason
+                    </label>
+                    <textarea
+                      id="accountDescription"
+                      name="description"
+                      required
+                      rows={3}
+                      className="w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm"
+                      placeholder="Example: Credit from overpayment, floor fee owed, refund credit, or manual account adjustment."
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-3 text-sm font-medium text-white hover:brightness-105"
+                  >
+                    Save Account Entry
+                  </button>
+                </form>
+              ) : null}
+
+              <div className="mt-5 border-t border-[var(--brand-border)] pt-5">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                    Ledger History
+                  </h4>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                    {typedAccountLedger.length} entries
+                  </span>
+                </div>
+
+                <div className="mt-3 space-y-3">
+                  {typedAccountLedger.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] px-4 py-6 text-sm text-slate-500">
+                      No client account ledger entries yet. Add credit or a charge when the client has money on account, owes a balance, or needs a truthful manual adjustment.
+                    </div>
+                  ) : (
+                    typedAccountLedger.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p className="font-medium text-[var(--brand-text)]">
+                              {accountLedgerTypeLabel(entry.entry_type)}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-500">
+                              {fmtShortDate(entry.entry_date)}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${accountDirectionBadgeClass(entry.direction)}`}>
+                              {entry.direction}
+                            </span>
+                            <span className="font-semibold text-[var(--brand-text)]">
+                              {fmtCurrency(Number(entry.amount ?? 0))}
+                            </span>
+                          </div>
+                        </div>
+
+                        {entry.description ? (
+                          <p className="mt-2 text-sm text-slate-600">{entry.description}</p>
+                        ) : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </details>
+          </SectionCard>
+
           {typedClient.status === "lead" ? (
             <>
               <QuickActionPanel
@@ -3093,67 +3388,96 @@ export default async function ClientDetailPage({
                 </Link>
               }
             >
-              <div className="space-y-3">
-                {typedUpcoming.length === 0 ? (
-                  <p className="text-slate-500">No upcoming appointments.</p>
-                ) : (
-                  typedUpcoming.map((appointment) => (
-                    <Link
-                      key={appointment.id}
-                      href={`/app/schedule/${appointment.id}`}
-                      className="block rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4 hover:bg-white"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-medium text-[var(--brand-text)]">
-                              {appointment.title ||
-                                appointmentTypeLabel(appointment.appointment_type)}
-                            </p>
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-[var(--brand-text)]">
+                        {typedUpcoming.length} upcoming
+                      </p>
+                      {nextAppointment ? (
+                        <p className="mt-1 text-sm text-slate-600">
+                          Next: {fmtDateTime(nextAppointment.starts_at)} · {nextAppointment.title || appointmentTypeLabel(nextAppointment.appointment_type)}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-sm text-slate-500">
+                          No upcoming appointments.
+                        </p>
+                      )}
+                    </div>
 
-                            {typedClient.referral_source ? (
-                              <span
-                                className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${leadSourceBadgeClass(
-                                  typedClient.referral_source
-                                )}`}
-                              >
-                                {leadSourceLabel(typedClient.referral_source)}
-                              </span>
-                            ) : null}
+                    {nextAppointment ? (
+                      <Link
+                        href={`/app/schedule/${nextAppointment.id}`}
+                        className="rounded-full border border-[var(--brand-border)] bg-white px-3 py-1.5 text-sm font-medium text-[var(--brand-text)] hover:bg-slate-50"
+                      >
+                        Open next
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
 
-                            {isFloorRental(appointment.appointment_type) ? (
-                              <span className="inline-flex rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700">
-                                Floor Rental
-                              </span>
-                            ) : null}
-                          </div>
+                {typedUpcoming.length > 0 ? (
+                  <details className="group rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-[var(--brand-text)]">
+                      <span>View upcoming appointment list</span>
+                      <span className="text-xs font-medium text-slate-500 group-open:hidden">
+                        Show
+                      </span>
+                      <span className="hidden text-xs font-medium text-slate-500 group-open:inline">
+                        Hide
+                      </span>
+                    </summary>
 
-                          <p className="mt-1 text-sm text-slate-600">
-                            {fmtDateTime(appointment.starts_at)}
-                          </p>
-
-                          <p className="mt-1 text-sm text-slate-500">
-                            {isFloorRental(appointment.appointment_type)
-                              ? getRoomName(appointment.rooms) === "No room"
-                                ? "No room required • No package deduction"
-                                : `Room: ${getRoomName(appointment.rooms)} • No package deduction`
-                              : `${getInstructorName(appointment.instructors)} • ${getRoomName(
-                                  appointment.rooms
-                                )}`}
-                          </p>
-                        </div>
-
-                        <span
-                          className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${statusBadgeClass(
-                            appointment.status
-                          )}`}
+                    <div className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-100">
+                      {upcomingPreviewAppointments.map((appointment) => (
+                        <Link
+                          key={appointment.id}
+                          href={`/app/schedule/${appointment.id}`}
+                          className="flex flex-col gap-2 p-3 hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
                         >
-                          {appointment.status}
-                        </span>
-                      </div>
-                    </Link>
-                  ))
-                )}
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-medium text-[var(--brand-text)]">
+                                {appointment.title || appointmentTypeLabel(appointment.appointment_type)}
+                              </p>
+                              {isFloorRental(appointment.appointment_type) ? (
+                                <span className="inline-flex rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700">
+                                  Floor Rental
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {fmtDateTime(appointment.starts_at)}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {isFloorRental(appointment.appointment_type)
+                                ? getRoomName(appointment.rooms) === "No room"
+                                  ? "No room required • No package deduction"
+                                  : `Room: ${getRoomName(appointment.rooms)} • No package deduction`
+                                : `${getInstructorName(appointment.instructors)} • ${getRoomName(
+                                    appointment.rooms
+                                  )}`}
+                            </p>
+                          </div>
+                          <span
+                            className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-medium ${statusBadgeClass(
+                              appointment.status
+                            )}`}
+                          >
+                            {appointment.status}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+
+                    {typedUpcoming.length > upcomingPreviewAppointments.length ? (
+                      <p className="mt-3 text-xs text-slate-500">
+                        Showing next {upcomingPreviewAppointments.length} of {typedUpcoming.length}. Use the schedule to view more.
+                      </p>
+                    ) : null}
+                  </details>
+                ) : null}
               </div>
             </SectionCard>
 
@@ -3165,67 +3489,96 @@ export default async function ClientDetailPage({
                 </Link>
               }
             >
-              <div className="space-y-3">
-                {typedRecent.length === 0 ? (
-                  <p className="text-slate-500">No recent appointments.</p>
-                ) : (
-                  typedRecent.map((appointment) => (
-                    <Link
-                      key={appointment.id}
-                      href={`/app/schedule/${appointment.id}`}
-                      className="block rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4 hover:bg-white"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-medium text-[var(--brand-text)]">
-                              {appointment.title ||
-                                appointmentTypeLabel(appointment.appointment_type)}
-                            </p>
+              <div className="space-y-4">
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-[var(--brand-text)]">
+                        {typedRecent.length} recent
+                      </p>
+                      {lastAppointment ? (
+                        <p className="mt-1 text-sm text-slate-600">
+                          Last: {fmtDateTime(lastAppointment.starts_at)} · {lastAppointment.title || appointmentTypeLabel(lastAppointment.appointment_type)}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-sm text-slate-500">
+                          No recent appointments.
+                        </p>
+                      )}
+                    </div>
 
-                            {typedClient.referral_source ? (
-                              <span
-                                className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${leadSourceBadgeClass(
-                                  typedClient.referral_source
-                                )}`}
-                              >
-                                {leadSourceLabel(typedClient.referral_source)}
-                              </span>
-                            ) : null}
+                    {lastAppointment ? (
+                      <Link
+                        href={`/app/schedule/${lastAppointment.id}`}
+                        className="rounded-full border border-[var(--brand-border)] bg-white px-3 py-1.5 text-sm font-medium text-[var(--brand-text)] hover:bg-slate-50"
+                      >
+                        Open last
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
 
-                            {isFloorRental(appointment.appointment_type) ? (
-                              <span className="inline-flex rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700">
-                                Floor Rental
-                              </span>
-                            ) : null}
-                          </div>
+                {typedRecent.length > 0 ? (
+                  <details className="group rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-[var(--brand-text)]">
+                      <span>View recent appointment list</span>
+                      <span className="text-xs font-medium text-slate-500 group-open:hidden">
+                        Show
+                      </span>
+                      <span className="hidden text-xs font-medium text-slate-500 group-open:inline">
+                        Hide
+                      </span>
+                    </summary>
 
-                          <p className="mt-1 text-sm text-slate-600">
-                            {fmtDateTime(appointment.starts_at)}
-                          </p>
-
-                          <p className="mt-1 text-sm text-slate-500">
-                            {isFloorRental(appointment.appointment_type)
-                              ? getRoomName(appointment.rooms) === "No room"
-                                ? "No room required • No package deduction"
-                                : `Room: ${getRoomName(appointment.rooms)} • No package deduction`
-                              : `${getInstructorName(appointment.instructors)} • ${getRoomName(
-                                  appointment.rooms
-                                )}`}
-                          </p>
-                        </div>
-
-                        <span
-                          className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${statusBadgeClass(
-                            appointment.status
-                          )}`}
+                    <div className="mt-4 divide-y divide-slate-100 rounded-xl border border-slate-100">
+                      {recentPreviewAppointments.map((appointment) => (
+                        <Link
+                          key={appointment.id}
+                          href={`/app/schedule/${appointment.id}`}
+                          className="flex flex-col gap-2 p-3 hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
                         >
-                          {appointment.status}
-                        </span>
-                      </div>
-                    </Link>
-                  ))
-                )}
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-medium text-[var(--brand-text)]">
+                                {appointment.title || appointmentTypeLabel(appointment.appointment_type)}
+                              </p>
+                              {isFloorRental(appointment.appointment_type) ? (
+                                <span className="inline-flex rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700">
+                                  Floor Rental
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {fmtDateTime(appointment.starts_at)}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {isFloorRental(appointment.appointment_type)
+                                ? getRoomName(appointment.rooms) === "No room"
+                                  ? "No room required • No package deduction"
+                                  : `Room: ${getRoomName(appointment.rooms)} • No package deduction`
+                                : `${getInstructorName(appointment.instructors)} • ${getRoomName(
+                                    appointment.rooms
+                                  )}`}
+                            </p>
+                          </div>
+                          <span
+                            className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-medium ${statusBadgeClass(
+                              appointment.status
+                            )}`}
+                          >
+                            {appointment.status}
+                          </span>
+                        </Link>
+                      ))}
+                    </div>
+
+                    {typedRecent.length > recentPreviewAppointments.length ? (
+                      <p className="mt-3 text-xs text-slate-500">
+                        Showing latest {recentPreviewAppointments.length} of {typedRecent.length}. Use the schedule to view more.
+                      </p>
+                    ) : null}
+                  </details>
+                ) : null}
               </div>
             </SectionCard>
           </div>

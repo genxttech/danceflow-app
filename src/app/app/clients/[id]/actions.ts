@@ -806,3 +806,82 @@ export async function adjustLessonCountCorrectionAction(formData: FormData) {
 
   redirectWithResult(returnTo, "success", "package_correction_saved");
 }
+
+
+type AccountLedgerEntryConfig = {
+  entryType: string;
+  direction: "credit" | "debit";
+};
+
+function getAccountLedgerEntryConfig(entryKind: string): AccountLedgerEntryConfig | null {
+  const map: Record<string, AccountLedgerEntryConfig> = {
+    credit_added: { entryType: "credit_added", direction: "credit" },
+    floor_fee_credit: { entryType: "floor_fee_credit", direction: "credit" },
+    refund_credit: { entryType: "refund_credit", direction: "credit" },
+    charge_added: { entryType: "charge_added", direction: "debit" },
+    floor_fee_charge: { entryType: "floor_fee_charge", direction: "debit" },
+    lesson_charge: { entryType: "lesson_charge", direction: "debit" },
+    manual_adjustment_credit: { entryType: "manual_adjustment", direction: "credit" },
+    manual_adjustment_debit: { entryType: "manual_adjustment", direction: "debit" },
+    reversal_credit: { entryType: "reversal", direction: "credit" },
+    reversal_debit: { entryType: "reversal", direction: "debit" },
+  };
+
+  return map[entryKind] ?? null;
+}
+
+export async function addClientAccountLedgerEntryAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const entryKind = getString(formData, "entryKind");
+  const amountRaw = getString(formData, "amount");
+  const entryDate = getString(formData, "entryDate");
+  const description = getString(formData, "description");
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
+
+  if (!clientId || !entryKind || !amountRaw || !entryDate || !description) {
+    redirectWithResult(returnTo, "error", "account_ledger_missing_fields");
+  }
+
+  const config = getAccountLedgerEntryConfig(entryKind);
+
+  if (!config) {
+    redirectWithResult(returnTo, "error", "account_ledger_invalid_type");
+  }
+
+  const amount = Number.parseFloat(amountRaw);
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    redirectWithResult(returnTo, "error", "account_ledger_invalid_amount");
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+
+  await getStudioClientOrRedirect({
+    supabase,
+    studioId,
+    clientId,
+    returnTo,
+  });
+
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase.from("client_account_ledger").insert({
+    studio_id: studioId,
+    client_id: clientId,
+    entry_date: entryDate,
+    entry_type: config.entryType,
+    direction: config.direction,
+    amount,
+    description,
+    created_by: userData.user?.id ?? null,
+  });
+
+  if (error) {
+    redirectWithResult(returnTo, "error", "account_ledger_save_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+
+  redirectWithResult(returnTo, "success", "account_ledger_entry_saved");
+}
+
