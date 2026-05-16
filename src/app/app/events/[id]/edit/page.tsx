@@ -118,6 +118,7 @@ type GuestCoachRow = {
   name: string | null;
   bio: string | null;
   photo_url: string | null;
+  schedule_token: string | null;
   active: boolean | null;
   event_private_lesson_blocks: GuestCoachBlockRow[] | null;
 };
@@ -295,6 +296,7 @@ export default async function EditEventPage({ params }: { params: Params }) {
         name,
         bio,
         photo_url,
+        schedule_token,
         active,
         event_private_lesson_blocks (
           lesson_date,
@@ -405,6 +407,7 @@ export default async function EditEventPage({ params }: { params: Params }) {
       name: coach.name ?? "",
       bio: coach.bio ?? "",
       photoUrl: coach.photo_url ?? "",
+      scheduleToken: coach.schedule_token ?? "",
       active: coach.active ?? true,
       blocks: (coach.event_private_lesson_blocks ?? []).map((block) => ({
         lessonDate: block.lesson_date ?? "",
@@ -562,4 +565,6 @@ export default async function EditEventPage({ params }: { params: Params }) {
     </div>
   );
 }
+
+
 

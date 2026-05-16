@@ -56,6 +56,7 @@ type GuestCoachFormValue = {
   name: string;
   bio: string;
   photoUrl: string;
+  scheduleToken?: string;
   active: boolean;
   blocks: GuestCoachBlockFormValue[];
 };
@@ -2187,6 +2188,22 @@ export default function EventForm({
                             <h5 className="mt-1 text-base font-semibold text-slate-950">
                               {coach.name || "New Guest Coach"}
                             </h5>
+                            {mode === "edit" && coach.scheduleToken ? (
+                              <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-sm text-indigo-950">
+                                <p className="font-semibold">Private coach schedule link</p>
+                                <p className="mt-1 text-xs leading-5 text-indigo-800">
+                                  Send this read-only link to the coach so they can see booked lessons for this event.
+                                </p>
+                                <Link
+                                  href={`/coach-schedule/${coach.scheduleToken}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="mt-2 inline-flex rounded-lg bg-white px-3 py-2 text-xs font-semibold text-indigo-800 shadow-sm ring-1 ring-indigo-100 hover:bg-indigo-100"
+                                >
+                                  Open coach schedule
+                                </Link>
+                              </div>
+                            ) : null}
                           </div>
                           <button
                             type="button"
@@ -2875,6 +2892,7 @@ export default function EventForm({
     </form>
   );
 }
+
 
 
 
