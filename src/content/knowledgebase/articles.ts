@@ -1152,7 +1152,8 @@ You do not have to complete everything at once. Start with the tasks that matter
   },
   {
     slug: "syncing-instructor-schedule-to-calendar",
-    title: "Syncing an Instructor Schedule to Google, Apple, or Outlook Calendar",
+    title:
+      "Syncing an Instructor Schedule to Google, Apple, or Outlook Calendar",
     category: "Scheduling",
     audience: "public",
     description:
@@ -1668,6 +1669,673 @@ Use DanceFlow as the source of truth for event details, registration, ticketing,
 Use your website calendar as the display layer for visitors who are already browsing your website.
 `,
   },
+
+  {
+    slug: "using-client-account-credits-and-balances",
+    title: "Using Client Account Credits and Balances",
+    category: "Clients & Billing",
+    audience: "public",
+    description:
+      "Learn how to add client credits, record balances owed, apply credits to package sales, and keep a truthful account ledger.",
+    content: `
+## Overview
+
+Client account credits and balances help your studio track money or value that belongs on a client account.
+
+Use this when a client has a credit, owes a balance, has a floor fee charge, overpaid, received a refund credit, or needs an accounting adjustment.
+
+This is different from package count correction. Package count correction changes lesson credits. The account ledger tracks financial value.
+
+## When to use account credit
+
+Use account credit for situations such as:
+
+- A client overpaid
+- A client has a refund credit
+- A client prepaid for future use
+- A studio gives a manual account credit
+- A floor fee credit needs to be recorded
+- A credit should be applied toward a package or lesson later
+
+## When to add a balance owed
+
+Use a balance owed or charge when the client owes the studio money.
+
+Examples include:
+
+- Floor fee owed
+- Pay-as-you-go lesson balance
+- Manual balance adjustment
+- Other client debt that should remain visible until resolved
+
+## How to add credit or a charge
+
+1. Open the client record.
+2. Find **Package Count Correction** and **Account Balance**.
+3. Open **Manage Ledger**.
+4. Choose the type of credit or charge.
+5. Enter the amount and reason.
+6. Save the entry.
+
+DanceFlow keeps the original ledger entry instead of changing history.
+
+## How to apply credit to a package sale
+
+When selling a package, DanceFlow can show the client's available account credit.
+
+Enter the amount of credit to apply. The payment due today is reduced by the credit amount.
+
+Example:
+
+- Package price: $300
+- Available account credit: $85
+- Credit applied: $85
+- Payment collected today: $215
+
+DanceFlow records the package sale and creates a ledger entry showing that credit was applied.
+
+## How to apply credit to a pay-as-you-go lesson
+
+During Daily Closeout, a pay-as-you-go lesson may appear under **May Need Review**.
+
+If the client has account credit, apply the credit toward the lesson balance. If the credit covers the full lesson price, the lesson can move to Ready to Close Out without collecting a new payment.
+
+If the credit only covers part of the lesson, collect the remaining amount.
+
+## What students see
+
+Students can see a read-only account balance in their portal when ledger activity exists.
+
+They can view:
+
+- Available credit
+- Balance owed
+- Net balance
+- Recent account activity
+
+Students cannot edit the ledger.
+
+## Important accounting note
+
+Do not use package count correction to represent money.
+
+Use package count correction for lesson/package credit fixes. Use the account ledger for client credit, debt, payments applied, and financial adjustments.
+`,
+  },
+  {
+    slug: "managing-daily-closeout-and-lessons-that-need-review",
+    title: "Managing Daily Closeout and Lessons That Need Review",
+    category: "Scheduling",
+    audience: "public",
+    description:
+      "Understand Daily Closeout, why lessons need review, and how to handle payments, credits, and attendance.",
+    content: `
+## Overview
+
+Daily Closeout helps studios mark completed lessons as attended after confirming they are properly covered by a package, membership, payment, or comp reason.
+
+Some lessons are ready to close out immediately. Others appear under **May Need Review** because DanceFlow needs staff to resolve payment or credit coverage first.
+
+## Why a lesson may need review
+
+A lesson may appear under May Need Review when:
+
+- It is pay-as-you-go and unpaid
+- It is missing a valid package credit
+- It has a billing type that needs payment confirmation
+- The client has no available credit or package coverage
+- Staff need to apply account credit or collect payment
+
+## Ready to Close Out
+
+Lessons are ready to close out when DanceFlow can confirm the lesson is covered.
+
+Examples:
+
+- Package Credit lesson with available package credit
+- Membership lesson with valid membership coverage
+- Pay-as-you-go lesson marked paid
+- Free/Comped lesson with no payment required
+
+## Recording a pay-as-you-go payment
+
+1. Open **Schedule**.
+2. Go to the correct date.
+3. Find **Lessons that need review**.
+4. Open the pay-as-you-go lesson.
+5. Enter payment collected, payment method, and any notes.
+6. Save the payment.
+
+Once the payment covers the lesson, the lesson can move to Ready to Close Out.
+
+## Applying account credit
+
+If the client has available account credit, you can apply it toward the lesson.
+
+Examples:
+
+- Lesson price: $85
+- Available credit: $85
+- Credit applied: $85
+- New payment collected: $0
+
+Or:
+
+- Lesson price: $100
+- Available credit applied: $60
+- New payment collected: $40
+
+DanceFlow records the credit application in the client account ledger.
+
+## Closing out the day
+
+Once eligible lessons are ready, use the closeout action to mark them attended.
+
+This updates attendance and helps keep package balances, membership usage, and reports accurate.
+
+## Best practice
+
+Review May Need Review before closing out the day. This keeps attendance, payments, package credits, and account balances accurate.
+`,
+  },
+  {
+    slug: "choosing-the-right-lesson-billing-type",
+    title: "Choosing the Right Lesson Billing Type",
+    category: "Scheduling",
+    audience: "public",
+    description:
+      "Learn when to use Package Credit, Membership, Pay-as-you-go, or Free/Comped billing for lessons.",
+    content: `
+## Overview
+
+Lesson billing type tells DanceFlow how a scheduled lesson should be covered financially.
+
+Choosing the right billing type makes Daily Closeout easier and helps reports stay accurate.
+
+## Package Credit
+
+Use **Package Credit** when the lesson should deduct from a client package.
+
+Examples:
+
+- Private lesson package
+- Group class package
+- Practice party package
+- Mixed package with eligible credits
+
+If no valid package credit is available, the lesson may appear under May Need Review.
+
+## Membership
+
+Use **Membership** when the lesson or class is covered by an active membership plan.
+
+Examples:
+
+- Monthly group class membership
+- Practice membership
+- Membership benefit that includes a certain number of lessons or classes
+
+DanceFlow can track membership usage separately from normal package credits.
+
+## Pay-as-you-go
+
+Use **Pay-as-you-go** when the client will pay for that single lesson without using a package or membership.
+
+Unpaid pay-as-you-go lessons appear under May Need Review until staff record payment or apply account credit.
+
+## Free/Comped
+
+Use **Free/Comped** when the lesson should not require payment or package credit.
+
+Examples:
+
+- Complimentary intro lesson
+- Staff-approved make-up
+- Owner-approved comp
+- Promotional lesson
+
+Use notes when possible so the reason is clear later.
+
+## Best practice
+
+Choose the billing type at scheduling time. This prevents confusion during Daily Closeout and helps staff understand what needs payment, credit, or review.
+`,
+  },
+  {
+    slug: "selling-guest-coach-private-lesson-slots",
+    title: "Selling Guest Coach Private Lesson Slots",
+    category: "Events",
+    audience: "public",
+    description:
+      "Set up guest coach availability, generate private lesson slots, and let dancers book paid event coaching times.",
+    content: `
+## Overview
+
+Guest Coach Private Lesson Slots let studios sell fixed private lesson times with a visiting coach during an event.
+
+This is useful for workshops, intensives, showcases, competitions, and special guest coach weekends.
+
+## How it works
+
+The studio creates a guest coach on the event, adds availability, and DanceFlow generates fixed bookable slots.
+
+Dancers can select an available time from the public event page and pay to reserve the slot.
+
+## Add a guest coach
+
+1. Open the event in your workspace.
+2. Edit the event.
+3. Find **Guest Coach Private Lessons**.
+4. Add the coach name.
+5. Optionally add a bio and photo URL.
+
+## Add availability
+
+For each coach, add an availability block.
+
+Include:
+
+- Date
+- Start time
+- End time
+- Lesson length
+- Buffer time
+- Price
+- Location or room label
+
+DanceFlow generates available slots from the block.
+
+## Public booking flow
+
+On the public event page, dancers can:
+
+1. View guest coaches.
+2. Expand a coach to see available dates and times.
+3. Select a time slot.
+4. Enter buyer information.
+5. Continue to payment.
+
+Once payment is completed, the slot is booked and no longer appears as available.
+
+## Guest coach schedule link
+
+Each guest coach can have a private read-only schedule link.
+
+The coach can see:
+
+- Event details
+- Lesson times
+- Booked student names
+- Buyer notes
+- Location or room
+- Payment status
+
+The coach does not receive full studio workspace access.
+
+## Best practice
+
+Use payment required to reserve a slot. This prevents people from taking prime lesson times without committing.
+`,
+  },
+  {
+    slug: "adding-an-event-schedule-or-agenda",
+    title: "Adding an Event Schedule or Agenda",
+    category: "Events",
+    audience: "public",
+    description:
+      "Create an optional public event agenda with schedule items grouped by date for single-day or multi-day events.",
+    content: `
+## Overview
+
+The Event Schedule card is an optional public agenda for an event.
+
+It is different from event dates and locations. Dates and locations tell people when and where the event happens. The schedule explains what happens during the event.
+
+## Good uses for an event schedule
+
+Use the schedule for:
+
+- Workshop blocks
+- Class times
+- Social dance times
+- Performances
+- Breaks
+- Check-in windows
+- Competition or showcase blocks
+- Multi-day event agendas
+
+## Add schedule items
+
+1. Open the event in your workspace.
+2. Edit the event.
+3. Find **Event Schedule**.
+4. Add a schedule item.
+5. Enter the date, start time, optional end time, title, and details.
+6. Save the event.
+
+Optional fields may include presenter name and room or location label.
+
+## Multi-day schedules
+
+For multi-day events, add items with different dates.
+
+The public event page groups agenda items by day so visitors can quickly understand the schedule.
+
+## When the card appears
+
+The Event Schedule card appears on the public event page only when schedule items exist.
+
+If all schedule items are removed, the card is hidden.
+
+## Best practice
+
+Keep schedule item titles short and practical. Add details only when dancers need extra context.
+`,
+  },
+  {
+    slug: "why-my-studio-or-events-do-not-appear-in-public-discovery",
+    title: "Why My Studio or Events Do Not Appear in Public Discovery",
+    category: "Public Discovery",
+    audience: "public",
+    description:
+      "Learn how subscription status and visibility settings affect whether studios and events appear publicly.",
+    content: `
+## Overview
+
+Public discovery helps dancers find studios and events in DanceFlow.
+
+A studio or event must be eligible and visible before it appears publicly.
+
+## Subscription access matters
+
+Public discovery is available for studios with active platform access.
+
+If a studio subscription is canceled or inactive, the studio and its events are removed from public discovery.
+
+If the subscription is restarted and access becomes active again, the studio becomes eligible for public discovery again.
+
+## Studio visibility settings
+
+Even with an active subscription, the studio profile must be enabled for public directory display.
+
+If public directory visibility is turned off, the studio will not appear in discovery.
+
+## Event visibility settings
+
+For an event to appear publicly, it generally needs to be:
+
+- Published
+- Public
+- Public directory enabled
+- Connected to an active/trialing studio
+
+Draft, private, internal-only, or hidden events do not appear in public discovery.
+
+## Restarting a subscription
+
+When a canceled studio restarts its subscription, public discovery eligibility is restored.
+
+However, DanceFlow does not need to automatically republish every hidden event. Studio and event visibility settings still control what actually appears.
+
+After restarting, review:
+
+- Public studio profile
+- Public event visibility
+- Event status
+- Public directory settings
+
+## Best practice
+
+Use public visibility intentionally. Keep draft events hidden until they are ready, and review public pages after billing changes.
+`,
+  },
+  {
+    slug: "using-expenses-and-floor-fee-expense-tracking",
+    title: "Using Expenses and Floor Fee Expense Tracking",
+    category: "Reports & Expenses",
+    audience: "public",
+    description:
+      "Track studio expenses and floor fee costs so reporting and profit views are more accurate.",
+    content: `
+## Overview
+
+The Expenses module lets studios and independent instructors record business expenses in DanceFlow.
+
+This helps reports and P&L views show a more truthful picture of business activity.
+
+## Common expenses
+
+Examples include:
+
+- Floor fees paid to another studio
+- Rent
+- Supplies
+- Event costs
+- Marketing expenses
+- Contractor or professional fees
+- Other business expenses
+
+## Floor fee expenses
+
+Floor fees can mean different things depending on the business.
+
+For an independent instructor renting space, a floor fee paid to another studio is an expense.
+
+For a studio renting out its own space, floor rental fees collected are revenue.
+
+DanceFlow separates these perspectives so floor fees are not blended into generic payments.
+
+## Add an expense
+
+1. Open **Expenses**.
+2. Add a new expense.
+3. Enter the date, amount, category, vendor or studio name, and notes.
+4. Save the expense.
+
+Use clear descriptions so the expense is easy to understand later.
+
+## Best practice
+
+Enter expenses as close to the actual expense date as possible. This helps monthly and year-to-date reporting stay accurate.
+`,
+  },
+  {
+    slug: "understanding-basic-profit-and-loss-reports",
+    title: "Understanding Basic P&L Reports",
+    category: "Reports & Expenses",
+    audience: "public",
+    description:
+      "Learn how DanceFlow uses tracked revenue, refunds, fees, and expenses to build a basic profit and loss view.",
+    content: `
+## Overview
+
+The basic Profit & Loss report helps studios understand revenue and expenses tracked in DanceFlow.
+
+It is intended as an operational report, not a replacement for professional accounting advice.
+
+## What the report can include
+
+Depending on your setup, the report may include:
+
+- Package revenue
+- Lesson payments
+- Event or ticket revenue
+- Refunds
+- Platform or payment-related fees
+- Expenses entered in DanceFlow
+- Floor fee expense line items
+
+## Floor fee handling
+
+Floor fees should be handled carefully.
+
+If you are an independent instructor paying another studio for floor space, that floor fee is an expense.
+
+If your studio rents out floor space and collects a fee, that collected floor rental fee is revenue.
+
+## Why dates matter
+
+Reports should use the actual sale, payment, or expense date when available.
+
+This keeps the report closer to what really happened in that period.
+
+## Best practice
+
+Use reports to spot trends and review business activity. For taxes, bookkeeping, and official financial statements, work with a qualified accountant or bookkeeper.
+`,
+  },
+  {
+    slug: "managing-event-tickets-and-registrations",
+    title: "Managing Event Tickets and Registrations",
+    category: "Events",
+    audience: "public",
+    description:
+      "Understand the basic event registration workflow, ticket management, admin sales, and check-in.",
+    content: `
+## Overview
+
+DanceFlow events can support public registration, ticket sales, admin-side ticket sales, and attendee check-in.
+
+This helps studios and organizers manage events without maintaining separate registration lists.
+
+## Basic event setup
+
+Before selling tickets, make sure the event is:
+
+- Published
+- Public, if it should appear publicly
+- Public directory enabled, if it should appear in discovery
+- Connected to ticket types or registration options
+
+## Public registration
+
+Visitors can register or purchase tickets from the public event page when registration is open.
+
+The event page should show event details, dates and locations, ticket options, and any available add-ons or schedule information.
+
+## Admin-side ticket sales
+
+Studios can also sell tickets from the admin/workspace side.
+
+This is helpful when:
+
+- A customer pays in person
+- Staff need to register someone manually
+- A front desk team is handling event sales
+
+## Managing registrations
+
+Use the registrations area to review attendees, ticket types, registration status, and payment details.
+
+## Check-in
+
+Use check-in when attendees arrive at the event.
+
+Check-in helps the organizer know who attended and supports cleaner event records.
+
+## Best practice
+
+Keep ticket names simple and make sure public pricing and registration deadlines are clear before publishing the event.
+`,
+  },
+  {
+    slug: "using-the-student-portal",
+    title: "Using the Student Portal",
+    category: "Client Portal",
+    audience: "public",
+    description:
+      "Learn what students and clients can see in their DanceFlow portal and how studio portal links work.",
+    content: `
+## Overview
+
+The student portal gives clients a place to view information connected to their studio relationship.
+
+Depending on what the studio has enabled, a student may see appointments, packages, memberships, balances, event information, and other portal details.
+
+## Portal access
+
+A studio can invite a client to connect their account to the studio portal.
+
+Once connected, the student can sign in and view linked studio information from their account page.
+
+## Multiple studio portals
+
+A student may be linked to more than one studio.
+
+When this happens, the account page can show each linked studio so the student can navigate to the correct portal area.
+
+## Account balance
+
+If the studio uses client account credits or balances, the portal may show a read-only account balance.
+
+Students can see:
+
+- Available credit
+- Balance owed
+- Net balance
+- Recent account activity
+
+Students cannot edit these records.
+
+## Best practice for studios
+
+Make sure client email addresses are accurate before sending portal invites. Use clear studio branding so students understand who invited them and why.
+`,
+  },
+  {
+    slug: "privacy-security-and-student-data-basics",
+    title: "Privacy, Security, and Student Data Basics",
+    category: "Security & Privacy",
+    audience: "public",
+    description:
+      "A practical overview of how studios should think about privacy, student data, payments, and account access.",
+    content: `
+## Overview
+
+Dance studios manage personal information, payment activity, schedules, and sometimes information related to minors.
+
+Studios should handle that information carefully and only give access to people who need it.
+
+## Payment data
+
+DanceFlow uses Stripe for payment processing. Studios should not collect or store card numbers manually in client notes, messages, spreadsheets, or other unsecured places.
+
+Use approved checkout and payment workflows instead.
+
+## Student and client data
+
+Client information should be used for legitimate studio purposes, such as scheduling, billing, client communication, portal access, and event registration.
+
+Avoid adding sensitive notes unless they are necessary for the studio relationship.
+
+## Minors
+
+Dance studios may work with minors.
+
+As a best practice, minor profiles should be managed by a parent, guardian, studio, or authorized adult. Children under 13 should not create unmanaged DanceFlow accounts.
+
+## Staff access
+
+Only give workspace access to staff who need it.
+
+Use the right role for the person’s responsibilities. Front desk staff, instructors, admins, and owners should not automatically need the same level of access.
+
+## Security best practices
+
+Studios should:
+
+- Use strong passwords
+- Avoid sharing accounts
+- Remove access when staff leave
+- Review public visibility settings
+- Keep client information accurate
+- Report suspicious activity
+
+## Data requests
+
+Clients may ask about their data, corrections, or deletion. Studios should have a simple process for handling those requests and should contact DanceFlow support when platform assistance is needed.
+`,
+  },
 ];
 
 export function getPublicKnowledgebaseArticles() {
@@ -1687,3 +2355,4 @@ export function getKnowledgebaseCategories() {
     ),
   );
 }
+
