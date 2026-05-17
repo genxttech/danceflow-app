@@ -115,6 +115,12 @@ type EventRow = {
   organizers: { name: string } | { name: string }[] | null;
 };
 
+type ClientAccountLedgerRow = {
+  client_id: string;
+  direction: string;
+  amount: number | string | null;
+};
+
 type ScheduleListItem =
   | {
       kind: "appointment";
@@ -650,6 +656,16 @@ function buildQuery(params: Record<string, string | undefined>) {
   return query ? `?${query}` : "";
 }
 
+
+function formatCurrency(value: number | string | null | undefined) {
+  const amount = Number(value ?? 0);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+
 export default async function SchedulePage({
   searchParams,
 }: {
@@ -887,6 +903,43 @@ export default async function SchedulePage({
         floorRentalLabel.includes(q)
       );
     });
+
+  const closeoutClientIds = Array.from(
+    new Set(
+      typedAppointments
+        .filter((appointment) => isSameLocalDate(appointment.starts_at, baseDate))
+        .map((appointment) => appointment.client_id)
+        .filter((clientId): clientId is string => Boolean(clientId)),
+    ),
+  );
+
+  let accountCreditByClientId = new Map<string, number>();
+
+  if (closeoutClientIds.length > 0) {
+    const { data: clientLedgerRows, error: clientLedgerError } = await supabase
+      .from("client_account_ledger")
+      .select("client_id, direction, amount")
+      .eq("studio_id", studioId)
+      .in("client_id", closeoutClientIds);
+
+    if (clientLedgerError) {
+      throw new Error(
+        `Failed to load client account balances: ${clientLedgerError.message}`,
+      );
+    }
+
+    accountCreditByClientId = ((clientLedgerRows ?? []) as ClientAccountLedgerRow[]).reduce(
+      (balances, entry) => {
+        const current = balances.get(entry.client_id) ?? 0;
+        const amount = Number(entry.amount ?? 0);
+        const next =
+          entry.direction === "credit" ? current + amount : current - amount;
+        balances.set(entry.client_id, next);
+        return balances;
+      },
+      new Map<string, number>(),
+    );
+  }
 
   const typedEvents = ((events ?? []) as EventRow[])
     .filter((event) => {
@@ -1205,6 +1258,13 @@ export default async function SchedulePage({
                 const billingType = normalizeBillingType(appointment.billing_type);
                 const isPayAsYouGo = billingType === "pay_as_you_go";
                 const clientName = getClientName(appointment.clients);
+                const lessonPriceDefault = getPaymentAmountDefault(appointment);
+                const availableAccountCredit = appointment.client_id
+                  ? Math.max(
+                      accountCreditByClientId.get(appointment.client_id) ?? 0,
+                      0,
+                    )
+                  : 0;
 
                 return (
                   <div
@@ -1250,16 +1310,62 @@ export default async function SchedulePage({
                               name="returnTo"
                               value={currentScheduleHref}
                             />
+                            <input
+                              type="hidden"
+                              name="lessonPrice"
+                              value={lessonPriceDefault}
+                            />
 
-                            <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                            <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <span>Available account credit</span>
+                                <span className="font-semibold text-slate-900">
+                                  {formatCurrency(availableAccountCredit)}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                                Apply credit first, then record any remaining payment
+                                collected today.
+                              </p>
+                            </div>
+
+                            <div className="grid gap-2 sm:grid-cols-2">
                               <label className="block text-xs font-medium text-slate-600">
-                                Amount
+                                Lesson price
+                                <input
+                                  name="lessonPriceDisplay"
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  defaultValue={lessonPriceDefault}
+                                  placeholder="0.00"
+                                  className="mt-1 w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-sm"
+                                  disabled
+                                />
+                              </label>
+
+                              <label className="block text-xs font-medium text-slate-600">
+                                Apply account credit
+                                <input
+                                  name="accountCreditToApply"
+                                  type="number"
+                                  min="0"
+                                  max={availableAccountCredit || undefined}
+                                  step="0.01"
+                                  defaultValue=""
+                                  placeholder="0.00"
+                                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                />
+                              </label>
+
+                              <label className="block text-xs font-medium text-slate-600">
+                                Payment collected
                                 <input
                                   name="amount"
                                   type="number"
-                                  min="0.01"
+                                  min="0"
                                   step="0.01"
-                                  defaultValue={getPaymentAmountDefault(appointment)}
+                                  defaultValue={lessonPriceDefault}
                                   placeholder="0.00"
                                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                                   required
@@ -1278,15 +1384,16 @@ export default async function SchedulePage({
                                   <option value="check">Check</option>
                                   <option value="venmo">Venmo</option>
                                   <option value="zelle">Zelle</option>
+                                  <option value="account_credit">Account credit only</option>
                                   <option value="other">Other</option>
                                 </select>
                               </label>
 
                               <button
                                 type="submit"
-                                className="self-end rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
+                                className="sm:col-span-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
                               >
-                                Record payment
+                                Record payment / apply credit
                               </button>
                             </div>
                           </form>
@@ -1847,6 +1954,4 @@ export default async function SchedulePage({
     </div>
   );
 }
-
-
 

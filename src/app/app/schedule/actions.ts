@@ -92,6 +92,10 @@ function getNumberOrNull(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function roundMoney(value: number) {
+  return Number(value.toFixed(2));
+}
+
 function getBoolean(formData: FormData, key: string) {
   const value = formData.get(key);
   return value === "on" || value === "true" || value === "1";
@@ -2587,7 +2591,10 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
 
     const appointmentId = getString(formData, "appointmentId");
     const clientId = getString(formData, "clientId");
-    const amount = getNumberOrNull(getString(formData, "amount"));
+    const paymentAmount = getNumberOrNull(getString(formData, "amount")) ?? 0;
+    const accountCreditToApply =
+      getNumberOrNull(getString(formData, "accountCreditToApply")) ?? 0;
+    const lessonPriceFromForm = getNumberOrNull(getString(formData, "lessonPrice"));
     const paymentMethod = getString(formData, "paymentMethod") || "other";
     const notes = getString(formData, "notes");
     const selectedDate = getString(formData, "date");
@@ -2596,13 +2603,17 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_payment_target"));
     }
 
-    if (!amount || amount <= 0) {
+    if (paymentAmount < 0 || accountCreditToApply < 0) {
+      redirect(getErrorRedirect(formData, fallback, "invalid_payment_amount"));
+    }
+
+    if (paymentAmount <= 0 && accountCreditToApply <= 0) {
       redirect(getErrorRedirect(formData, fallback, "invalid_payment_amount"));
     }
 
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")
-      .select("id, appointment_type, client_id, billing_type, payment_status")
+      .select("id, appointment_type, client_id, billing_type, payment_status, price_amount")
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
       .single();
@@ -2619,32 +2630,100 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "not_pay_as_you_go"));
     }
 
+    const existingPrice = Number(appointment.price_amount ?? 0);
+    const lessonPrice =
+      lessonPriceFromForm != null && lessonPriceFromForm > 0
+        ? roundMoney(lessonPriceFromForm)
+        : existingPrice > 0
+          ? roundMoney(existingPrice)
+          : roundMoney(paymentAmount + accountCreditToApply);
+
+    if (accountCreditToApply > lessonPrice) {
+      redirect(getErrorRedirect(formData, fallback, "credit_exceeds_lesson_price"));
+    }
+
+    if (accountCreditToApply > 0) {
+      const { data: clientLedger, error: clientLedgerError } = await supabase
+        .from("client_account_ledger")
+        .select("direction, amount")
+        .eq("studio_id", studioId)
+        .eq("client_id", clientId);
+
+      if (clientLedgerError) {
+        redirect(getErrorRedirect(formData, fallback, "account_credit_lookup_failed"));
+      }
+
+      const availableCredit = (clientLedger ?? []).reduce((sum, entry) => {
+        const amount = Number(entry.amount ?? 0);
+        return entry.direction === "credit" ? sum + amount : sum - amount;
+      }, 0);
+
+      if (accountCreditToApply > Math.max(availableCredit, 0)) {
+        redirect(getErrorRedirect(formData, fallback, "credit_exceeds_available"));
+      }
+    }
+
+    const totalCovered = roundMoney(paymentAmount + accountCreditToApply);
+
+    if (totalCovered < lessonPrice) {
+      redirect(getErrorRedirect(formData, fallback, "payment_still_short"));
+    }
+
     const paidAt = new Date().toISOString();
+    const paymentNotes = [
+      notes || "Pay-as-you-go lesson payment recorded from daily closeout.",
+      accountCreditToApply > 0
+        ? `Account credit applied: $${accountCreditToApply.toFixed(2)}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" | ");
 
-    const { error: insertError } = await supabase.from("payments").insert({
-      studio_id: studioId,
-      client_id: clientId,
-      amount,
-      payment_method: paymentMethod,
-      status: "paid",
-      notes:
-        notes ||
-        "Pay-as-you-go lesson payment recorded from daily closeout.",
-      paid_at: paidAt,
-      created_by: user.id,
-      payment_type: "pay_as_you_go_lesson",
-      source: "schedule_closeout",
-      external_reference: appointmentId,
-    });
+    if (paymentAmount > 0) {
+      const { error: insertError } = await supabase.from("payments").insert({
+        studio_id: studioId,
+        client_id: clientId,
+        amount: roundMoney(paymentAmount),
+        payment_method: paymentMethod === "account_credit" ? "other" : paymentMethod,
+        status: "paid",
+        notes: paymentNotes,
+        paid_at: paidAt,
+        created_by: user.id,
+        payment_type: "pay_as_you_go_lesson",
+        source: "schedule_closeout",
+        external_reference: appointmentId,
+      });
 
-    if (insertError) {
-      redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
+      if (insertError) {
+        redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
+      }
+    }
+
+    if (accountCreditToApply > 0) {
+      const { error: ledgerInsertError } = await supabase
+        .from("client_account_ledger")
+        .insert({
+          studio_id: studioId,
+          client_id: clientId,
+          entry_date: selectedDate || paidAt.slice(0, 10),
+          entry_type: "credit_applied",
+          direction: "debit",
+          amount: roundMoney(accountCreditToApply),
+          description: "Account credit applied to pay-as-you-go lesson.",
+          reference_type: "appointment",
+          reference_id: appointmentId,
+          created_by: user.id,
+        });
+
+      if (ledgerInsertError) {
+        redirect(getErrorRedirect(formData, fallback, "account_credit_apply_failed"));
+      }
     }
 
     const { error: updateError } = await supabase
       .from("appointments")
       .update({
-        price_amount: amount,
+        price_amount: lessonPrice,
         payment_status: "paid",
         updated_at: paidAt,
       })
@@ -2664,6 +2743,7 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
     revalidatePath(`/app/clients/${clientId}`);
+    revalidatePath("/account");
 
     const redirectUrl = selectedDate
       ? `/app/schedule?date=${encodeURIComponent(
@@ -2678,6 +2758,7 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
     redirect(getErrorRedirect(formData, fallback, "payment_record_failed"));
   }
 }
+
 
 export async function recordFloorRentalPaymentAction(formData: FormData) {
   const fallback = "/app/schedule";
@@ -3144,7 +3225,4 @@ export async function deleteLessonRecapAction(formData: FormData) {
     redirect(getErrorRedirect(formData, fallback, "delete_recap_failed"));
   }
 }
-
-
-
 
