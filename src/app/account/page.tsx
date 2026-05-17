@@ -86,6 +86,29 @@ type LinkedPortalItem = {
   clientName: string;
 };
 
+type ClientAccountLedgerRow = {
+  id: string;
+  studio_id: string;
+  client_id: string;
+  entry_date: string;
+  entry_type: string;
+  direction: "credit" | "debit";
+  amount: number | string;
+  description: string | null;
+  created_at: string;
+};
+
+type AccountBalanceItem = {
+  clientId: string;
+  studioId: string;
+  studioName: string;
+  clientName: string;
+  creditTotal: number;
+  debitTotal: number;
+  netBalance: number;
+  recentEntries: ClientAccountLedgerRow[];
+};
+
 function formatDate(value: string | null) {
   if (!value) return "Date coming soon";
 
@@ -96,17 +119,42 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(value);
+}
+
+function formatLedgerEntryType(value: string) {
+  return value
+    .replaceAll("_", " ")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function parseLedgerAmount(value: number | string) {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function getEventLocation(event: EventRow) {
-  return [event.city, event.state].filter(Boolean).join(", ") || "Location coming soon";
+  return (
+    [event.city, event.state].filter(Boolean).join(", ") ||
+    "Location coming soon"
+  );
 }
 
 function getStudioLocation(studio: StudioRow) {
-  return [studio.city, studio.state].filter(Boolean).join(", ") || "Location coming soon";
+  return (
+    [studio.city, studio.state].filter(Boolean).join(", ") ||
+    "Location coming soon"
+  );
 }
 
-function getPortalStudio(
-  value: PortalLinkRow["studios"]
-): {
+function getPortalStudio(value: PortalLinkRow["studios"]): {
   id: string;
   slug: string | null;
   name: string;
@@ -114,7 +162,7 @@ function getPortalStudio(
   city: string | null;
   state: string | null;
 } | null {
-  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+  return Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
 }
 
 function formatStatus(value: string) {
@@ -140,7 +188,9 @@ function AccountStatCard({
   return (
     <div className={`rounded-3xl border p-5 shadow-sm ${className}`}>
       <p className="text-sm font-medium text-slate-600">{label}</p>
-      <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">{value}</p>
+      <p className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
+        {value}
+      </p>
       <p className="mt-2 text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
         {detail}
       </p>
@@ -190,7 +240,9 @@ function EmptyState({
   return (
     <div className="mt-6 rounded-[28px] border border-dashed border-slate-300 bg-slate-50/80 p-8 text-center sm:p-10">
       <p className="text-lg font-semibold text-slate-950">{title}</p>
-      <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-slate-600">{description}</p>
+      <p className="mx-auto mt-2 max-w-2xl text-sm leading-7 text-slate-600">
+        {description}
+      </p>
       {href && actionLabel ? (
         <Link
           href={href}
@@ -225,7 +277,9 @@ function SectionHeader({
         <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
           {title}
         </h2>
-        <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">{description}</p>
+        <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+          {description}
+        </p>
       </div>
 
       {actionHref && actionLabel ? (
@@ -236,6 +290,142 @@ function SectionHeader({
           {actionLabel}
         </Link>
       ) : null}
+    </div>
+  );
+}
+
+function AccountBalanceCards({ balances }: { balances: AccountBalanceItem[] }) {
+  if (balances.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="mt-6 grid gap-4 lg:grid-cols-2">
+      {balances.map((balance) => {
+        const isCredit = balance.netBalance > 0;
+        const isOwed = balance.netBalance < 0;
+        const recentEntries = balance.recentEntries.slice(0, 5);
+
+        return (
+          <div
+            key={`${balance.studioId}-${balance.clientId}`}
+            className="rounded-[28px] border border-amber-100 bg-gradient-to-br from-amber-50 via-white to-white p-6 shadow-sm"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-lg font-semibold text-slate-950">
+                  {balance.studioName}
+                </p>
+                <p className="mt-1 text-sm text-slate-600">
+                  {balance.clientName}
+                </p>
+              </div>
+
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ${
+                  isCredit
+                    ? "bg-emerald-50 text-emerald-800 ring-emerald-100"
+                    : isOwed
+                      ? "bg-rose-50 text-rose-800 ring-rose-100"
+                      : "bg-slate-50 text-slate-700 ring-slate-200"
+                }`}
+              >
+                {isCredit
+                  ? "Credit available"
+                  : isOwed
+                    ? "Balance owed"
+                    : "Settled"}
+              </span>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-amber-100">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Credit
+                </p>
+                <p className="mt-2 text-lg font-semibold text-emerald-700">
+                  {formatCurrency(balance.creditTotal)}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-amber-100">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Owed / Used
+                </p>
+                <p className="mt-2 text-lg font-semibold text-rose-700">
+                  {formatCurrency(balance.debitTotal)}
+                </p>
+              </div>
+              <div className="rounded-2xl bg-white p-4 ring-1 ring-amber-100">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  Net
+                </p>
+                <p className="mt-2 text-lg font-semibold text-slate-950">
+                  {formatCurrency(Math.abs(balance.netBalance))}
+                </p>
+              </div>
+            </div>
+
+            <p className="mt-4 text-sm leading-6 text-slate-600">
+              {isCredit
+                ? `You have ${formatCurrency(balance.netBalance)} available credit with this studio.`
+                : isOwed
+                  ? `You have ${formatCurrency(Math.abs(balance.netBalance))} owed with this studio.`
+                  : "Your account balance is currently settled with this studio."}
+            </p>
+
+            <details className="mt-5 rounded-2xl border border-amber-100 bg-white p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+                Recent account activity
+              </summary>
+
+              {recentEntries.length > 0 ? (
+                <div className="mt-4 divide-y divide-slate-100">
+                  {recentEntries.map((entry) => {
+                    const amount = parseLedgerAmount(entry.amount);
+                    const isEntryCredit = entry.direction === "credit";
+
+                    return (
+                      <div key={entry.id} className="py-3 first:pt-0 last:pb-0">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">
+                              {formatLedgerEntryType(entry.entry_type)}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {formatDate(entry.entry_date)}
+                            </p>
+                          </div>
+
+                          <p
+                            className={`text-sm font-semibold ${
+                              isEntryCredit
+                                ? "text-emerald-700"
+                                : "text-rose-700"
+                            }`}
+                          >
+                            {isEntryCredit ? "+" : "-"}
+                            {formatCurrency(amount)}
+                          </p>
+                        </div>
+
+                        {entry.description ? (
+                          <p className="mt-2 text-sm leading-6 text-slate-600">
+                            {entry.description}
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-600">
+                  No recent account activity is available yet.
+                </p>
+              )}
+            </details>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -260,19 +450,25 @@ function PortalCards({ linkedPortals }: { linkedPortals: LinkedPortalItem[] }) {
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-xl font-semibold text-slate-950">{portal.studioName}</p>
+              <p className="text-xl font-semibold text-slate-950">
+                {portal.studioName}
+              </p>
               <p className="mt-1 text-sm text-slate-600">{portal.location}</p>
             </div>
 
             <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200">
-              {portal.isIndependentInstructor ? "Instructor Portal" : "Client Portal"}
+              {portal.isIndependentInstructor
+                ? "Instructor Portal"
+                : "Client Portal"}
             </span>
           </div>
 
-          <p className="mt-5 text-sm text-slate-700">Signed in as {portal.clientName}</p>
+          <p className="mt-5 text-sm text-slate-700">
+            Signed in as {portal.clientName}
+          </p>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Open this studio’s private portal for studio-specific lessons, memberships,
-            rentals, and account access.
+            Open this studio’s private portal for studio-specific lessons,
+            memberships, rentals, and account access.
           </p>
           <p className="mt-5 text-sm font-semibold text-emerald-800 group-hover:text-emerald-900">
             Open portal →
@@ -306,8 +502,12 @@ function FavoriteStudioCards({ studios }: { studios: FavoriteStudioItem[] }) {
           <p className="text-lg font-semibold text-slate-950">
             {studio.public_name?.trim() || studio.name}
           </p>
-          <p className="mt-1 text-sm text-slate-600">{getStudioLocation(studio)}</p>
-          <p className="mt-4 text-sm font-semibold text-slate-800">View studio →</p>
+          <p className="mt-1 text-sm text-slate-600">
+            {getStudioLocation(studio)}
+          </p>
+          <p className="mt-4 text-sm font-semibold text-slate-800">
+            View studio →
+          </p>
         </Link>
       ))}
     </div>
@@ -338,7 +538,9 @@ function FavoriteEventCards({ events }: { events: FavoriteEventItem[] }) {
           <p className="mt-1 text-sm text-slate-600">
             {formatDate(event.start_date)} • {getEventLocation(event)}
           </p>
-          <p className="mt-4 text-sm font-semibold text-violet-800">View event →</p>
+          <p className="mt-4 text-sm font-semibold text-violet-800">
+            View event →
+          </p>
         </Link>
       ))}
     </div>
@@ -367,7 +569,9 @@ function RegisteredEventCards({ events }: { events: RegisteredEventItem[] }) {
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <p className="text-lg font-semibold text-slate-950">{event.name}</p>
+              <p className="text-lg font-semibold text-slate-950">
+                {event.name}
+              </p>
               <p className="mt-1 text-sm text-slate-600">
                 {formatDate(event.start_date)} • {getEventLocation(event)}
               </p>
@@ -378,7 +582,9 @@ function RegisteredEventCards({ events }: { events: RegisteredEventItem[] }) {
             </span>
           </div>
 
-          <p className="mt-4 text-sm font-semibold text-sky-800">View registration →</p>
+          <p className="mt-4 text-sm font-semibold text-sky-800">
+            View registration →
+          </p>
         </Link>
       ))}
     </div>
@@ -429,7 +635,7 @@ export default async function AccountPage() {
           city,
           state
         )
-      `
+      `,
       )
       .eq("portal_user_id", user.id)
       .order("created_at", { ascending: false }),
@@ -440,11 +646,15 @@ export default async function AccountPage() {
   }
 
   if (registrationsError) {
-    throw new Error(`Failed to load registrations: ${registrationsError.message}`);
+    throw new Error(
+      `Failed to load registrations: ${registrationsError.message}`,
+    );
   }
 
   if (portalLinksError) {
-    throw new Error(`Failed to load studio portals: ${portalLinksError.message}`);
+    throw new Error(
+      `Failed to load studio portals: ${portalLinksError.message}`,
+    );
   }
 
   const typedFavorites = (favorites ?? []) as FavoriteRow[];
@@ -452,18 +662,20 @@ export default async function AccountPage() {
   const typedPortalLinks = (portalLinks ?? []) as PortalLinkRow[];
 
   const favoriteStudioIds = Array.from(
-    new Set(typedFavorites.map((row) => row.studio_id).filter(Boolean))
+    new Set(typedFavorites.map((row) => row.studio_id).filter(Boolean)),
   ) as string[];
 
   const favoriteEventIds = Array.from(
-    new Set(typedFavorites.map((row) => row.event_id).filter(Boolean))
+    new Set(typedFavorites.map((row) => row.event_id).filter(Boolean)),
   ) as string[];
 
   const registrationEventIds = Array.from(
-    new Set(typedRegistrations.map((row) => row.event_id).filter(Boolean))
+    new Set(typedRegistrations.map((row) => row.event_id).filter(Boolean)),
   ) as string[];
 
-  const allEventIds = Array.from(new Set([...favoriteEventIds, ...registrationEventIds]));
+  const allEventIds = Array.from(
+    new Set([...favoriteEventIds, ...registrationEventIds]),
+  );
 
   const [
     { data: favoriteStudios, error: favoriteStudiosError },
@@ -485,7 +697,9 @@ export default async function AccountPage() {
   ]);
 
   if (favoriteStudiosError) {
-    throw new Error(`Failed to load favorite studios: ${favoriteStudiosError.message}`);
+    throw new Error(
+      `Failed to load favorite studios: ${favoriteStudiosError.message}`,
+    );
   }
 
   if (relatedEventsError) {
@@ -495,8 +709,12 @@ export default async function AccountPage() {
   const typedFavoriteStudios = (favoriteStudios ?? []) as StudioRow[];
   const typedRelatedEvents = (relatedEvents ?? []) as EventRow[];
 
-  const studiosById = new Map(typedFavoriteStudios.map((studio) => [studio.id, studio]));
-  const eventsById = new Map(typedRelatedEvents.map((event) => [event.id, event]));
+  const studiosById = new Map(
+    typedFavoriteStudios.map((studio) => [studio.id, studio]),
+  );
+  const eventsById = new Map(
+    typedRelatedEvents.map((event) => [event.id, event]),
+  );
 
   const favoriteStudiosList = typedFavorites
     .filter((row) => row.studio_id)
@@ -548,14 +766,79 @@ export default async function AccountPage() {
         studioId: studio.id,
         studioSlug: studio.slug,
         studioName: studio.public_name?.trim() || studio.name,
-        location: [studio.city, studio.state].filter(Boolean).join(", ") || "Location coming soon",
+        location:
+          [studio.city, studio.state].filter(Boolean).join(", ") ||
+          "Location coming soon",
         isIndependentInstructor: Boolean(row.is_independent_instructor),
-        clientName: `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() || "Portal Member",
+        clientName:
+          `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() ||
+          "Portal Member",
       };
     })
     .filter((value): value is LinkedPortalItem => Boolean(value));
 
-  const firstPortalName = linkedPortals.map((row) => row.clientName).find(Boolean) || null;
+  const portalClientIds = Array.from(
+    new Set(linkedPortals.map((row) => row.clientId)),
+  );
+
+  const { data: accountLedgerRows, error: accountLedgerError } =
+    portalClientIds.length
+      ? await supabase
+          .from("client_account_ledger")
+          .select(
+            "id, studio_id, client_id, entry_date, entry_type, direction, amount, description, created_at",
+          )
+          .in("client_id", portalClientIds)
+          .order("entry_date", { ascending: false })
+          .order("created_at", { ascending: false })
+      : { data: [], error: null };
+
+  if (accountLedgerError) {
+    throw new Error(
+      `Failed to load account balances: ${accountLedgerError.message}`,
+    );
+  }
+
+  const typedAccountLedgerRows = (accountLedgerRows ??
+    []) as ClientAccountLedgerRow[];
+  const ledgerRowsByClientId = new Map<string, ClientAccountLedgerRow[]>();
+
+  for (const row of typedAccountLedgerRows) {
+    const existingRows = ledgerRowsByClientId.get(row.client_id) ?? [];
+    existingRows.push(row);
+    ledgerRowsByClientId.set(row.client_id, existingRows);
+  }
+
+  const accountBalances = linkedPortals
+    .map((portal) => {
+      const rows = ledgerRowsByClientId.get(portal.clientId) ?? [];
+
+      if (rows.length === 0) {
+        return null;
+      }
+
+      const creditTotal = rows
+        .filter((row) => row.direction === "credit")
+        .reduce((total, row) => total + parseLedgerAmount(row.amount), 0);
+      const debitTotal = rows
+        .filter((row) => row.direction === "debit")
+        .reduce((total, row) => total + parseLedgerAmount(row.amount), 0);
+
+      return {
+        clientId: portal.clientId,
+        studioId: portal.studioId,
+        studioName: portal.studioName,
+        clientName: portal.clientName,
+        creditTotal,
+        debitTotal,
+        netBalance: creditTotal - debitTotal,
+        recentEntries: rows,
+      };
+    })
+    .filter((value): value is AccountBalanceItem => Boolean(value));
+
+  const firstPortalName =
+    linkedPortals.map((row) => row.clientName).find(Boolean) || null;
 
   const displayName =
     user.user_metadata?.full_name ||
@@ -621,10 +904,14 @@ export default async function AccountPage() {
                 <div className="mt-4 space-y-3 text-sm leading-6 text-white/90">
                   <p>1. Explore studios and events in public discovery.</p>
                   <p>2. Save favorites so they are easy to find later.</p>
-                  <p>3. Open any linked studio portal when a studio connects your account.</p>
+                  <p>
+                    3. Open any linked studio portal when a studio connects your
+                    account.
+                  </p>
                 </div>
                 <div className="mt-5 rounded-2xl bg-white/15 p-4 text-sm text-white/90 ring-1 ring-white/15">
-                  Signed in as <span className="font-semibold text-white">{user.email}</span>
+                  Signed in as{" "}
+                  <span className="font-semibold text-white">{user.email}</span>
                 </div>
               </div>
             </div>
@@ -699,6 +986,17 @@ export default async function AccountPage() {
             <PortalCards linkedPortals={linkedPortals} />
           </section>
 
+          {accountBalances.length > 0 ? (
+            <section className="rounded-[32px] border border-amber-100 bg-white p-6 shadow-sm sm:p-7">
+              <SectionHeader
+                eyebrow="Account Balance"
+                title="Credits and balances from your linked studios"
+                description="Studios can apply account credits, charges, and adjustments. This read-only summary helps you see your current balance without contacting the front desk."
+              />
+              <AccountBalanceCards balances={accountBalances} />
+            </section>
+          ) : null}
+
           <section className="rounded-[32px] border border-orange-100 bg-white p-6 shadow-sm sm:p-7">
             <SectionHeader
               eyebrow="Favorite Studios"
@@ -742,8 +1040,9 @@ export default async function AccountPage() {
                   Need help with your account?
                 </h2>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Visit the knowledgebase or contact support if you need help with public
-                  accounts, favorites, event registrations, or studio portal access.
+                  Visit the knowledgebase or contact support if you need help
+                  with public accounts, favorites, event registrations, or
+                  studio portal access.
                 </p>
               </div>
 
@@ -776,3 +1075,4 @@ export default async function AccountPage() {
     </div>
   );
 }
+
