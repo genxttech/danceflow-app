@@ -115,12 +115,14 @@ export default function QuickPaymentPanel({
   packages = [],
   packageTemplates = [],
   activeMembership = null,
+  accountCreditBalance = 0,
 }: {
   clientId: string;
   returnTo: string;
   packages?: PackageOption[];
   packageTemplates?: PackageTemplateOption[];
   activeMembership?: ActiveMembership | null;
+  accountCreditBalance?: number;
 }) {
   const [state, formAction, pending] = useActionState(
     createPaymentAction,
@@ -133,6 +135,7 @@ export default function QuickPaymentPanel({
     useState("");
   const [salePrice, setSalePrice] = useState("");
   const [amount, setAmount] = useState("");
+  const [accountCreditToApply, setAccountCreditToApply] = useState("");
   const [paymentDate, setPaymentDate] = useState(getTodayDateValue());
   const [activePaymentAction, setActivePaymentAction] = useState<
     "manual" | "charge_now" | "send_to_portal" | null
@@ -151,6 +154,25 @@ export default function QuickPaymentPanel({
     return getFloorRentalDiscount(activeMembership.benefits);
   }, [activeMembership]);
 
+  const availableAccountCredit = Math.max(0, Number(accountCreditBalance ?? 0));
+
+  const packageSalePriceAmount = useMemo(() => {
+    const parsedSalePrice = Number(salePrice || 0);
+    return Number.isFinite(parsedSalePrice) && parsedSalePrice > 0 ? parsedSalePrice : 0;
+  }, [salePrice]);
+
+  const appliedAccountCreditAmount = useMemo(() => {
+    const parsedCredit = Number(accountCreditToApply || 0);
+    if (!Number.isFinite(parsedCredit) || parsedCredit <= 0) return 0;
+
+    return Math.min(parsedCredit, availableAccountCredit, packageSalePriceAmount);
+  }, [accountCreditToApply, availableAccountCredit, packageSalePriceAmount]);
+
+  const packageAmountDueAfterCredit = Math.max(
+    0,
+    Number((packageSalePriceAmount - appliedAccountCreditAmount).toFixed(2))
+  );
+
   const suggestedAmount = useMemo(() => {
     const parsedSalePrice = Number(salePrice || 0);
     if (Number.isNaN(parsedSalePrice) || parsedSalePrice <= 0) return null;
@@ -167,6 +189,7 @@ export default function QuickPaymentPanel({
       setSelectedPackageTemplateId("");
       setSalePrice("");
       setAmount("");
+      setAccountCreditToApply("");
     }
   }, [entryMode]);
 
@@ -176,15 +199,18 @@ export default function QuickPaymentPanel({
     const templatePrice = formatMoneyInput(selectedPackageTemplate.price);
 
     setSalePrice(templatePrice);
-    setAmount(templatePrice);
-  }, [selectedPackageTemplate]);
+    const templateAmount = Number(templatePrice || 0);
+    const creditAmount = Number(accountCreditToApply || 0);
+    const adjustedAmount = Math.max(0, templateAmount - Math.min(creditAmount, availableAccountCredit, templateAmount));
+    setAmount(formatMoneyInput(adjustedAmount));
+  }, [selectedPackageTemplate, accountCreditToApply, availableAccountCredit]);
 
   useEffect(() => {
-    if (suggestedAmount == null) return;
     if (entryMode !== "sell_package_and_pay") return;
 
-    setAmount(formatMoneyInput(suggestedAmount));
-  }, [suggestedAmount, entryMode]);
+    const adjustedAmount = Math.max(0, Number((packageSalePriceAmount - appliedAccountCreditAmount).toFixed(2)));
+    setAmount(formatMoneyInput(adjustedAmount));
+  }, [packageSalePriceAmount, appliedAccountCreditAmount, entryMode]);
 
   useEffect(() => {
     if (!pending) {
@@ -197,6 +223,7 @@ export default function QuickPaymentPanel({
       <input type="hidden" name="clientId" value={clientId} />
       <input type="hidden" name="returnTo" value={returnTo} />
       <input type="hidden" name="serviceType" value={serviceType} />
+      <input type="hidden" name="accountCreditToApply" value={entryMode === "sell_package_and_pay" ? accountCreditToApply : ""} />
 
       {activeMembership ? (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -353,8 +380,20 @@ export default function QuickPaymentPanel({
               min="0"
               value={salePrice}
               onChange={(event) => {
-                setSalePrice(event.target.value);
-                setAmount(event.target.value);
+                const nextSalePrice = event.target.value;
+                setSalePrice(nextSalePrice);
+
+                const parsedSalePrice = Number(nextSalePrice || 0);
+                const parsedCredit = Number(accountCreditToApply || 0);
+                if (Number.isFinite(parsedSalePrice)) {
+                  const adjustedAmount = Math.max(
+                    0,
+                    parsedSalePrice - Math.min(parsedCredit, availableAccountCredit, Math.max(parsedSalePrice, 0))
+                  );
+                  setAmount(formatMoneyInput(adjustedAmount));
+                } else {
+                  setAmount(nextSalePrice);
+                }
               }}
               onBlur={() => {
                 if (!salePrice) return;
@@ -362,13 +401,94 @@ export default function QuickPaymentPanel({
                 const parsed = Number(salePrice);
                 if (Number.isFinite(parsed)) {
                   const formatted = parsed.toFixed(2);
+                  const parsedCredit = Number(accountCreditToApply || 0);
+                  const adjustedAmount = Math.max(
+                    0,
+                    parsed - Math.min(parsedCredit, availableAccountCredit, Math.max(parsed, 0))
+                  );
                   setSalePrice(formatted);
-                  setAmount(formatted);
+                  setAmount(formatMoneyInput(adjustedAmount));
                 }
               }}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
               placeholder="Optional override"
             />
+          </div>
+
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-emerald-950">
+                  Client account credit
+                </p>
+                <p className="mt-1 text-sm text-emerald-800">
+                  Available credit: {formatCurrency(availableAccountCredit)}
+                </p>
+              </div>
+
+              <div className="text-right text-sm text-emerald-900">
+                <p>Package price: {formatCurrency(packageSalePriceAmount)}</p>
+                <p>Due after credit: {formatCurrency(packageAmountDueAfterCredit)}</p>
+              </div>
+            </div>
+
+            <label
+              htmlFor="accountCreditToApply"
+              className="mt-4 block text-sm font-medium text-emerald-950"
+            >
+              Apply account credit
+            </label>
+            <input
+              id="accountCreditToApply"
+              type="number"
+              step="0.01"
+              min="0"
+              max={Math.min(availableAccountCredit, packageSalePriceAmount)}
+              value={accountCreditToApply}
+              onChange={(event) => {
+                const rawValue = event.target.value;
+                const parsed = Number(rawValue || 0);
+
+                if (!rawValue) {
+                  setAccountCreditToApply("");
+                  setAmount(formatMoneyInput(packageSalePriceAmount));
+                  return;
+                }
+
+                if (!Number.isFinite(parsed)) {
+                  setAccountCreditToApply(rawValue);
+                  return;
+                }
+
+                const cappedCredit = Math.min(
+                  Math.max(parsed, 0),
+                  availableAccountCredit,
+                  packageSalePriceAmount
+                );
+                setAccountCreditToApply(cappedCredit.toFixed(2));
+                setAmount(formatMoneyInput(Math.max(0, packageSalePriceAmount - cappedCredit)));
+              }}
+              onBlur={() => {
+                if (!accountCreditToApply) return;
+
+                const parsed = Number(accountCreditToApply);
+                if (Number.isFinite(parsed)) {
+                  const cappedCredit = Math.min(
+                    Math.max(parsed, 0),
+                    availableAccountCredit,
+                    packageSalePriceAmount
+                  );
+                  setAccountCreditToApply(cappedCredit.toFixed(2));
+                  setAmount(formatMoneyInput(Math.max(0, packageSalePriceAmount - cappedCredit)));
+                }
+              }}
+              disabled={availableAccountCredit <= 0 || packageSalePriceAmount <= 0}
+              className="mt-1 w-full rounded-xl border border-emerald-300 bg-white px-3 py-2 disabled:bg-slate-100 disabled:text-slate-500"
+              placeholder="0.00"
+            />
+            <p className="mt-2 text-xs leading-5 text-emerald-800">
+              Applying credit creates a client account ledger entry and reduces the payment due today without changing the original credit record.
+            </p>
           </div>
         </>
       ) : null}

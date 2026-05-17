@@ -10,6 +10,7 @@ type ClientOption = {
   first_name: string;
   last_name: string;
   status: string;
+  account_balance?: number | string | null;
 };
 
 type PackageTemplateOption = {
@@ -67,9 +68,11 @@ function formatMoneyInput(value: number | string | null | undefined) {
 export default function SellPackageForm({
   clients,
   packageTemplates,
+  clientAccountBalances = {},
 }: {
   clients: ClientOption[];
   packageTemplates: PackageTemplateOption[];
+  clientAccountBalances?: Record<string, number>;
 }) {
   const [state, formAction, pending] = useActionState(
     sellPackageToClientAction,
@@ -78,8 +81,10 @@ export default function SellPackageForm({
 
   const today = new Date().toISOString().slice(0, 10);
 
+  const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedPackageTemplateId, setSelectedPackageTemplateId] =
     useState("");
+  const [accountCreditToApply, setAccountCreditToApply] = useState("0.00");
   const [paymentAmount, setPaymentAmount] = useState("");
 
   const selectedPackageTemplate = useMemo(
@@ -90,12 +95,36 @@ export default function SellPackageForm({
     [packageTemplates, selectedPackageTemplateId]
   );
 
+  const selectedClient = useMemo(
+    () => clients.find((client) => client.id === selectedClientId) ?? null,
+    [clients, selectedClientId]
+  );
+
+  const availableAccountCredit = useMemo(() => {
+    if (!selectedClientId) return 0;
+
+    const fromMap = clientAccountBalances[selectedClientId];
+    const fromClient = selectedClient?.account_balance;
+    const value = Number(fromMap ?? fromClient ?? 0);
+
+    return Number.isFinite(value) && value > 0 ? value : 0;
+  }, [clientAccountBalances, selectedClient, selectedClientId]);
+
+  const packagePrice = Number(selectedPackageTemplate?.price ?? 0);
+  const appliedCreditAmount = Number(accountCreditToApply || 0);
+  const estimatedDueToday = Math.max(
+    0,
+    packagePrice - (Number.isFinite(appliedCreditAmount) ? appliedCreditAmount : 0)
+  );
+
   useEffect(() => {
     if (!selectedPackageTemplate) {
+      setAccountCreditToApply("0.00");
       setPaymentAmount("");
       return;
     }
 
+    setAccountCreditToApply("0.00");
     setPaymentAmount(formatMoneyInput(selectedPackageTemplate.price));
   }, [selectedPackageTemplateId, selectedPackageTemplate]);
 
@@ -118,6 +147,14 @@ export default function SellPackageForm({
             id="clientId"
             name="clientId"
             required
+            value={selectedClientId}
+            onChange={(event) => {
+              setSelectedClientId(event.target.value);
+              setAccountCreditToApply("0.00");
+              if (selectedPackageTemplate) {
+                setPaymentAmount(formatMoneyInput(selectedPackageTemplate.price));
+              }
+            }}
             className="w-full rounded-xl border border-slate-300 px-3 py-2"
           >
             <option value="">Select client</option>
@@ -127,6 +164,12 @@ export default function SellPackageForm({
               </option>
             ))}
           </select>
+
+          {selectedClientId ? (
+            <p className="mt-2 text-xs text-slate-500">
+              Available account credit: {formatCurrency(availableAccountCredit)}
+            </p>
+          ) : null}
         </div>
 
         <div>
@@ -164,7 +207,7 @@ export default function SellPackageForm({
           ) : null}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-3">
           <div>
             <label
               htmlFor="purchaseDate"
@@ -180,6 +223,56 @@ export default function SellPackageForm({
               defaultValue={today}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
             />
+          </div>
+
+          <div>
+            <label
+              htmlFor="accountCreditToApply"
+              className="mb-1 block text-sm font-medium"
+            >
+              Apply Account Credit
+            </label>
+            <input
+              id="accountCreditToApply"
+              name="accountCreditToApply"
+              type="number"
+              min="0"
+              max={Math.min(availableAccountCredit, packagePrice || availableAccountCredit)}
+              step="0.01"
+              value={accountCreditToApply}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setAccountCreditToApply(nextValue);
+
+                if (selectedPackageTemplate) {
+                  const credit = Number(nextValue || 0);
+                  const safeCredit = Number.isFinite(credit) ? credit : 0;
+                  setPaymentAmount(
+                    formatMoneyInput(Math.max(0, selectedPackageTemplate.price - safeCredit))
+                  );
+                }
+              }}
+              onBlur={() => {
+                const credit = Number(accountCreditToApply || 0);
+                const maxCredit = Math.min(availableAccountCredit, packagePrice);
+                const safeCredit = Number.isFinite(credit)
+                  ? Math.min(Math.max(credit, 0), maxCredit)
+                  : 0;
+
+                setAccountCreditToApply(safeCredit.toFixed(2));
+
+                if (selectedPackageTemplate) {
+                  setPaymentAmount(
+                    formatMoneyInput(Math.max(0, selectedPackageTemplate.price - safeCredit))
+                  );
+                }
+              }}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Available: {formatCurrency(availableAccountCredit)}. Applying credit
+              creates a ledger entry and reduces the amount due today.
+            </p>
           </div>
 
           <div>
@@ -213,11 +306,22 @@ export default function SellPackageForm({
             <input type="hidden" name="amountPaid" value={paymentAmount} />
 
             <p className="mt-1 text-xs text-slate-500">
-              Defaults to the package price. Change this for deposits or partial
-              payments.
+              Estimated due after credit: {formatCurrency(estimatedDueToday)}.
+              Edit this for deposits or partial payments.
             </p>
           </div>
         </div>
+
+        {selectedPackageTemplate ? (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <p className="font-medium text-slate-900">Package payment summary</p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-3">
+              <p>Package: {formatCurrency(packagePrice)}</p>
+              <p>Credit applied: {formatCurrency(accountCreditToApply)}</p>
+              <p>Payment today: {formatCurrency(paymentAmount)}</p>
+            </div>
+          </div>
+        ) : null}
 
         <div>
           <label
@@ -239,6 +343,12 @@ export default function SellPackageForm({
             <option value="ach">ACH</option>
             <option value="other">Other</option>
           </select>
+
+          {selectedClientId ? (
+            <p className="mt-2 text-xs text-slate-500">
+              Available account credit: {formatCurrency(availableAccountCredit)}
+            </p>
+          ) : null}
         </div>
 
         <div>

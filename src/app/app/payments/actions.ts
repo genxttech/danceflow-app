@@ -111,6 +111,8 @@ export async function createPaymentAction(
     const paymentMethod = paymentAction === "manual" ? getString(formData, "paymentMethod") : "card";
     const status = paymentAction === "manual" ? getString(formData, "status") || "paid" : "pending";
     const notes = getString(formData, "notes");
+    const accountCreditToApplyRaw = getString(formData, "accountCreditToApply");
+    const accountCreditToApply = getNumber(accountCreditToApplyRaw || "0") ?? 0;
     const selectedPaymentDateIso = getPaymentDateIso(formData);
 
     if (!clientId) {
@@ -122,6 +124,7 @@ export async function createPaymentAction(
     const salePrice = getNumber(salePriceRaw);
     let discountNote: string | null = null;
     let createdPackageName: string | null = null;
+    let creditAppliedAmount = 0;
 
     if (entryMode === "sell_package_and_pay") {
       if (!packageTemplateId) {
@@ -227,9 +230,38 @@ export async function createPaymentAction(
       resolvedClientPackageId = insertedPackage.id;
       createdPackageName = insertedPackage.name_snapshot;
 
-      if (paymentAmount == null) {
-        paymentAmount = resolvedSalePrice;
+      if (accountCreditToApply > 0) {
+        if (accountCreditToApply > resolvedSalePrice) {
+          return { error: "Account credit cannot be greater than the package sale price." };
+        }
+
+        const { data: clientLedger, error: clientLedgerError } = await supabase
+          .from("client_account_ledger")
+          .select("direction, amount")
+          .eq("studio_id", studioId)
+          .eq("client_id", clientId);
+
+        if (clientLedgerError) {
+          return { error: `Account credit lookup failed: ${clientLedgerError.message}` };
+        }
+
+        const availableCredit = (clientLedger ?? []).reduce((sum, entry) => {
+          const amount = Number(entry.amount ?? 0);
+          return entry.direction === "credit" ? sum + amount : sum - amount;
+        }, 0);
+
+        if (accountCreditToApply > Math.max(availableCredit, 0)) {
+          return { error: "Account credit applied cannot exceed the client's available credit." };
+        }
+
+        creditAppliedAmount = Number(accountCreditToApply.toFixed(2));
       }
+
+      if (paymentAmount == null) {
+        paymentAmount = Math.max(0, Number((resolvedSalePrice - creditAppliedAmount).toFixed(2)));
+      }
+    } else if (accountCreditToApply > 0) {
+      return { error: "Account credit can only be applied while selling a package from this form." };
     }
 
     if (paymentAmount == null || paymentAmount < 0) {
@@ -291,7 +323,13 @@ export async function createPaymentAction(
         : paymentAction === "send_to_portal"
           ? "Created as a client portal payment request."
           : null;
-    const finalNotes = [notes, discountNote, requestNote, createdPackageName ? `Package: ${createdPackageName}` : null]
+    const finalNotes = [
+      notes,
+      discountNote,
+      requestNote,
+      createdPackageName ? `Package: ${createdPackageName}` : null,
+      creditAppliedAmount > 0 ? `Account credit applied: ${formatCurrency(creditAppliedAmount)}` : null,
+    ]
       .filter(Boolean)
       .join(" | ") || null;
 
@@ -318,6 +356,27 @@ export async function createPaymentAction(
       return { error: `Payment creation failed: ${error?.message ?? "Unable to create payment."}` };
     }
 
+    if (creditAppliedAmount > 0 && resolvedClientPackageId) {
+      const { error: ledgerInsertError } = await supabase
+        .from("client_account_ledger")
+        .insert({
+          studio_id: studioId,
+          client_id: clientId,
+          entry_date: getDateValueFromIso(selectedPaymentDateIso),
+          entry_type: "credit_applied",
+          direction: "debit",
+          amount: creditAppliedAmount,
+          description: `Account credit applied to package sale${createdPackageName ? `: ${createdPackageName}` : ""}.`,
+          reference_type: "client_package",
+          reference_id: resolvedClientPackageId,
+          created_by: user.id,
+        });
+
+      if (ledgerInsertError) {
+        return { error: `Account credit application failed: ${ledgerInsertError.message}` };
+      }
+    }
+
     if (paymentAction === "charge_now") {
       const returnTo = getReturnTo(formData, "/app/payments", "payment_logged");
       const cancelTo = getCancelledReturnTo(formData, "/app/payments");
@@ -337,4 +396,6 @@ export async function createPaymentAction(
 
   redirect(getReturnTo(formData, "/app/payments", "payment_logged"));
 }
+
+
 

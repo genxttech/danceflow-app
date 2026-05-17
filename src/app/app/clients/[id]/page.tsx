@@ -1164,8 +1164,7 @@ export default async function ClientDetailPage({
       .eq("studio_id", studioId)
       .eq("client_id", id)
       .order("entry_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(30),
+      .order("created_at", { ascending: false }),
 
     supabase
       .from("lead_activities")
@@ -1291,6 +1290,7 @@ export default async function ClientDetailPage({
   const typedPayments = (payments ?? []) as PaymentRow[];
   const typedLedger = (ledger ?? []) as LedgerRow[];
   const typedAccountLedger = (accountLedger ?? []) as ClientAccountLedgerRow[];
+  const accountLedgerPreview = typedAccountLedger.slice(0, 20);
   const typedLeadActivities = (leadActivities ?? []) as LeadActivityRow[];
   const typedPackageTemplates = (packageTemplates ?? []) as PackageTemplateRow[];
   const typedMembershipPlans = (membershipPlans ?? []) as MembershipPlanOption[];
@@ -2870,6 +2870,7 @@ export default async function ClientDetailPage({
                   price: template.price,
                 }))}
                 activeMembership={typedActiveMembership}
+                accountCreditBalance={Math.max(accountNetBalance, 0)}
               />
             </QuickActionPanel>
           </div>
@@ -3144,7 +3145,7 @@ export default async function ClientDetailPage({
                       No client account ledger entries yet. Add credit or a charge when the client has money on account, owes a balance, or needs a truthful manual adjustment.
                     </div>
                   ) : (
-                    typedAccountLedger.map((entry) => (
+                    accountLedgerPreview.map((entry) => (
                       <div
                         key={entry.id}
                         className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
@@ -3176,6 +3177,12 @@ export default async function ClientDetailPage({
                     ))
                   )}
                 </div>
+
+                {typedAccountLedger.length > accountLedgerPreview.length ? (
+                  <p className="mt-3 text-xs text-slate-500">
+                    Showing the most recent {accountLedgerPreview.length} ledger entries. The balance summary uses the full ledger history.
+                  </p>
+                ) : null}
               </div>
             </details>
           </SectionCard>

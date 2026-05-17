@@ -36,6 +36,26 @@ function parseCurrencyToDollars(rawValue: string) {
   return cents / 100;
 }
 
+function roundCurrency(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function calculateLedgerBalance(
+  entries: { direction: string | null; amount: number | string | null }[] | null
+) {
+  return roundCurrency(
+    (entries ?? []).reduce((total, entry) => {
+      const amount = Number(entry.amount ?? 0);
+
+      if (!Number.isFinite(amount)) {
+        return total;
+      }
+
+      return entry.direction === "credit" ? total + amount : total - amount;
+    }, 0)
+  );
+}
+
 export async function sellPackageToClientAction(
   prevState: { error: string },
   formData: FormData
@@ -48,7 +68,8 @@ export async function sellPackageToClientAction(
     const purchaseDateRaw = getString(formData, "purchaseDate");
     const paymentMethod = getString(formData, "paymentMethod");
     const amountPaidRaw =
-  getString(formData, "paymentAmount") || getString(formData, "amountPaid");
+      getString(formData, "paymentAmount") || getString(formData, "amountPaid");
+    const accountCreditRaw = getString(formData, "accountCreditToApply");
     const notes = getString(formData, "notes");
 
     if (
@@ -65,9 +86,16 @@ export async function sellPackageToClientAction(
     }
 
     const amountPaid = parseCurrencyToDollars(amountPaidRaw);
+    const accountCreditToApply = accountCreditRaw
+      ? parseCurrencyToDollars(accountCreditRaw)
+      : 0;
 
     if (amountPaid === null || amountPaid < 0) {
       return { error: "Amount paid must be a valid amount of $0 or greater." };
+    }
+
+    if (accountCreditToApply === null || accountCreditToApply < 0) {
+      return { error: "Account credit must be a valid amount of $0 or greater." };
     }
 
     const { data: pkgTemplate, error: pkgTemplateError } = await supabase
@@ -84,6 +112,49 @@ export async function sellPackageToClientAction(
           pkgTemplateError?.message ?? "Package not found"
         }`,
       };
+    }
+
+    const packagePrice = roundCurrency(Number(pkgTemplate.price ?? 0));
+    const creditAmount = roundCurrency(accountCreditToApply ?? 0);
+    const cashAmount = roundCurrency(amountPaid);
+
+    if (creditAmount > packagePrice) {
+      return { error: "Account credit cannot be greater than the package price." };
+    }
+
+    if (roundCurrency(creditAmount + cashAmount) > packagePrice) {
+      return {
+        error:
+          "Payment amount plus account credit cannot be greater than the package price.",
+      };
+    }
+
+    if (creditAmount > 0) {
+      const { data: ledgerEntries, error: ledgerError } = await supabase
+        .from("client_account_ledger")
+        .select("direction, amount")
+        .eq("studio_id", studioId)
+        .eq("client_id", clientId);
+
+      if (ledgerError) {
+        return {
+          error: `Client account credit lookup failed: ${ledgerError.message}`,
+        };
+      }
+
+      const availableCredit = calculateLedgerBalance(ledgerEntries);
+
+      if (availableCredit <= 0) {
+        return { error: "This client does not have available account credit." };
+      }
+
+      if (creditAmount > availableCredit) {
+        return {
+          error: `Account credit applied cannot exceed the client's available credit of $${availableCredit.toFixed(
+            2
+          )}.`,
+        };
+      }
     }
 
     const { data: templateItems, error: templateItemsError } = await supabase
@@ -160,19 +231,51 @@ export async function sellPackageToClientAction(
       };
     }
 
+    const paymentNotes = [
+      notes || null,
+      creditAmount > 0
+        ? `Account credit applied: $${creditAmount.toFixed(2)}.`
+        : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     const { error: paymentError } = await supabase.from("payments").insert({
       studio_id: studioId,
       client_id: clientId,
       client_package_id: clientPackage.id,
-      amount: amountPaid,
+      amount: cashAmount,
       payment_method: paymentMethod,
       status: "paid",
-      notes: notes || null,
+      notes: paymentNotes || null,
       created_by: user.id,
     });
 
     if (paymentError) {
       return { error: `Payment creation failed: ${paymentError.message}` };
+    }
+
+    if (creditAmount > 0) {
+      const { error: creditLedgerError } = await supabase
+        .from("client_account_ledger")
+        .insert({
+          studio_id: studioId,
+          client_id: clientId,
+          entry_date: purchaseDateRaw,
+          entry_type: "credit_applied",
+          direction: "debit",
+          amount: creditAmount,
+          description: `Applied account credit to package purchase: ${pkgTemplate.name}`,
+          reference_type: "client_package",
+          reference_id: clientPackage.id,
+          created_by: user.id,
+        });
+
+      if (creditLedgerError) {
+        return {
+          error: `Account credit application failed: ${creditLedgerError.message}`,
+        };
+      }
     }
 
     const summary = templateItems
