@@ -52,6 +52,18 @@ type RegistrationRow = {
     | { name: string; ticket_kind: string }
     | { name: string; ticket_kind: string }[]
     | null;
+  event_registration_attendees:
+    | {
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        email: string | null;
+        phone: string | null;
+        attendee_role: string | null;
+        sort_order: number | null;
+        checked_in_at: string | null;
+      }[]
+    | null;
 };
 
 type AttendanceRow = {
@@ -308,7 +320,17 @@ export default async function EventCheckInPage({
         attendee_phone,
         checked_in_at,
         created_at,
-        event_ticket_types ( name, ticket_kind )
+        event_ticket_types ( name, ticket_kind ),
+        event_registration_attendees (
+          id,
+          first_name,
+          last_name,
+          email,
+          phone,
+          attendee_role,
+          sort_order,
+          checked_in_at
+        )
       `,
       )
       .eq("event_id", id)
@@ -457,7 +479,12 @@ export default async function EventCheckInPage({
       return (
         fullName.includes(q) ||
         registration.attendee_email.toLowerCase().includes(q) ||
-        (registration.attendee_phone ?? "").toLowerCase().includes(q)
+        (registration.attendee_phone ?? "").toLowerCase().includes(q) ||
+        (registration.event_registration_attendees ?? []).some((attendee) =>
+          `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`
+            .toLowerCase()
+            .includes(q)
+        )
       );
     });
 
@@ -704,6 +731,9 @@ export default async function EventCheckInPage({
               registration.event_ticket_types,
             );
             const ticketKind = getTicketKind(registration.event_ticket_types);
+            const attendeeRows = [...(registration.event_registration_attendees ?? [])].sort(
+              (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0)
+            );
             const canCheckIn =
               effectiveStatus === "registered" &&
               (!isGroupClass || Boolean(selectedSessionId));
@@ -750,6 +780,36 @@ export default async function EventCheckInPage({
                         {kindLabel(ticketKind)}
                       </span>
                     </div>
+
+                    {attendeeRows.length > 1 ? (
+                      <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                        <summary className="cursor-pointer text-sm font-medium text-slate-700">
+                          {attendeeRows.length} attendees on this registration
+                        </summary>
+                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          {attendeeRows.map((attendee, index) => {
+                            const attendeeName =
+                              `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim() ||
+                              `Attendee ${index + 1}`;
+
+                            return (
+                              <div
+                                key={attendee.id}
+                                className="rounded-xl border border-slate-200 bg-white p-3"
+                              >
+                                <p className="font-medium text-slate-900">
+                                  {index + 1}. {attendeeName}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {attendee.attendee_role === "buyer" ? "Buyer" : "Attendee"}
+                                  {attendee.email ? ` • ${attendee.email}` : ""}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </details>
+                    ) : null}
 
                     <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -840,3 +900,4 @@ export default async function EventCheckInPage({
     </div>
   );
 }
+

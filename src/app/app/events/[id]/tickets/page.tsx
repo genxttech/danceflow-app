@@ -16,6 +16,7 @@ type TicketTypeRow = {
   active: boolean;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
+  attendees_per_ticket: number | null;
 };
 
 type EventRow = {
@@ -189,7 +190,8 @@ export default async function EventTicketsPage({
       sort_order,
       active,
       sale_starts_at,
-      sale_ends_at
+      sale_ends_at,
+      attendees_per_ticket
     `)
     .eq("event_id", typedEvent.id)
     .order("sort_order", { ascending: true })
@@ -199,7 +201,20 @@ export default async function EventTicketsPage({
     throw new Error(`Failed to load tickets: ${ticketsError.message}`);
   }
 
-  const ticketRows = (tickets ?? []) as TicketTypeRow[];
+  const ticketRows = (tickets ?? []).map((ticket: any): TicketTypeRow => ({
+    id: ticket.id,
+    name: ticket.name,
+    description: ticket.description ?? null,
+    ticket_kind: ticket.ticket_kind,
+    price: ticket.price,
+    currency: ticket.currency || "USD",
+    capacity: ticket.capacity ?? null,
+    sort_order: Number(ticket.sort_order ?? 0),
+    active: Boolean(ticket.active),
+    sale_starts_at: ticket.sale_starts_at ?? null,
+    sale_ends_at: ticket.sale_ends_at ?? null,
+    attendees_per_ticket: Math.max(1, Number(ticket.attendees_per_ticket ?? 1)),
+  }));
   const activeCount = ticketRows.filter((ticket) => ticket.active).length;
 
   return (
@@ -221,11 +236,18 @@ export default async function EventTicketsPage({
 
           <div className="flex flex-wrap gap-3">
             <Link
-              href={`/app/events/${typedEvent.id}`}
-              className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
-            >
-              Back to event
-            </Link>
+  href={`/app/events/${typedEvent.id}`}
+  className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+>
+  Event dashboard
+</Link>
+
+<Link
+  href={`/app/events/${typedEvent.id}/edit`}
+  className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+>
+  Edit event
+</Link>
             <Link
               href={`/app/events/${typedEvent.id}/registrations`}
               className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
@@ -369,11 +391,17 @@ export default async function EventTicketsPage({
                     </p>
                   </div>
 
-                  <div className="mb-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-4">
+                  <div className="mb-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-5">
                     <div>
                       <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Capacity</p>
                       <p className="mt-1 text-sm font-medium text-slate-900">
                         {ticket.capacity ?? "Unlimited"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Admits</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">
+                        {Math.max(1, Number(ticket.attendees_per_ticket ?? 1))} per ticket
                       </p>
                     </div>
                     <div>
@@ -465,6 +493,22 @@ export default async function EventTicketsPage({
                         disabled={!canManage}
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
                       />
+                    </label>
+
+                    <label className="space-y-2 text-sm">
+                      <span className="font-medium text-slate-700">Attendees per ticket</span>
+                      <input
+                        name="attendeesPerTicket"
+                        type="number"
+                        min="1"
+                        step="1"
+                        defaultValue={Math.max(1, Number(ticket.attendees_per_ticket ?? 1))}
+                        disabled={!canManage}
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                      />
+                      <span className="block text-xs leading-5 text-slate-500">
+                        Use 2 for couple tickets or more for group/table passes.
+                      </span>
                     </label>
 
                     <label className="space-y-2 text-sm">
@@ -613,6 +657,21 @@ export default async function EventTicketsPage({
             </label>
 
             <label className="space-y-2 text-sm">
+              <span className="font-medium text-slate-700">Attendees per ticket</span>
+              <input
+                name="attendeesPerTicket"
+                type="number"
+                min="1"
+                step="1"
+                defaultValue="1"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+              />
+              <span className="block text-xs leading-5 text-slate-500">
+                Use 1 for a single ticket, 2 for a couple ticket, or more for group/table passes.
+              </span>
+            </label>
+
+            <label className="space-y-2 text-sm">
               <span className="font-medium text-slate-700">Sort order</span>
               <input
                 name="sortOrder"
@@ -665,3 +724,4 @@ export default async function EventTicketsPage({
     </div>
   );
 }
+

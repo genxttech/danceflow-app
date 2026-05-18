@@ -17,6 +17,7 @@ type TicketTypeRow = {
   active: boolean;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
+  attendees_per_ticket: number | null;
 };
 
 function toDatetimeLocal(value: string | null) {
@@ -120,6 +121,21 @@ export default function TicketTypeForm({
         </div>
 
         <div>
+          <label className="mb-1 block text-sm font-medium">Attendees per ticket</label>
+          <input
+            name="attendeesPerTicket"
+            type="number"
+            min="1"
+            step="1"
+            defaultValue={String(Math.max(1, Number(initialValues?.attendees_per_ticket ?? 1)))}
+            className="w-full rounded-xl border border-slate-300 px-3 py-2"
+          />
+          <p className="mt-1 text-xs text-slate-500">
+            Use 1 for a single ticket, 2 for a couple ticket, or more for group/table passes.
+          </p>
+        </div>
+
+        <div>
           <label className="mb-1 block text-sm font-medium">Sort Order</label>
           <input
             name="sortOrder"
@@ -188,3 +204,4 @@ export default function TicketTypeForm({
     </form>
   );
 }
+

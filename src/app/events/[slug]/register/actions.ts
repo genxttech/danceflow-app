@@ -53,6 +53,7 @@ type PublicTicketTypeRow = {
   active: boolean;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
+  attendees_per_ticket: number | null;
 };
 
 type ExistingRegistrationRow = {
@@ -86,6 +87,81 @@ function getInt(formData: FormData, key: string, fallback = 1) {
   const raw = getString(formData, key);
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function getStringList(formData: FormData, key: string) {
+  return formData
+    .getAll(key)
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean);
+}
+
+function splitFullName(fullName: string) {
+  const normalized = fullName.trim().replace(/\s+/g, " ");
+  const [firstName = "", ...rest] = normalized.split(" ");
+
+  return {
+    firstName,
+    lastName: rest.join(" "),
+  };
+}
+
+type RegistrationAttendeeInsertRow = {
+  registration_id: string;
+  event_id: string;
+  ticket_type_id: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
+  phone: string | null;
+  attendee_role: string;
+  sort_order: number;
+};
+
+function buildRegistrationAttendeeRows(params: {
+  registrationId: string;
+  eventId: string;
+  ticketTypeId: string;
+  buyerFirstName: string;
+  buyerLastName: string;
+  buyerEmail: string;
+  buyerPhone: string | null;
+  additionalAttendeeNames: string[];
+  expectedAttendeeCount: number;
+}): RegistrationAttendeeInsertRow[] {
+  const rows: RegistrationAttendeeInsertRow[] = [
+    {
+      registration_id: params.registrationId,
+      event_id: params.eventId,
+      ticket_type_id: params.ticketTypeId,
+      first_name: params.buyerFirstName,
+      last_name: params.buyerLastName,
+      email: params.buyerEmail,
+      phone: params.buyerPhone,
+      attendee_role: "buyer",
+      sort_order: 1,
+    },
+  ];
+
+  params.additionalAttendeeNames
+    .slice(0, Math.max(0, params.expectedAttendeeCount - 1))
+    .forEach((name, index) => {
+      const parsed = splitFullName(name);
+
+      rows.push({
+        registration_id: params.registrationId,
+        event_id: params.eventId,
+        ticket_type_id: params.ticketTypeId,
+        first_name: parsed.firstName,
+        last_name: parsed.lastName,
+        email: null,
+        phone: null,
+        attendee_role: "attendee",
+        sort_order: index + 2,
+      });
+    });
+
+  return rows;
 }
 
 function appendQueryParam(url: string, key: string, value: string) {
@@ -504,7 +580,8 @@ async function getPublicTicketType(params: {
       capacity,
       active,
       sale_starts_at,
-      sale_ends_at
+      sale_ends_at,
+      attendees_per_ticket
     `)
     .eq("id", ticketTypeId)
     .eq("event_id", eventId)
@@ -655,6 +732,7 @@ export async function createEventRegistrationAction(
   const attendeePhone = getString(formData, "attendeePhone");
   const notes = getString(formData, "notes");
   const quantity = getInt(formData, "quantity", 1);
+  const additionalAttendeeNames = getStringList(formData, "additionalAttendeeNames");
 
   if (!eventSlug) {
     return { error: "Missing event slug.", success: "" };
@@ -716,6 +794,22 @@ export async function createEventRegistrationAction(
     const ticketWindowError = validateTicketWindow(ticketType);
     if (ticketWindowError) {
       return { error: ticketWindowError, success: "" };
+    }
+
+    const attendeesPerTicket = Math.max(
+      1,
+      Number(ticketType.attendees_per_ticket ?? 1) || 1
+    );
+    const expectedAttendeeCount = Math.max(1, quantity) * attendeesPerTicket;
+
+    if (additionalAttendeeNames.length < expectedAttendeeCount - 1) {
+      return {
+        error:
+          expectedAttendeeCount === 2
+            ? "Add the second attendee name for this ticket."
+            : `Add all ${expectedAttendeeCount} attendee names for this registration.`,
+        success: "",
+      };
     }
 
     const existingRegistration = await findExistingOpenRegistration({
@@ -853,14 +947,19 @@ export async function createEventRegistrationAction(
 
       const { error: waitlistAttendeeError } = await supabase
         .from("event_registration_attendees")
-        .insert({
-          registration_id: waitlistRegistration.id,
-          first_name: attendeeFirstName,
-          last_name: attendeeLastName,
-          email: attendeeEmail,
-          phone: attendeePhone || null,
-          attendee_role: "attendee",
-        });
+        .insert(
+          buildRegistrationAttendeeRows({
+            registrationId: waitlistRegistration.id,
+            eventId: event.id,
+            ticketTypeId: ticketType.id,
+            buyerFirstName: attendeeFirstName,
+            buyerLastName: attendeeLastName,
+            buyerEmail: attendeeEmail,
+            buyerPhone: attendeePhone || null,
+            additionalAttendeeNames,
+            expectedAttendeeCount,
+          })
+        );
 
       if (waitlistAttendeeError) {
         return {
@@ -942,14 +1041,19 @@ export async function createEventRegistrationAction(
 
     const { error: attendeeError } = await supabase
       .from("event_registration_attendees")
-      .insert({
-        registration_id: registration.id,
-        first_name: attendeeFirstName,
-        last_name: attendeeLastName,
-        email: attendeeEmail,
-        phone: attendeePhone || null,
-        attendee_role: "attendee",
-      });
+      .insert(
+        buildRegistrationAttendeeRows({
+          registrationId: registration.id,
+          eventId: event.id,
+          ticketTypeId: ticketType.id,
+          buyerFirstName: attendeeFirstName,
+          buyerLastName: attendeeLastName,
+          buyerEmail: attendeeEmail,
+          buyerPhone: attendeePhone || null,
+          additionalAttendeeNames,
+          expectedAttendeeCount,
+        })
+      );
 
     if (attendeeError) {
       console.error("event registration attendee insert failed:", attendeeError);

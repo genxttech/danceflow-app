@@ -56,6 +56,18 @@ type RegistrationRow = {
     | { name: string; ticket_kind: string }
     | { name: string; ticket_kind: string }[]
     | null;
+  event_registration_attendees:
+    | {
+        id: string;
+        first_name: string | null;
+        last_name: string | null;
+        email: string | null;
+        phone: string | null;
+        attendee_role: string | null;
+        sort_order: number | null;
+        checked_in_at: string | null;
+      }[]
+    | null;
 };
 
 type AttendanceRow = {
@@ -390,7 +402,17 @@ export default async function EventRegistrationsPage({
         notes,
         created_at,
         clients ( id, first_name, last_name ),
-        event_ticket_types ( name, ticket_kind )
+        event_ticket_types ( name, ticket_kind ),
+        event_registration_attendees (
+          id,
+          first_name,
+          last_name,
+          email,
+          phone,
+          attendee_role,
+          sort_order,
+          checked_in_at
+        )
       `)
       .eq("event_id", id)
       .order("created_at", { ascending: true }),
@@ -681,6 +703,9 @@ export default async function EventRegistrationsPage({
             const amount =
               Number(registration.total_amount ?? registration.total_price ?? 0);
             const currency = registration.currency ?? "USD";
+            const attendeeRows = [...(registration.event_registration_attendees ?? [])].sort(
+              (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0)
+            );
 
             return (
               <div
@@ -723,6 +748,36 @@ export default async function EventRegistrationsPage({
                         <span>{registration.attendee_phone || "No phone"}</span>
                         <span>Registered {formatDateTime(registration.created_at)}</span>
                       </div>
+
+                      {attendeeRows.length > 1 ? (
+                        <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                          <summary className="cursor-pointer text-sm font-medium text-slate-700">
+                            {attendeeRows.length} attendees on this registration
+                          </summary>
+                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                            {attendeeRows.map((attendee, index) => {
+                              const attendeeName =
+                                `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim() ||
+                                `Attendee ${index + 1}`;
+
+                              return (
+                                <div
+                                  key={attendee.id}
+                                  className="rounded-xl border border-slate-200 bg-white p-3"
+                                >
+                                  <p className="font-medium text-slate-900">
+                                    {index + 1}. {attendeeName}
+                                  </p>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    {attendee.attendee_role === "buyer" ? "Buyer" : "Attendee"}
+                                    {attendee.email ? ` • ${attendee.email}` : ""}
+                                  </p>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </details>
+                      ) : null}
                     </div>
 
                     <div className="text-left lg:text-right">

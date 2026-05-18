@@ -2202,7 +2202,8 @@ export async function duplicateEventAction(formData: FormData) {
           capacity,
           active,
           sale_starts_at,
-          sale_ends_at
+          sale_ends_at,
+          attendees_per_ticket
         `,
         )
         .eq("event_id", eventId),
@@ -2341,6 +2342,7 @@ export async function duplicateEventAction(formData: FormData) {
             active: ticket.active,
             sale_starts_at: ticket.sale_starts_at,
             sale_ends_at: ticket.sale_ends_at,
+            attendees_per_ticket: ticket.attendees_per_ticket ?? 1,
           })),
         );
 
@@ -2429,4 +2431,8 @@ export async function duplicateEventAction(formData: FormData) {
 
   redirect(redirectTo);
 }
+
+
+
+
 

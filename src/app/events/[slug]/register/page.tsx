@@ -44,6 +44,7 @@ type TicketTypeRow = {
   active: boolean;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
+  attendees_per_ticket: number;
 };
 
 function getOrganizer(
@@ -173,7 +174,8 @@ export default async function PublicEventRegisterPage({
           capacity,
           active,
           sale_starts_at,
-          sale_ends_at
+          sale_ends_at,
+          attendees_per_ticket
         `)
         .order("sort_order", { ascending: true })
         .order("name", { ascending: true }),
@@ -190,7 +192,21 @@ export default async function PublicEventRegisterPage({
   const typedEvent = event as EventRow;
   const organizer = getOrganizer(typedEvent.organizers);
 
-  const allTicketTypes = (ticketTypes ?? []) as TicketTypeRow[];
+  const allTicketTypes = (ticketTypes ?? []).map((ticket: any): TicketTypeRow => ({
+    id: ticket.id,
+    event_id: ticket.event_id,
+    name: ticket.name,
+    description: ticket.description ?? null,
+    ticket_kind: ticket.ticket_kind,
+    price: Number(ticket.price ?? 0),
+    currency: ticket.currency || "USD",
+    capacity: ticket.capacity ?? null,
+    active: Boolean(ticket.active),
+    sale_starts_at: ticket.sale_starts_at ?? null,
+    sale_ends_at: ticket.sale_ends_at ?? null,
+    attendees_per_ticket: Math.max(1, Number(ticket.attendees_per_ticket ?? 1)),
+  }));
+
   const typedTicketTypes = allTicketTypes
     .filter((ticket) => ticket.event_id === typedEvent.id)
     .filter((ticket) => isTicketCurrentlyAvailable(ticket));
@@ -198,6 +214,7 @@ export default async function PublicEventRegisterPage({
   const availableFreeTickets = typedTicketTypes.filter(
     (ticket) => Number(ticket.price ?? 0) === 0
   );
+
   const registrationOpen = canRegisterForEvent(typedEvent);
 
   return (
@@ -247,12 +264,12 @@ export default async function PublicEventRegisterPage({
           </p>
 
           <form
-  action={async (formData: FormData) => {
-    "use server";
-    await createEventRegistrationAction(undefined, formData);
-  }}
-  className="mt-5"
->
+            action={async (formData: FormData) => {
+              "use server";
+              await createEventRegistrationAction(undefined, formData);
+            }}
+            className="mt-5"
+          >
             <input type="hidden" name="eventSlug" value={typedEvent.slug} />
             <button
               type="submit"
@@ -284,6 +301,11 @@ export default async function PublicEventRegisterPage({
                       <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
                         {kindLabel(ticket.ticket_kind)}
                       </span>
+                      {ticket.attendees_per_ticket > 1 ? (
+                        <span className="inline-flex rounded-full bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 ring-1 ring-purple-100">
+                          Admits {ticket.attendees_per_ticket}
+                        </span>
+                      ) : null}
                     </div>
 
                     <p className="mt-2 font-medium text-slate-900">
@@ -330,12 +352,12 @@ export default async function PublicEventRegisterPage({
               </p>
             ) : (
               <RegistrationForm
-  eventSlug={typedEvent.slug}
-  ticketTypes={availableFreeTickets}
-  currentUserEmail={user?.email ?? ""}
-  isSoldOut={Boolean((typedEvent as any).is_sold_out)}
-  waitlistEnabled={Boolean((typedEvent as any).waitlist_enabled)}
-/>
+                eventSlug={typedEvent.slug}
+                ticketTypes={availableFreeTickets}
+                currentUserEmail={user?.email ?? ""}
+                isSoldOut={Boolean((typedEvent as any).is_sold_out)}
+                waitlistEnabled={Boolean((typedEvent as any).waitlist_enabled)}
+              />
             )}
           </div>
         </div>

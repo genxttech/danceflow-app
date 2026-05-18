@@ -15,6 +15,7 @@ type TicketTypeRow = {
   active: boolean;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
+  attendees_per_ticket: number | null;
 };
 
 type ActionState = {
@@ -148,6 +149,7 @@ export default function RegistrationForm({
   );
 
   const [selectedTicketTypeId, setSelectedTicketTypeId] = useState<string>("");
+  const [quantity, setQuantity] = useState<number>(1);
 
   const ticketOptions = useMemo(() => {
     return ticketTypes.map((ticket) => ({
@@ -166,6 +168,13 @@ export default function RegistrationForm({
     () => ticketOptions.find((ticket) => ticket.id === selectedTicketTypeId) ?? null,
     [ticketOptions, selectedTicketTypeId]
   );
+
+  const attendeesPerTicket = Math.max(
+    1,
+    Number(selectedTicket?.attendees_per_ticket ?? 1) || 1
+  );
+  const totalAttendeeCount = Math.max(1, quantity) * attendeesPerTicket;
+  const additionalAttendeeCount = Math.max(0, totalAttendeeCount - 1);
 
   const topNotice = blockedForAuth
     ? "This event requires a free account before registration can continue."
@@ -251,6 +260,9 @@ export default function RegistrationForm({
           {ticketOptions.map((ticket) => (
             <option key={ticket.id} value={ticket.id} disabled={!ticket.meta.selectable}>
               {ticket.name} — {formatCurrency(ticket.price, ticket.currency)}
+              {Number(ticket.attendees_per_ticket ?? 1) > 1
+                ? ` · admits ${Number(ticket.attendees_per_ticket ?? 1)}`
+                : ""}
               {!ticket.meta.selectable ? ` (${ticket.meta.label})` : ""}
             </option>
           ))}
@@ -311,6 +323,12 @@ export default function RegistrationForm({
                         ? "Unlimited"
                         : `${ticket.capacity} currently available`}
                     </p>
+                    <p className="text-xs text-slate-500">
+                      Admits {Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1)}
+                      {Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1) === 1
+                        ? " attendee"
+                        : " attendees"}
+                    </p>
                   </div>
                 </div>
 
@@ -339,13 +357,24 @@ export default function RegistrationForm({
           name="quantity"
           type="number"
           min={1}
-          defaultValue={1}
+          value={quantity}
+          onChange={(event) => {
+            const nextValue = Number.parseInt(event.target.value, 10);
+            setQuantity(Number.isFinite(nextValue) && nextValue > 0 ? nextValue : 1);
+          }}
           disabled={!allowSubmission}
           className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
         />
 
         <p className="mt-1 text-xs text-slate-500">
           Quantity will be validated again when registration is submitted.
+          {selectedTicket ? (
+            <>
+              {" "}
+              This selection admits {totalAttendeeCount} total
+              {totalAttendeeCount === 1 ? " attendee" : " attendees"}.
+            </>
+          ) : null}
         </p>
       </div>
 
@@ -403,6 +432,39 @@ export default function RegistrationForm({
           />
         </div>
       </div>
+
+      {selectedTicket && additionalAttendeeCount > 0 ? (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-semibold text-slate-900">Additional attendee names</p>
+            <p className="text-sm text-slate-600">
+              This ticket selection admits {totalAttendeeCount} total attendees. The buyer above is
+              Attendee 1. Add the remaining attendee names below for accurate check-in.
+            </p>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {Array.from({ length: additionalAttendeeCount }, (_, index) => {
+              const attendeeNumber = index + 2;
+
+              return (
+                <label key={attendeeNumber} className="space-y-1 text-sm">
+                  <span className="font-medium text-slate-700">
+                    Attendee {attendeeNumber} name
+                  </span>
+                  <input
+                    name="additionalAttendeeNames"
+                    required
+                    disabled={!allowSubmission}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
+                    placeholder="Full name"
+                  />
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <div>
         <label htmlFor="notes" className="mb-1 block text-sm font-medium">

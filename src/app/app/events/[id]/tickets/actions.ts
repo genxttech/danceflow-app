@@ -21,6 +21,12 @@ function parseOptionalInteger(value: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function parsePositiveInteger(value: string, fallback = 1) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, parsed);
+}
+
 function parseMoney(value: string) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -153,6 +159,14 @@ async function getTicketEventAccess(eventId: string): Promise<{
   return { supabase, access };
 }
 
+function getAttendeesPerTicket(formData: FormData) {
+  return parsePositiveInteger(
+    getString(formData, "attendeesPerTicket") ||
+      getString(formData, "attendees_per_ticket"),
+    1
+  );
+}
+
 export async function createTicketTypeAction(formData: FormData) {
   let redirectTo = "";
 
@@ -168,10 +182,9 @@ export async function createTicketTypeAction(formData: FormData) {
     const saleStartsAt = parseOptionalDateTimeLocal(
       getString(formData, "saleStartsAt")
     );
-    const saleEndsAt = parseOptionalDateTimeLocal(
-      getString(formData, "saleEndsAt")
-    );
+    const saleEndsAt = parseOptionalDateTimeLocal(getString(formData, "saleEndsAt"));
     const active = getBoolean(formData, "active");
+    const attendeesPerTicket = getAttendeesPerTicket(formData);
 
     if (!eventId) {
       throw new Error("Missing event id.");
@@ -185,7 +198,6 @@ export async function createTicketTypeAction(formData: FormData) {
 
     const { error } = await supabase.from("event_ticket_types").insert({
       event_id: access.event.id,
-      studio_id: access.event.studio_id,
       name,
       description: description || null,
       ticket_kind: ticketKind,
@@ -196,6 +208,7 @@ export async function createTicketTypeAction(formData: FormData) {
       sale_starts_at: saleStartsAt,
       sale_ends_at: saleEndsAt,
       active,
+      attendees_per_ticket: attendeesPerTicket,
     });
 
     if (error) {
@@ -235,10 +248,9 @@ export async function updateTicketTypeAction(formData: FormData) {
     const saleStartsAt = parseOptionalDateTimeLocal(
       getString(formData, "saleStartsAt")
     );
-    const saleEndsAt = parseOptionalDateTimeLocal(
-      getString(formData, "saleEndsAt")
-    );
+    const saleEndsAt = parseOptionalDateTimeLocal(getString(formData, "saleEndsAt"));
     const active = getBoolean(formData, "active");
+    const attendeesPerTicket = getAttendeesPerTicket(formData);
 
     if (!ticketId) {
       throw new Error("Missing ticket id.");
@@ -267,6 +279,7 @@ export async function updateTicketTypeAction(formData: FormData) {
         sale_starts_at: saleStartsAt,
         sale_ends_at: saleEndsAt,
         active,
+        attendees_per_ticket: attendeesPerTicket,
         updated_at: new Date().toISOString(),
       })
       .eq("id", ticketId)
