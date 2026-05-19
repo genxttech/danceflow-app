@@ -1132,12 +1132,42 @@ export default async function EventsPage() {
                       </div>
                     </div>
 
-                    <div className="shrink-0">
+                    <div className="grid shrink-0 gap-2 sm:min-w-44">
                       <Link
-                        href={`/app/events/${event.id}`}
-                        className="inline-flex items-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                        href={`/app/events/${event.id}/edit`}
+                        className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
                       >
-                        View Event
+                        Edit Event
+                      </Link>
+
+                      <Link
+                        href={`/app/events/${event.id}/tickets`}
+                        className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        Manage Tickets
+                      </Link>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <Link
+                          href={`/app/events/${event.id}/registrations`}
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          Registrations
+                        </Link>
+
+                        <Link
+                          href={`/app/events/${event.id}/check-in`}
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          Check-In
+                        </Link>
+                      </div>
+
+                      <Link
+                        href={`/events/${event.slug}`}
+                        className="inline-flex items-center justify-center rounded-xl border border-[var(--brand-primary)]/20 bg-[var(--brand-primary-soft)] px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]/80"
+                      >
+                        View Public Page
                       </Link>
                     </div>
                   </div>
