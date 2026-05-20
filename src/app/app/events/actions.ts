@@ -1473,14 +1473,91 @@ function normalizeTimeForDateTime(time: string) {
   return match?.[1] ?? trimmed;
 }
 
-function toSlotDateTimeIso(lessonDate: string, time: string) {
-  const normalizedTime = normalizeTimeForDateTime(time);
-  const parsed = new Date(`${lessonDate}T${normalizedTime}`);
-  if (Number.isNaN(parsed.getTime())) {
+function parseDateParts(value: string) {
+  const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+
+  if (!year || !month || !day) {
     return null;
   }
 
-  return parsed.toISOString();
+  return { year, month, day };
+}
+
+function parseTimeParts(value: string) {
+  const normalizedTime = normalizeTimeForDateTime(value);
+  const [hour, minute, second] = normalizedTime
+    .split(":")
+    .map((part) => Number.parseInt(part, 10));
+
+  if (
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    !Number.isFinite(second)
+  ) {
+    return null;
+  }
+
+  return { hour, minute, second };
+}
+
+function getTimeZoneOffsetMs(timeZone: string, date: Date) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+
+  const parts = formatter.formatToParts(date);
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+
+  const asUtc = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(values.hour),
+    Number(values.minute),
+    Number(values.second),
+  );
+
+  return asUtc - date.getTime();
+}
+
+function toSlotDateTimeIso(lessonDate: string, time: string, timeZone: string) {
+  const dateParts = parseDateParts(lessonDate);
+  const timeParts = parseTimeParts(time);
+
+  if (!dateParts || !timeParts) {
+    return null;
+  }
+
+  const utcGuess = new Date(
+    Date.UTC(
+      dateParts.year,
+      dateParts.month - 1,
+      dateParts.day,
+      timeParts.hour,
+      timeParts.minute,
+      timeParts.second,
+    ),
+  );
+
+  const offset = getTimeZoneOffsetMs(timeZone || "America/New_York", utcGuess);
+  const zonedDate = new Date(utcGuess.getTime() - offset);
+
+  if (Number.isNaN(zonedDate.getTime())) {
+    return null;
+  }
+
+  return zonedDate.toISOString();
 }
 
 function addMinutesIso(isoValue: string, minutes: number) {
@@ -1496,10 +1573,11 @@ function buildPrivateLessonSlotRows(params: {
   studioId: string;
   organizerId: string | null;
   block: GuestCoachBlockPayload;
+  timezone: string;
 }) {
-  const { eventId, coachId, blockId, studioId, organizerId, block } = params;
-  const firstStartIso = toSlotDateTimeIso(block.lessonDate, block.startTime);
-  const blockEndIso = toSlotDateTimeIso(block.lessonDate, block.endTime);
+  const { eventId, coachId, blockId, studioId, organizerId, block, timezone } = params;
+  const firstStartIso = toSlotDateTimeIso(block.lessonDate, block.startTime, timezone);
+  const blockEndIso = toSlotDateTimeIso(block.lessonDate, block.endTime, timezone);
 
   if (!firstStartIso || !blockEndIso) {
     return [];
@@ -1539,8 +1617,9 @@ async function replaceGuestCoachPrivateLessons(params: {
   studioId: string;
   organizerId: string | null;
   guestCoaches: GuestCoachPayload[];
+  timezone: string;
 }) {
-  const { supabase, eventId, studioId, organizerId, guestCoaches } = params;
+  const { supabase, eventId, studioId, organizerId, guestCoaches, timezone } = params;
 
   const { error: deleteError } = await supabase
     .from("event_guest_coaches")
@@ -1608,6 +1687,7 @@ async function replaceGuestCoachPrivateLessons(params: {
         studioId,
         organizerId,
         block,
+        timezone,
       });
 
       if (slotRows.length === 0) {
@@ -1879,6 +1959,7 @@ export async function createEventAction(
       studioId,
       organizerId: effectivePayload.organizerId || null,
       guestCoaches: effectivePayload.guestCoaches,
+      timezone: effectivePayload.timezone,
     });
   } catch (error) {
     return {
@@ -2055,6 +2136,7 @@ export async function updateEventAction(
       studioId,
       organizerId: effectivePayload.organizerId || null,
       guestCoaches: effectivePayload.guestCoaches,
+      timezone: effectivePayload.timezone,
     });
   } catch (error) {
     return {
@@ -2218,8 +2300,7 @@ export async function duplicateEventAction(formData: FormData) {
           capacity,
           active,
           sale_starts_at,
-          sale_ends_at,
-          attendees_per_ticket
+          sale_ends_at
         `,
         )
         .eq("event_id", eventId),
@@ -2358,7 +2439,6 @@ export async function duplicateEventAction(formData: FormData) {
             active: ticket.active,
             sale_starts_at: ticket.sale_starts_at,
             sale_ends_at: ticket.sale_ends_at,
-            attendees_per_ticket: ticket.attendees_per_ticket ?? 1,
           })),
         );
 
@@ -2447,6 +2527,8 @@ export async function duplicateEventAction(formData: FormData) {
 
   redirect(redirectTo);
 }
+
+
 
 
 
