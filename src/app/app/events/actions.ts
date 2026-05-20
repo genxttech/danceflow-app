@@ -1458,8 +1458,24 @@ async function replaceEventScheduleItems(params: {
   }
 }
 
+function normalizeTimeForDateTime(time: string) {
+  const trimmed = time.trim();
+
+  if (/^\d{2}:\d{2}$/.test(trimmed)) {
+    return `${trimmed}:00`;
+  }
+
+  if (/^\d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const match = trimmed.match(/^(\d{2}:\d{2}:\d{2})/);
+  return match?.[1] ?? trimmed;
+}
+
 function toSlotDateTimeIso(lessonDate: string, time: string) {
-  const parsed = new Date(`${lessonDate}T${time}:00`);
+  const normalizedTime = normalizeTimeForDateTime(time);
+  const parsed = new Date(`${lessonDate}T${normalizedTime}`);
   if (Number.isNaN(parsed.getTime())) {
     return null;
   }
