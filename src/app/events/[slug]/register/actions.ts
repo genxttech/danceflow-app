@@ -765,10 +765,6 @@ export async function createEventRegistrationAction(
       return { error: "Event not found.", success: "" };
     }
 
-    if (!event.organizer_id) {
-      return { error: "This event is not available for public registration.", success: "" };
-    }
-
     const registrationWindowError = validateRegistrationWindow(event);
     if (registrationWindowError) {
       return { error: registrationWindowError, success: "" };
@@ -1192,8 +1188,7 @@ export async function retryEventRegistrationCheckoutAction(formData: FormData) {
 
   if (
     eventValue.status !== "published" ||
-    !["public", "unlisted"].includes(eventValue.visibility) ||
-    !eventValue.organizer_id
+    !["public", "unlisted"].includes(eventValue.visibility)
   ) {
     redirect(eventUrlWithQuery(eventValue.slug, "error", "checkout_session_failed"));
   }
