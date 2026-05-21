@@ -486,7 +486,7 @@ export async function POST(request: NextRequest) {
           last_name: parsed.lastName,
           email: index === 0 ? buyerEmail : null,
           phone: index === 0 ? buyerPhone || null : null,
-          attendee_role: index === 0 ? "buyer" : "attendee",
+          attendee_role: "attendee",
           sort_order: index + 1,
         };
       });
@@ -691,6 +691,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_checkout_failed"));
   }
 }
+
+
 
 
 
