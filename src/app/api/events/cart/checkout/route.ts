@@ -297,6 +297,28 @@ export async function POST(request: NextRequest) {
     ticketCurrency = ticket.currency || "USD";
     ticketTotal = Number((Number(ticket.price ?? 0) * quantity).toFixed(2));
 
+    // Failed cart checkout attempts can leave a pending registration behind before Stripe is reached.
+    // The active-registration unique constraint is event + ticket + email, so cancel stale pending
+    // cart registrations before creating a fresh attempt for the same buyer.
+    const { error: staleRegistrationCleanupError } = await supabase
+      .from("event_registrations")
+      .update({
+        status: "cancelled",
+        payment_status: "failed",
+        cancelled_at: new Date().toISOString(),
+      })
+      .eq("event_id", event.id)
+      .eq("ticket_type_id", ticket.id)
+      .eq("attendee_email", buyerEmail)
+      .eq("status", "pending")
+      .eq("payment_status", "pending")
+      .not("order_id", "is", null);
+
+    if (staleRegistrationCleanupError) {
+      console.error("event cart stale registration cleanup failed:", staleRegistrationCleanupError);
+      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=registration_cleanup_failed"));
+    }
+
     const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
     const expectedAttendeeCount = Math.max(1, quantity) * attendeesPerTicket;
     if (additionalAttendeeNames.length < expectedAttendeeCount - 1) {
@@ -648,6 +670,16 @@ export async function POST(request: NextRequest) {
       .eq("status", "held");
 
     await supabase
+      .from("event_registrations")
+      .update({
+        status: "cancelled",
+        payment_status: "failed",
+        cancelled_at: new Date().toISOString(),
+      })
+      .eq("order_id", order.id)
+      .eq("status", "pending");
+
+    await supabase
       .from("event_orders")
       .update({
         status: "cancelled",
@@ -659,6 +691,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_checkout_failed"));
   }
 }
+
 
 
 
