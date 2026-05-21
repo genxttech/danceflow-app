@@ -106,7 +106,7 @@ async function sendEmail(params: {
   return response.json();
 }
 
-export async function POST(request: NextRequest) {
+async function processPendingNotificationDeliveries(request: NextRequest) {
   const authFailure = requireCronAuth(request);
   if (authFailure) {
     return authFailure;
@@ -224,4 +224,12 @@ export async function POST(request: NextRequest) {
     sent,
     failed,
   });
+}
+
+export async function GET(request: NextRequest) {
+  return processPendingNotificationDeliveries(request);
+}
+
+export async function POST(request: NextRequest) {
+  return processPendingNotificationDeliveries(request);
 }
