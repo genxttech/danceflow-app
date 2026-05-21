@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useMemo, useState } from "react";
-import { createEventRegistrationAction } from "./actions";
+import { useMemo, useState } from "react";
 
 type TicketTypeRow = {
   id: string;
@@ -18,11 +17,6 @@ type TicketTypeRow = {
   attendees_per_ticket: number | null;
 };
 
-type ActionState = {
-  error: string;
-  success: string;
-};
-
 type RegistrationFormProps = {
   eventSlug: string;
   ticketTypes: TicketTypeRow[];
@@ -31,11 +25,6 @@ type RegistrationFormProps = {
   waitlistEnabled?: boolean;
   accountRequiredForRegistration?: boolean;
   isAuthenticated?: boolean;
-};
-
-const initialState: ActionState = {
-  error: "",
-  success: "",
 };
 
 function formatCurrency(value: number, currency: string) {
@@ -143,13 +132,8 @@ export default function RegistrationForm({
   accountRequiredForRegistration = false,
   isAuthenticated = true,
 }: RegistrationFormProps) {
-  const [state, formAction, pending] = useActionState(
-    createEventRegistrationAction,
-    initialState
-  );
-
   const [selectedTicketTypeId, setSelectedTicketTypeId] = useState<string>("");
-  const [quantity, setQuantity] = useState<number>(1);
+  const [quantity, setQuantity] = useState(1);
 
   const ticketOptions = useMemo(() => {
     return ticketTypes.map((ticket) => ({
@@ -158,23 +142,19 @@ export default function RegistrationForm({
     }));
   }, [ticketTypes, waitlistEnabled]);
 
-  const selectableTicketTypes = ticketOptions.filter((ticket) => ticket.meta.selectable);
-
   const blockedForAuth = accountRequiredForRegistration && !isAuthenticated;
-  const allowSubmission =
-    !blockedForAuth && (selectableTicketTypes.length > 0 || (isSoldOut && waitlistEnabled));
+  const allowSubmission = !blockedForAuth;
 
   const selectedTicket = useMemo(
     () => ticketOptions.find((ticket) => ticket.id === selectedTicketTypeId) ?? null,
-    [ticketOptions, selectedTicketTypeId]
+    [ticketOptions, selectedTicketTypeId],
   );
 
-  const attendeesPerTicket = Math.max(
-    1,
-    Number(selectedTicket?.attendees_per_ticket ?? 1) || 1
-  );
-  const totalAttendeeCount = Math.max(1, quantity) * attendeesPerTicket;
-  const additionalAttendeeCount = Math.max(0, totalAttendeeCount - 1);
+  const attendeesPerTicket = selectedTicket
+    ? Math.max(1, Number(selectedTicket.attendees_per_ticket ?? 1) || 1)
+    : 1;
+  const totalAttendeeCount = selectedTicket ? Math.max(1, quantity) * attendeesPerTicket : 1;
+  const additionalAttendeeCount = selectedTicket ? Math.max(0, totalAttendeeCount - 1) : 0;
 
   const topNotice = blockedForAuth
     ? "This event requires a free account before registration can continue."
@@ -182,22 +162,21 @@ export default function RegistrationForm({
     ? waitlistEnabled
       ? "This event is currently full. Select a ticket below to join the waitlist. You will not be charged unless a spot opens."
       : "This event is currently sold out."
-    : "Choose a ticket type below. Free registrations complete immediately. Paid registrations continue to secure Stripe Checkout.";
+    : "Choose event tickets and any guest coach lesson slots you want, then check out once.";
 
-  const buttonLabel = pending
-    ? isSoldOut && waitlistEnabled
-      ? "Joining Waitlist..."
-      : "Continuing..."
-    : blockedForAuth
+  const buttonLabel = blockedForAuth
     ? "Account Required"
     : isSoldOut && waitlistEnabled
     ? "Join Waitlist"
-    : selectedTicket && Number(selectedTicket.price) <= 0
-    ? "Complete Registration"
-    : "Continue to Checkout";
+    : "Continue to Secure Checkout";
 
   return (
-    <form action={formAction} className="mt-4 space-y-4">
+    <form
+      id="event-cart-checkout-form"
+      action="/api/events/cart/checkout"
+      method="post"
+      className="mt-4 space-y-4"
+    >
       <input type="hidden" name="eventSlug" value={eventSlug} />
 
       <div
@@ -241,202 +220,220 @@ export default function RegistrationForm({
         </div>
       ) : null}
 
-      <div>
-        <label htmlFor="ticketTypeId" className="mb-1 block text-sm font-medium">
-          Ticket Type
-        </label>
+      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-semibold text-slate-900">1. Choose event tickets</p>
+          <p className="text-sm text-slate-600">
+            Leave ticket type blank if you only want to book guest coach lessons.
+          </p>
+        </div>
 
-        <select
-          id="ticketTypeId"
-          name="ticketTypeId"
-          required
-          value={selectedTicketTypeId}
-          onChange={(event) => setSelectedTicketTypeId(event.target.value)}
-          disabled={!allowSubmission}
-          className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-        >
-          <option value="">Select ticket type</option>
+        <div className="mt-4">
+          <label htmlFor="ticketTypeId" className="mb-1 block text-sm font-medium">
+            Ticket Type
+          </label>
 
-          {ticketOptions.map((ticket) => (
-            <option key={ticket.id} value={ticket.id} disabled={!ticket.meta.selectable}>
-              {ticket.name} — {formatCurrency(ticket.price, ticket.currency)}
-              {Number(ticket.attendees_per_ticket ?? 1) > 1
-                ? ` · admits ${Number(ticket.attendees_per_ticket ?? 1)}`
-                : ""}
-              {!ticket.meta.selectable ? ` (${ticket.meta.label})` : ""}
-            </option>
-          ))}
-        </select>
+          <select
+            id="ticketTypeId"
+            name="ticketTypeId"
+            value={selectedTicketTypeId}
+            onChange={(event) => setSelectedTicketTypeId(event.target.value)}
+            disabled={!allowSubmission}
+            className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
+          >
+            <option value="">No event ticket</option>
 
-        {selectedTicket ? (
-          <p className="mt-2 text-sm text-slate-600">{selectedTicket.meta.helper}</p>
-        ) : null}
-      </div>
+            {ticketOptions.map((ticket) => (
+              <option key={ticket.id} value={ticket.id} disabled={!ticket.meta.selectable}>
+                {ticket.name} — {formatCurrency(ticket.price, ticket.currency)}
+                {Number(ticket.attendees_per_ticket ?? 1) > 1
+                  ? ` · admits ${Number(ticket.attendees_per_ticket ?? 1)}`
+                  : ""}
+                {!ticket.meta.selectable ? ` (${ticket.meta.label})` : ""}
+              </option>
+            ))}
+          </select>
 
-      {ticketOptions.length > 0 ? (
-        <div className="space-y-3">
-          {ticketOptions.map((ticket) => {
-            const isSelected = ticket.id === selectedTicketTypeId;
+          {selectedTicket ? (
+            <p className="mt-2 text-sm text-slate-600">{selectedTicket.meta.helper}</p>
+          ) : null}
+        </div>
 
-            return (
-              <div
-                key={ticket.id}
-                className={`rounded-xl border p-4 ${
-                  isSelected
-                    ? "border-slate-900 bg-slate-50"
-                    : "border-slate-200 bg-slate-50"
-                }`}
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium text-slate-900">{ticket.name}</p>
+        {ticketOptions.length > 0 ? (
+          <div className="mt-4 space-y-3">
+            {ticketOptions.map((ticket) => {
+              const isSelected = ticket.id === selectedTicketTypeId;
 
-                      <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                        {ticketKindLabel(ticket.ticket_kind)}
-                      </span>
+              return (
+                <button
+                  key={ticket.id}
+                  type="button"
+                  disabled={!ticket.meta.selectable || !allowSubmission}
+                  onClick={() => setSelectedTicketTypeId(ticket.id)}
+                  className={`w-full rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                    isSelected
+                      ? "border-slate-900 bg-white shadow-sm"
+                      : "border-slate-200 bg-white hover:border-slate-300"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium text-slate-900">{ticket.name}</p>
 
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${ticket.meta.className}`}
-                      >
-                        {ticket.meta.label}
-                      </span>
-
-                      {isSelected ? (
-                        <span className="inline-flex rounded-full bg-slate-900 px-2.5 py-1 text-xs font-medium text-white">
-                          Selected
+                        <span className="inline-flex rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                          {ticketKindLabel(ticket.ticket_kind)}
                         </span>
+
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${ticket.meta.className}`}
+                        >
+                          {ticket.meta.label}
+                        </span>
+
+                        {isSelected ? (
+                          <span className="inline-flex rounded-full bg-slate-900 px-2.5 py-1 text-xs font-medium text-white">
+                            Selected
+                          </span>
+                        ) : null}
+                      </div>
+
+                      {ticket.description ? (
+                        <p className="mt-2 text-sm text-slate-600">{ticket.description}</p>
                       ) : null}
                     </div>
 
-                    {ticket.description ? (
-                      <p className="mt-2 text-sm text-slate-600">{ticket.description}</p>
-                    ) : null}
+                    <div className="text-right">
+                      <p className="font-semibold text-slate-900">
+                        {formatCurrency(ticket.price, ticket.currency)}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {ticket.capacity == null
+                          ? "Unlimited"
+                          : `${ticket.capacity} currently available`}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Admits {Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1)}
+                        {Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1) === 1
+                          ? " attendee"
+                          : " attendees"}
+                      </p>
+                    </div>
                   </div>
 
-                  <div className="text-right">
-                    <p className="font-semibold text-slate-900">
-                      {formatCurrency(ticket.price, ticket.currency)}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {ticket.capacity == null
-                        ? "Unlimited"
-                        : `${ticket.capacity} currently available`}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      Admits {Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1)}
-                      {Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1) === 1
-                        ? " attendee"
-                        : " attendees"}
-                    </p>
+                  <div className="mt-3 space-y-1 text-xs text-slate-500">
+                    <p>{ticket.meta.helper}</p>
+                    <p>Sale starts: {formatDateTime(ticket.sale_starts_at)}</p>
+                    <p>Sale ends: {formatDateTime(ticket.sale_ends_at)}</p>
                   </div>
-                </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-8 text-sm text-slate-500">
+            No active ticket types are available right now.
+          </div>
+        )}
 
-                <div className="mt-3 space-y-1 text-xs text-slate-500">
-                  <p>{ticket.meta.helper}</p>
-                  <p>Sale starts: {formatDateTime(ticket.sale_starts_at)}</p>
-                  <p>Sale ends: {formatDateTime(ticket.sale_ends_at)}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-sm text-slate-500">
-          No active ticket types are available right now.
-        </div>
-      )}
+        {selectedTicket ? (
+          <div className="mt-4">
+            <label htmlFor="quantity" className="mb-1 block text-sm font-medium">
+              Quantity
+            </label>
 
-      <div>
-        <label htmlFor="quantity" className="mb-1 block text-sm font-medium">
-          Quantity
-        </label>
+            <input
+              id="quantity"
+              name="quantity"
+              type="number"
+              min={1}
+              value={quantity}
+              onChange={(event) => {
+                const nextValue = Number.parseInt(event.target.value, 10);
+                setQuantity(Number.isFinite(nextValue) && nextValue > 0 ? nextValue : 1);
+              }}
+              disabled={!allowSubmission}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
+            />
 
-        <input
-          id="quantity"
-          name="quantity"
-          type="number"
-          min={1}
-          value={quantity}
-          onChange={(event) => {
-            const nextValue = Number.parseInt(event.target.value, 10);
-            setQuantity(Number.isFinite(nextValue) && nextValue > 0 ? nextValue : 1);
-          }}
-          disabled={!allowSubmission}
-          className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-        />
-
-        <p className="mt-1 text-xs text-slate-500">
-          Quantity will be validated again when registration is submitted.
-          {selectedTicket ? (
-            <>
-              {" "}
-              This selection admits {totalAttendeeCount} total
+            <p className="mt-1 text-xs text-slate-500">
+              This ticket selection admits {totalAttendeeCount} total
               {totalAttendeeCount === 1 ? " attendee" : " attendees"}.
-            </>
-          ) : null}
-        </p>
+            </p>
+          </div>
+        ) : (
+          <input type="hidden" name="quantity" value="0" />
+        )}
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div>
-          <label htmlFor="attendeeFirstName" className="mb-1 block text-sm font-medium">
-            First Name
-          </label>
-          <input
-            id="attendeeFirstName"
-            name="attendeeFirstName"
-            required
-            disabled={!allowSubmission}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-          />
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-semibold text-slate-900">2. Buyer details</p>
+          <p className="text-sm text-slate-600">
+            This person receives the receipt and any event updates.
+          </p>
         </div>
 
-        <div>
-          <label htmlFor="attendeeLastName" className="mb-1 block text-sm font-medium">
-            Last Name
-          </label>
-          <input
-            id="attendeeLastName"
-            name="attendeeLastName"
-            required
-            disabled={!allowSubmission}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-          />
-        </div>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <label htmlFor="attendeeFirstName" className="mb-1 block text-sm font-medium">
+              First Name
+            </label>
+            <input
+              id="attendeeFirstName"
+              name="attendeeFirstName"
+              required
+              disabled={!allowSubmission}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
+            />
+          </div>
 
-        <div className="md:col-span-2">
-          <label htmlFor="attendeeEmail" className="mb-1 block text-sm font-medium">
-            Email
-          </label>
-          <input
-            id="attendeeEmail"
-            name="attendeeEmail"
-            type="email"
-            required
-            defaultValue={currentUserEmail}
-            disabled={!allowSubmission}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-          />
-        </div>
+          <div>
+            <label htmlFor="attendeeLastName" className="mb-1 block text-sm font-medium">
+              Last Name
+            </label>
+            <input
+              id="attendeeLastName"
+              name="attendeeLastName"
+              required
+              disabled={!allowSubmission}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
+            />
+          </div>
 
-        <div className="md:col-span-2">
-          <label htmlFor="attendeePhone" className="mb-1 block text-sm font-medium">
-            Phone
-          </label>
-          <input
-            id="attendeePhone"
-            name="attendeePhone"
-            disabled={!allowSubmission}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-          />
+          <div className="md:col-span-2">
+            <label htmlFor="attendeeEmail" className="mb-1 block text-sm font-medium">
+              Email
+            </label>
+            <input
+              id="attendeeEmail"
+              name="attendeeEmail"
+              type="email"
+              required
+              defaultValue={currentUserEmail}
+              disabled={!allowSubmission}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <label htmlFor="attendeePhone" className="mb-1 block text-sm font-medium">
+              Phone
+            </label>
+            <input
+              id="attendeePhone"
+              name="attendeePhone"
+              disabled={!allowSubmission}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
+            />
+          </div>
         </div>
       </div>
 
       {selectedTicket && additionalAttendeeCount > 0 ? (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-col gap-1">
-            <p className="text-sm font-semibold text-slate-900">Additional attendee names</p>
+            <p className="text-sm font-semibold text-slate-900">3. Additional attendee names</p>
             <p className="text-sm text-slate-600">
               This ticket selection admits {totalAttendeeCount} total attendees. The buyer above is
               Attendee 1. Add the remaining attendee names below for accurate check-in.
@@ -466,7 +463,7 @@ export default function RegistrationForm({
         </div>
       ) : null}
 
-      <div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <label htmlFor="notes" className="mb-1 block text-sm font-medium">
           Notes
         </label>
@@ -480,21 +477,16 @@ export default function RegistrationForm({
         />
       </div>
 
-      {state.error ? (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {state.error}
-        </div>
-      ) : null}
-
-      {state.success ? (
-        <div className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          {state.success}
-        </div>
-      ) : null}
+      <div className="rounded-2xl border border-purple-100 bg-purple-50 p-4 text-sm text-purple-900">
+        <p className="font-semibold">Single checkout</p>
+        <p className="mt-1">
+          Selected coach lesson slots above will be included with your event ticket in one secure Stripe payment.
+        </p>
+      </div>
 
       <button
         type="submit"
-        disabled={pending || !allowSubmission}
+        disabled={!allowSubmission}
         className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white hover:bg-slate-800 disabled:opacity-60"
       >
         {buttonLabel}
@@ -502,3 +494,4 @@ export default function RegistrationForm({
     </form>
   );
 }
+

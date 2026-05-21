@@ -1863,9 +1863,9 @@ export default async function PublicEventDetailPage({
                     </div>
 
                     <p className="mt-3 text-sm leading-6 text-slate-600">
-                      Reserve a private lesson with a guest coach. Choose a
-                      coach, pick an available time, then enter your details
-                      once you are ready to pay.
+                      Reserve a private lesson with a guest coach. Choose one
+                      or more available times, then complete one checkout in
+                      the ticket checkout section below.
                     </p>
 
                     <div className="mt-6 space-y-4">
@@ -1974,64 +1974,33 @@ export default async function PublicEventDetailPage({
                                           </div>
                                         </summary>
 
-                                        <form
-                                          action="/api/events/private-lessons/checkout"
-                                          method="post"
-                                          className="mt-4 border-t pt-4"
-                                        >
-                                          <input
-                                            type="hidden"
-                                            name="slotId"
-                                            value={slot.id}
-                                          />
-                                          <input
-                                            type="hidden"
-                                            name="eventSlug"
-                                            value={typedEvent.slug}
-                                          />
-
-                                          <p className="mb-3 rounded-xl bg-white px-3 py-2 text-xs leading-5 text-slate-600 ring-1 ring-slate-200">
-                                            Selected: {coach.name} ·{" "}
-                                            {formatSlotDateTimeRange(
-                                              slot.starts_at,
-                                              slot.ends_at,
-                                              typedEvent.timezone,
-                                            )}
-                                          </p>
-
-                                          <div className="grid gap-2">
+                                        <div className="mt-4 border-t pt-4">
+                                          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-purple-100 bg-white p-3 transition hover:border-purple-300">
                                             <input
-                                              name="buyerName"
-                                              required
-                                              placeholder="Your name"
-                                              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                                              form="event-cart-checkout-form"
+                                              type="checkbox"
+                                              name="slotIds"
+                                              value={slot.id}
+                                              className="mt-1 h-4 w-4 rounded border-slate-300 text-purple-700"
                                             />
-                                            <input
-                                              name="buyerEmail"
-                                              type="email"
-                                              required
-                                              placeholder="Email"
-                                              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                                            />
-                                            <input
-                                              name="buyerPhone"
-                                              placeholder="Phone, optional"
-                                              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                                            />
-                                            <textarea
-                                              name="buyerNotes"
-                                              placeholder="Anything you want the coach to know, optional"
-                                              rows={2}
-                                              className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                                            />
-                                            <button
-                                              type="submit"
-                                              className="rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
-                                            >
-                                              Continue to payment
-                                            </button>
-                                          </div>
-                                        </form>
+                                            <span className="min-w-0 flex-1">
+                                              <span className="block text-sm font-semibold text-slate-950">
+                                                Add this coach lesson to checkout
+                                              </span>
+                                              <span className="mt-1 block text-xs leading-5 text-slate-600">
+                                                {coach.name} ·{" "}
+                                                {formatSlotDateTimeRange(
+                                                  slot.starts_at,
+                                                  slot.ends_at,
+                                                  typedEvent.timezone,
+                                                )}
+                                              </span>
+                                              <span className="mt-1 block text-xs text-slate-500">
+                                                Select more than one coach lesson if needed, then pay once in the ticket checkout section.
+                                              </span>
+                                            </span>
+                                          </label>
+                                        </div>
                                       </details>
                                     ))}
                                   </div>
@@ -2372,6 +2341,7 @@ export default async function PublicEventDetailPage({
     </>
   );
 }
+
 
 
 
