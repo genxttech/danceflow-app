@@ -418,8 +418,8 @@ export async function POST(request: NextRequest) {
           total_amount: ticketTotal,
           currency,
           payment_status: "pending",
-          registration_source: "public_event_cart",
-          source: "public_event_cart",
+          registration_source: "public_event_page",
+          source: "public_event_page",
           notes: buyerNotes || null,
           checked_in_at: null,
           cancelled_at: null,
@@ -659,5 +659,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_checkout_failed"));
   }
 }
+
 
 
