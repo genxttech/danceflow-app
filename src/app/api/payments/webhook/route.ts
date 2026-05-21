@@ -947,6 +947,131 @@ async function handleEventRegistrationCheckoutCompleted(
 }
 
 
+
+async function handleEventCartOrderCheckoutCompleted(
+  supabase: SupabaseClient,
+  session: Stripe.Checkout.Session
+) {
+  const source = getString(session.metadata?.source);
+  if (source !== "event_cart_order") return false;
+
+  const orderId = getString(session.metadata?.order_id);
+  if (!orderId) {
+    throw new Error("Event cart checkout missing order_id metadata.");
+  }
+
+  if (session.payment_status !== "paid") {
+    return true;
+  }
+
+  const paymentIntentId = getString(session.payment_intent);
+  const sessionId = session.id;
+  const amountTotal = Number(session.amount_total ?? 0) / 100;
+  const currency = (session.currency ?? "usd").toUpperCase();
+  const paidAt = new Date().toISOString();
+
+  const { error: orderUpdateError } = await supabase
+    .from("event_orders")
+    .update({
+      status: "confirmed",
+      payment_status: "paid",
+      stripe_checkout_session_id: sessionId,
+      stripe_payment_intent_id: paymentIntentId,
+      total_amount: amountTotal,
+      currency,
+      paid_at: paidAt,
+      updated_at: paidAt,
+    })
+    .eq("id", orderId);
+
+  if (orderUpdateError) {
+    throw new Error(orderUpdateError.message);
+  }
+
+  const { data: registrations, error: registrationsError } = await supabase
+    .from("event_registrations")
+    .select("id, total_price, currency, payment_status")
+    .eq("order_id", orderId);
+
+  if (registrationsError) {
+    throw new Error(registrationsError.message);
+  }
+
+  for (const registration of registrations ?? []) {
+    const { error: registrationUpdateError } = await supabase
+      .from("event_registrations")
+      .update({
+        payment_status: "paid",
+        status: "confirmed",
+        stripe_checkout_session_id: sessionId,
+        stripe_payment_intent_id: paymentIntentId,
+      })
+      .eq("id", registration.id);
+
+    if (registrationUpdateError) {
+      throw new Error(registrationUpdateError.message);
+    }
+
+    const { data: existingPayment, error: existingPaymentError } = await supabase
+      .from("event_payments")
+      .select("id")
+      .eq("registration_id", registration.id)
+      .eq("stripe_checkout_session_id", sessionId)
+      .maybeSingle();
+
+    if (existingPaymentError) {
+      throw new Error(existingPaymentError.message);
+    }
+
+    if (!existingPayment) {
+      const { error: paymentInsertError } = await supabase
+        .from("event_payments")
+        .insert({
+          registration_id: registration.id,
+          amount: Number(registration.total_price ?? 0),
+          currency: registration.currency || currency,
+          payment_method: "stripe_checkout",
+          status: "paid",
+          source: "stripe",
+          stripe_checkout_session_id: sessionId,
+          stripe_payment_intent_id: paymentIntentId,
+          external_reference: sessionId,
+          notes: "Created by Stripe checkout.session.completed webhook for event cart order.",
+        });
+
+      if (paymentInsertError) {
+        throw new Error(paymentInsertError.message);
+      }
+    }
+
+    await safeQueuePaidEventRegistrationConfirmation({
+      supabase,
+      registrationId: registration.id,
+    });
+  }
+
+  const { error: slotUpdateError } = await supabase
+    .from("event_private_lesson_slots")
+    .update({
+      status: "booked",
+      payment_status: "paid",
+      stripe_checkout_session_id: sessionId,
+      stripe_payment_intent_id: paymentIntentId,
+      booked_at: paidAt,
+      held_until: null,
+      hold_token: null,
+      updated_at: paidAt,
+    })
+    .eq("order_id", orderId)
+    .in("status", ["available", "held"]);
+
+  if (slotUpdateError) {
+    throw new Error(slotUpdateError.message);
+  }
+
+  return true;
+}
+
 async function handleEventPrivateLessonCheckoutCompleted(
   supabase: SupabaseClient,
   session: Stripe.Checkout.Session
@@ -1285,6 +1410,15 @@ async function handleCheckoutSessionCompleted(
     return;
   }
 
+
+  const handledEventCartOrder = await handleEventCartOrderCheckoutCompleted(
+    supabase,
+    session
+  );
+
+  if (handledEventCartOrder) {
+    return;
+  }
 
   const handledPrivateLessonSlot = await handleEventPrivateLessonCheckoutCompleted(
     supabase,
@@ -1852,4 +1986,6 @@ case "customer.subscription.deleted": {
     });
   }
 }
+
+
 
