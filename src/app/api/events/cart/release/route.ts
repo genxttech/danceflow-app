@@ -59,7 +59,6 @@ export async function GET(request: NextRequest) {
     .from("event_registrations")
     .update({
       status: "cancelled",
-      payment_status: "failed",
       cancelled_at: new Date().toISOString(),
     })
     .eq("order_id", orderId)
@@ -69,7 +68,6 @@ export async function GET(request: NextRequest) {
     .from("event_orders")
     .update({
       status: "cancelled",
-      payment_status: "failed",
       cancelled_at: new Date().toISOString(),
     })
     .eq("id", orderId)
@@ -77,3 +75,4 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.redirect(eventUrl(request, eventSlug, "?error=checkout_cancelled"));
 }
+

@@ -990,7 +990,7 @@ async function handleEventCartOrderCheckoutCompleted(
 
   const { data: registrations, error: registrationsError } = await supabase
     .from("event_registrations")
-    .select("id, total_price, currency, payment_status")
+    .select("id, total_price, currency")
     .eq("order_id", orderId);
 
   if (registrationsError) {
@@ -1001,7 +1001,6 @@ async function handleEventCartOrderCheckoutCompleted(
     const { error: registrationUpdateError } = await supabase
       .from("event_registrations")
       .update({
-        payment_status: "paid",
         status: "confirmed",
         stripe_checkout_session_id: sessionId,
         stripe_payment_intent_id: paymentIntentId,
@@ -1986,6 +1985,8 @@ case "customer.subscription.deleted": {
     });
   }
 }
+
+
 
 
 

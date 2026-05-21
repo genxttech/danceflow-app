@@ -416,7 +416,6 @@ export async function POST(request: NextRequest) {
           unit_price: unitPrice,
           total_price: ticketTotal,
           currency,
-          payment_status: "pending",
           registration_source: "public_event_cart",
           notes: buyerNotes || null,
           checked_in_at: null,
@@ -499,7 +498,6 @@ export async function POST(request: NextRequest) {
         .from("event_private_lesson_slots")
         .update({
           status: "held",
-          payment_status: "pending",
           buyer_name: buyerName,
           buyer_email: buyerEmail,
           buyer_phone: buyerPhone || null,
@@ -658,3 +656,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_checkout_failed"));
   }
 }
+
