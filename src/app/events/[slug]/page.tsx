@@ -1981,6 +1981,14 @@ export default async function PublicEventDetailPage({
                                               type="checkbox"
                                               name="slotIds"
                                               value={slot.id}
+                                              data-cart-item="coach-slot"
+                                              data-coach-name={coach.name}
+                                              data-slot-label={formatSlotDateTimeRange(
+                                                slot.starts_at,
+                                                slot.ends_at,
+                                                typedEvent.timezone,
+                                              )}
+                                              data-slot-price={Number(slot.price ?? 0)}
                                               className="mt-1 h-4 w-4 rounded border-slate-300 text-purple-700"
                                             />
                                             <span className="min-w-0 flex-1">
@@ -2341,6 +2349,7 @@ export default async function PublicEventDetailPage({
     </>
   );
 }
+
 
 
 

@@ -1,7 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+type SelectedCoachSlotSummary = {
+  id: string;
+  coachName: string;
+  slotLabel: string;
+  price: number;
+};
+
 
 type TicketTypeRow = {
   id: string;
@@ -155,6 +163,52 @@ export default function RegistrationForm({
     : 1;
   const totalAttendeeCount = selectedTicket ? Math.max(1, quantity) * attendeesPerTicket : 1;
   const additionalAttendeeCount = selectedTicket ? Math.max(0, totalAttendeeCount - 1) : 0;
+
+  const [selectedCoachSlots, setSelectedCoachSlots] = useState<SelectedCoachSlotSummary[]>([]);
+
+  useEffect(() => {
+    function readSelectedCoachSlots() {
+      const checkboxes = Array.from(
+        document.querySelectorAll<HTMLInputElement>(
+          'input[name="slotIds"][form="event-cart-checkout-form"]',
+        ),
+      );
+
+      const selected = checkboxes
+        .filter((checkbox) => checkbox.checked)
+        .map((checkbox) => {
+          const price = Number.parseFloat(checkbox.dataset.slotPrice ?? "0");
+
+          return {
+            id: checkbox.value,
+            coachName: checkbox.dataset.coachName || "Guest coach",
+            slotLabel: checkbox.dataset.slotLabel || "Selected lesson slot",
+            price: Number.isFinite(price) ? price : 0,
+          };
+        });
+
+      setSelectedCoachSlots(selected);
+    }
+
+    readSelectedCoachSlots();
+
+    document.addEventListener("change", readSelectedCoachSlots);
+
+    return () => {
+      document.removeEventListener("change", readSelectedCoachSlots);
+    };
+  }, []);
+
+  const selectedCoachSlotTotal = selectedCoachSlots.reduce(
+    (sum, slot) => sum + slot.price,
+    0,
+  );
+
+  const selectedTicketTotal = selectedTicket
+    ? Number(selectedTicket.price ?? 0) * Math.max(1, quantity)
+    : 0;
+
+  const estimatedTotal = selectedTicketTotal + selectedCoachSlotTotal;
 
   const topNotice = blockedForAuth
     ? "This event requires a free account before registration can continue."
@@ -484,6 +538,58 @@ export default function RegistrationForm({
         </p>
       </div>
 
+      <details className="rounded-2xl border border-slate-200 bg-slate-50 p-4" open>
+        <summary className="cursor-pointer list-none text-sm font-semibold text-slate-900">
+          Your checkout
+        </summary>
+
+        <div className="mt-3 space-y-3 text-sm">
+          {selectedTicket ? (
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-medium text-slate-900">{selectedTicket.name}</p>
+                <p className="text-xs text-slate-500">
+                  Quantity {Math.max(1, quantity)} · {totalAttendeeCount} total{" "}
+                  {totalAttendeeCount === 1 ? "attendee" : "attendees"}
+                </p>
+              </div>
+              <p className="font-semibold text-slate-900">
+                {formatCurrency(selectedTicketTotal, selectedTicket.currency)}
+              </p>
+            </div>
+          ) : null}
+
+          {selectedCoachSlots.map((slot) => (
+            <div key={slot.id} className="flex items-start justify-between gap-3">
+              <div>
+                <p className="font-medium text-slate-900">
+                  Private lesson with {slot.coachName}
+                </p>
+                <p className="text-xs text-slate-500">{slot.slotLabel}</p>
+              </div>
+              <p className="font-semibold text-slate-900">
+                {formatCurrency(slot.price, selectedTicket?.currency || "USD")}
+              </p>
+            </div>
+          ))}
+
+          {!selectedTicket && selectedCoachSlots.length === 0 ? (
+            <p className="text-slate-500">
+              Select a ticket or coach lesson to see your checkout total.
+            </p>
+          ) : null}
+
+          <div className="border-t border-slate-200 pt-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="font-semibold text-slate-950">Estimated total</p>
+              <p className="text-lg font-bold text-slate-950">
+                {formatCurrency(estimatedTotal, selectedTicket?.currency || "USD")}
+              </p>
+            </div>
+          </div>
+        </div>
+      </details>
+
       <button
         type="submit"
         disabled={!allowSubmission}
@@ -494,4 +600,7 @@ export default function RegistrationForm({
     </form>
   );
 }
+
+
+
 
