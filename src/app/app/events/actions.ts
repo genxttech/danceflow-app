@@ -1816,6 +1816,188 @@ function buildInsertUpdatePayload(params: {
   };
 }
 
+
+function getSafeReturnTo(formData: FormData, fallback: string) {
+  const rawReturnTo = getString(formData, "returnTo");
+  if (!rawReturnTo.startsWith("/app/")) {
+    return fallback;
+  }
+
+  return rawReturnTo;
+}
+
+function redirectWithSlotMessage(
+  formData: FormData,
+  fallback: string,
+  messageParam: string,
+) {
+  const returnTo = getSafeReturnTo(formData, fallback);
+  const separator = returnTo.includes("?") ? "&" : "?";
+  redirect(`${returnTo}${separator}${messageParam}`);
+}
+
+async function requirePrivateLessonSlotAccess(formData: FormData) {
+  const slotId = getString(formData, "slotId");
+  const eventId = getString(formData, "eventId");
+
+  if (!slotId || !eventId) {
+    throw new Error("Missing private lesson slot information.");
+  }
+
+  const { supabase, studioId } = await getStudioContext();
+
+  const { data: slot, error: slotError } = await supabase
+    .from("event_private_lesson_slots")
+    .select(
+      `
+      id,
+      event_id,
+      studio_id,
+      status,
+      payment_status,
+      starts_at,
+      ends_at
+    `,
+    )
+    .eq("id", slotId)
+    .eq("event_id", eventId)
+    .eq("studio_id", studioId)
+    .maybeSingle();
+
+  if (slotError) {
+    throw new Error(`Could not load private lesson slot: ${slotError.message}`);
+  }
+
+  if (!slot) {
+    throw new Error("Private lesson slot not found.");
+  }
+
+  return {
+    supabase,
+    studioId,
+    slotId,
+    eventId,
+    slot,
+  };
+}
+
+export async function bookPrivateLessonSlotOfflineAction(formData: FormData) {
+  const fallback = `/app/events/${getString(formData, "eventId")}/private-lessons`;
+  const buyerName = getString(formData, "buyerName");
+  const buyerEmail = getString(formData, "buyerEmail");
+  const buyerPhone = getString(formData, "buyerPhone");
+  const buyerNotes = getString(formData, "buyerNotes");
+  const paymentStatus = getString(formData, "paymentStatus") || "paid";
+
+  if (!buyerName) {
+    redirectWithSlotMessage(formData, fallback, "private_lesson_error=buyer_name_required");
+  }
+
+  const validPaymentStatuses = new Set(["paid", "unpaid", "partial", "waived"]);
+  const resolvedPaymentStatus = validPaymentStatuses.has(paymentStatus)
+    ? paymentStatus
+    : "paid";
+
+  try {
+    const { supabase, studioId, slotId } =
+      await requirePrivateLessonSlotAccess(formData);
+
+    const { error: updateError } = await supabase
+      .from("event_private_lesson_slots")
+      .update({
+        status: "booked",
+        payment_status: resolvedPaymentStatus,
+        buyer_name: buyerName,
+        buyer_email: buyerEmail || null,
+        buyer_phone: buyerPhone || null,
+        buyer_notes: buyerNotes || null,
+        booked_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", slotId)
+      .eq("studio_id", studioId)
+      .eq("status", "available");
+
+    if (updateError) {
+      throw new Error(`Could not book private lesson slot: ${updateError.message}`);
+    }
+  } catch (error) {
+    redirectWithSlotMessage(formData, fallback, "private_lesson_error=book_failed");
+  }
+
+  redirectWithSlotMessage(formData, fallback, "private_lesson_booked=1");
+}
+
+export async function holdPrivateLessonSlotAction(formData: FormData) {
+  const fallback = `/app/events/${getString(formData, "eventId")}/private-lessons`;
+  const buyerNotes = getString(formData, "buyerNotes");
+
+  try {
+    const { supabase, studioId, slotId } =
+      await requirePrivateLessonSlotAccess(formData);
+
+    const { error: updateError } = await supabase
+      .from("event_private_lesson_slots")
+      .update({
+        status: "held",
+        payment_status: "waived",
+        buyer_name: null,
+        buyer_email: null,
+        buyer_phone: null,
+        buyer_notes: buyerNotes || "Blocked by studio.",
+        booked_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", slotId)
+      .eq("studio_id", studioId)
+      .eq("status", "available");
+
+    if (updateError) {
+      throw new Error(`Could not block private lesson slot: ${updateError.message}`);
+    }
+  } catch (error) {
+    redirectWithSlotMessage(formData, fallback, "private_lesson_error=block_failed");
+  }
+
+  redirectWithSlotMessage(formData, fallback, "private_lesson_blocked=1");
+}
+
+export async function releasePrivateLessonSlotAction(formData: FormData) {
+  const fallback = `/app/events/${getString(formData, "eventId")}/private-lessons`;
+
+  try {
+    const { supabase, studioId, slotId } =
+      await requirePrivateLessonSlotAccess(formData);
+
+    const { error: updateError } = await supabase
+      .from("event_private_lesson_slots")
+      .update({
+        status: "available",
+        payment_status: "unpaid",
+        buyer_name: null,
+        buyer_email: null,
+        buyer_phone: null,
+        buyer_notes: null,
+        client_id: null,
+        stripe_checkout_session_id: null,
+        stripe_payment_intent_id: null,
+        booked_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", slotId)
+      .eq("studio_id", studioId)
+      .in("status", ["held", "booked", "cancelled"]);
+
+    if (updateError) {
+      throw new Error(`Could not release private lesson slot: ${updateError.message}`);
+    }
+  } catch (error) {
+    redirectWithSlotMessage(formData, fallback, "private_lesson_error=release_failed");
+  }
+
+  redirectWithSlotMessage(formData, fallback, "private_lesson_released=1");
+}
+
 export async function createEventAction(
   _prevState: ActionState,
   formData: FormData,
@@ -2527,6 +2709,7 @@ export async function duplicateEventAction(formData: FormData) {
 
   redirect(redirectTo);
 }
+
 
 
 

@@ -204,6 +204,14 @@ export default async function EventTicketsPage({
     throw new Error(`Failed to load tickets: ${ticketsError.message}`);
   }
 
+  const { count: privateLessonSlotCount } = await supabase
+    .from("event_private_lesson_slots")
+    .select("id", { count: "exact", head: true })
+    .eq("event_id", typedEvent.id)
+    .eq("studio_id", studioId);
+
+  const hasPrivateLessonSlots = Number(privateLessonSlotCount ?? 0) > 0;
+
   const ticketRows = (tickets ?? []) as TicketTypeRow[];
   const activeCount = ticketRows.filter((ticket) => ticket.active).length;
 
@@ -249,6 +257,14 @@ export default async function EventTicketsPage({
             >
               Manage registrations
             </Link>
+            {hasPrivateLessonSlots ? (
+              <Link
+                href={`/app/events/${typedEvent.id}/private-lessons`}
+                className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+              >
+                Manage Private Lessons
+              </Link>
+            ) : null}
             <Link
               href={`/events/${typedEvent.slug}`}
               className="inline-flex items-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#5B197A] transition hover:bg-[#F9F1FF]"
@@ -715,4 +731,6 @@ export default async function EventTicketsPage({
     </div>
   );
 }
+
+
 
