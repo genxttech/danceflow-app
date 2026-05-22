@@ -11,6 +11,7 @@ import {
   markAppointmentNoShowAction,
   markFloorRentalWaivedAction,
   recordFloorRentalPaymentAction,
+  recordPayAsYouGoLessonPaymentAction,
   uploadLessonRecapVideoAction,
 } from "../actions";
 import { summarizeClientPackageItems } from "@/lib/utils/packageSummary";
@@ -48,6 +49,7 @@ type AppointmentRow = {
   client_package_id: string | null;
   price_amount: number | null;
   payment_status: string | null;
+  billing_type: string | null;
   is_recurring: boolean;
   recurrence_series_id: string | null;
   created_at: string | null;
@@ -379,6 +381,7 @@ export default async function AppointmentDetailPage({
         client_package_id,
         price_amount,
         payment_status,
+        billing_type,
         is_recurring,
         recurrence_series_id,
         created_at,
@@ -424,7 +427,7 @@ export default async function AppointmentDetailPage({
       .from("payments")
       .select("id, amount, payment_method, status, paid_at, notes")
       .eq("studio_id", studioId)
-      .eq("appointment_id", id)
+      .eq("external_reference", id)
       .order("paid_at", { ascending: false }),
   ]);
 
@@ -450,7 +453,7 @@ export default async function AppointmentDetailPage({
   const referralSource = getClientReferralSource(typedAppointment.clients);
   const returnTo = `/app/schedule/${typedAppointment.id}`;
   const totalPaid = typedPayments
-    .filter((payment) => payment.status === "completed")
+    .filter((payment) => payment.status === "paid" || payment.status === "completed")
     .reduce((sum, payment) => sum + Number(payment.amount ?? 0), 0);
   const rentalAmount = Number(typedAppointment.price_amount ?? 0);
   const balanceDue = Math.max(rentalAmount - totalPaid, 0);
@@ -470,6 +473,10 @@ export default async function AppointmentDetailPage({
 
   const isFloorRental = typedAppointment.appointment_type === "floor_space_rental";
   const isPrivateLesson = typedAppointment.appointment_type === "private_lesson";
+  const isPayAsYouGoLesson =
+    !isFloorRental && typedAppointment.billing_type === "pay_as_you_go";
+  const payAsYouGoLessonAmount = Number(typedAppointment.price_amount ?? 0);
+  const payAsYouGoPaymentStatus = typedAppointment.payment_status ?? "unpaid";
 
   const isFinalStatus =
     typedAppointment.status === "attended" ||
@@ -597,9 +604,11 @@ export default async function AppointmentDetailPage({
               <p className="mt-1 text-sm font-semibold text-slate-950">
                 {isFloorRental
                   ? paymentStatusLabel(effectivePaymentStatus)
-                  : pkg && packageHealth
-                    ? packageHealthLabel(packageHealth)
-                    : "No package linked"}
+                  : isPayAsYouGoLesson
+                    ? paymentStatusLabel(payAsYouGoPaymentStatus)
+                    : pkg && packageHealth
+                      ? packageHealthLabel(packageHealth)
+                      : "No package linked"}
               </p>
             </div>
           </div>
@@ -1013,6 +1022,181 @@ export default async function AppointmentDetailPage({
             </div>
           </div>
 
+          {isPayAsYouGoLesson ? (
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-semibold text-slate-900">
+                    Pay-as-you-go Payment
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Record payment for this lesson before marking it attended.
+                  </p>
+                </div>
+
+                <span
+                  className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${paymentStatusBadgeClass(
+                    payAsYouGoPaymentStatus,
+                  )}`}
+                >
+                  {paymentStatusLabel(payAsYouGoPaymentStatus)}
+                </span>
+              </div>
+
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">
+                    Lesson Amount
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">
+                    {payAsYouGoLessonAmount > 0
+                      ? formatCurrency(payAsYouGoLessonAmount)
+                      : "Not set"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-wide text-slate-400">
+                    Payment Status
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-900">
+                    {paymentStatusLabel(payAsYouGoPaymentStatus)}
+                  </p>
+                </div>
+              </div>
+
+              {payAsYouGoPaymentStatus !== "paid" ? (
+                <form
+                  action={recordPayAsYouGoLessonPaymentAction}
+                  className="mt-5 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5"
+                >
+                  <input
+                    type="hidden"
+                    name="appointmentId"
+                    value={typedAppointment.id}
+                  />
+                  <input type="hidden" name="clientId" value={clientId ?? ""} />
+                  <input type="hidden" name="returnTo" value={returnTo} />
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor="paygoLessonPrice"
+                        className="text-sm font-medium text-slate-900"
+                      >
+                        Lesson price
+                      </label>
+                      <input
+                        id="paygoLessonPrice"
+                        name="lessonPrice"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        defaultValue={
+                          payAsYouGoLessonAmount > 0
+                            ? String(payAsYouGoLessonAmount)
+                            : ""
+                        }
+                        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="paygoAmount"
+                        className="text-sm font-medium text-slate-900"
+                      >
+                        Payment amount
+                      </label>
+                      <input
+                        id="paygoAmount"
+                        name="amount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        defaultValue={
+                          payAsYouGoLessonAmount > 0
+                            ? String(payAsYouGoLessonAmount)
+                            : ""
+                        }
+                        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="paygoAccountCreditToApply"
+                        className="text-sm font-medium text-slate-900"
+                      >
+                        Account credit to apply
+                      </label>
+                      <input
+                        id="paygoAccountCreditToApply"
+                        name="accountCreditToApply"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        defaultValue="0"
+                        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                        placeholder="0.00"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="paygoPaymentMethod"
+                        className="text-sm font-medium text-slate-900"
+                      >
+                        Payment method
+                      </label>
+                      <select
+                        id="paygoPaymentMethod"
+                        name="paymentMethod"
+                        defaultValue="card"
+                        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="card">Card</option>
+                        <option value="cash">Cash</option>
+                        <option value="check">Check</option>
+                        <option value="ach">ACH</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="paygoPaymentNotes"
+                      className="text-sm font-medium text-slate-900"
+                    >
+                      Payment notes
+                    </label>
+                    <textarea
+                      id="paygoPaymentNotes"
+                      name="notes"
+                      rows={2}
+                      className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      placeholder="Optional note for the payment record."
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                  >
+                    Record Lesson Payment
+                  </button>
+                </form>
+              ) : (
+                <div className="mt-5 rounded-xl border border-green-200 bg-green-50 px-4 py-4 text-sm text-green-800">
+                  This pay-as-you-go lesson is paid and can be marked attended.
+                </div>
+              )}
+            </div>
+          ) : null}
+
           {isFloorRental ? (
             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <div className="flex items-start justify-between gap-4">
@@ -1066,6 +1250,8 @@ export default async function AppointmentDetailPage({
                 className="mt-5 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-5"
               >
                 <input type="hidden" name="appointmentId" value={typedAppointment.id} />
+                <input type="hidden" name="clientId" value={clientId ?? ""} />
+                <input type="hidden" name="returnTo" value={returnTo} />
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div>
                     <label htmlFor="amount" className="text-sm font-medium text-slate-900">
@@ -1169,7 +1355,7 @@ export default async function AppointmentDetailPage({
                               {(payment.payment_method ?? "other").replaceAll("_", " ")}
                             </span>
                             <span className="inline-flex rounded-full bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700">
-                              {(payment.status ?? "completed").replaceAll("_", " ")}
+                              {(payment.status ?? "paid").replaceAll("_", " ")}
                             </span>
                           </div>
                         </div>
