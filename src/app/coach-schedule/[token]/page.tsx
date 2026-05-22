@@ -17,6 +17,7 @@ type CoachRow = {
   name: string;
   bio: string | null;
   photo_url: string | null;
+  schedule_token_enabled: boolean | null;
   active: boolean;
 };
 
@@ -161,9 +162,10 @@ export default async function GuestCoachSchedulePage({
 
   const { data: coach, error: coachError } = await supabase
     .from("event_guest_coaches")
-    .select("id, event_id, studio_id, organizer_id, name, bio, photo_url, active")
+    .select("id, event_id, studio_id, organizer_id, name, bio, photo_url, schedule_token_enabled, active")
     .eq("schedule_token", token)
     .eq("active", true)
+    .eq("schedule_token_enabled", true)
     .single();
 
   if (coachError || !coach) {
@@ -382,3 +384,4 @@ export default async function GuestCoachSchedulePage({
     </div>
   );
 }
+

@@ -9,6 +9,8 @@ import {
   bookPrivateLessonSlotOfflineAction as bookPrivateLessonSlotOfflineActionBase,
   holdPrivateLessonSlotAction as holdPrivateLessonSlotActionBase,
   releasePrivateLessonSlotAction as releasePrivateLessonSlotActionBase,
+  regenerateGuestCoachScheduleTokenAction as regenerateGuestCoachScheduleTokenActionBase,
+  setGuestCoachScheduleLinkEnabledAction as setGuestCoachScheduleLinkEnabledActionBase,
 } from "../actions";
 
 export async function createTicketTypeAction(formData: FormData) {
@@ -30,4 +32,13 @@ export async function holdPrivateLessonSlotAction(formData: FormData) {
 export async function releasePrivateLessonSlotAction(formData: FormData) {
   return await releasePrivateLessonSlotActionBase(formData);
 }
+
+export async function regenerateGuestCoachScheduleTokenAction(formData: FormData) {
+  return await regenerateGuestCoachScheduleTokenActionBase(formData);
+}
+
+export async function setGuestCoachScheduleLinkEnabledAction(formData: FormData) {
+  return await setGuestCoachScheduleLinkEnabledActionBase(formData);
+}
+
 

@@ -1998,6 +1998,117 @@ export async function releasePrivateLessonSlotAction(formData: FormData) {
   redirectWithSlotMessage(formData, fallback, "private_lesson_released=1");
 }
 
+
+function createGuestCoachScheduleToken() {
+  return crypto.randomUUID().replace(/-/g, "");
+}
+
+async function requireGuestCoachScheduleAccess(formData: FormData) {
+  const { supabase, studioId } = await getStudioContext();
+
+  const coachId = getString(formData, "coachId");
+  const eventId = getString(formData, "eventId");
+
+  if (!coachId || !eventId) {
+    throw new Error("Missing guest coach or event.");
+  }
+
+  const { data: coach, error: coachError } = await supabase
+    .from("event_guest_coaches")
+    .select("id, event_id, studio_id, schedule_token, active")
+    .eq("id", coachId)
+    .eq("event_id", eventId)
+    .eq("studio_id", studioId)
+    .maybeSingle();
+
+  if (coachError) {
+    throw new Error(`Could not load guest coach: ${coachError.message}`);
+  }
+
+  if (!coach) {
+    throw new Error("Guest coach not found for this studio/event.");
+  }
+
+  return {
+    supabase,
+    studioId,
+    coachId,
+    eventId,
+    coach,
+  };
+}
+
+export async function regenerateGuestCoachScheduleTokenAction(formData: FormData) {
+  const fallback = `/app/events/${getString(formData, "eventId")}/private-lessons`;
+
+  try {
+    const { supabase, studioId, coachId } =
+      await requireGuestCoachScheduleAccess(formData);
+
+    const { error: updateError } = await supabase
+      .from("event_guest_coaches")
+      .update({
+        schedule_token: createGuestCoachScheduleToken(),
+        schedule_token_enabled: true,
+        schedule_token_created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", coachId)
+      .eq("studio_id", studioId);
+
+    if (updateError) {
+      throw new Error(
+        `Could not regenerate guest coach schedule link: ${updateError.message}`,
+      );
+    }
+  } catch (error) {
+    redirectWithSlotMessage(
+      formData,
+      fallback,
+      "private_lesson_error=coach_schedule_link_failed",
+    );
+  }
+
+  redirectWithSlotMessage(formData, fallback, "coach_schedule_link_regenerated=1");
+}
+
+export async function setGuestCoachScheduleLinkEnabledAction(formData: FormData) {
+  const fallback = `/app/events/${getString(formData, "eventId")}/private-lessons`;
+  const enabled = getString(formData, "enabled") === "true";
+
+  try {
+    const { supabase, studioId, coachId } =
+      await requireGuestCoachScheduleAccess(formData);
+
+    const { error: updateError } = await supabase
+      .from("event_guest_coaches")
+      .update({
+        schedule_token_enabled: enabled,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", coachId)
+      .eq("studio_id", studioId);
+
+    if (updateError) {
+      throw new Error(
+        `Could not update guest coach schedule link: ${updateError.message}`,
+      );
+    }
+  } catch (error) {
+    redirectWithSlotMessage(
+      formData,
+      fallback,
+      "private_lesson_error=coach_schedule_link_failed",
+    );
+  }
+
+  redirectWithSlotMessage(
+    formData,
+    fallback,
+    enabled ? "coach_schedule_link_enabled=1" : "coach_schedule_link_disabled=1",
+  );
+}
+
 export async function createEventAction(
   _prevState: ActionState,
   formData: FormData,
@@ -2709,11 +2820,4 @@ export async function duplicateEventAction(formData: FormData) {
 
   redirect(redirectTo);
 }
-
-
-
-
-
-
-
 

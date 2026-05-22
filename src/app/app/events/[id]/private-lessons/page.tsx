@@ -6,6 +6,8 @@ import {
   bookPrivateLessonSlotOfflineAction,
   holdPrivateLessonSlotAction,
   releasePrivateLessonSlotAction,
+  regenerateGuestCoachScheduleTokenAction,
+  setGuestCoachScheduleLinkEnabledAction,
 } from "../actions";
 
 type Params = Promise<{
@@ -30,6 +32,9 @@ type GuestCoachRow = {
   name: string;
   bio: string | null;
   photo_url: string | null;
+  schedule_token: string;
+  schedule_token_enabled: boolean | null;
+  schedule_token_created_at: string | null;
 };
 
 type PrivateLessonSlotRow = {
@@ -214,11 +219,32 @@ function getBanner(searchParams: Record<string, string | string[] | undefined>) 
     };
   }
 
+  if (searchParams.coach_schedule_link_regenerated) {
+    return {
+      className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+      message: "Guest coach schedule link was regenerated. Share the new link with the coach.",
+    };
+  }
+
+  if (searchParams.coach_schedule_link_enabled) {
+    return {
+      className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+      message: "Guest coach schedule link was enabled.",
+    };
+  }
+
+  if (searchParams.coach_schedule_link_disabled) {
+    return {
+      className: "border-amber-200 bg-amber-50 text-amber-800",
+      message: "Guest coach schedule link was disabled.",
+    };
+  }
+
   if (searchParams.private_lesson_error) {
     return {
       className: "border-red-200 bg-red-50 text-red-800",
       message:
-        "The private lesson slot could not be updated. Confirm the slot is still available and try again.",
+        "The private lesson slot or coach schedule link could not be updated. Confirm the record is still available and try again.",
     };
   }
 
@@ -392,7 +418,10 @@ export default async function EventPrivateLessonsPage({
         id,
         name,
         bio,
-        photo_url
+        photo_url,
+        schedule_token,
+        schedule_token_enabled,
+        schedule_token_created_at
       )
     `,
     )
@@ -408,6 +437,7 @@ export default async function EventPrivateLessonsPage({
   const groupedSlots = groupSlotsByCoachAndDate(slotRows, typedEvent.timezone);
   const banner = getBanner(query);
   const returnTo = `/app/events/${typedEvent.id}/private-lessons`;
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
 
   const availableCount = slotRows.filter((slot) => slot.status === "available")
     .length;
@@ -525,6 +555,78 @@ export default async function EventPrivateLessonsPage({
                     {coachGroup.slots.length} slots
                   </p>
                 </div>
+
+                {coachGroup.coach?.schedule_token ? (
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                          Guest coach schedule link
+                        </p>
+                        <p className="mt-2 break-all rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                          {`${siteUrl}/coach-schedule/${coachGroup.coach.schedule_token}`}
+                        </p>
+                        <p className="mt-2 text-xs leading-5 text-slate-500">
+                          Share this private read-only link with the guest coach. It shows their
+                          slot schedule without giving dashboard access.
+                        </p>
+                        {coachGroup.coach.schedule_token_enabled === false ? (
+                          <p className="mt-2 text-xs font-semibold text-amber-700">
+                            This link is currently disabled.
+                          </p>
+                        ) : null}
+                      </div>
+
+                      {canManage ? (
+                        <div className="flex flex-wrap gap-2">
+                          <a
+                            href={`/coach-schedule/${coachGroup.coach.schedule_token}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                          >
+                            Open Link
+                          </a>
+
+                          <form action={regenerateGuestCoachScheduleTokenAction}>
+                            <input type="hidden" name="eventId" value={typedEvent.id} />
+                            <input type="hidden" name="coachId" value={coachGroup.coach.id} />
+                            <input type="hidden" name="returnTo" value={returnTo} />
+                            <button
+                              type="submit"
+                              className="inline-flex items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800 transition hover:bg-amber-100"
+                            >
+                              Regenerate
+                            </button>
+                          </form>
+
+                          <form action={setGuestCoachScheduleLinkEnabledAction}>
+                            <input type="hidden" name="eventId" value={typedEvent.id} />
+                            <input type="hidden" name="coachId" value={coachGroup.coach.id} />
+                            <input
+                              type="hidden"
+                              name="enabled"
+                              value={
+                                coachGroup.coach.schedule_token_enabled === false
+                                  ? "true"
+                                  : "false"
+                              }
+                            />
+                            <input type="hidden" name="returnTo" value={returnTo} />
+                            <button
+                              type="submit"
+                              className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+                            >
+                              {coachGroup.coach.schedule_token_enabled === false
+                                ? "Enable Link"
+                                : "Disable Link"}
+                            </button>
+                          </form>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mt-4 space-y-4">
                   {coachGroup.dateGroups.map((dateGroup) => (
@@ -764,3 +866,4 @@ export default async function EventPrivateLessonsPage({
     </div>
   );
 }
+
