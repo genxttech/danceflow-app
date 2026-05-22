@@ -56,6 +56,8 @@ type PrivateLessonSlotRow = {
   buyer_phone: string | null;
   buyer_notes: string | null;
   booked_at: string | null;
+  held_until: string | null;
+  hold_token: string | null;
   event_guest_coaches: GuestCoachRow | GuestCoachRow[] | null;
 };
 
@@ -195,6 +197,38 @@ function labelize(value: string | null | undefined) {
   return (value || "Not set")
     .replaceAll("_", " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function isCheckoutHold(slot: PrivateLessonSlotRow) {
+  return slot.status === "held" && Boolean(slot.held_until || slot.hold_token);
+}
+
+function isManualBlockedSlot(slot: PrivateLessonSlotRow) {
+  return (slot.status === "held" && !isCheckoutHold(slot)) || slot.status === "blocked";
+}
+
+function slotStatusLabel(slot: PrivateLessonSlotRow) {
+  if (slot.status === "held") {
+    return isCheckoutHold(slot) ? "Checkout pending" : "Blocked";
+  }
+
+  return labelize(slot.status);
+}
+
+function slotPaymentLabel(slot: PrivateLessonSlotRow) {
+  if (isManualBlockedSlot(slot)) {
+    return "Not for sale";
+  }
+
+  return labelize(slot.payment_status);
+}
+
+function blockReasonLabel(slot: PrivateLessonSlotRow) {
+  if (!isManualBlockedSlot(slot)) {
+    return null;
+  }
+
+  return slot.buyer_notes || "Blocked by studio.";
 }
 
 function getBanner(searchParams: Record<string, string | string[] | undefined>) {
@@ -392,6 +426,30 @@ export default async function EventPrivateLessonsPage({
     isStudioHosted,
   });
 
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from("event_private_lesson_slots")
+    .update({
+      status: "available",
+      payment_status: "unpaid",
+      buyer_name: null,
+      buyer_email: null,
+      buyer_phone: null,
+      buyer_notes: null,
+      client_id: null,
+      stripe_checkout_session_id: null,
+      stripe_payment_intent_id: null,
+      booked_at: null,
+      held_until: null,
+      hold_token: null,
+      updated_at: nowIso,
+    })
+    .eq("event_id", typedEvent.id)
+    .eq("studio_id", studioId)
+    .eq("status", "held")
+    .lt("held_until", nowIso);
+
   const { data: slots, error: slotsError } = await supabase
     .from("event_private_lesson_slots")
     .select(
@@ -414,6 +472,8 @@ export default async function EventPrivateLessonsPage({
       buyer_phone,
       buyer_notes,
       booked_at,
+      held_until,
+      hold_token,
       event_guest_coaches:coach_id (
         id,
         name,
@@ -451,7 +511,13 @@ export default async function EventPrivateLessonsPage({
       <section className="overflow-hidden rounded-[28px] border border-[#E9D5FF] bg-gradient-to-r from-[#2D0B45] via-[#5B197A] to-[#7C2D92] text-white shadow-sm">
         <div className="flex flex-col gap-6 px-6 py-6 md:flex-row md:items-start md:justify-between md:px-8">
           <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-[#F3D7FF]">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-[#F3D7FF]">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-[10px] font-black tracking-normal text-[#5B197A]">
+                DF
+              </span>
+              DanceFlow
+            </div>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-[0.28em] text-[#F3D7FF]">
               Guest coach private lessons
             </p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
@@ -630,15 +696,33 @@ export default async function EventPrivateLessonsPage({
 
                 <div className="mt-4 space-y-4">
                   {coachGroup.dateGroups.map((dateGroup) => (
-                    <div
+                    <details
                       key={dateGroup.dateKey}
-                      className="rounded-2xl border border-slate-200 bg-white p-4"
+                      className="group overflow-hidden rounded-2xl border border-slate-200 bg-white"
                     >
-                      <h4 className="text-sm font-semibold text-slate-900">
-                        {dateGroup.dateLabel}
-                      </h4>
+                      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-4 transition hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+                        <div className="min-w-0">
+                          <h4 className="text-sm font-semibold text-slate-900">
+                            {dateGroup.dateLabel}
+                          </h4>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {dateGroup.slots.length} private lesson slots
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">
+                            {dateGroup.slots.filter((slot) => slot.status === "available").length} open
+                          </span>
+                          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 group-open:hidden">
+                            Show
+                          </span>
+                          <span className="hidden rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 group-open:inline-flex">
+                            Hide
+                          </span>
+                        </div>
+                      </summary>
 
-                      <div className="mt-4 grid gap-3">
+                      <div className="grid gap-3 border-t border-slate-100 p-4">
                         {dateGroup.slots.map((slot) => {
                           const canRelease = ["booked", "held", "blocked", "cancelled"].includes(
                             slot.status,
@@ -665,14 +749,14 @@ export default async function EventPrivateLessonsPage({
                                         slot.status,
                                       )}`}
                                     >
-                                      {labelize(slot.status)}
+                                      {slotStatusLabel(slot)}
                                     </span>
                                     <span
                                       className={`rounded-full border px-2.5 py-1 text-xs font-medium ${paymentBadgeClass(
                                         slot.payment_status,
                                       )}`}
                                     >
-                                      {labelize(slot.payment_status)}
+                                      {slotPaymentLabel(slot)}
                                     </span>
                                   </div>
 
@@ -686,11 +770,19 @@ export default async function EventPrivateLessonsPage({
                                     ) : null}
                                   </div>
 
-                                  {slot.buyer_email || slot.buyer_phone || slot.buyer_notes ? (
+                                  {slot.buyer_email || slot.buyer_phone ? (
                                     <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-600">
                                       {slot.buyer_email ? <p>Email: {slot.buyer_email}</p> : null}
                                       {slot.buyer_phone ? <p>Phone: {slot.buyer_phone}</p> : null}
-                                      {slot.buyer_notes ? <p>Notes: {slot.buyer_notes}</p> : null}
+                                    </div>
+                                  ) : null}
+
+                                  {slot.buyer_notes || blockReasonLabel(slot) ? (
+                                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">
+                                        {isManualBlockedSlot(slot) ? "Blocked reason" : "Notes"}
+                                      </p>
+                                      <p className="mt-1">{blockReasonLabel(slot) ?? slot.buyer_notes}</p>
                                     </div>
                                   ) : null}
                                 </div>
@@ -790,42 +882,95 @@ export default async function EventPrivateLessonsPage({
                                     ) : null}
 
                                     {isAvailable ? (
-                                      <details className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
-                                        <summary className="cursor-pointer text-sm font-semibold text-amber-900">
+                                      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                                        <p className="text-sm font-semibold text-amber-950">
                                           Block Slot
-                                        </summary>
-                                        <form
-                                          action={holdPrivateLessonSlotAction}
-                                          className="mt-3 grid gap-3"
-                                        >
-                                          <input type="hidden" name="slotId" value={slot.id} />
-                                          <input
-                                            type="hidden"
-                                            name="eventId"
-                                            value={typedEvent.id}
-                                          />
-                                          <input type="hidden" name="returnTo" value={returnTo} />
+                                        </p>
+                                        <p className="mt-1 text-xs leading-5 text-amber-800">
+                                          Use quick blocks for common schedule holds, or add a custom note.
+                                        </p>
 
-                                          <label className="space-y-1 text-sm">
-                                            <span className="font-medium text-amber-950">
-                                              Block reason / note
-                                            </span>
-                                            <textarea
-                                              name="buyerNotes"
-                                              rows={2}
-                                              className="w-full rounded-xl border border-amber-200 px-3 py-2"
-                                              placeholder="Optional"
+                                        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                                          <form action={holdPrivateLessonSlotAction}>
+                                            <input type="hidden" name="slotId" value={slot.id} />
+                                            <input
+                                              type="hidden"
+                                              name="eventId"
+                                              value={typedEvent.id}
                                             />
-                                          </label>
+                                            <input type="hidden" name="returnTo" value={returnTo} />
+                                            <input
+                                              type="hidden"
+                                              name="buyerNotes"
+                                              value="Coach break"
+                                            />
+                                            <button
+                                              type="submit"
+                                              className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"
+                                            >
+                                              Coach Break
+                                            </button>
+                                          </form>
 
-                                          <button
-                                            type="submit"
-                                            className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700"
+                                          <form action={holdPrivateLessonSlotAction}>
+                                            <input type="hidden" name="slotId" value={slot.id} />
+                                            <input
+                                              type="hidden"
+                                              name="eventId"
+                                              value={typedEvent.id}
+                                            />
+                                            <input type="hidden" name="returnTo" value={returnTo} />
+                                            <input
+                                              type="hidden"
+                                              name="buyerNotes"
+                                              value="Group class"
+                                            />
+                                            <button
+                                              type="submit"
+                                              className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm font-semibold text-amber-800 transition hover:bg-amber-100"
+                                            >
+                                              Group Class
+                                            </button>
+                                          </form>
+                                        </div>
+
+                                        <details className="mt-3 rounded-xl border border-amber-200 bg-white p-3">
+                                          <summary className="cursor-pointer text-sm font-semibold text-amber-900">
+                                            Custom block note
+                                          </summary>
+                                          <form
+                                            action={holdPrivateLessonSlotAction}
+                                            className="mt-3 grid gap-3"
                                           >
-                                            Block This Slot
-                                          </button>
-                                        </form>
-                                      </details>
+                                            <input type="hidden" name="slotId" value={slot.id} />
+                                            <input
+                                              type="hidden"
+                                              name="eventId"
+                                              value={typedEvent.id}
+                                            />
+                                            <input type="hidden" name="returnTo" value={returnTo} />
+
+                                            <label className="space-y-1 text-sm">
+                                              <span className="font-medium text-amber-950">
+                                                Block reason / note
+                                              </span>
+                                              <textarea
+                                                name="buyerNotes"
+                                                rows={2}
+                                                className="w-full rounded-xl border border-amber-200 px-3 py-2"
+                                                placeholder="Example: Coach dinner break, group class, staff hold"
+                                              />
+                                            </label>
+
+                                            <button
+                                              type="submit"
+                                              className="rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-700"
+                                            >
+                                              Block This Slot
+                                            </button>
+                                          </form>
+                                        </details>
+                                      </div>
                                     ) : null}
 
                                     {canRelease ? (
@@ -855,7 +1000,7 @@ export default async function EventPrivateLessonsPage({
                           );
                         })}
                       </div>
-                    </div>
+                    </details>
                   ))}
                 </div>
               </div>
@@ -866,4 +1011,6 @@ export default async function EventPrivateLessonsPage({
     </div>
   );
 }
+
+
 

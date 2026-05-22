@@ -1067,6 +1067,29 @@ export default async function PublicEventDetailPage({
 
   const eventHost = getEventHost({ organizer, studio });
 
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from("event_private_lesson_slots")
+    .update({
+      status: "available",
+      payment_status: "unpaid",
+      buyer_name: null,
+      buyer_email: null,
+      buyer_phone: null,
+      buyer_notes: null,
+      client_id: null,
+      stripe_checkout_session_id: null,
+      stripe_payment_intent_id: null,
+      booked_at: null,
+      held_until: null,
+      hold_token: null,
+      updated_at: nowIso,
+    })
+    .eq("event_id", typedEvent.id)
+    .eq("status", "held")
+    .lt("held_until", nowIso);
+
   const [
     { data: tags, error: tagsError },
     { data: ticketTypes, error: ticketTypesError },
@@ -2349,10 +2372,4 @@ export default async function PublicEventDetailPage({
     </>
   );
 }
-
-
-
-
-
-
 

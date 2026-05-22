@@ -55,7 +55,6 @@ type SlotRow = {
   id: string;
   starts_at: string;
   ends_at: string;
-  price: number | string | null;
   location_label: string | null;
   status: string;
   payment_status: string;
@@ -63,6 +62,7 @@ type SlotRow = {
   buyer_email: string | null;
   buyer_phone: string | null;
   buyer_notes: string | null;
+  held_until: string | null;
 };
 
 export const metadata: Metadata = {
@@ -101,20 +101,6 @@ function formatTime(value: string) {
   });
 }
 
-function formatMoney(value: number | string | null) {
-  const amount = Number(value ?? 0);
-
-  if (!Number.isFinite(amount) || amount <= 0) {
-    return "Price not listed";
-  }
-
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: 2,
-  }).format(amount);
-}
-
 function groupSlotsByDate(slots: SlotRow[]) {
   return slots.reduce<Record<string, SlotRow[]>>((groups, slot) => {
     const key = new Date(slot.starts_at).toISOString().slice(0, 10);
@@ -124,9 +110,17 @@ function groupSlotsByDate(slots: SlotRow[]) {
   }, {});
 }
 
+function isCheckoutHold(slot: SlotRow) {
+  return slot.status === "held" && Boolean(slot.held_until);
+}
+
+function isManualBlockedSlot(slot: SlotRow) {
+  return slot.status === "held" && !isCheckoutHold(slot);
+}
+
 function statusLabel(slot: SlotRow) {
   if (slot.status === "booked") return "Booked";
-  if (slot.status === "held") return "Checkout pending";
+  if (slot.status === "held") return isCheckoutHold(slot) ? "Checkout pending" : "Blocked";
   if (slot.status === "cancelled") return "Cancelled";
   return "Available";
 }
@@ -174,6 +168,29 @@ export default async function GuestCoachSchedulePage({
 
   const typedCoach = coach as CoachRow;
 
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from("event_private_lesson_slots")
+    .update({
+      status: "available",
+      payment_status: "unpaid",
+      buyer_name: null,
+      buyer_email: null,
+      buyer_phone: null,
+      buyer_notes: null,
+      client_id: null,
+      stripe_checkout_session_id: null,
+      stripe_payment_intent_id: null,
+      booked_at: null,
+      held_until: null,
+      hold_token: null,
+      updated_at: nowIso,
+    })
+    .eq("coach_id", typedCoach.id)
+    .eq("status", "held")
+    .lt("held_until", nowIso);
+
   const [
     { data: event, error: eventError },
     { data: slots, error: slotsError },
@@ -188,7 +205,7 @@ export default async function GuestCoachSchedulePage({
     supabase
       .from("event_private_lesson_slots")
       .select(
-        "id, starts_at, ends_at, price, location_label, status, payment_status, buyer_name, buyer_email, buyer_phone, buyer_notes",
+        "id, starts_at, ends_at, location_label, status, payment_status, buyer_name, buyer_email, buyer_phone, buyer_notes, held_until",
       )
       .eq("coach_id", typedCoach.id)
       .in("status", ["available", "held", "booked"])
@@ -232,16 +249,32 @@ export default async function GuestCoachSchedulePage({
   const eventLocation = [typedEvent.venue_name, typedEvent.city, typedEvent.state]
     .filter(Boolean)
     .join(" • ");
+  const calendarPath = `/coach-schedule/${token}/calendar`;
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
+  const calendarUrl = siteUrl ? `${siteUrl}${calendarPath}` : calendarPath;
+  const subscribeUrl = siteUrl
+    ? calendarUrl.replace(/^https?:\/\//, "webcal://")
+    : calendarPath;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-950">
       <PublicSiteHeader />
 
       <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
-        <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--brand-accent-dark)]">
-            Guest Coach Schedule
-          </p>
+        <section className="overflow-hidden rounded-[2rem] border border-[#E9D5FF] bg-white shadow-sm">
+          <div className="bg-gradient-to-r from-[#2D0B45] via-[#5B197A] to-[#7C2D92] px-6 py-5 text-white sm:px-8">
+            <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.22em] text-[#F3D7FF]">
+              <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-[10px] font-black tracking-normal text-[#5B197A]">
+                DF
+              </span>
+              DanceFlow
+            </div>
+            <p className="mt-3 text-xs font-semibold uppercase tracking-[0.24em] text-[#F3D7FF]">
+              Guest Coach Schedule
+            </p>
+          </div>
+
+          <div className="p-6 sm:p-8">
 
           <div className="mt-4 grid gap-6 lg:grid-cols-[1fr_auto] lg:items-start">
             <div>
@@ -278,11 +311,12 @@ export default async function GuestCoachSchedulePage({
             </div>
           </div>
 
-          {typedCoach.bio ? (
-            <p className="mt-5 max-w-3xl text-sm leading-7 text-slate-600">
-              {typedCoach.bio}
-            </p>
-          ) : null}
+            {typedCoach.bio ? (
+              <p className="mt-5 max-w-3xl text-sm leading-7 text-slate-600">
+                {typedCoach.bio}
+              </p>
+            ) : null}
+          </div>
         </section>
 
         <section className="mt-6 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
@@ -295,12 +329,36 @@ export default async function GuestCoachSchedulePage({
                 This read-only schedule updates as dancers book available slots.
               </p>
             </div>
-            <Link
-              href={`/events/${typedEvent.slug}`}
-              className="inline-flex rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              View public event
-            </Link>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+              <a
+                href={subscribeUrl}
+                className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Subscribe to Calendar
+              </a>
+              <a
+                href={calendarPath}
+                className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Download .ics
+              </a>
+              <Link
+                href={`/events/${typedEvent.slug}`}
+                className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                View public event
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-900">Calendar feed</p>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              Subscribe to add booked lessons and blocked time to your phone calendar. Open slots are not added so your calendar stays clean.
+            </p>
+            <p className="mt-3 break-all rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
+              {calendarUrl}
+            </p>
           </div>
 
           {sortedDates.length === 0 ? (
@@ -309,15 +367,39 @@ export default async function GuestCoachSchedulePage({
             </div>
           ) : (
             <div className="mt-6 space-y-6">
-              {sortedDates.map((dateKey) => (
-                <div key={dateKey}>
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    {formatDate(`${dateKey}T00:00:00`)}
-                  </h3>
+              {sortedDates.map((dateKey) => {
+                const daySlots = groupedSlots[dateKey];
+                const dayBookedCount = daySlots.filter((slot) => slot.status === "booked").length;
+                const dayOpenCount = daySlots.filter((slot) => slot.status === "available").length;
 
-                  <div className="mt-3 grid gap-3">
-                    {groupedSlots[dateKey].map((slot) => {
+                return (
+                  <details
+                    key={dateKey}
+                    className="group overflow-hidden rounded-2xl border border-slate-200 bg-slate-50"
+                  >
+                    <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-white px-4 py-4 transition hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
+                      <div className="min-w-0">
+                        <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-600">
+                          {formatDate(`${dateKey}T00:00:00`)}
+                        </h3>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {daySlots.length} slots • {dayBookedCount} booked • {dayOpenCount} open
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 group-open:hidden">
+                          Show
+                        </span>
+                        <span className="hidden rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-600 group-open:inline-flex">
+                          Hide
+                        </span>
+                      </div>
+                    </summary>
+
+                    <div className="grid gap-3 border-t border-slate-200 p-4">
+                      {daySlots.map((slot) => {
                       const isBooked = slot.status === "booked";
+                      const isBlocked = isManualBlockedSlot(slot);
 
                       return (
                         <article
@@ -329,15 +411,11 @@ export default async function GuestCoachSchedulePage({
                               <p className="text-base font-semibold text-slate-950">
                                 {formatTime(slot.starts_at)} – {formatTime(slot.ends_at)}
                               </p>
-                              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                                <span>{formatMoney(slot.price)}</span>
-                                {slot.location_label ? (
-                                  <>
-                                    <span>•</span>
-                                    <span>{slot.location_label}</span>
-                                  </>
-                                ) : null}
-                              </div>
+                              {slot.location_label ? (
+                                <p className="mt-1 text-sm text-slate-600">
+                                  {slot.location_label}
+                                </p>
+                              ) : null}
                             </div>
 
                             <span
@@ -349,32 +427,43 @@ export default async function GuestCoachSchedulePage({
                             </span>
                           </div>
 
-                          {isBooked ? (
+                          {isBooked || isBlocked ? (
                             <div className="mt-4 rounded-xl bg-white p-4 text-sm leading-6 text-slate-700 ring-1 ring-slate-200">
-                              <p className="font-semibold text-slate-950">
-                                {slot.buyer_name || "Booked student"}
-                              </p>
-                              {slot.buyer_email ? <p>{slot.buyer_email}</p> : null}
-                              {slot.buyer_phone ? <p>{slot.buyer_phone}</p> : null}
+                              {isBooked ? (
+                                <>
+                                  <p className="font-semibold text-slate-950">
+                                    {slot.buyer_name || "Booked student"}
+                                  </p>
+                                  {slot.buyer_email ? <p>{slot.buyer_email}</p> : null}
+                                  {slot.buyer_phone ? <p>{slot.buyer_phone}</p> : null}
+                                </>
+                              ) : (
+                                <p className="font-semibold text-slate-950">Blocked time</p>
+                              )}
+
                               {slot.buyer_notes ? (
                                 <div className="mt-3 rounded-lg bg-slate-50 p-3">
                                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                                    Notes
+                                    {isBlocked ? "Blocked reason" : "Notes"}
                                   </p>
                                   <p className="mt-1">{slot.buyer_notes}</p>
                                 </div>
                               ) : null}
-                              <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                                Payment: {slot.payment_status}
-                              </p>
+
+                              {isBooked ? (
+                                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                                  Payment: {slot.payment_status}
+                                </p>
+                              ) : null}
                             </div>
                           ) : null}
                         </article>
                       );
                     })}
-                  </div>
-                </div>
-              ))}
+                    </div>
+                  </details>
+                );
+              })}
             </div>
           )}
         </section>
@@ -384,4 +473,8 @@ export default async function GuestCoachSchedulePage({
     </div>
   );
 }
+
+
+
+
 

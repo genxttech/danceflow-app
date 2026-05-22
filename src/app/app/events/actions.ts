@@ -1912,6 +1912,8 @@ export async function bookPrivateLessonSlotOfflineAction(formData: FormData) {
         buyer_phone: buyerPhone || null,
         buyer_notes: buyerNotes || null,
         booked_at: new Date().toISOString(),
+        held_until: null,
+        hold_token: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", slotId)
@@ -1946,6 +1948,8 @@ export async function holdPrivateLessonSlotAction(formData: FormData) {
         buyer_phone: null,
         buyer_notes: buyerNotes || "Blocked by studio.",
         booked_at: new Date().toISOString(),
+        held_until: null,
+        hold_token: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", slotId)
@@ -1982,6 +1986,8 @@ export async function releasePrivateLessonSlotAction(formData: FormData) {
         stripe_checkout_session_id: null,
         stripe_payment_intent_id: null,
         booked_at: null,
+        held_until: null,
+        hold_token: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", slotId)
@@ -2820,4 +2826,5 @@ export async function duplicateEventAction(formData: FormData) {
 
   redirect(redirectTo);
 }
+
 
