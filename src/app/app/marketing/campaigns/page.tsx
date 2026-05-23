@@ -48,6 +48,16 @@ const audienceOptions = [
     label: "Event registrants",
     description: "People who registered for events and have an email address.",
   },
+  {
+    key: "clients_no_upcoming_lesson",
+    label: "Clients with no upcoming lesson",
+    description: "Active clients who do not currently have a future lesson scheduled.",
+  },
+  {
+    key: "low_package_credits",
+    label: "Clients with low package credits",
+    description: "Clients with an active package that has 2 or fewer credits remaining.",
+  },
 ];
 
 function formatDate(value: string | null) {
@@ -89,10 +99,89 @@ async function getClientAudiencePreview(params: {
   audienceType: string;
 }) {
   const { supabase, studioId, audienceType } = params;
+  const baseClientSelect = "id, first_name, last_name, email, status";
+
+  if (audienceType === "clients_no_upcoming_lesson") {
+    const [{ data: clients, error: clientsError }, { data: appointments, error: appointmentsError }] =
+      await Promise.all([
+        supabase
+          .from("clients")
+          .select(baseClientSelect)
+          .eq("studio_id", studioId)
+          .eq("status", "active")
+          .not("email", "is", null)
+          .limit(1000),
+        supabase
+          .from("appointments")
+          .select("client_id")
+          .eq("studio_id", studioId)
+          .eq("status", "scheduled")
+          .gte("starts_at", new Date().toISOString())
+          .not("client_id", "is", null)
+          .limit(5000),
+      ]);
+
+    if (clientsError || appointmentsError) {
+      console.error("No-upcoming-lesson audience preview failed", {
+        clientsError,
+        appointmentsError,
+      });
+      return { count: 0, sample: [] };
+    }
+
+    const clientsWithUpcomingLessons = new Set(
+      (appointments ?? [])
+        .map((appointment) => String(appointment.client_id ?? ""))
+        .filter(Boolean),
+    );
+
+    return buildClientAudienceSummary(
+      (clients ?? []).filter((client) => !clientsWithUpcomingLessons.has(String(client.id))),
+    );
+  }
+
+  if (audienceType === "low_package_credits") {
+    const { data: packages, error: packagesError } = await supabase
+      .from("client_packages")
+      .select("client_id, lessons_remaining, active")
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .lte("lessons_remaining", 2)
+      .not("client_id", "is", null)
+      .limit(5000);
+
+    if (packagesError) {
+      console.error("Low-credit audience preview failed", packagesError);
+      return { count: 0, sample: [] };
+    }
+
+    const clientIds = Array.from(
+      new Set((packages ?? []).map((pkg) => String(pkg.client_id ?? "")).filter(Boolean)),
+    );
+
+    if (clientIds.length === 0) {
+      return { count: 0, sample: [] };
+    }
+
+    const { data: clients, error: clientsError } = await supabase
+      .from("clients")
+      .select(baseClientSelect)
+      .eq("studio_id", studioId)
+      .in("id", clientIds)
+      .not("email", "is", null)
+      .limit(1000);
+
+    if (clientsError) {
+      console.error("Low-credit client audience preview failed", clientsError);
+      return { count: 0, sample: [] };
+    }
+
+    return buildClientAudienceSummary(clients ?? []);
+  }
 
   let query = supabase
     .from("clients")
-    .select("id, first_name, last_name, email, status")
+    .select(baseClientSelect)
     .eq("studio_id", studioId)
     .not("email", "is", null)
     .limit(1000);
@@ -116,10 +205,20 @@ async function getClientAudiencePreview(params: {
     return { count: 0, sample: [] };
   }
 
+  return buildClientAudienceSummary(data ?? []);
+}
+
+function buildClientAudienceSummary(
+  clients: Array<{
+    first_name: unknown;
+    last_name: unknown;
+    email: unknown;
+  }>,
+) {
   const uniqueEmails = new Set<string>();
   const sample: string[] = [];
 
-  for (const row of data ?? []) {
+  for (const row of clients) {
     const email = String(row.email ?? "").trim().toLowerCase();
 
     if (!email || uniqueEmails.has(email)) {
@@ -558,5 +657,8 @@ export default async function MarketingCampaignsPage({
     </main>
   );
 }
+
+
+
 
 

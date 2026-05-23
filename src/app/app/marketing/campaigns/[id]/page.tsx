@@ -57,6 +57,8 @@ const audienceLabels: Record<string, string> = {
   new_leads: "New leads",
   inactive_clients: "Inactive clients",
   event_attendees: "Event registrants",
+  clients_no_upcoming_lesson: "Clients with no upcoming lesson",
+  low_package_credits: "Clients with low package credits",
 };
 
 function formatDate(value: string | null) {
@@ -183,10 +185,97 @@ async function getClientRecipients(params: {
   unsubscribedEmails: Set<string>;
 }) {
   const { supabase, studioId, audienceType, unsubscribedEmails } = params;
+  const baseClientSelect = "id, first_name, last_name, email, status";
+
+  if (audienceType === "clients_no_upcoming_lesson") {
+    const [{ data: clients, error: clientsError }, { data: appointments, error: appointmentsError }] =
+      await Promise.all([
+        supabase
+          .from("clients")
+          .select(baseClientSelect)
+          .eq("studio_id", studioId)
+          .eq("status", "active")
+          .not("email", "is", null)
+          .limit(1500),
+        supabase
+          .from("appointments")
+          .select("client_id")
+          .eq("studio_id", studioId)
+          .eq("status", "scheduled")
+          .gte("starts_at", new Date().toISOString())
+          .not("client_id", "is", null)
+          .limit(10000),
+      ]);
+
+    if (clientsError || appointmentsError) {
+      console.error("Failed to load no-upcoming-lesson campaign audience", {
+        clientsError,
+        appointmentsError,
+      });
+      return [];
+    }
+
+    const clientsWithUpcomingLessons = new Set(
+      (appointments ?? [])
+        .map((appointment) => String(appointment.client_id ?? ""))
+        .filter(Boolean),
+    );
+
+    return buildUniqueClientRecipients({
+      clients: (clients ?? []).filter(
+        (client) => !clientsWithUpcomingLessons.has(String(client.id)),
+      ),
+      source: "No upcoming lesson",
+      unsubscribedEmails,
+    });
+  }
+
+  if (audienceType === "low_package_credits") {
+    const { data: packages, error: packagesError } = await supabase
+      .from("client_packages")
+      .select("client_id, lessons_remaining, active")
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .lte("lessons_remaining", 2)
+      .not("client_id", "is", null)
+      .limit(10000);
+
+    if (packagesError) {
+      console.error("Failed to load low-credit package audience", packagesError);
+      return [];
+    }
+
+    const lowCreditClientIds = Array.from(
+      new Set((packages ?? []).map((pkg) => String(pkg.client_id ?? "")).filter(Boolean)),
+    );
+
+    if (lowCreditClientIds.length === 0) {
+      return [];
+    }
+
+    const { data: clients, error: clientsError } = await supabase
+      .from("clients")
+      .select(baseClientSelect)
+      .eq("studio_id", studioId)
+      .in("id", lowCreditClientIds)
+      .not("email", "is", null)
+      .limit(1500);
+
+    if (clientsError) {
+      console.error("Failed to load low-credit clients audience", clientsError);
+      return [];
+    }
+
+    return buildUniqueClientRecipients({
+      clients: clients ?? [],
+      source: "Low package credits",
+      unsubscribedEmails,
+    });
+  }
 
   let query = supabase
     .from("clients")
-    .select("id, first_name, last_name, email, status")
+    .select(baseClientSelect)
     .eq("studio_id", studioId)
     .not("email", "is", null)
     .limit(1500);
@@ -210,10 +299,28 @@ async function getClientRecipients(params: {
     return [];
   }
 
+  return buildUniqueClientRecipients({
+    clients: data ?? [],
+    source: "CRM",
+    unsubscribedEmails,
+  });
+}
+
+function buildUniqueClientRecipients(params: {
+  clients: Array<{
+    id: string;
+    first_name: unknown;
+    last_name: unknown;
+    email: unknown;
+  }>;
+  source: string;
+  unsubscribedEmails: Set<string>;
+}) {
+  const { clients, source, unsubscribedEmails } = params;
   const seen = new Set<string>();
   const recipients: RecipientPreview[] = [];
 
-  for (const row of data ?? []) {
+  for (const row of clients) {
     const email = normalizeEmail(row.email);
 
     if (!email || seen.has(email)) {
@@ -224,7 +331,7 @@ async function getClientRecipients(params: {
     recipients.push({
       email,
       name: buildName(row.first_name, row.last_name),
-      source: "CRM",
+      source,
       unsubscribed: unsubscribedEmails.has(email),
     });
   }
@@ -709,6 +816,10 @@ export default async function MarketingCampaignDetailPage({
     </main>
   );
 }
+
+
+
+
 
 
 
