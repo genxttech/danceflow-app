@@ -35,6 +35,17 @@ type CampaignRow = {
   sent_at: string | null;
 };
 
+type StudioMarketingFooterRow = {
+  name: string | null;
+  email: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
+};
+
 type RecipientPreview = {
   email: string;
   name: string;
@@ -82,6 +93,8 @@ function campaignErrorMessage(code?: string) {
       return "Resend is not configured yet. Add RESEND_API_KEY to the environment.";
     case "missing_from_email":
       return "Marketing sender is not configured yet. Add MARKETING_FROM_EMAIL to the environment.";
+    case "missing_marketing_footer":
+      return "Add the studio marketing footer address in Settings before sending live campaigns.";
     case "not_found":
       return "Campaign could not be found.";
     case "missing_content":
@@ -115,6 +128,35 @@ function buildName(firstName: unknown, lastName: unknown) {
 
 function isSpecificEventAudience(audienceType: string) {
   return audienceType === "specific_event_registrants" || audienceType === "specific_event_checked_in";
+}
+
+function cleanFooterPart(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function hasMarketingFooterAddress(studio: StudioMarketingFooterRow | null | undefined) {
+  return Boolean(
+    cleanFooterPart(studio?.name) &&
+      cleanFooterPart(studio?.address_line_1) &&
+      cleanFooterPart(studio?.city) &&
+      cleanFooterPart(studio?.state) &&
+      cleanFooterPart(studio?.postal_code) &&
+      cleanFooterPart(studio?.country),
+  );
+}
+
+function formatMarketingFooterAddress(studio: StudioMarketingFooterRow | null | undefined) {
+  const lineOne = cleanFooterPart(studio?.address_line_1);
+  const lineTwo = cleanFooterPart(studio?.address_line_2);
+  const cityStateZip = [
+    cleanFooterPart(studio?.city),
+    cleanFooterPart(studio?.state),
+    cleanFooterPart(studio?.postal_code),
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return [lineOne, lineTwo, cityStateZip, cleanFooterPart(studio?.country)].filter(Boolean).join(" · ");
 }
 
 function countByStatus(recipients: RecipientRow[]) {
@@ -535,7 +577,7 @@ export default async function MarketingCampaignDetailPage({
   const { data: userResult } = await supabase.auth.getUser();
   const currentUserEmail = userResult.user?.email ?? "";
 
-  const [{ data: campaign, error }, { data: generatedRecipients }] = await Promise.all([
+  const [{ data: campaign, error }, { data: generatedRecipients }, { data: studioFooter }] = await Promise.all([
     supabase
       .from("marketing_campaigns")
       .select("id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, audience_type, audience_event_id, status, created_at, sent_at")
@@ -549,6 +591,11 @@ export default async function MarketingCampaignDetailPage({
       .eq("studio_id", studioId)
       .order("created_at", { ascending: true })
       .limit(25),
+    supabase
+      .from("studios")
+      .select("name, email, address_line_1, address_line_2, city, state, postal_code, country")
+      .eq("id", studioId)
+      .maybeSingle<StudioMarketingFooterRow>(),
   ]);
 
   if (error || !campaign) {
@@ -579,7 +626,10 @@ export default async function MarketingCampaignDetailPage({
   const recipientStatusCounts = countByStatus(recipientRows);
   const generatedRecipientSample = recipientRows.slice(0, 5);
   const hasGeneratedRecipients = recipientRows.length > 0;
+  const hasMarketingFooter = hasMarketingFooterAddress(studioFooter);
+  const marketingFooterAddress = formatMarketingFooterAddress(studioFooter);
   const canSendCampaign =
+    hasMarketingFooter &&
     hasGeneratedRecipients &&
     recipientStatusCounts.pending > 0 &&
     campaign.status !== "sent" &&
@@ -908,6 +958,14 @@ export default async function MarketingCampaignDetailPage({
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Subject</p>
                   <p className="mt-1 text-sm font-bold text-[var(--brand-text)]">{campaign.subject}</p>
                 </div>
+                <div className={`mt-3 rounded-xl border p-3 text-xs leading-5 ${hasMarketingFooter ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                  <p className="font-bold">Marketing email footer</p>
+                  {hasMarketingFooter ? (
+                    <p className="mt-1">{studioFooter?.name} · {marketingFooterAddress}</p>
+                  ) : (
+                    <p className="mt-1">Missing. Add the studio mailing address in Settings before live campaign sending.</p>
+                  )}
+                </div>
                 <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
                   <p className="font-bold">Marketing permission reminder</p>
                   <p className="mt-1">
@@ -942,7 +1000,9 @@ export default async function MarketingCampaignDetailPage({
                     ? "Campaign Sent"
                     : canSendCampaign
                       ? `Send to ${recipientStatusCounts.pending} Recipient${recipientStatusCounts.pending === 1 ? "" : "s"}`
-                      : "Prepare Send List First"}
+                      : !hasMarketingFooter
+                        ? "Add Marketing Footer First"
+                        : "Prepare Send List First"}
                 </button>
               </form>
 
@@ -956,6 +1016,7 @@ export default async function MarketingCampaignDetailPage({
     </main>
   );
 }
+
 
 
 

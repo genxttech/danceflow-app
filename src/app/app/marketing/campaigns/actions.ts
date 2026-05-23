@@ -41,6 +41,17 @@ type CampaignEmailParams = {
   unsubscribeUrl?: string | null;
 };
 
+type StudioMarketingFooterSettings = {
+  name?: string | null;
+  email?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+};
+
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
@@ -95,6 +106,47 @@ function plainTextToHtml(value: string) {
 
 function getSiteUrl() {
   return (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(/\/$/, "");
+}
+
+function cleanFooterPart(value: unknown) {
+  return String(value ?? "").trim();
+}
+
+function hasMarketingFooterAddress(studio: StudioMarketingFooterSettings | null | undefined) {
+  return Boolean(
+    cleanFooterPart(studio?.name) &&
+      cleanFooterPart(studio?.address_line_1) &&
+      cleanFooterPart(studio?.city) &&
+      cleanFooterPart(studio?.state) &&
+      cleanFooterPart(studio?.postal_code) &&
+      cleanFooterPart(studio?.country),
+  );
+}
+
+function buildStudioMarketingFooterNote(studio: StudioMarketingFooterSettings | null | undefined) {
+  const studioName = cleanFooterPart(studio?.name) || "DanceFlow Studio";
+  const addressParts = [
+    cleanFooterPart(studio?.address_line_1),
+    cleanFooterPart(studio?.address_line_2),
+    [
+      cleanFooterPart(studio?.city),
+      cleanFooterPart(studio?.state),
+      cleanFooterPart(studio?.postal_code),
+    ]
+      .filter(Boolean)
+      .join(", "),
+    cleanFooterPart(studio?.country),
+  ].filter(Boolean);
+
+  if (addressParts.length === 0) {
+    return `${studioName} · Sent with DanceFlow.`;
+  }
+
+  return `${studioName} · ${addressParts.join(" · ")} · Sent with DanceFlow.`;
+}
+
+function getStudioReplyToEmail(studio: StudioMarketingFooterSettings | null | undefined, fallbackEmail: string) {
+  return process.env.MARKETING_REPLY_TO_EMAIL || cleanFooterPart(studio?.email) || fallbackEmail;
 }
 
 function buildCampaignEmailHtml(params: CampaignEmailParams) {
@@ -662,7 +714,11 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
         .eq("id", campaignId)
         .eq("studio_id", studioId)
         .maybeSingle(),
-      supabase.from("studios").select("name").eq("id", studioId).maybeSingle(),
+      supabase
+        .from("studios")
+        .select("name, email, address_line_1, address_line_2, city, state, postal_code, country")
+        .eq("id", studioId)
+        .maybeSingle(),
     ]);
 
     if (campaignError || !campaign) {
@@ -675,8 +731,11 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
     }
 
     const studioName = String(studio?.name ?? "DanceFlow Studio");
+    const footerNote = hasMarketingFooterAddress(studio)
+      ? `${buildStudioMarketingFooterNote(studio)} This is a DanceFlow test email. No campaign recipients were contacted.`
+      : "This is a DanceFlow test email. No campaign recipients were contacted. Add a marketing footer address in Settings before sending live campaigns.";
     const resend = new Resend(process.env.RESEND_API_KEY);
-    const replyTo = process.env.MARKETING_REPLY_TO_EMAIL || userResult.user.email;
+    const replyTo = getStudioReplyToEmail(studio, userResult.user.email);
 
     const html = buildCampaignEmailHtml({
       studioName,
@@ -685,8 +744,7 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
       bodyText: campaign.body_text,
       ctaLabel: campaign.cta_label,
       ctaUrl: campaign.cta_url,
-      footerNote:
-        "This is a DanceFlow test email. No campaign recipients were contacted.",
+      footerNote,
     });
 
     const text = buildCampaignEmailText({
@@ -696,7 +754,7 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
       bodyText: campaign.body_text,
       ctaLabel: campaign.cta_label,
       ctaUrl: campaign.cta_url,
-      footerNote: "This is a DanceFlow test email. No campaign recipients were contacted.",
+      footerNote,
     });
 
     const { error: sendError } = await resend.emails.send({
@@ -842,7 +900,11 @@ export async function sendMarketingCampaignAction(formData: FormData) {
         .eq("id", campaignId)
         .eq("studio_id", studioId)
         .maybeSingle(),
-      supabase.from("studios").select("name").eq("id", studioId).maybeSingle(),
+      supabase
+        .from("studios")
+        .select("name, email, address_line_1, address_line_2, city, state, postal_code, country")
+        .eq("id", studioId)
+        .maybeSingle(),
     ]);
 
     if (campaignError || !campaign) {
@@ -864,6 +926,10 @@ export async function sendMarketingCampaignAction(formData: FormData) {
 
     if (getString(formData, "confirmSend") !== "yes") {
       redirect(appendQueryParam(fallback, "campaign_error", "send_not_confirmed"));
+    }
+
+    if (!hasMarketingFooterAddress(studio)) {
+      redirect(appendQueryParam(fallback, "campaign_error", "missing_marketing_footer"));
     }
 
     const { data: pendingRecipients, error: recipientsError } = await supabase
@@ -890,7 +956,8 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       .eq("studio_id", studioId);
 
     const studioName = String(studio?.name ?? "DanceFlow Studio");
-    const replyTo = process.env.MARKETING_REPLY_TO_EMAIL || userResult.user.email;
+    const footerNote = buildStudioMarketingFooterNote(studio);
+    const replyTo = getStudioReplyToEmail(studio, userResult.user.email);
     const resend = new Resend(process.env.RESEND_API_KEY);
 
     for (const recipient of pendingRecipients) {
@@ -903,7 +970,7 @@ export async function sendMarketingCampaignAction(formData: FormData) {
         bodyText: campaign.body_text,
         ctaLabel: campaign.cta_label,
         ctaUrl: campaign.cta_url,
-        footerNote: "Sent with DanceFlow.",
+        footerNote,
         unsubscribeUrl,
       };
 
@@ -984,6 +1051,7 @@ export async function sendMarketingCampaignAction(formData: FormData) {
 
   redirect(appendQueryParam(fallback, "campaign_sent", "1"));
 }
+
 
 
 
