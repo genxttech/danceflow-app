@@ -533,6 +533,12 @@ export default async function MarketingCampaignsPage({
                       <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold capitalize text-slate-700">
                         {campaign.status}
                       </span>
+                      <Link
+                        href={`/app/marketing/campaigns/${campaign.id}`}
+                        className="inline-flex items-center justify-center rounded-full border border-[var(--brand-border)] bg-white px-3 py-1 text-xs font-bold text-[#4D1F47] transition hover:bg-[var(--brand-soft-bg)]"
+                      >
+                        Open
+                      </Link>
                     </div>
                   </div>
                   <p className="mt-3 text-xs text-[var(--brand-muted)]">
@@ -552,4 +558,5 @@ export default async function MarketingCampaignsPage({
     </main>
   );
 }
+
 
