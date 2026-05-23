@@ -197,6 +197,20 @@ function buildStudioSections(params: {
       ],
     },
     {
+      title: "Marketing",
+      items: [
+        ...(isFrontDesk || isStudioAdmin || isOwner
+          ? [
+              {
+                label: "Campaigns",
+                href: "/app/marketing/campaigns",
+                icon: "marketing" as const,
+              },
+            ]
+          : []),
+      ],
+    },
+    {
       title: "Schedule & Space",
       items: [
         ...(isAnyInstructor
@@ -565,4 +579,6 @@ export default async function AppLayout({
     </div>
   );
 }
+
+
 

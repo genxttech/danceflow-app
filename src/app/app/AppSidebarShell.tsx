@@ -25,6 +25,7 @@ import {
   Building2,
   Ticket,
   Search,
+  Megaphone,
 } from "lucide-react";
 import NotificationMenu from "@/components/ui/NotificationMenu";
 
@@ -74,6 +75,7 @@ function isActivePath(pathname: string, href: string) {
     "/app/events/sell-tickets",
     "/app/events/registrations",
     "/app/events/checkin",
+    "/app/marketing/campaigns",
   ]);
 
   if (exactOnlyRoutes.has(href)) {
@@ -102,6 +104,7 @@ function getIcon(icon: string) {
   if (icon === "settings") return Settings;
   if (icon === "notifications") return Bell;
   if (icon === "discovery") return Search;
+  if (icon === "marketing") return Megaphone;
   return LayoutDashboard;
 }
 
