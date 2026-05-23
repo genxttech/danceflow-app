@@ -29,6 +29,7 @@ type CampaignRow = {
   cta_label: string | null;
   cta_url: string | null;
   audience_type: string;
+  audience_event_id: string | null;
   status: string;
   created_at: string;
   sent_at: string | null;
@@ -56,7 +57,9 @@ const audienceLabels: Record<string, string> = {
   all_active_clients: "All active clients",
   new_leads: "New leads",
   inactive_clients: "Inactive clients",
-  event_attendees: "Event registrants",
+  event_attendees: "All event registrants",
+  specific_event_registrants: "Specific event registrants",
+  specific_event_checked_in: "Specific event checked-in attendees",
   clients_no_upcoming_lesson: "Clients with no upcoming lesson",
   low_package_credits: "Clients with low package credits",
 };
@@ -108,6 +111,10 @@ function normalizeEmail(value: unknown) {
 
 function buildName(firstName: unknown, lastName: unknown) {
   return `${String(firstName ?? "").trim()} ${String(lastName ?? "").trim()}`.trim();
+}
+
+function isSpecificEventAudience(audienceType: string) {
+  return audienceType === "specific_event_registrants" || audienceType === "specific_event_checked_in";
 }
 
 function countByStatus(recipients: RecipientRow[]) {
@@ -343,8 +350,120 @@ async function getEventRecipients(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
   unsubscribedEmails: Set<string>;
+  audienceType?: string;
+  audienceEventId?: string | null;
 }) {
-  const { supabase, studioId, unsubscribedEmails } = params;
+  const {
+    supabase,
+    studioId,
+    unsubscribedEmails,
+    audienceType = "event_attendees",
+    audienceEventId,
+  } = params;
+
+  const seen = new Set<string>();
+  const recipients: RecipientPreview[] = [];
+
+  function addRecipient(row: {
+    first_name?: unknown;
+    last_name?: unknown;
+    email?: unknown;
+    source: string;
+  }) {
+    const email = normalizeEmail(row.email);
+
+    if (!email || seen.has(email)) {
+      return;
+    }
+
+    seen.add(email);
+    recipients.push({
+      email,
+      name: buildName(row.first_name, row.last_name),
+      source: row.source,
+      unsubscribed: unsubscribedEmails.has(email),
+    });
+  }
+
+  if (isSpecificEventAudience(audienceType)) {
+    if (!audienceEventId) {
+      return [];
+    }
+
+    const { data: registrations, error: registrationsError } = await supabase
+      .from("event_registrations")
+      .select("id, attendee_first_name, attendee_last_name, attendee_email, status, event_id")
+      .eq("studio_id", studioId)
+      .eq("event_id", audienceEventId)
+      .not("attendee_email", "is", null)
+      .limit(1500);
+
+    if (registrationsError) {
+      console.error("Failed to load specific event campaign registrations", registrationsError);
+      return [];
+    }
+
+    const activeRegistrations = (registrations ?? []).filter(
+      (registration) => String(registration.status ?? "").toLowerCase() !== "cancelled",
+    );
+
+    const activeRegistrationIds = activeRegistrations
+      .map((registration) => String(registration.id ?? ""))
+      .filter(Boolean);
+
+    let attendees: Array<{
+      first_name: unknown;
+      last_name: unknown;
+      email: unknown;
+      checked_in_at: string | null;
+      registration_id: string;
+    }> = [];
+
+    if (activeRegistrationIds.length > 0) {
+      const { data: attendeeRows, error: attendeesError } = await supabase
+        .from("event_registration_attendees")
+        .select("registration_id, first_name, last_name, email, checked_in_at")
+        .in("registration_id", activeRegistrationIds)
+        .not("email", "is", null)
+        .limit(1500);
+
+      if (attendeesError) {
+        console.error("Failed to load specific event campaign attendees", attendeesError);
+        return [];
+      }
+
+      attendees = attendeeRows ?? [];
+    }
+
+    for (const row of attendees) {
+      if (audienceType === "specific_event_checked_in" && !row.checked_in_at) {
+        continue;
+      }
+
+      addRecipient({
+        first_name: row.first_name,
+        last_name: row.last_name,
+        email: row.email,
+        source:
+          audienceType === "specific_event_checked_in"
+            ? "Checked-in event attendee"
+            : "Event attendee",
+      });
+    }
+
+    if (audienceType === "specific_event_registrants") {
+      for (const row of activeRegistrations) {
+        addRecipient({
+          first_name: row.attendee_first_name,
+          last_name: row.attendee_last_name,
+          email: row.attendee_email,
+          source: "Event registration",
+        });
+      }
+    }
+
+    return recipients;
+  }
 
   const { data, error } = await supabase
     .from("event_registrations")
@@ -358,26 +477,16 @@ async function getEventRecipients(params: {
     return [];
   }
 
-  const seen = new Set<string>();
-  const recipients: RecipientPreview[] = [];
-
   for (const row of data ?? []) {
     if (String(row.status ?? "").toLowerCase() === "cancelled") {
       continue;
     }
 
-    const email = normalizeEmail(row.attendee_email);
-
-    if (!email || seen.has(email)) {
-      continue;
-    }
-
-    seen.add(email);
-    recipients.push({
-      email,
-      name: buildName(row.attendee_first_name, row.attendee_last_name),
+    addRecipient({
+      first_name: row.attendee_first_name,
+      last_name: row.attendee_last_name,
+      email: row.attendee_email,
       source: "Event registration",
-      unsubscribed: unsubscribedEmails.has(email),
     });
   }
 
@@ -388,12 +497,19 @@ async function getRecipientPreview(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
   audienceType: string;
+  audienceEventId?: string | null;
 }) {
-  const { supabase, studioId, audienceType } = params;
+  const { supabase, studioId, audienceType, audienceEventId } = params;
   const unsubscribedEmails = await getUnsubscribedEmails({ supabase, studioId });
 
-  if (audienceType === "event_attendees") {
-    return getEventRecipients({ supabase, studioId, unsubscribedEmails });
+  if (audienceType === "event_attendees" || isSpecificEventAudience(audienceType)) {
+    return getEventRecipients({
+      supabase,
+      studioId,
+      unsubscribedEmails,
+      audienceType,
+      audienceEventId,
+    });
   }
 
   if (audienceType === "manual") {
@@ -422,7 +538,7 @@ export default async function MarketingCampaignDetailPage({
   const [{ data: campaign, error }, { data: generatedRecipients }] = await Promise.all([
     supabase
       .from("marketing_campaigns")
-      .select("id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, audience_type, status, created_at, sent_at")
+      .select("id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, audience_type, audience_event_id, status, created_at, sent_at")
       .eq("id", resolvedParams.id)
       .eq("studio_id", studioId)
       .maybeSingle<CampaignRow>(),
@@ -439,10 +555,20 @@ export default async function MarketingCampaignDetailPage({
     notFound();
   }
 
+  const { data: selectedEvent } = campaign.audience_event_id
+    ? await supabase
+        .from("events")
+        .select("id, name, start_date")
+        .eq("id", campaign.audience_event_id)
+        .eq("studio_id", studioId)
+        .maybeSingle()
+    : { data: null };
+
   const recipients = await getRecipientPreview({
     supabase,
     studioId,
     audienceType: campaign.audience_type,
+    audienceEventId: campaign.audience_event_id,
   });
 
   const includedRecipients = recipients.filter((recipient) => !recipient.unsubscribed);
@@ -523,6 +649,11 @@ export default async function MarketingCampaignDetailPage({
               <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">
                 {audienceLabels[campaign.audience_type] ?? campaign.audience_type}
               </p>
+              {selectedEvent ? (
+                <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">
+                  {selectedEvent.name}{selectedEvent.start_date ? ` · ${formatDate(selectedEvent.start_date)}` : ""}
+                </p>
+              ) : null}
             </div>
             <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
               <p className="text-sm font-semibold text-[var(--brand-muted)]">Ready to send</p>
@@ -758,6 +889,9 @@ export default async function MarketingCampaignDetailPage({
                     <p className="mt-1 truncate font-bold text-[var(--brand-text)]">
                       {audienceLabels[campaign.audience_type] ?? campaign.audience_type}
                     </p>
+                    {selectedEvent ? (
+                      <p className="mt-1 truncate text-xs text-[var(--brand-muted)]">{selectedEvent.name}</p>
+                    ) : null}
                   </div>
                   <div className="rounded-xl bg-white p-3">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Pending send</p>
@@ -816,10 +950,5 @@ export default async function MarketingCampaignDetailPage({
     </main>
   );
 }
-
-
-
-
-
 
 

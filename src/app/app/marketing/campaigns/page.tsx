@@ -14,6 +14,7 @@ type CampaignRow = {
   subject: string;
   preview_text: string | null;
   audience_type: string;
+  audience_event_id: string | null;
   status: string;
   created_at: string;
   sent_at: string | null;
@@ -25,6 +26,12 @@ type AudiencePreview = {
   description: string;
   count: number;
   sample: string[];
+};
+
+type EventOption = {
+  id: string;
+  name: string;
+  start_date: string | null;
 };
 
 const audienceOptions = [
@@ -45,8 +52,18 @@ const audienceOptions = [
   },
   {
     key: "event_attendees",
-    label: "Event registrants",
-    description: "People who registered for events and have an email address.",
+    label: "All event registrants",
+    description: "People who registered for any event and have an email address.",
+  },
+  {
+    key: "specific_event_registrants",
+    label: "Specific event registrants",
+    description: "People registered for the event selected in the Event field.",
+  },
+  {
+    key: "specific_event_checked_in",
+    label: "Specific event checked-in attendees",
+    description: "People checked in for the event selected in the Event field.",
   },
   {
     key: "clients_no_upcoming_lesson",
@@ -82,6 +99,10 @@ function campaignErrorMessage(code?: string) {
       return "Campaign name is required.";
     case "invalid_audience":
       return "Choose a valid audience.";
+    case "missing_event":
+      return "Choose an event for this event-based audience.";
+    case "invalid_event":
+      return "The selected event could not be found for this studio.";
     case "missing_subject":
       return "Subject line is required.";
     case "missing_body":
@@ -91,6 +112,10 @@ function campaignErrorMessage(code?: string) {
     default:
       return null;
   }
+}
+
+function isSpecificEventAudience(audienceType: string) {
+  return audienceType === "specific_event_registrants" || audienceType === "specific_event_checked_in";
 }
 
 async function getClientAudiencePreview(params: {
@@ -299,6 +324,14 @@ async function getAudiencePreviews(params: {
         };
       }
 
+      if (isSpecificEventAudience(option.key)) {
+        return {
+          ...option,
+          count: 0,
+          sample: ["Choose an event when creating the campaign."],
+        };
+      }
+
       const result = await getClientAudiencePreview({
         supabase,
         studioId,
@@ -326,17 +359,24 @@ export default async function MarketingCampaignsPage({
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
 
-  const [audiencePreviews, campaignsResult] = await Promise.all([
+  const [audiencePreviews, campaignsResult, eventsResult] = await Promise.all([
     getAudiencePreviews({ supabase, studioId }),
     supabase
       .from("marketing_campaigns")
-      .select("id, name, subject, preview_text, audience_type, status, created_at, sent_at")
+      .select("id, name, subject, preview_text, audience_type, audience_event_id, status, created_at, sent_at")
       .eq("studio_id", studioId)
       .order("created_at", { ascending: false })
       .limit(8),
+    supabase
+      .from("events")
+      .select("id, name, start_date")
+      .eq("studio_id", studioId)
+      .order("start_date", { ascending: false })
+      .limit(100),
   ]);
 
   const campaigns = (campaignsResult.data ?? []) as CampaignRow[];
+  const events = (eventsResult.data ?? []) as EventOption[];
   const campaignError = campaignErrorMessage(resolvedSearchParams.campaign_error);
 
   return (
@@ -460,6 +500,28 @@ export default async function MarketingCampaignsPage({
                     </option>
                   ))}
                 </select>
+              </div>
+
+              <div>
+                <label htmlFor="audienceEventId" className="text-sm font-semibold text-[var(--brand-text)]">
+                  Event
+                </label>
+                <select
+                  id="audienceEventId"
+                  name="audienceEventId"
+                  defaultValue=""
+                  className="mt-2 w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#A64AC9] focus:ring-2 focus:ring-[#A64AC9]/20"
+                >
+                  <option value="">No specific event selected</option>
+                  {events.map((event) => (
+                    <option key={event.id} value={event.id}>
+                      {event.name}{event.start_date ? ` · ${formatDate(event.start_date)}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-2 text-xs leading-5 text-[var(--brand-muted)]">
+                  Required only for Specific event registrants and Specific event checked-in attendees.
+                </p>
               </div>
 
               <div>
@@ -657,8 +719,5 @@ export default async function MarketingCampaignsPage({
     </main>
   );
 }
-
-
-
 
 

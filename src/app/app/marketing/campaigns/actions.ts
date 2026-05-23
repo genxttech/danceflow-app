@@ -12,6 +12,8 @@ const AUDIENCE_TYPES = new Set([
   "new_leads",
   "inactive_clients",
   "event_attendees",
+  "specific_event_registrants",
+  "specific_event_checked_in",
   "clients_no_upcoming_lesson",
   "low_package_credits",
 ]);
@@ -67,6 +69,10 @@ function normalizeEmail(value: unknown) {
 
 function buildName(firstName: unknown, lastName: unknown) {
   return `${String(firstName ?? "").trim()} ${String(lastName ?? "").trim()}`.trim();
+}
+
+function isSpecificEventAudience(audienceType: string) {
+  return audienceType === "specific_event_registrants" || audienceType === "specific_event_checked_in";
 }
 
 function escapeHtml(value: string) {
@@ -353,12 +359,127 @@ async function getEventRecipients(params: {
   supabase: SupabaseClient;
   studioId: string;
   unsubscribedEmails: Set<string>;
+  audienceType?: string;
+  audienceEventId?: string | null;
 }) {
-  const { supabase, studioId, unsubscribedEmails } = params;
+  const {
+    supabase,
+    studioId,
+    unsubscribedEmails,
+    audienceType = "event_attendees",
+    audienceEventId,
+  } = params;
+
+  const seen = new Set<string>();
+  const recipients: RecipientPreview[] = [];
+
+  function addRecipient(row: {
+    client_id?: unknown;
+    first_name?: unknown;
+    last_name?: unknown;
+    email?: unknown;
+    source: string;
+  }) {
+    const email = normalizeEmail(row.email);
+
+    if (!email || seen.has(email)) {
+      return;
+    }
+
+    seen.add(email);
+    recipients.push({
+      clientId: typeof row.client_id === "string" ? row.client_id : null,
+      email,
+      name: buildName(row.first_name, row.last_name),
+      source: row.source,
+      unsubscribed: unsubscribedEmails.has(email),
+    });
+  }
+
+  if (isSpecificEventAudience(audienceType)) {
+    if (!audienceEventId) {
+      return [];
+    }
+
+    const { data: registrations, error: registrationsError } = await supabase
+      .from("event_registrations")
+      .select("id, client_id, attendee_first_name, attendee_last_name, attendee_email, status, event_id")
+      .eq("studio_id", studioId)
+      .eq("event_id", audienceEventId)
+      .not("attendee_email", "is", null)
+      .limit(5000);
+
+    if (registrationsError) {
+      console.error("Failed to load specific event campaign registrations", registrationsError);
+      return [];
+    }
+
+    const activeRegistrations = (registrations ?? []).filter(
+      (registration) => String(registration.status ?? "").toLowerCase() !== "cancelled",
+    );
+
+    const activeRegistrationIds = activeRegistrations
+      .map((registration) => String(registration.id ?? ""))
+      .filter(Boolean);
+
+    let attendees: Array<{
+      first_name: unknown;
+      last_name: unknown;
+      email: unknown;
+      checked_in_at: string | null;
+      registration_id: string;
+    }> = [];
+
+    if (activeRegistrationIds.length > 0) {
+      const { data: attendeeRows, error: attendeesError } = await supabase
+        .from("event_registration_attendees")
+        .select("registration_id, first_name, last_name, email, checked_in_at")
+        .in("registration_id", activeRegistrationIds)
+        .not("email", "is", null)
+        .limit(5000);
+
+      if (attendeesError) {
+        console.error("Failed to load specific event campaign attendees", attendeesError);
+        return [];
+      }
+
+      attendees = attendeeRows ?? [];
+    }
+
+    for (const row of attendees) {
+      if (audienceType === "specific_event_checked_in" && !row.checked_in_at) {
+        continue;
+      }
+
+      addRecipient({
+        first_name: row.first_name,
+        last_name: row.last_name,
+        email: row.email,
+        source:
+          audienceType === "specific_event_checked_in"
+            ? "Checked-in event attendee"
+            : "Event attendee",
+      });
+    }
+
+    if (audienceType === "specific_event_registrants") {
+      for (const row of activeRegistrations) {
+        addRecipient({
+          client_id: row.client_id,
+          first_name: row.attendee_first_name,
+          last_name: row.attendee_last_name,
+          email: row.attendee_email,
+          source: "Event registration",
+        });
+      }
+    }
+
+    return recipients;
+  }
 
   const { data, error } = await supabase
     .from("event_registrations")
-    .select("attendee_first_name, attendee_last_name, attendee_email, status")
+    .select("client_id, attendee_first_name, attendee_last_name, attendee_email, status")
     .eq("studio_id", studioId)
     .not("attendee_email", "is", null)
     .limit(5000);
@@ -368,27 +489,17 @@ async function getEventRecipients(params: {
     return [];
   }
 
-  const seen = new Set<string>();
-  const recipients: RecipientPreview[] = [];
-
   for (const row of data ?? []) {
     if (String(row.status ?? "").toLowerCase() === "cancelled") {
       continue;
     }
 
-    const email = normalizeEmail(row.attendee_email);
-
-    if (!email || seen.has(email)) {
-      continue;
-    }
-
-    seen.add(email);
-    recipients.push({
-      clientId: null,
-      email,
-      name: buildName(row.attendee_first_name, row.attendee_last_name),
+    addRecipient({
+      client_id: row.client_id,
+      first_name: row.attendee_first_name,
+      last_name: row.attendee_last_name,
+      email: row.attendee_email,
       source: "Event registration",
-      unsubscribed: unsubscribedEmails.has(email),
     });
   }
 
@@ -399,12 +510,19 @@ async function getRecipientPreview(params: {
   supabase: SupabaseClient;
   studioId: string;
   audienceType: string;
+  audienceEventId?: string | null;
 }) {
-  const { supabase, studioId, audienceType } = params;
+  const { supabase, studioId, audienceType, audienceEventId } = params;
   const unsubscribedEmails = await getUnsubscribedEmails({ supabase, studioId });
 
-  if (audienceType === "event_attendees") {
-    return getEventRecipients({ supabase, studioId, unsubscribedEmails });
+  if (audienceType === "event_attendees" || isSpecificEventAudience(audienceType)) {
+    return getEventRecipients({
+      supabase,
+      studioId,
+      unsubscribedEmails,
+      audienceType,
+      audienceEventId,
+    });
   }
 
   if (audienceType === "manual") {
@@ -434,6 +552,7 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
 
     const name = getString(formData, "name");
     const audienceType = getString(formData, "audienceType") || "all_active_clients";
+    const audienceEventId = getString(formData, "audienceEventId");
     const subject = getString(formData, "subject");
     const previewText = getString(formData, "previewText");
     const bodyText = getString(formData, "bodyText");
@@ -448,6 +567,23 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
       redirect(appendQueryParam(fallback, "campaign_error", "invalid_audience"));
     }
 
+    if (isSpecificEventAudience(audienceType) && !audienceEventId) {
+      redirect(appendQueryParam(fallback, "campaign_error", "missing_event"));
+    }
+
+    if (isSpecificEventAudience(audienceType) && audienceEventId) {
+      const { data: event, error: eventError } = await supabase
+        .from("events")
+        .select("id")
+        .eq("id", audienceEventId)
+        .eq("studio_id", studioId)
+        .maybeSingle();
+
+      if (eventError || !event) {
+        redirect(appendQueryParam(fallback, "campaign_error", "invalid_event"));
+      }
+    }
+
     if (!subject) {
       redirect(appendQueryParam(fallback, "campaign_error", "missing_subject"));
     }
@@ -460,6 +596,7 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
       studio_id: studioId,
       name,
       audience_type: audienceType,
+      audience_event_id: isSpecificEventAudience(audienceType) ? audienceEventId : null,
       subject,
       preview_text: previewText || null,
       body_text: bodyText,
@@ -600,7 +737,7 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
 
     const { data: campaign, error: campaignError } = await supabase
       .from("marketing_campaigns")
-      .select("id, studio_id, audience_type, status")
+      .select("id, studio_id, audience_type, audience_event_id, status")
       .eq("id", campaignId)
       .eq("studio_id", studioId)
       .maybeSingle();
@@ -618,6 +755,7 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
       supabase,
       studioId,
       audienceType: String(campaign.audience_type ?? "manual"),
+      audienceEventId: typeof campaign.audience_event_id === "string" ? campaign.audience_event_id : null,
     });
 
     const rows = recipients.map((recipient) => ({
@@ -846,6 +984,8 @@ export async function sendMarketingCampaignAction(formData: FormData) {
 
   redirect(appendQueryParam(fallback, "campaign_sent", "1"));
 }
+
+
 
 
 
