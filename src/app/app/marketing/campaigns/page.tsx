@@ -6,6 +6,7 @@ import { createMarketingCampaignDraftAction } from "./actions";
 type SearchParams = Promise<{
   campaign_saved?: string;
   campaign_error?: string;
+  template?: string;
 }>;
 
 type CampaignRow = {
@@ -74,6 +75,81 @@ const audienceOptions = [
     key: "low_package_credits",
     label: "Clients with low package credits",
     description: "Clients with an active package that has 2 or fewer credits remaining.",
+  },
+];
+
+const campaignTemplates = [
+  {
+    key: "new-lead-follow-up",
+    label: "New Lead Follow-Up",
+    description: "A warm first-touch message for people who showed interest.",
+    audienceType: "new_leads",
+    name: "New lead follow-up",
+    subject: "Thanks for reaching out about dance lessons",
+    previewText: "We would love to help you take the next step.",
+    bodyText:
+      "Hi,\n\nThanks for your interest in dance lessons. We would love to help you find the right next step, whether you are brand new, returning to dance, or getting ready for an event.\n\nReply to this email or use the button below to get started. We are happy to answer questions and help you find a lesson or class that fits your goals.",
+    ctaLabel: "Get started",
+  },
+  {
+    key: "no-upcoming-lesson",
+    label: "No Upcoming Lesson",
+    description: "Encourage active clients to get their next lesson scheduled.",
+    audienceType: "clients_no_upcoming_lesson",
+    name: "No upcoming lesson reminder",
+    subject: "Ready to schedule your next lesson?",
+    previewText: "Let’s keep your progress moving.",
+    bodyText:
+      "Hi,\n\nWe noticed you do not currently have an upcoming lesson scheduled. This is a great time to get your next session on the calendar and keep your dancing moving forward.\n\nUse the button below or reply to this email and we will help you find a time that works.",
+    ctaLabel: "Schedule a lesson",
+  },
+  {
+    key: "low-package-credits",
+    label: "Low Package Credits",
+    description: "Remind students before they run out of lesson credits.",
+    audienceType: "low_package_credits",
+    name: "Low package credits reminder",
+    subject: "Your lesson package is almost used",
+    previewText: "A quick reminder before your credits run low.",
+    bodyText:
+      "Hi,\n\nYour current lesson package is getting close to being used. Renewing early helps you keep your preferred lesson times and continue progressing without interruption.\n\nReply to this email or use the button below if you would like help with your next package.",
+    ctaLabel: "Renew package",
+  },
+  {
+    key: "event-reminder",
+    label: "Event Reminder",
+    description: "Send a practical reminder to people registered for an event.",
+    audienceType: "specific_event_registrants",
+    name: "Event reminder",
+    subject: "Reminder: your upcoming dance event",
+    previewText: "Here are the details to help you get ready.",
+    bodyText:
+      "Hi,\n\nWe are excited to see you at the upcoming event. Please review the event details, arrival time, and anything you need to bring before you arrive.\n\nUse the button below for the event page, or reply to this email with any questions.",
+    ctaLabel: "View event details",
+  },
+  {
+    key: "post-event-thank-you",
+    label: "Post-Event Thank You",
+    description: "Follow up with attendees and guide them to the next opportunity.",
+    audienceType: "specific_event_checked_in",
+    name: "Post-event thank you",
+    subject: "Thank you for joining us",
+    previewText: "We loved having you at the event.",
+    bodyText:
+      "Hi,\n\nThank you for joining us. We loved having you at the event and hope you had a great experience.\n\nIf you would like to keep learning, join us again, or schedule a lesson, use the button below or reply to this email. We would be happy to help with your next step.",
+    ctaLabel: "See what is next",
+  },
+  {
+    key: "studio-announcement",
+    label: "Studio Announcement",
+    description: "A flexible update for news, schedule changes, or general messages.",
+    audienceType: "all_active_clients",
+    name: "Studio announcement",
+    subject: "A quick update from the studio",
+    previewText: "Here is what is happening at the studio.",
+    bodyText:
+      "Hi,\n\nWe wanted to share a quick update from the studio. Please read the details below and let us know if you have any questions.\n\nWe appreciate being part of your dance journey.",
+    ctaLabel: "Learn more",
   },
 ];
 
@@ -378,6 +454,14 @@ export default async function MarketingCampaignsPage({
   const campaigns = (campaignsResult.data ?? []) as CampaignRow[];
   const events = (eventsResult.data ?? []) as EventOption[];
   const campaignError = campaignErrorMessage(resolvedSearchParams.campaign_error);
+  const selectedTemplate =
+    campaignTemplates.find((template) => template.key === resolvedSearchParams.template) ?? null;
+  const selectedTemplateAudienceIsAvailable = selectedTemplate
+    ? audiencePreviews.some((audience) => audience.key === selectedTemplate.audienceType)
+    : false;
+  const defaultAudienceType = selectedTemplateAudienceIsAvailable
+    ? selectedTemplate?.audienceType ?? "all_active_clients"
+    : "all_active_clients";
 
   return (
     <main className="min-h-screen bg-[var(--brand-page-bg)] px-4 py-6 text-[var(--brand-text)] sm:px-6 lg:px-8">
@@ -465,9 +549,58 @@ export default async function MarketingCampaignsPage({
                 Create campaign draft
               </h2>
               <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                Start with a simple branded message. Sending and test emails come
-                next after recipient logging and unsubscribe handling are wired.
+                Start from a DanceFlow quick-start template or write your own message.
+                Everything stays inside the studio workflow.
               </p>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-bold text-[var(--brand-text)]">
+                    Quick-start templates
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">
+                    Choose a starting point, then edit the audience, event, subject, message, and call to action before saving.
+                  </p>
+                </div>
+
+                {selectedTemplate ? (
+                  <Link
+                    href="/app/marketing/campaigns"
+                    className="inline-flex w-fit items-center justify-center rounded-full border border-[var(--brand-border)] bg-white px-3 py-1 text-xs font-bold text-[#4D1F47] transition hover:bg-white/80"
+                  >
+                    Clear template
+                  </Link>
+                ) : null}
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {campaignTemplates.map((template) => (
+                  <Link
+                    key={template.key}
+                    href={`/app/marketing/campaigns?template=${template.key}`}
+                    className={`rounded-2xl border px-4 py-3 text-left transition ${
+                      selectedTemplate?.key === template.key
+                        ? "border-[#E85D2A] bg-white shadow-sm"
+                        : "border-[var(--brand-border)] bg-white/70 hover:border-[#A64AC9] hover:bg-white"
+                    }`}
+                  >
+                    <p className="text-sm font-bold text-[var(--brand-text)]">
+                      {template.label}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">
+                      {template.description}
+                    </p>
+                  </Link>
+                ))}
+              </div>
+
+              {selectedTemplate && isSpecificEventAudience(defaultAudienceType) ? (
+                <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                  This template uses a specific-event audience. Choose the matching event before saving the draft.
+                </p>
+              ) : null}
             </div>
 
             <form action={createMarketingCampaignDraftAction} className="mt-5 space-y-4">
@@ -481,6 +614,7 @@ export default async function MarketingCampaignsPage({
                   required
                   className="mt-2 w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#A64AC9] focus:ring-2 focus:ring-[#A64AC9]/20"
                   placeholder="June workshop follow-up"
+                  defaultValue={selectedTemplate?.name ?? ""}
                 />
               </div>
 
@@ -491,7 +625,7 @@ export default async function MarketingCampaignsPage({
                 <select
                   id="audienceType"
                   name="audienceType"
-                  defaultValue="all_active_clients"
+                  defaultValue={defaultAudienceType}
                   className="mt-2 w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#A64AC9] focus:ring-2 focus:ring-[#A64AC9]/20"
                 >
                   {audiencePreviews.map((audience) => (
@@ -534,6 +668,7 @@ export default async function MarketingCampaignsPage({
                   required
                   className="mt-2 w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#A64AC9] focus:ring-2 focus:ring-[#A64AC9]/20"
                   placeholder="Ready for your next lesson?"
+                  defaultValue={selectedTemplate?.subject ?? ""}
                 />
               </div>
 
@@ -546,6 +681,7 @@ export default async function MarketingCampaignsPage({
                   name="previewText"
                   className="mt-2 w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#A64AC9] focus:ring-2 focus:ring-[#A64AC9]/20"
                   placeholder="A quick update from the studio..."
+                  defaultValue={selectedTemplate?.previewText ?? ""}
                 />
               </div>
 
@@ -560,6 +696,7 @@ export default async function MarketingCampaignsPage({
                   rows={8}
                   className="mt-2 w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm leading-6 outline-none transition focus:border-[#A64AC9] focus:ring-2 focus:ring-[#A64AC9]/20"
                   placeholder="Write the message the studio wants to send..."
+                  defaultValue={selectedTemplate?.bodyText ?? ""}
                 />
               </div>
 
@@ -573,6 +710,7 @@ export default async function MarketingCampaignsPage({
                     name="ctaLabel"
                     className="mt-2 w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm outline-none transition focus:border-[#A64AC9] focus:ring-2 focus:ring-[#A64AC9]/20"
                     placeholder="Book a lesson"
+                    defaultValue={selectedTemplate?.ctaLabel ?? ""}
                   />
                 </div>
 
@@ -657,8 +795,8 @@ export default async function MarketingCampaignsPage({
                 Recent campaign drafts
               </h2>
               <p className="mt-1 text-sm text-[var(--brand-muted)]">
-                Drafts are saved now. Test send, send now, and delivery logs are
-                the next layer.
+                Drafts, test sends, send lists, and campaign sending are now part
+                of the native DanceFlow marketing workflow.
               </p>
             </div>
             <span className="inline-flex w-fit rounded-full border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] px-3 py-1 text-xs font-semibold text-[var(--brand-muted)]">
@@ -719,5 +857,3 @@ export default async function MarketingCampaignsPage({
     </main>
   );
 }
-
-

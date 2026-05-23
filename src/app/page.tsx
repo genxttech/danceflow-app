@@ -11,7 +11,7 @@ const audienceCards = [
     eyebrow: "Dancers",
     title: "Find your next studio, class, or event.",
     description:
-      "DanceFlow gives dancers one place to discover studios and events, save favorites, register for events, and access linked studio portals.",
+      "DanceFlow gives dancers one place to discover studios and events, save favorites, register for events, and stay connected with the studios they follow.",
     accent: "orange",
     badge: "Free",
     action: "publicLogin",
@@ -39,13 +39,14 @@ const audienceCards = [
     eyebrow: "Studios",
     title: "Run daily operations and improve the student experience.",
     description:
-      "Studios can manage clients, scheduling, packages, memberships, leads, payments, public profiles, and student follow-up in one connected workspace.",
+      "Studios can manage clients, scheduling, packages, memberships, leads, payments, public profiles, and built-in email follow-up in one connected workspace.",
     accent: "violet",
     badge: "Trial Available",
     action: "studioPricing",
     bullets: [
       "Manage clients, instructors, rooms, lessons, packages, and memberships",
       "Turn public discovery into new leads",
+      "Send targeted email campaigns to clients, leads, and event audiences",
       "Send lesson notes directly to student portals",
       "Upload post-lesson video summaries students can review later",
     ],
@@ -54,7 +55,7 @@ const audienceCards = [
     eyebrow: "Organizers",
     title: "Publish events and make registration easier.",
     description:
-      "Organizers can create public event pages, collect registrations, manage check-in, track payments, and help dancers find their events faster.",
+      "Organizers can create public event pages, collect registrations, manage check-in, track payments, follow up with event audiences, and help dancers find their events faster.",
     accent: "sky",
     badge: "Trial Available",
     action: "organizerPricing",
@@ -62,6 +63,7 @@ const audienceCards = [
       "Publish searchable public event pages",
       "Collect registrations and ticket payments",
       "Manage check-in and attendee activity",
+      "Send event reminders and post-event follow-up campaigns",
       "Give dancers one place to discover your events",
     ],
   },
@@ -144,7 +146,7 @@ export default async function HomePage() {
     url: siteUrl,
     logo: `${siteUrl}/brand/danceflow-logo.png`,
     description:
-      "DanceFlow provides dance studio CRM, scheduling, event registration, ticketing, portals, payments, and public discovery tools for the dance community.",
+      "DanceFlow provides dance studio CRM, scheduling, event registration, ticketing, portals, payments, email marketing, and public discovery tools for the dance community.",
   };
 
   const websiteJsonLd = {
@@ -153,7 +155,7 @@ export default async function HomePage() {
     name: "DanceFlow",
     url: siteUrl,
     description:
-      "DanceFlow helps dancers discover studios and events while helping studios and organizers manage scheduling, clients, registrations, payments, and portals.",
+      "DanceFlow helps dancers discover studios and events while helping studios and organizers manage scheduling, clients, registrations, payments, portals, and built-in follow-up marketing.",
     publisher: {
       "@type": "Organization",
       name: "DanceFlow",
@@ -169,7 +171,7 @@ export default async function HomePage() {
     operatingSystem: "Web",
     url: siteUrl,
     description:
-      "DanceFlow is dance studio CRM, scheduling, event registration, ticketing, and public discovery software built for dance studios, organizers, independent instructors, and dancers.",
+      "DanceFlow is dance studio CRM, scheduling, event registration, ticketing, email marketing, and public discovery software built for dance studios, organizers, independent instructors, and dancers.",
     offers: {
       "@type": "Offer",
       price: "0",
@@ -244,9 +246,9 @@ export default async function HomePage() {
                 </h1>
 
                 <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">
-                  Manage your studio, grow your community, and help dancers discover
-                  the lessons, events, and experiences they are looking for — all in
-                  one platform.
+                  Manage your studio, grow your community, follow up with leads and clients,
+                  and help dancers discover the lessons, events, and experiences they
+                  are looking for — all in one platform.
                 </p>
 
                 <div className="mt-8 flex flex-wrap gap-3">
@@ -322,8 +324,8 @@ export default async function HomePage() {
                   <p className="text-sm leading-7 text-white/85 sm:text-base">
                     DanceFlow connects public discovery with the real daily work
                     behind dance businesses: scheduling, rentals, portals,
-                    payments, event registration, lesson follow-up, and lead
-                    capture.
+                    payments, event registration, lesson follow-up, lead capture,
+                    and built-in studio marketing.
                   </p>
                 </div>
               </div>
@@ -505,14 +507,15 @@ export default async function HomePage() {
           <div className="mt-10 grid gap-6 lg:grid-cols-3">
             <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
               <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
-                Studio CRM
+                Studio CRM + Marketing
               </p>
               <h3 className="mt-3 text-xl font-semibold text-slate-900">
-                Manage clients, lessons, packages, and memberships
+                Turn client records into real follow-up
               </h3>
               <p className="mt-3 text-sm leading-7 text-slate-600">
-                Keep client details, lesson scheduling, payments, and recurring
-                revenue together in one system designed for studio flow.
+                Keep client details, lesson scheduling, payments, packages, and
+                targeted email campaigns together so studios can follow up without
+                leaving DanceFlow.
               </p>
             </section>
 
@@ -524,8 +527,8 @@ export default async function HomePage() {
                 Help dancers find your studio and events faster
               </h3>
               <p className="mt-3 text-sm leading-7 text-slate-600">
-                Public profiles, favorites, searchable events, and nearby discovery
-                make your digital front door stronger.
+                Public profiles, favorites, searchable events, nearby discovery, and lead
+                capture make your digital front door stronger.
               </p>
             </section>
 
@@ -538,7 +541,7 @@ export default async function HomePage() {
               </h3>
               <p className="mt-3 text-sm leading-7 text-slate-600">
                 Organizers can create public-facing events, manage registrations,
-                and sell tickets through a cleaner workflow.
+                sell tickets, and follow up with registrants through a cleaner workflow.
               </p>
             </section>
           </div>

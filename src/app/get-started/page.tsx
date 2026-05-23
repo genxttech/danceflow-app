@@ -49,7 +49,7 @@ export default async function GetStartedPage() {
                   <p className="mt-5 text-lg leading-8 text-slate-600">
                     DanceFlow is where studios grow and dancers connect. Start with
                     the path that fits how you want to use the platform — discovery,
-                    studio operations, or event organizing.
+                    studio operations, built-in follow-up marketing, or event organizing.
                   </p>
 
                   <div className="mt-7 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left">
@@ -128,18 +128,18 @@ export default async function GetStartedPage() {
 
                   <p className="mt-4 text-sm leading-7 text-slate-600">
                     Compare studio tiers, see feature differences clearly, and choose
-                    the plan that fits your operations, staff, and growth goals.
+                    the plan that fits your operations, staff, marketing, and growth goals.
                   </p>
 
                   <div className="mt-5 space-y-2">
                     <div className="rounded-xl bg-violet-50 px-4 py-3 text-sm text-slate-700">
-                      CRM, scheduling, packages, memberships, and payments
+                      CRM, scheduling, packages, memberships, payments, and email campaigns
                     </div>
                     <div className="rounded-xl bg-violet-50 px-4 py-3 text-sm text-slate-700">
-                      Public studio profile and lead capture
+                      Public studio profile, lead capture, and client follow-up
                     </div>
                     <div className="rounded-xl bg-violet-50 px-4 py-3 text-sm text-slate-700">
-                      Transparent pricing and feature comparison
+                      Starter, Growth, and Pro marketing features by tier
                     </div>
                   </div>
 
@@ -171,7 +171,7 @@ export default async function GetStartedPage() {
 
                   <p className="mt-4 text-sm leading-7 text-slate-600">
                     Continue into organizer pricing for public event publishing,
-                    registrations, ticketing, and event visibility tools.
+                    registrations, ticketing, event visibility, and attendee follow-up tools.
                   </p>
 
                   <div className="mt-5 space-y-2">
@@ -179,7 +179,7 @@ export default async function GetStartedPage() {
                       Publish searchable public events
                     </div>
                     <div className="rounded-xl bg-sky-50 px-4 py-3 text-sm text-slate-700">
-                      Manage registrations and ticket sales
+                      Manage registrations, ticket sales, and event follow-up
                     </div>
                     <div className="rounded-xl bg-sky-50 px-4 py-3 text-sm text-slate-700">
                       Clear pricing before you start
@@ -196,6 +196,56 @@ export default async function GetStartedPage() {
                   </form>
                 </section>
               </div>
+
+              <section className="mt-10 rounded-[32px] border border-violet-200 bg-white p-7 shadow-sm">
+                <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
+                      Built-in Studio Marketing
+                    </p>
+                    <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">
+                      Turn your DanceFlow CRM into follow-up
+                    </h2>
+                    <p className="mt-3 text-sm leading-7 text-slate-600">
+                      DanceFlow campaigns help studios send simple branded emails to
+                      clients, leads, students who need to book again, low-credit
+                      package holders, and event audiences — all from inside the
+                      platform.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm font-semibold text-slate-900">
+                        Starter
+                      </p>
+                      <p className="mt-2 text-xs leading-6 text-slate-600">
+                        Basic campaign drafts and general client emails.
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                      <p className="text-sm font-semibold text-violet-900">
+                        Growth
+                      </p>
+                      <p className="mt-2 text-xs leading-6 text-slate-600">
+                        Targeted CRM audiences like inactive clients, no upcoming
+                        lesson, and low package credits.
+                      </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                      <p className="text-sm font-semibold text-orange-900">
+                        Pro
+                      </p>
+                      <p className="mt-2 text-xs leading-6 text-slate-600">
+                        Event-based audiences, checked-in attendees, advanced
+                        reporting, exports, and future automations.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
               <div className="mt-10 rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
                 <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-center">
