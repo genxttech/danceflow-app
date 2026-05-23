@@ -2358,27 +2358,31 @@ export async function markAppointmentAttendedAction(formData: FormData) {
       appointment.appointment_type,
     );
 
-    if (billingType === "membership") {
-      await syncMembershipUsageForAppointment({
-        supabase,
-        studioId,
-        appointmentId,
-        clientId: appointment.client_id,
-        appointmentType: appointment.appointment_type,
-        status: "attended",
-        startsAtIso: appointment.starts_at,
-      });
-    }
+    try {
+      if (billingType === "membership") {
+        await syncMembershipUsageForAppointment({
+          supabase,
+          studioId,
+          appointmentId,
+          clientId: appointment.client_id,
+          appointmentType: appointment.appointment_type,
+          status: "attended",
+          startsAtIso: appointment.starts_at,
+        });
+      }
 
-    if (billingType === "package_credit") {
-      await syncPackageUsageForAttendedAppointment({
-        supabase,
-        studioId,
-        appointmentId,
-        clientId: appointment.client_id,
-        appointmentType: appointment.appointment_type,
-        clientPackageId: appointment.client_package_id,
-      });
+      if (billingType === "package_credit") {
+        await syncPackageUsageForAttendedAppointment({
+          supabase,
+          studioId,
+          appointmentId,
+          clientId: appointment.client_id,
+          appointmentType: appointment.appointment_type,
+          clientPackageId: appointment.client_package_id,
+        });
+      }
+    } catch (syncError) {
+      console.error("Attendance was marked, but usage sync failed.", syncError);
     }
 
     revalidatePath("/app/schedule");
@@ -2466,35 +2470,42 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
           continue;
         }
 
+        markedCount += 1;
+
         const billingType = normalizeLessonBillingType(
           appointment.billing_type,
           appointment.appointment_type,
         );
 
-        if (billingType === "membership") {
-          await syncMembershipUsageForAppointment({
-            supabase,
-            studioId,
-            appointmentId: appointment.id,
-            clientId: appointment.client_id,
-            appointmentType: appointment.appointment_type,
-            status: "attended",
-            startsAtIso: appointment.starts_at,
-          });
-        }
+        try {
+          if (billingType === "membership") {
+            await syncMembershipUsageForAppointment({
+              supabase,
+              studioId,
+              appointmentId: appointment.id,
+              clientId: appointment.client_id,
+              appointmentType: appointment.appointment_type,
+              status: "attended",
+              startsAtIso: appointment.starts_at,
+            });
+          }
 
-        if (billingType === "package_credit") {
-          await syncPackageUsageForAttendedAppointment({
-            supabase,
-            studioId,
-            appointmentId: appointment.id,
-            clientId: appointment.client_id,
-            appointmentType: appointment.appointment_type,
-            clientPackageId: appointment.client_package_id,
-          });
+          if (billingType === "package_credit") {
+            await syncPackageUsageForAttendedAppointment({
+              supabase,
+              studioId,
+              appointmentId: appointment.id,
+              clientId: appointment.client_id,
+              appointmentType: appointment.appointment_type,
+              clientPackageId: appointment.client_package_id,
+            });
+          }
+        } catch (syncError) {
+          console.error(
+            "Bulk attendance marked an appointment, but usage sync failed.",
+            syncError,
+          );
         }
-
-        markedCount += 1;
       } catch {
         skippedCount += 1;
         failedCount += 1;
@@ -3225,4 +3236,6 @@ export async function deleteLessonRecapAction(formData: FormData) {
     redirect(getErrorRedirect(formData, fallback, "delete_recap_failed"));
   }
 }
+
+
 
