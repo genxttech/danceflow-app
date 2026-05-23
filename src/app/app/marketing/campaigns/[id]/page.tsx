@@ -874,7 +874,7 @@ export default async function MarketingCampaignDetailPage({
             <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
               <h2 className="text-lg font-bold text-[var(--brand-text)]">Send campaign</h2>
               <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                Send only after the test email looks right. Every live email includes an unsubscribe link and excludes suppressed contacts.
+                Send only after the test email looks right. DanceFlow excludes unsubscribed contacts and includes an unsubscribe link in every live marketing email.
               </p>
 
               <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
@@ -908,6 +908,12 @@ export default async function MarketingCampaignDetailPage({
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Subject</p>
                   <p className="mt-1 text-sm font-bold text-[var(--brand-text)]">{campaign.subject}</p>
                 </div>
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                  <p className="font-bold">Marketing permission reminder</p>
+                  <p className="mt-1">
+                    DanceFlow will suppress unsubscribed contacts, but each studio is responsible for sending campaigns only to contacts it is allowed to email.
+                  </p>
+                </div>
               </div>
 
               <form action={sendMarketingCampaignAction} className="mt-4 space-y-4">
@@ -923,7 +929,7 @@ export default async function MarketingCampaignDetailPage({
                     className="mt-1 h-4 w-4 rounded border-amber-300"
                   />
                   <span>
-                    I understand this will send this campaign to {recipientStatusCounts.pending} pending recipient{recipientStatusCounts.pending === 1 ? "" : "s"}.
+                    I confirm this campaign is being sent to contacts this studio is allowed to email, and I understand DanceFlow will include an unsubscribe link. This will send to {recipientStatusCounts.pending} pending recipient{recipientStatusCounts.pending === 1 ? "" : "s"}.
                   </span>
                 </label>
 
@@ -941,7 +947,7 @@ export default async function MarketingCampaignDetailPage({
               </form>
 
               <p className="mt-3 text-xs leading-5 text-[var(--brand-muted)]">
-                This sends the prepared pending list now. Test the email and review the send summary before confirming. Larger batch scheduling and analytics can be added after this flow is verified.
+                This sends the prepared pending list now. Test the email, review the send summary, and confirm the studio has permission to email this audience before sending.
               </p>
             </section>
           </aside>
@@ -950,5 +956,6 @@ export default async function MarketingCampaignDetailPage({
     </main>
   );
 }
+
 
 
