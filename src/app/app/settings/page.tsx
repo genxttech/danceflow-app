@@ -2,15 +2,20 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import SettingsForm from "./SettingsForm";
+import { updateStudioMarketingFooterAction } from "./actions";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 
 type StudioRow = {
   id: string;
   name: string;
+  email: string | null;
+  address_line_1: string | null;
+  address_line_2: string | null;
   city: string | null;
   state: string | null;
   postal_code: string | null;
+  country: string | null;
   latitude: number | null;
   longitude: number | null;
   public_name: string | null;
@@ -105,9 +110,13 @@ export default async function SettingsPage() {
       .select(`
         id,
         name,
+        email,
+        address_line_1,
+        address_line_2,
         city,
         state,
         postal_code,
+        country,
         latitude,
         longitude,
         public_name,
@@ -328,6 +337,152 @@ export default async function SettingsPage() {
           </p>
         </Link>
       </div>
+
+      <form
+        action={updateStudioMarketingFooterAction}
+        className="rounded-3xl border bg-white p-5 shadow-sm"
+      >
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-violet-600">
+              Marketing Email Footer
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-900">
+              Studio mailing address for campaigns
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              DanceFlow will use this business mailing address and reply-to email in studio marketing emails.
+              Keep this current before sending campaigns to clients, leads, and event attendees.
+            </p>
+          </div>
+
+          <Link
+            href="/app/marketing/campaigns"
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            View Campaigns
+          </Link>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <div className="md:col-span-2">
+            <label
+              htmlFor="marketingReplyToEmail"
+              className="text-sm font-medium text-slate-900"
+            >
+              Reply-to email
+            </label>
+            <input
+              id="marketingReplyToEmail"
+              name="marketingReplyToEmail"
+              type="email"
+              defaultValue={(studio as StudioRow).email ?? ""}
+              placeholder="studio@example.com"
+              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+            <p className="mt-1 text-xs text-slate-500">
+              Replies from campaign emails should go to the studio, not to DanceFlow support.
+            </p>
+          </div>
+
+          <div className="md:col-span-2">
+            <label
+              htmlFor="marketingAddressLine1"
+              className="text-sm font-medium text-slate-900"
+            >
+              Mailing address line 1
+            </label>
+            <input
+              id="marketingAddressLine1"
+              name="marketingAddressLine1"
+              defaultValue={(studio as StudioRow).address_line_1 ?? ""}
+              placeholder="Street address or PO Box"
+              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div className="md:col-span-2">
+            <label
+              htmlFor="marketingAddressLine2"
+              className="text-sm font-medium text-slate-900"
+            >
+              Mailing address line 2
+            </label>
+            <input
+              id="marketingAddressLine2"
+              name="marketingAddressLine2"
+              defaultValue={(studio as StudioRow).address_line_2 ?? ""}
+              placeholder="Suite, unit, floor, or additional address detail"
+              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="marketingCity" className="text-sm font-medium text-slate-900">
+              City
+            </label>
+            <input
+              id="marketingCity"
+              name="marketingCity"
+              defaultValue={(studio as StudioRow).city ?? ""}
+              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="marketingState" className="text-sm font-medium text-slate-900">
+              State / region
+            </label>
+            <input
+              id="marketingState"
+              name="marketingState"
+              defaultValue={(studio as StudioRow).state ?? ""}
+              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="marketingPostalCode"
+              className="text-sm font-medium text-slate-900"
+            >
+              Postal code
+            </label>
+            <input
+              id="marketingPostalCode"
+              name="marketingPostalCode"
+              defaultValue={(studio as StudioRow).postal_code ?? ""}
+              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="marketingCountry" className="text-sm font-medium text-slate-900">
+              Country
+            </label>
+            <input
+              id="marketingCountry"
+              name="marketingCountry"
+              defaultValue={(studio as StudioRow).country ?? "United States"}
+              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+          This address appears in marketing email footers. DanceFlow still suppresses unsubscribed contacts,
+          and the studio remains responsible for sending campaigns only to contacts it is allowed to email.
+        </div>
+
+        <div className="mt-5">
+          <button
+            type="submit"
+            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            Save Marketing Footer
+          </button>
+        </div>
+      </form>
 
       <SettingsForm
         studio={studio as StudioRow}

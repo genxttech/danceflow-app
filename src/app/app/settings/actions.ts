@@ -441,3 +441,44 @@ export async function updateStudioSettingsAction(
 
   redirect("/app/settings?success=settings_saved");
 }
+
+
+export async function updateStudioMarketingFooterAction(formData: FormData) {
+  try {
+    const { supabase, studioId } = await requireSettingsManageAccess();
+
+    const replyToEmail = getString(formData, "marketingReplyToEmail").toLowerCase();
+    const addressLine1 = getString(formData, "marketingAddressLine1");
+    const addressLine2 = getString(formData, "marketingAddressLine2");
+    const city = getString(formData, "marketingCity");
+    const state = getString(formData, "marketingState");
+    const postalCode = getString(formData, "marketingPostalCode");
+    const country = getString(formData, "marketingCountry") || "United States";
+
+    if (replyToEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(replyToEmail)) {
+      redirect("/app/settings?marketing_footer_error=invalid_email");
+    }
+
+    const { error } = await supabase
+      .from("studios")
+      .update({
+        email: replyToEmail || null,
+        address_line_1: addressLine1 || null,
+        address_line_2: addressLine2 || null,
+        city: city || null,
+        state: state || null,
+        postal_code: postalCode || null,
+        country: country || null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", studioId);
+
+    if (error) {
+      redirect("/app/settings?marketing_footer_error=save_failed");
+    }
+  } catch {
+    redirect("/app/settings?marketing_footer_error=save_failed");
+  }
+
+  redirect("/app/settings?success=marketing_footer_saved");
+}
