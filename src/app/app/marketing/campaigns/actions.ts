@@ -612,6 +612,14 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       redirect(appendQueryParam(fallback, "campaign_error", "campaign_already_sent"));
     }
 
+    if (campaign.status === "sending") {
+      redirect(appendQueryParam(fallback, "campaign_error", "campaign_locked"));
+    }
+
+    if (getString(formData, "confirmSend") !== "yes") {
+      redirect(appendQueryParam(fallback, "campaign_error", "send_not_confirmed"));
+    }
+
     const { data: pendingRecipients, error: recipientsError } = await supabase
       .from("marketing_campaign_recipients")
       .select("id, email, name, unsubscribe_token")
@@ -730,5 +738,6 @@ export async function sendMarketingCampaignAction(formData: FormData) {
 
   redirect(appendQueryParam(fallback, "campaign_sent", "1"));
 }
+
 
 

@@ -88,7 +88,9 @@ function campaignErrorMessage(code?: string) {
     case "campaign_locked":
       return "This campaign is currently locked because it has already sent or is sending.";
     case "no_pending_recipients":
-      return "There are no pending recipients to send. Generate recipients first.";
+      return "There are no pending recipients to send. Prepare the send list first.";
+    case "send_not_confirmed":
+      return "Please confirm the send summary before sending this campaign.";
     case "campaign_already_sent":
       return "This campaign has already been sent.";
     case "send_failed":
@@ -127,6 +129,32 @@ function countByStatus(recipients: RecipientRow[]) {
     },
     { pending: 0, sent: 0, failed: 0, skipped: 0, unsubscribed: 0 },
   );
+}
+
+function campaignStatusLabel(status: string) {
+  switch (String(status ?? "draft").toLowerCase()) {
+    case "sending":
+      return "Sending";
+    case "sent":
+      return "Sent";
+    case "failed":
+      return "Failed";
+    default:
+      return "Draft";
+  }
+}
+
+function campaignStatusClass(status: string) {
+  switch (String(status ?? "draft").toLowerCase()) {
+    case "sending":
+      return "border-amber-200 bg-amber-50 text-amber-800";
+    case "sent":
+      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+    case "failed":
+      return "border-red-200 bg-red-50 text-red-700";
+    default:
+      return "border-[var(--brand-border)] bg-[var(--brand-soft-bg)] text-[var(--brand-muted)]";
+  }
 }
 
 async function getUnsubscribedEmails(params: {
@@ -336,7 +364,7 @@ export default async function MarketingCampaignDetailPage({
 
         {resolvedSearchParams.recipients_generated ? (
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
-            Recipient list generated. Review the send readiness summary before sending.
+            Send list prepared. Review the send readiness summary before sending.
           </div>
         ) : null}
 
@@ -379,7 +407,9 @@ export default async function MarketingCampaignDetailPage({
           <div className="grid gap-4 p-5 sm:p-6 lg:grid-cols-4">
             <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
               <p className="text-sm font-semibold text-[var(--brand-muted)]">Status</p>
-              <p className="mt-2 text-lg font-bold capitalize text-[var(--brand-text)]">{campaign.status}</p>
+              <span className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-bold ${campaignStatusClass(campaign.status)}`}>
+                {campaignStatusLabel(campaign.status)}
+              </span>
             </div>
             <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
               <p className="text-sm font-semibold text-[var(--brand-muted)]">Audience</p>
@@ -405,8 +435,8 @@ export default async function MarketingCampaignDetailPage({
                 <h2 className="text-xl font-bold text-[var(--brand-text)]">Message preview</h2>
                 <p className="mt-1 text-sm text-[var(--brand-muted)]">Created {formatDate(campaign.created_at)} · Sent {formatDate(campaign.sent_at)}</p>
               </div>
-              <span className="inline-flex w-fit rounded-full border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] px-3 py-1 text-xs font-semibold capitalize text-[var(--brand-muted)]">
-                {campaign.status}
+              <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${campaignStatusClass(campaign.status)}`}>
+                {campaignStatusLabel(campaign.status)}
               </span>
             </div>
 
@@ -531,9 +561,9 @@ export default async function MarketingCampaignDetailPage({
             </section>
 
             <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
-              <h2 className="text-lg font-bold text-[var(--brand-text)]">Recipient generation</h2>
+              <h2 className="text-lg font-bold text-[var(--brand-text)]">Prepare send list</h2>
               <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                Generate the send list from the selected audience. Unsubscribed contacts are kept out of the pending send queue.
+                Lock in the current audience for this campaign. Unsubscribed contacts are kept out of the pending send queue.
               </p>
 
               <div className="mt-4 grid grid-cols-2 gap-2">
@@ -562,13 +592,13 @@ export default async function MarketingCampaignDetailPage({
                   disabled={campaign.status === "sent" || campaign.status === "sending"}
                   className="inline-flex w-full items-center justify-center rounded-2xl border border-[var(--brand-border)] bg-white px-5 py-3 text-sm font-bold text-[var(--brand-text)] shadow-sm transition hover:bg-[var(--brand-soft-bg)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {hasGeneratedRecipients ? "Refresh Recipient List" : "Generate Recipients"}
+                  {hasGeneratedRecipients ? "Refresh Send List" : "Prepare Send List"}
                 </button>
               </form>
 
               <details className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
                 <summary className="cursor-pointer text-sm font-bold text-[var(--brand-text)]">
-                  Show generated sample
+                  Show send list sample
                 </summary>
 
                 <div className="mt-4 space-y-3">
@@ -596,7 +626,7 @@ export default async function MarketingCampaignDetailPage({
                     ))
                   ) : (
                     <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-white p-4 text-sm text-[var(--brand-muted)]">
-                      No generated recipients yet.
+                      No send list has been prepared yet.
                     </div>
                   )}
                 </div>
@@ -609,8 +639,53 @@ export default async function MarketingCampaignDetailPage({
                 Send only after the test email looks right. Every live email includes an unsubscribe link and excludes suppressed contacts.
               </p>
 
-              <form action={sendMarketingCampaignAction} className="mt-4">
+              <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Send summary</p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Campaign</p>
+                    <p className="mt-1 truncate font-bold text-[var(--brand-text)]">{campaign.name}</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Audience</p>
+                    <p className="mt-1 truncate font-bold text-[var(--brand-text)]">
+                      {audienceLabels[campaign.audience_type] ?? campaign.audience_type}
+                    </p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Pending send</p>
+                    <p className="mt-1 font-bold text-[var(--brand-text)]">{recipientStatusCounts.pending}</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Suppressed/skipped</p>
+                    <p className="mt-1 font-bold text-[var(--brand-text)]">
+                      {recipientStatusCounts.unsubscribed + recipientStatusCounts.skipped}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-xl bg-white p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Subject</p>
+                  <p className="mt-1 text-sm font-bold text-[var(--brand-text)]">{campaign.subject}</p>
+                </div>
+              </div>
+
+              <form action={sendMarketingCampaignAction} className="mt-4 space-y-4">
                 <input type="hidden" name="campaignId" value={campaign.id} />
+
+                <label className={`flex gap-3 rounded-2xl border p-4 text-sm leading-6 ${canSendCampaign ? "border-amber-200 bg-amber-50 text-amber-900" : "border-[var(--brand-border)] bg-[var(--brand-soft-bg)] text-[var(--brand-muted)]"}`}>
+                  <input
+                    type="checkbox"
+                    name="confirmSend"
+                    value="yes"
+                    disabled={!canSendCampaign}
+                    required
+                    className="mt-1 h-4 w-4 rounded border-amber-300"
+                  />
+                  <span>
+                    I understand this will send this campaign to {recipientStatusCounts.pending} pending recipient{recipientStatusCounts.pending === 1 ? "" : "s"}.
+                  </span>
+                </label>
+
                 <button
                   type="submit"
                   disabled={!canSendCampaign}
@@ -619,13 +694,13 @@ export default async function MarketingCampaignDetailPage({
                   {campaign.status === "sent"
                     ? "Campaign Sent"
                     : canSendCampaign
-                      ? `Send to ${recipientStatusCounts.pending} Recipients`
-                      : "Generate Recipients First"}
+                      ? `Send to ${recipientStatusCounts.pending} Recipient${recipientStatusCounts.pending === 1 ? "" : "s"}`
+                      : "Prepare Send List First"}
                 </button>
               </form>
 
               <p className="mt-3 text-xs leading-5 text-[var(--brand-muted)]">
-                V1 sends the generated pending list now. Larger batch scheduling and analytics can be added after this sending flow is verified.
+                This sends the prepared pending list now. Test the email and review the send summary before confirming. Larger batch scheduling and analytics can be added after this flow is verified.
               </p>
             </section>
           </aside>
@@ -634,5 +709,6 @@ export default async function MarketingCampaignDetailPage({
     </main>
   );
 }
+
 
 
