@@ -2,7 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { sendMarketingCampaignTestEmailAction } from "../actions";
+import {
+  generateMarketingCampaignRecipientsAction,
+  sendMarketingCampaignAction,
+  sendMarketingCampaignTestEmailAction,
+} from "../actions";
 
 type Params = Promise<{
   id: string;
@@ -10,6 +14,8 @@ type Params = Promise<{
 
 type SearchParams = Promise<{
   test_sent?: string;
+  campaign_sent?: string;
+  recipients_generated?: string;
   campaign_error?: string;
 }>;
 
@@ -33,6 +39,16 @@ type RecipientPreview = {
   name: string;
   source: string;
   unsubscribed: boolean;
+};
+
+type RecipientRow = {
+  id: string;
+  email: string;
+  name: string | null;
+  status: string;
+  error_message: string | null;
+  sent_at: string | null;
+  created_at: string;
 };
 
 const audienceLabels: Record<string, string> = {
@@ -64,9 +80,19 @@ function campaignErrorMessage(code?: string) {
     case "not_found":
       return "Campaign could not be found.";
     case "missing_content":
-      return "Campaign needs a subject and message before sending a test.";
+      return "Campaign needs a subject and message before sending.";
     case "test_send_failed":
       return "Test email could not be sent. Check Resend settings and sender verification.";
+    case "recipient_generate_failed":
+      return "Recipients could not be generated. Check the campaign audience and try again.";
+    case "campaign_locked":
+      return "This campaign is currently locked because it has already sent or is sending.";
+    case "no_pending_recipients":
+      return "There are no pending recipients to send. Generate recipients first.";
+    case "campaign_already_sent":
+      return "This campaign has already been sent.";
+    case "send_failed":
+      return "Campaign sending could not be completed. Check recipient statuses for details.";
     default:
       return null;
   }
@@ -78,6 +104,29 @@ function normalizeEmail(value: unknown) {
 
 function buildName(firstName: unknown, lastName: unknown) {
   return `${String(firstName ?? "").trim()} ${String(lastName ?? "").trim()}`.trim();
+}
+
+function countByStatus(recipients: RecipientRow[]) {
+  return recipients.reduce(
+    (totals, recipient) => {
+      const status = String(recipient.status ?? "pending").toLowerCase();
+
+      if (status === "sent") {
+        totals.sent += 1;
+      } else if (status === "failed") {
+        totals.failed += 1;
+      } else if (status === "unsubscribed") {
+        totals.unsubscribed += 1;
+      } else if (status === "skipped") {
+        totals.skipped += 1;
+      } else {
+        totals.pending += 1;
+      }
+
+      return totals;
+    },
+    { pending: 0, sent: 0, failed: 0, skipped: 0, unsubscribed: 0 },
+  );
 }
 
 async function getUnsubscribedEmails(params: {
@@ -235,12 +284,21 @@ export default async function MarketingCampaignDetailPage({
   const { data: userResult } = await supabase.auth.getUser();
   const currentUserEmail = userResult.user?.email ?? "";
 
-  const { data: campaign, error } = await supabase
-    .from("marketing_campaigns")
-    .select("id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, audience_type, status, created_at, sent_at")
-    .eq("id", resolvedParams.id)
-    .eq("studio_id", studioId)
-    .maybeSingle<CampaignRow>();
+  const [{ data: campaign, error }, { data: generatedRecipients }] = await Promise.all([
+    supabase
+      .from("marketing_campaigns")
+      .select("id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, audience_type, status, created_at, sent_at")
+      .eq("id", resolvedParams.id)
+      .eq("studio_id", studioId)
+      .maybeSingle<CampaignRow>(),
+    supabase
+      .from("marketing_campaign_recipients")
+      .select("id, email, name, status, error_message, sent_at, created_at")
+      .eq("campaign_id", resolvedParams.id)
+      .eq("studio_id", studioId)
+      .order("created_at", { ascending: true })
+      .limit(25),
+  ]);
 
   if (error || !campaign) {
     notFound();
@@ -256,6 +314,15 @@ export default async function MarketingCampaignDetailPage({
   const suppressedRecipients = recipients.filter((recipient) => recipient.unsubscribed);
   const sampleRecipients = recipients.slice(0, 5);
   const remainingRecipientCount = Math.max(recipients.length - sampleRecipients.length, 0);
+  const recipientRows = (generatedRecipients ?? []) as RecipientRow[];
+  const recipientStatusCounts = countByStatus(recipientRows);
+  const generatedRecipientSample = recipientRows.slice(0, 5);
+  const hasGeneratedRecipients = recipientRows.length > 0;
+  const canSendCampaign =
+    hasGeneratedRecipients &&
+    recipientStatusCounts.pending > 0 &&
+    campaign.status !== "sent" &&
+    campaign.status !== "sending";
   const campaignError = campaignErrorMessage(resolvedSearchParams.campaign_error);
 
   return (
@@ -264,6 +331,18 @@ export default async function MarketingCampaignDetailPage({
         {resolvedSearchParams.test_sent ? (
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
             Test email sent.
+          </div>
+        ) : null}
+
+        {resolvedSearchParams.recipients_generated ? (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
+            Recipient list generated. Review the send readiness summary before sending.
+          </div>
+        ) : null}
+
+        {resolvedSearchParams.campaign_sent ? (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
+            Campaign sending finished. Check the recipient status summary for any failed emails.
           </div>
         ) : null}
 
@@ -284,7 +363,7 @@ export default async function MarketingCampaignDetailPage({
                   {campaign.name}
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-white/85 sm:text-base">
-                  Review the message, check the audience, and send a test email before live sending is enabled.
+                  Review the message, verify the audience, send a test, and send the campaign when ready.
                 </p>
               </div>
 
@@ -362,7 +441,7 @@ export default async function MarketingCampaignDetailPage({
             <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
               <h2 className="text-lg font-bold text-[var(--brand-text)]">Send test email</h2>
               <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                Send a test to yourself or another studio staff email before enabling live campaign sending.
+                Send a test to yourself or another studio staff email before sending to the audience.
               </p>
 
               <form action={sendMarketingCampaignTestEmailAction} className="mt-4 space-y-4">
@@ -450,10 +529,110 @@ export default async function MarketingCampaignDetailPage({
                 </div>
               </details>
             </section>
+
+            <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+              <h2 className="text-lg font-bold text-[var(--brand-text)]">Recipient generation</h2>
+              <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                Generate the send list from the selected audience. Unsubscribed contacts are kept out of the pending send queue.
+              </p>
+
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-3 text-center">
+                  <p className="text-lg font-bold text-[var(--brand-text)]">{recipientRows.length}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Generated</p>
+                </div>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-center">
+                  <p className="text-lg font-bold text-emerald-800">{recipientStatusCounts.pending}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Pending</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-center">
+                  <p className="text-lg font-bold text-slate-800">{recipientStatusCounts.sent}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-700">Sent</p>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-center">
+                  <p className="text-lg font-bold text-amber-800">{recipientStatusCounts.unsubscribed + recipientStatusCounts.skipped + recipientStatusCounts.failed}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Other</p>
+                </div>
+              </div>
+
+              <form action={generateMarketingCampaignRecipientsAction} className="mt-4">
+                <input type="hidden" name="campaignId" value={campaign.id} />
+                <button
+                  type="submit"
+                  disabled={campaign.status === "sent" || campaign.status === "sending"}
+                  className="inline-flex w-full items-center justify-center rounded-2xl border border-[var(--brand-border)] bg-white px-5 py-3 text-sm font-bold text-[var(--brand-text)] shadow-sm transition hover:bg-[var(--brand-soft-bg)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {hasGeneratedRecipients ? "Refresh Recipient List" : "Generate Recipients"}
+                </button>
+              </form>
+
+              <details className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
+                <summary className="cursor-pointer text-sm font-bold text-[var(--brand-text)]">
+                  Show generated sample
+                </summary>
+
+                <div className="mt-4 space-y-3">
+                  {generatedRecipientSample.length > 0 ? (
+                    generatedRecipientSample.map((recipient) => (
+                      <div
+                        key={recipient.id}
+                        className="rounded-2xl border border-[var(--brand-border)] bg-white p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-[var(--brand-text)]">
+                              {recipient.name || recipient.email}
+                            </p>
+                            <p className="truncate text-xs text-[var(--brand-muted)]">{recipient.email}</p>
+                            {recipient.error_message ? (
+                              <p className="mt-1 text-xs text-red-700">{recipient.error_message}</p>
+                            ) : null}
+                          </div>
+                          <span className="shrink-0 rounded-full bg-[var(--brand-soft-bg)] px-2.5 py-1 text-xs font-bold capitalize text-[var(--brand-muted)]">
+                            {recipient.status}
+                          </span>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-white p-4 text-sm text-[var(--brand-muted)]">
+                      No generated recipients yet.
+                    </div>
+                  )}
+                </div>
+              </details>
+            </section>
+
+            <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+              <h2 className="text-lg font-bold text-[var(--brand-text)]">Send campaign</h2>
+              <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                Send only after the test email looks right. Every live email includes an unsubscribe link and excludes suppressed contacts.
+              </p>
+
+              <form action={sendMarketingCampaignAction} className="mt-4">
+                <input type="hidden" name="campaignId" value={campaign.id} />
+                <button
+                  type="submit"
+                  disabled={!canSendCampaign}
+                  className="inline-flex w-full items-center justify-center rounded-2xl bg-[#4D1F47] px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-[#3D1839] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {campaign.status === "sent"
+                    ? "Campaign Sent"
+                    : canSendCampaign
+                      ? `Send to ${recipientStatusCounts.pending} Recipients`
+                      : "Generate Recipients First"}
+                </button>
+              </form>
+
+              <p className="mt-3 text-xs leading-5 text-[var(--brand-muted)]">
+                V1 sends the generated pending list now. Larger batch scheduling and analytics can be added after this sending flow is verified.
+              </p>
+            </section>
           </aside>
         </section>
       </div>
     </main>
   );
 }
+
 
