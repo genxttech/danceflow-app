@@ -602,6 +602,45 @@ export default async function MarketingCampaignDetailPage({
     notFound();
   }
 
+  const [
+    { count: pendingRecipientCount },
+    { count: sentRecipientCount },
+    { count: failedRecipientCount },
+    { count: unsubscribedRecipientCount },
+    { count: skippedRecipientCount },
+  ] = await Promise.all([
+    supabase
+      .from("marketing_campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", resolvedParams.id)
+      .eq("studio_id", studioId)
+      .eq("status", "pending"),
+    supabase
+      .from("marketing_campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", resolvedParams.id)
+      .eq("studio_id", studioId)
+      .eq("status", "sent"),
+    supabase
+      .from("marketing_campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", resolvedParams.id)
+      .eq("studio_id", studioId)
+      .eq("status", "failed"),
+    supabase
+      .from("marketing_campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", resolvedParams.id)
+      .eq("studio_id", studioId)
+      .eq("status", "unsubscribed"),
+    supabase
+      .from("marketing_campaign_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("campaign_id", resolvedParams.id)
+      .eq("studio_id", studioId)
+      .eq("status", "skipped"),
+  ]);
+
   const { data: selectedEvent } = campaign.audience_event_id
     ? await supabase
         .from("events")
@@ -623,9 +662,70 @@ export default async function MarketingCampaignDetailPage({
   const sampleRecipients = recipients.slice(0, 5);
   const remainingRecipientCount = Math.max(recipients.length - sampleRecipients.length, 0);
   const recipientRows = (generatedRecipients ?? []) as RecipientRow[];
-  const recipientStatusCounts = countByStatus(recipientRows);
+  const recipientStatusCounts = {
+    pending: pendingRecipientCount ?? 0,
+    sent: sentRecipientCount ?? 0,
+    failed: failedRecipientCount ?? 0,
+    unsubscribed: unsubscribedRecipientCount ?? 0,
+    skipped: skippedRecipientCount ?? 0,
+  };
+  const totalPreparedRecipients =
+    recipientStatusCounts.pending +
+    recipientStatusCounts.sent +
+    recipientStatusCounts.failed +
+    recipientStatusCounts.unsubscribed +
+    recipientStatusCounts.skipped;
   const generatedRecipientSample = recipientRows.slice(0, 5);
-  const hasGeneratedRecipients = recipientRows.length > 0;
+  const hasGeneratedRecipients = totalPreparedRecipients > 0;
+  const resultStatusCards = [
+    {
+      label: "Sent",
+      value: recipientStatusCounts.sent,
+      className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    },
+    {
+      label: "Failed",
+      value: recipientStatusCounts.failed,
+      className: "border-red-200 bg-red-50 text-red-700",
+    },
+    {
+      label: "Pending",
+      value: recipientStatusCounts.pending,
+      className: "border-amber-200 bg-amber-50 text-amber-800",
+    },
+    {
+      label: "Suppressed",
+      value: recipientStatusCounts.unsubscribed + recipientStatusCounts.skipped,
+      className: "border-slate-200 bg-slate-50 text-slate-700",
+    },
+  ];
+  const recipientDetailGroups = [
+    {
+      label: "Sent recipients",
+      count: recipientStatusCounts.sent,
+      recipients: recipientRows.filter((recipient) => String(recipient.status ?? "").toLowerCase() === "sent").slice(0, 5),
+    },
+    {
+      label: "Failed recipients",
+      count: recipientStatusCounts.failed,
+      recipients: recipientRows.filter((recipient) => String(recipient.status ?? "").toLowerCase() === "failed").slice(0, 5),
+    },
+    {
+      label: "Pending recipients",
+      count: recipientStatusCounts.pending,
+      recipients: recipientRows.filter((recipient) => String(recipient.status ?? "pending").toLowerCase() === "pending").slice(0, 5),
+    },
+    {
+      label: "Suppressed / skipped recipients",
+      count: recipientStatusCounts.unsubscribed + recipientStatusCounts.skipped,
+      recipients: recipientRows
+        .filter((recipient) => {
+          const status = String(recipient.status ?? "").toLowerCase();
+          return status === "unsubscribed" || status === "skipped";
+        })
+        .slice(0, 5),
+    },
+  ];
   const hasMarketingFooter = hasMarketingFooterAddress(studioFooter);
   const marketingFooterAddress = formatMarketingFooterAddress(studioFooter);
   const canSendCampaign =
@@ -717,8 +817,9 @@ export default async function MarketingCampaignDetailPage({
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
-          <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-col gap-6">
+            <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h2 className="text-xl font-bold text-[var(--brand-text)]">Message preview</h2>
                 <p className="mt-1 text-sm text-[var(--brand-muted)]">Created {formatDate(campaign.created_at)} · Sent {formatDate(campaign.sent_at)}</p>
@@ -753,6 +854,93 @@ export default async function MarketingCampaignDetailPage({
                 </a>
               </div>
             ) : null}
+            </section>
+
+            <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-[var(--brand-text)]">Campaign results</h2>
+                  <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                    Track delivery status after the send list is prepared and the campaign is sent.
+                  </p>
+                </div>
+                <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${campaignStatusClass(campaign.status)}`}>
+                  {campaignStatusLabel(campaign.status)}
+                </span>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {resultStatusCards.map((card) => (
+                  <div key={card.label} className={`rounded-2xl border p-3 text-center ${card.className}`}>
+                    <p className="text-xl font-bold">{card.value}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide">{card.label}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                    Prepared recipients
+                  </p>
+                  <p className="mt-1 text-lg font-bold text-[var(--brand-text)]">{totalPreparedRecipients}</p>
+                </div>
+                <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                    Sent date
+                  </p>
+                  <p className="mt-1 text-lg font-bold text-[var(--brand-text)]">{formatDate(campaign.sent_at)}</p>
+                </div>
+              </div>
+
+              <details className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
+                <summary className="cursor-pointer text-sm font-bold text-[var(--brand-text)]">
+                  Show recipient status details
+                </summary>
+
+                <div className="mt-4 space-y-3">
+                  {recipientDetailGroups.map((group) => (
+                    <details key={group.label} className="rounded-2xl border border-[var(--brand-border)] bg-white p-3">
+                      <summary className="cursor-pointer text-sm font-bold text-[var(--brand-text)]">
+                        {group.label} · {group.count}
+                      </summary>
+
+                      <div className="mt-3 space-y-2">
+                        {group.recipients.length > 0 ? (
+                          group.recipients.map((recipient) => (
+                            <div
+                              key={recipient.id}
+                              className="rounded-xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-3"
+                            >
+                              <p className="truncate text-sm font-semibold text-[var(--brand-text)]">
+                                {recipient.name || recipient.email}
+                              </p>
+                              <p className="truncate text-xs text-[var(--brand-muted)]">{recipient.email}</p>
+                              {recipient.sent_at ? (
+                                <p className="mt-1 text-xs text-[var(--brand-muted)]">Sent {formatDate(recipient.sent_at)}</p>
+                              ) : null}
+                              {recipient.error_message ? (
+                                <p className="mt-1 text-xs text-red-700">{recipient.error_message}</p>
+                              ) : null}
+                            </div>
+                          ))
+                        ) : (
+                          <p className="rounded-xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-3 text-xs text-[var(--brand-muted)]">
+                            No sample recipients to show in this status.
+                          </p>
+                        )}
+
+                        {group.count > group.recipients.length ? (
+                          <p className="text-xs text-[var(--brand-muted)]">
+                            Showing up to 5 sample recipients for this status to keep the page compact on mobile.
+                          </p>
+                        ) : null}
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </details>
+            </section>
           </div>
 
           <aside className="flex flex-col gap-6">
@@ -856,8 +1044,8 @@ export default async function MarketingCampaignDetailPage({
 
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-3 text-center">
-                  <p className="text-lg font-bold text-[var(--brand-text)]">{recipientRows.length}</p>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Generated</p>
+                  <p className="text-lg font-bold text-[var(--brand-text)]">{totalPreparedRecipients}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Prepared</p>
                 </div>
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-center">
                   <p className="text-lg font-bold text-emerald-800">{recipientStatusCounts.pending}</p>
@@ -1016,7 +1204,4 @@ export default async function MarketingCampaignDetailPage({
     </main>
   );
 }
-
-
-
 
