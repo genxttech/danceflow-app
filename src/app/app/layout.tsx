@@ -8,6 +8,7 @@ import {
   getCurrentStudioContext,
   getCurrentWorkspaceAccessState,
   isOrganizerRole,
+  recordWorkspaceAccess,
 } from "@/lib/auth/studio";
 import { clearStudioContextAction } from "@/app/platform/actions";
 import AppSidebarShell from "./AppSidebarShell";
@@ -391,6 +392,14 @@ export default async function AppLayout({
     redirect(`${billingPath}?reason=access_paused`);
   }
 
+  if (!context.isPlatformAdmin && !accessState.blocked) {
+    await recordWorkspaceAccess({
+      studioId: context.studioId,
+      userId: context.userId,
+      route: pathname,
+    });
+  }
+
   async function switchWorkspaceAction(formData: FormData) {
     "use server";
 
@@ -594,10 +603,4 @@ export default async function AppLayout({
     </div>
   );
 }
-
-
-
-
-
-
 

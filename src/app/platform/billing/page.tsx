@@ -30,6 +30,8 @@ type StudioRow = {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   trial_ends_at: string | null;
+  last_workspace_access_at: string | null;
+  last_workspace_access_user_id: string | null;
 };
 
 type InvoiceRow = {
@@ -88,6 +90,23 @@ function formatDate(value: string | null) {
     day: "numeric",
     year: "numeric",
   }).format(new Date(value));
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "Never";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatUserId(value: string | null) {
+  if (!value) return "—";
+  return `${value.slice(0, 8)}…`;
 }
 
 function formatMoney(value: number, currency = "USD") {
@@ -430,7 +449,9 @@ export default async function PlatformBillingPage() {
     active,
     stripe_customer_id,
     stripe_subscription_id,
-    trial_ends_at
+    trial_ends_at,
+    last_workspace_access_at,
+    last_workspace_access_user_id
   `)
   .order("created_at", { ascending: false }),
 
@@ -737,6 +758,21 @@ typedSubscriptions
                     <p className="mt-2 text-sm text-slate-500">
                       {risk.planName} • Created {formatDate(risk.studio.created_at)}
                     </p>
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                      <p>
+                        <span className="font-medium text-slate-800">Last workspace access:</span>{" "}
+                        {formatDateTime(risk.studio.last_workspace_access_at)}
+                      </p>
+                      {risk.studio.last_workspace_access_at ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          Last accessed user: {formatUserId(risk.studio.last_workspace_access_user_id)}
+                        </p>
+                      ) : (
+                        <p className="mt-1 text-xs text-slate-500">
+                          No recorded workspace activity yet.
+                        </p>
+                      )}
+                    </div>
                   </div>
 
                   <div className="md:text-right">
@@ -1044,3 +1080,4 @@ typedSubscriptions
     </div>
   );
 }
+
