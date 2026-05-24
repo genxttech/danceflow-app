@@ -15,7 +15,45 @@ type StudioPageParams = Promise<{
 
 type StudioPageSearchParams = Promise<{
   inquiry?: string;
+  tab?: string;
 }>;
+
+type StudioPublicTab =
+  | "overview"
+  | "about"
+  | "dance-styles"
+  | "staff"
+  | "offerings"
+  | "events"
+  | "contact";
+
+function normalizeStudioPublicTab(
+  value: string | undefined,
+  fallback: StudioPublicTab,
+): StudioPublicTab {
+  switch (value) {
+    case "about":
+    case "dance-styles":
+    case "staff":
+    case "offerings":
+    case "events":
+    case "contact":
+    case "overview":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function publicTabClass(isActive: boolean) {
+  return isActive
+    ? "shrink-0 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm"
+    : "shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700";
+}
+
+function tabPanelClass(isActive: boolean, className: string) {
+  return `${isActive ? "" : "hidden "}${className}`;
+}
 
 type StudioRow = {
   id: string;
@@ -280,6 +318,10 @@ export default async function PublicStudioPage({
   const { studioSlug } = await params;
   const resolvedSearchParams = await searchParams;
   const inquirySuccess = resolvedSearchParams.inquiry === "success";
+  const activeStudioTab = normalizeStudioPublicTab(
+    resolvedSearchParams.tab,
+    inquirySuccess ? "contact" : "overview",
+  );
 
   const supabase = await createClient();
 
@@ -547,6 +589,16 @@ export default async function PublicStudioPage({
     ],
   };
 
+  const studioTabs: { key: StudioPublicTab; label: string }[] = [
+    { key: "overview", label: "Overview" },
+    { key: "about", label: "About" },
+    { key: "dance-styles", label: "Dance Styles" },
+    { key: "staff", label: "Staff" },
+    { key: "offerings", label: "Offerings" },
+    { key: "events", label: "Events" },
+    { key: "contact", label: "Contact" },
+  ];
+
   return (
     <>
       <JsonLd data={[studioJsonLd, breadcrumbJsonLd]} />
@@ -609,12 +661,12 @@ export default async function PublicStudioPage({
 
                 <div className="mt-6 flex flex-wrap gap-3">
                   {studio.public_lead_enabled ? (
-                    <a
-                      href="#lead"
+                    <Link
+                      href={`/studios/${studioUrlSlug}?tab=contact#lead`}
                       className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800"
                     >
                       {leadCtaText}
-                    </a>
+                    </Link>
                   ) : null}
 
                   {studio.public_website_url ? (
@@ -665,24 +717,60 @@ export default async function PublicStudioPage({
         </section>
 
         <nav
-          aria-label="Studio page sections"
+          aria-label="Studio page tabs"
           className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/75 sm:px-6 lg:px-8"
         >
           <div className="mx-auto flex max-w-7xl gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            <a href="#overview" className="shrink-0 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm">Overview</a>
-            <a href="#about" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">About</a>
-            <a href="#dance-styles" className="shrink-0 rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700">Dance Styles</a>
-            <a href="#staff" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Staff</a>
-            <a href="#offerings" className="shrink-0 rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700">Offerings</a>
-            <a href="#events" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Events</a>
-            <a href="#contact" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Contact</a>
+            {studioTabs.map((tab) => (
+              <Link
+                key={tab.key}
+                href={`/studios/${studioUrlSlug}?tab=${tab.key}`}
+                aria-current={activeStudioTab === tab.key ? "page" : undefined}
+                className={publicTabClass(activeStudioTab === tab.key)}
+              >
+                {tab.label}
+              </Link>
+            ))}
           </div>
         </nav>
 
-        <section id="overview" className="mx-auto max-w-7xl scroll-mt-24 px-4 py-8 sm:px-6 lg:px-8">
-          <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
+        <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+          <div className="grid gap-8">
             <div className="space-y-8">
-              <section id="about" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section id="overview" className={tabPanelClass(activeStudioTab === "overview", "rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm")}>
+                <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                  Welcome to {title}
+                </h2>
+                <p className="mt-4 text-sm leading-7 text-slate-600">
+                  {studio.public_short_description ||
+                    studio.public_about ||
+                    "Explore this studio’s dance styles, offerings, upcoming events, and ways to connect."}
+                </p>
+                <div className="mt-5 flex flex-wrap gap-3">
+                  {studio.public_lead_enabled ? (
+                    <Link
+                      href={`/studios/${studioUrlSlug}?tab=contact#lead`}
+                      className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                    >
+                      {leadCtaText}
+                    </Link>
+                  ) : null}
+                  <Link
+                    href={`/studios/${studioUrlSlug}?tab=events`}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    View Events
+                  </Link>
+                  <Link
+                    href={`/studios/${studioUrlSlug}?tab=offerings`}
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    See Offerings
+                  </Link>
+                </div>
+              </section>
+
+              <section id="about" className={tabPanelClass(activeStudioTab === "about", "rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm")}>
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   About This Studio
                 </h2>
@@ -693,7 +781,7 @@ export default async function PublicStudioPage({
                 </p>
               </section>
 
-              <section id="dance-styles" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section id="dance-styles" className={tabPanelClass(activeStudioTab === "dance-styles", "rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm")}>
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   Dance Styles
                 </h2>
@@ -717,7 +805,7 @@ export default async function PublicStudioPage({
                 )}
               </section>
 
-              <section id="staff" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section id="staff" className={tabPanelClass(activeStudioTab === "staff", "rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm")}>
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   Staff
                 </h2>
@@ -727,7 +815,7 @@ export default async function PublicStudioPage({
                 </p>
               </section>
 
-              <section id="offerings" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section id="offerings" className={tabPanelClass(activeStudioTab === "offerings", "rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm")}>
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   Offerings
                 </h2>
@@ -751,7 +839,7 @@ export default async function PublicStudioPage({
                 )}
               </section>
 
-              <section id="events" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section id="events" className={tabPanelClass(activeStudioTab === "events", "rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm")}>
                 <div className="flex flex-wrap items-end justify-between gap-4">
                   <div>
                     <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
@@ -843,7 +931,7 @@ export default async function PublicStudioPage({
               {studio.public_lead_enabled ? (
                 <section
                   id="lead"
-                  className="scroll-mt-24 rounded-[2rem] border border-violet-200 bg-violet-50 p-6 shadow-sm"
+                  className={tabPanelClass(activeStudioTab === "contact", "scroll-mt-24 rounded-[2rem] border border-violet-200 bg-violet-50 p-6 shadow-sm")}
                 >
                   <div className="mb-5">
                     <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
@@ -865,14 +953,14 @@ export default async function PublicStudioPage({
 
                   <PublicLeadForm
                     studio={leadStudio}
-                    successRedirect={`/studios/${studioUrlSlug}?inquiry=success#lead`}
+                    successRedirect={`/studios/${studioUrlSlug}?inquiry=success&tab=contact#lead`}
                   />
                 </section>
               ) : null}
             </div>
 
             <aside className="space-y-6">
-              <section id="contact" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section id="contact" className={tabPanelClass(activeStudioTab === "contact", "rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm")}>
                 <h2 className="text-xl font-semibold tracking-tight text-slate-950">
                   Contact Information
                 </h2>
@@ -924,7 +1012,7 @@ export default async function PublicStudioPage({
                 </div>
               </section>
 
-              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section className={tabPanelClass(activeStudioTab === "overview", "rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm")}>
                 <h2 className="text-xl font-semibold tracking-tight text-slate-950">
                   Explore More
                 </h2>

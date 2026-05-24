@@ -18,7 +18,45 @@ type SearchParams = Promise<{
   success?: string;
   error?: string;
   registration?: string;
+  tab?: string;
 }>;
+
+type EventPublicTab =
+  | "overview"
+  | "tickets"
+  | "schedule"
+  | "private-lessons"
+  | "location"
+  | "details"
+  | "host";
+
+function normalizeEventPublicTab(
+  value: string | undefined,
+  fallback: EventPublicTab,
+): EventPublicTab {
+  switch (value) {
+    case "tickets":
+    case "schedule":
+    case "private-lessons":
+    case "location":
+    case "details":
+    case "host":
+    case "overview":
+      return value;
+    default:
+      return fallback;
+  }
+}
+
+function publicTabClass(isActive: boolean) {
+  return isActive
+    ? "shrink-0 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm"
+    : "shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:border-orange-200 hover:bg-orange-50 hover:text-orange-700";
+}
+
+function tabPanelClass(isActive: boolean, className: string) {
+  return `${isActive ? "" : "hidden "}${className}`;
+}
 
 type EventRow = {
   id: string;
@@ -991,6 +1029,9 @@ export default async function PublicEventDetailPage({
   const { slug } = await params;
   const query = await searchParams;
   const banner = getBanner(query);
+  const defaultEventTab: EventPublicTab =
+    query.success || query.error || query.registration ? "tickets" : "overview";
+  const activeEventTab = normalizeEventPublicTab(query.tab, defaultEventTab);
 
   const supabase = await createClient();
 
@@ -1462,6 +1503,20 @@ export default async function PublicEventDetailPage({
     ],
   };
 
+  const eventTabs: { key: EventPublicTab; label: string }[] = [
+    { key: "overview", label: "Overview" },
+    { key: "tickets", label: typedEvent.event_type === "group_class" ? "Enrollment" : "Tickets" },
+    ...(groupedScheduleItems.length > 0
+      ? [{ key: "schedule" as EventPublicTab, label: "Schedule" }]
+      : []),
+    ...(privateLessonSlotGroups.length > 0
+      ? [{ key: "private-lessons" as EventPublicTab, label: "Private Lessons" }]
+      : []),
+    { key: "location", label: "Location" },
+    { key: "details", label: "Details" },
+    { key: "host", label: "Host" },
+  ];
+
   return (
     <>
       <JsonLd data={[eventJsonLd, breadcrumbJsonLd]} />
@@ -1571,8 +1626,8 @@ export default async function PublicEventDetailPage({
                       </div>
 
                       <div className="flex flex-wrap gap-3">
-                        <a
-                          href="#registration"
+                        <Link
+                          href={`/events/${typedEvent.slug}?tab=tickets`}
                           className="inline-flex rounded-xl bg-gradient-to-r from-orange-500 via-fuchsia-500 to-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-fuchsia-950/20 transition hover:scale-[1.01]"
                         >
                           {heroPrimaryCtaLabel({
@@ -1581,7 +1636,7 @@ export default async function PublicEventDetailPage({
                             registrationOpen,
                             allowWaitlistJoin,
                           })}
-                        </a>
+                        </Link>
 
                         {eventHost.websiteUrl ? (
                           <a
@@ -1670,23 +1725,22 @@ export default async function PublicEventDetailPage({
               className="sticky top-0 z-20 -mx-4 border-y border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/75 sm:-mx-6 sm:px-6 lg:top-0 lg:-mx-8 lg:px-8"
             >
               <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                <a href="#overview" className="shrink-0 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm">Overview</a>
-                <a href="#tickets" className="shrink-0 rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700">Tickets</a>
-                {groupedScheduleItems.length > 0 ? (
-                  <a href="#schedule" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Schedule</a>
-                ) : null}
-                {privateLessonSlotGroups.length > 0 ? (
-                  <a href="#private-lessons" className="shrink-0 rounded-full border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700">Private Lessons</a>
-                ) : null}
-                <a href="#location" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Location</a>
-                <a href="#details" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Details</a>
-                <a href="#host" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Host</a>
+                {eventTabs.map((tab) => (
+                  <Link
+                    key={tab.key}
+                    href={`/events/${typedEvent.slug}?tab=${tab.key}`}
+                    aria-current={activeEventTab === tab.key ? "page" : undefined}
+                    className={publicTabClass(activeEventTab === tab.key)}
+                  >
+                    {tab.label}
+                  </Link>
+                ))}
               </div>
             </nav>
 
-            <div className="grid gap-8 lg:grid-cols-[1.35fr_0.9fr] lg:items-start">
+            <div className="grid gap-8">
               <div className="space-y-8">
-                <section id="overview" className="scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
+                <section id="overview" className={tabPanelClass(activeEventTab === "overview", "scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8")}>
                   <div className="flex flex-wrap gap-2">
                     {typedTags.map((tag) => (
                       <span
@@ -1717,7 +1771,7 @@ export default async function PublicEventDetailPage({
                 </section>
 
                 {groupedScheduleItems.length > 0 ? (
-                  <section id="schedule" className="scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
+                  <section id="schedule" className={tabPanelClass(activeEventTab === "schedule", "scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8")}>
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                         Agenda
@@ -1786,7 +1840,7 @@ export default async function PublicEventDetailPage({
                   </section>
                 ) : null}
 
-                <section id="location" className="scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
+                <section id="location" className={tabPanelClass(activeEventTab === "location", "scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8")}>
                   <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                     {hasDetailedLocations ? "Dates & Locations" : "Location"}
                   </h2>
@@ -1898,7 +1952,7 @@ export default async function PublicEventDetailPage({
                 </section>
 
                 {privateLessonSlotGroups.length > 0 ? (
-                  <section id="private-lessons" className="scroll-mt-24 rounded-[2rem] border border-purple-100 bg-white p-5 shadow-sm sm:p-8">
+                  <section id="private-lessons" className={tabPanelClass(activeEventTab === "private-lessons", "scroll-mt-24 rounded-[2rem] border border-purple-100 bg-white p-5 shadow-sm sm:p-8")}>
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-600">
@@ -2078,7 +2132,7 @@ export default async function PublicEventDetailPage({
                   </section>
                 ) : null}
 
-                <section id="tickets" className="scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
+                <section id="tickets" className={tabPanelClass(activeEventTab === "tickets", "scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8")}>
                   <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                     Ticket Options
                   </h2>
@@ -2159,7 +2213,7 @@ export default async function PublicEventDetailPage({
                   )}
                 </section>
 
-                <section id="details" className="scroll-mt-24 grid gap-6 lg:grid-cols-2">
+                <section id="details" className={tabPanelClass(activeEventTab === "details", "scroll-mt-24 grid gap-6 lg:grid-cols-2")}>
                   <div className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
                     <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                       Refund Policy
@@ -2184,7 +2238,7 @@ export default async function PublicEventDetailPage({
               <div className="space-y-6">
                 <section
                   id="registration"
-                  className="scroll-mt-24 rounded-[2rem] border border-orange-200/80 bg-white/95 p-6 shadow-xl shadow-orange-100/70 ring-1 ring-orange-100 backdrop-blur sm:p-8 lg:sticky lg:top-6"
+                  className={tabPanelClass(activeEventTab === "tickets", "scroll-mt-24 rounded-[2rem] border border-orange-200/80 bg-white/95 p-6 shadow-xl shadow-orange-100/70 ring-1 ring-orange-100 backdrop-blur sm:p-8")}
                 >
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-1.5 rounded-full bg-gradient-to-b from-orange-400 via-fuchsia-500 to-violet-600" />
@@ -2356,7 +2410,7 @@ export default async function PublicEventDetailPage({
                   </div>
                 </section>
 
-                <section id="host" className="scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
+                <section id="host" className={tabPanelClass(activeEventTab === "host", "scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8")}>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">
                     {eventHost.hostType}
                   </p>
@@ -2408,8 +2462,5 @@ export default async function PublicEventDetailPage({
     </>
   );
 }
-
-
-
 
 
