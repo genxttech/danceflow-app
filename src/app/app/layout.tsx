@@ -415,7 +415,22 @@ export default async function AppLayout({
       .limit(1)
       .maybeSingle();
 
-    if (!allowedRole) {
+    let hasWorkspaceAccess = Boolean(allowedRole);
+
+    if (!hasWorkspaceAccess) {
+      const { data: organizerRole } = await supabase
+        .from("organizer_users")
+        .select("organizer_id, organizers!inner(studio_id)")
+        .eq("user_id", user.id)
+        .eq("active", true)
+        .eq("organizers.studio_id", studioId)
+        .limit(1)
+        .maybeSingle();
+
+      hasWorkspaceAccess = Boolean(organizerRole);
+    }
+
+    if (!hasWorkspaceAccess) {
       return;
     }
 
@@ -579,6 +594,10 @@ export default async function AppLayout({
     </div>
   );
 }
+
+
+
+
 
 
 

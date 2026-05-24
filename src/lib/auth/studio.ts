@@ -26,6 +26,27 @@ type StudioRoleRow = {
     | null;
 };
 
+
+type OrganizerRoleRow = {
+  organizer_id: string;
+  role: string;
+  active: boolean;
+  organizers?:
+    | {
+        id: string;
+        studio_id: string | null;
+        name: string;
+        slug: string | null;
+      }
+    | {
+        id: string;
+        studio_id: string | null;
+        name: string;
+        slug: string | null;
+      }[]
+    | null;
+};
+
 type StudioStatusRow = {
   subscription_status: string | null;
 };
@@ -67,6 +88,19 @@ function getStudioFromJoin(
       name: string;
       slug: string | null;
       public_name: string | null;
+    }
+  | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function getOrganizerFromJoin(
+  value: OrganizerRoleRow["organizers"]
+):
+  | {
+      id: string;
+      studio_id: string | null;
+      name: string;
+      slug: string | null;
     }
   | null {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
@@ -138,7 +172,53 @@ async function getAccessibleStudioRolesForUser(userId: string) {
     throw new Error(`Failed to load studio workspaces: ${error.message}`);
   }
 
-  return (data ?? []) as StudioRoleRow[];
+  const { data: organizerData, error: organizerError } = await supabase
+    .from("organizer_users")
+    .select(`
+      organizer_id,
+      role,
+      active,
+      organizers (
+        id,
+        studio_id,
+        name,
+        slug
+      )
+    `)
+    .eq("user_id", userId)
+    .eq("active", true)
+    .order("organizer_id", { ascending: true });
+
+  if (organizerError) {
+    throw new Error(`Failed to load organizer workspaces: ${organizerError.message}`);
+  }
+
+  const studioRows = (data ?? []) as StudioRoleRow[];
+  const organizerRows = ((organizerData ?? []) as OrganizerRoleRow[])
+    .map((row) => {
+      const organizer = getOrganizerFromJoin(row.organizers);
+
+      if (!organizer?.studio_id) {
+        return null;
+      }
+
+      const organizerWorkspace: StudioRoleRow = {
+        studio_id: organizer.studio_id,
+        role: row.role,
+        active: row.active,
+        studios: {
+          id: organizer.studio_id,
+          name: organizer.name,
+          slug: organizer.slug ?? null,
+          public_name: organizer.name,
+        },
+      };
+
+      return organizerWorkspace;
+    })
+    .filter((row): row is StudioRoleRow => Boolean(row));
+
+  return [...studioRows, ...organizerRows];
 }
 
 function pickSelectedWorkspace(
