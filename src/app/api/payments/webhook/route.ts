@@ -753,6 +753,209 @@ function getAppUrl() {
   );
 }
 
+
+type EventRegistrationCrmCaptureRow = {
+  id: string;
+  event_id: string;
+  studio_id: string | null;
+  client_id: string | null;
+  attendee_first_name: string;
+  attendee_last_name: string;
+  attendee_email: string;
+  attendee_phone: string | null;
+  events:
+    | {
+        id: string;
+        name: string;
+        slug: string | null;
+        studio_id: string | null;
+        organizer_id: string | null;
+      }
+    | {
+        id: string;
+        name: string;
+        slug: string | null;
+        studio_id: string | null;
+        organizer_id: string | null;
+      }[]
+    | null;
+};
+
+function getSingleRelation<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+function normalizeEmail(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+async function safeCaptureStudioEventRegistrationLead(params: {
+  supabase: SupabaseClient;
+  registrationId: string;
+}) {
+  try {
+    const { data: registration, error: registrationError } = await params.supabase
+      .from("event_registrations")
+      .select(
+        `
+        id,
+        event_id,
+        studio_id,
+        client_id,
+        attendee_first_name,
+        attendee_last_name,
+        attendee_email,
+        attendee_phone,
+        events (
+          id,
+          name,
+          slug,
+          studio_id,
+          organizer_id
+        )
+      `
+      )
+      .eq("id", params.registrationId)
+      .maybeSingle();
+
+    if (registrationError || !registration) {
+      console.error(
+        "event registration CRM capture lookup failed:",
+        registrationError?.message ?? "Registration not found"
+      );
+      return;
+    }
+
+    const typedRegistration = registration as EventRegistrationCrmCaptureRow;
+    const event = getSingleRelation(typedRegistration.events);
+
+    if (!event) {
+      console.error("event registration CRM capture missing event");
+      return;
+    }
+
+    // Organizer-owned events are intentionally not pushed into the linked studio CRM yet.
+    // They should remain organizer-scoped until Organizer Contacts/Campaigns is built.
+    if (event.organizer_id) {
+      return;
+    }
+
+    const studioId = event.studio_id ?? typedRegistration.studio_id;
+    const email = normalizeEmail(typedRegistration.attendee_email);
+
+    if (!studioId || !email) {
+      return;
+    }
+
+    const firstName = (typedRegistration.attendee_first_name ?? "").trim() || "Event";
+    const lastName = (typedRegistration.attendee_last_name ?? "").trim() || "Registrant";
+    const nowIso = new Date().toISOString();
+
+    let clientId = typedRegistration.client_id;
+
+    if (!clientId) {
+      const { data: existingClients, error: existingClientError } = await params.supabase
+        .from("clients")
+        .select("id, referral_source, source_system, status")
+        .eq("studio_id", studioId)
+        .ilike("email", email)
+        .order("created_at", { ascending: true })
+        .limit(1);
+
+      if (existingClientError) {
+        console.error("event registration CRM capture client lookup failed:", existingClientError.message);
+        return;
+      }
+
+      const existingClient = existingClients?.[0] ?? null;
+
+      if (existingClient) {
+        clientId = existingClient.id;
+
+        const clientUpdatePayload: Record<string, string | null> = {};
+
+        if (!existingClient.referral_source) {
+          clientUpdatePayload.referral_source = "Event Registration";
+        }
+
+        if (!existingClient.source_system) {
+          clientUpdatePayload.source_system = "event_registration";
+        }
+
+        if (Object.keys(clientUpdatePayload).length > 0) {
+          const { error: clientUpdateError } = await params.supabase
+            .from("clients")
+            .update(clientUpdatePayload)
+            .eq("id", existingClient.id);
+
+          if (clientUpdateError) {
+            console.error("event registration CRM capture client update failed:", clientUpdateError.message);
+          }
+        }
+      } else {
+        const { data: insertedClient, error: insertClientError } = await params.supabase
+          .from("clients")
+          .insert({
+            studio_id: studioId,
+            first_name: firstName,
+            last_name: lastName,
+            email,
+            phone: typedRegistration.attendee_phone || null,
+            status: "lead",
+            referral_source: "Event Registration",
+            source_system: "event_registration",
+            notes: `Created from event registration for ${event.name}.`,
+          })
+          .select("id")
+          .single();
+
+        if (insertClientError || !insertedClient) {
+          console.error(
+            "event registration CRM capture client insert failed:",
+            insertClientError?.message ?? "Client not created"
+          );
+          return;
+        }
+
+        clientId = insertedClient.id;
+      }
+    }
+
+    if (clientId) {
+      const { error: registrationClientUpdateError } = await params.supabase
+        .from("event_registrations")
+        .update({ client_id: clientId })
+        .eq("id", typedRegistration.id)
+        .is("client_id", null);
+
+      if (registrationClientUpdateError) {
+        console.error(
+          "event registration CRM capture registration link failed:",
+          registrationClientUpdateError.message
+        );
+      }
+
+      const { error: notificationError } = await params.supabase
+        .from("notifications")
+        .insert({
+          studio_id: studioId,
+          client_id: clientId,
+          type: "event_registration",
+          title: "New event registration",
+          body: `${firstName} ${lastName} registered for ${event.name}.`,
+        });
+
+      // Keep webhook finalization safe even if notification type constraints need a later schema update.
+      if (notificationError) {
+        console.error("event registration notification insert failed:", notificationError.message);
+      }
+    }
+  } catch (error) {
+    console.error("event registration CRM capture failed:", error);
+  }
+}
+
 async function safeQueuePaidEventRegistrationConfirmation(params: {
   supabase: SupabaseClient;
   registrationId: string;
@@ -943,6 +1146,11 @@ async function handleEventRegistrationCheckoutCompleted(
     registrationId,
   });
 
+  await safeCaptureStudioEventRegistrationLead({
+    supabase,
+    registrationId,
+  });
+
   return true;
 }
 
@@ -1045,6 +1253,11 @@ async function handleEventCartOrderCheckoutCompleted(
     }
 
     await safeQueuePaidEventRegistrationConfirmation({
+      supabase,
+      registrationId: registration.id,
+    });
+
+    await safeCaptureStudioEventRegistrationLead({
       supabase,
       registrationId: registration.id,
     });
@@ -1986,12 +2199,4 @@ case "customer.subscription.deleted": {
     });
   }
 }
-
-
-
-
-
-
-
-
 

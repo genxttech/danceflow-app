@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   LayoutDashboard,
@@ -658,8 +659,9 @@ export default function AppSidebarShell({
   children: React.ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const currentPathname = usePathname();
 
-  const safePathname = pathname || "/app";
+  const safePathname = currentPathname || pathname || "/app";
   const safeStudioName = studioName || "Workspace";
   const safeUserName = userName || "Unknown User";
   const safeUserEmail = userEmail || "";
