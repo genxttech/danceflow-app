@@ -426,18 +426,26 @@ export default async function EventCheckInPage({
   const getEffectiveStatus = (registration: RegistrationRow) => {
     const attendance = attendanceByRegistrationId.get(registration.id);
 
-    if (attendance?.status) return attendance.status;
     if (registration.status === "cancelled") return "cancelled";
+
+    // V1 check-in source of truth is event_registrations.checked_in_at.
+    // Check this before mapping confirmed -> registered, otherwise checked-in
+    // confirmed registrations are still counted as Ready to Check In.
+    if (registration.checked_in_at || registration.status === "checked_in") {
+      return "checked_in";
+    }
+
+    if (attendance?.checked_in_at || attendance?.status === "checked_in") {
+      return "checked_in";
+    }
+
+    if (attendance?.status === "attended") return "attended";
+    if (attendance?.status === "cancelled") return "cancelled";
+
     if (registration.status === "confirmed") return "registered";
 
     if (isGroupClass) {
-      return registration.status === "checked_in" || registration.checked_in_at
-        ? "registered"
-        : registration.status;
-    }
-
-    if (registration.checked_in_at || registration.status === "checked_in") {
-      return "checked_in";
+      return registration.status === "confirmed" ? "registered" : registration.status;
     }
 
     return registration.status;
@@ -715,7 +723,7 @@ export default async function EventCheckInPage({
               attendanceByRegistrationId.get(registration.id) ?? null;
             const effectiveStatus = getEffectiveStatus(registration);
             const effectiveCheckedInAt = isGroupClass
-              ? (attendance?.checked_in_at ?? null)
+              ? (attendance?.checked_in_at ?? registration.checked_in_at)
               : (attendance?.checked_in_at ?? registration.checked_in_at);
 
             const fullName =
@@ -893,6 +901,10 @@ export default async function EventCheckInPage({
     </div>
   );
 }
+
+
+
+
 
 
 

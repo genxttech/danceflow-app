@@ -1204,10 +1204,10 @@ const recordOrganizerOnboardingCompletion =
                       </div>
 
                       <Link
-                        href={`/app/events/${event.slug}`}
+                        href={`/app/events/${event.id}/edit`}
                         className="inline-flex items-center gap-2 text-sm font-medium text-[var(--brand-primary)] hover:underline"
                       >
-                        Open
+                        Edit Event
                         <ArrowRight className="h-4 w-4" />
                       </Link>
                     </div>
@@ -1886,3 +1886,5 @@ const recordStudioOnboardingCompletion =
     </main>
   );
 }
+
+
