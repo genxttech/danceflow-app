@@ -97,6 +97,22 @@ function formatTicketKind(value: string) {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
+
+function toDatetimeLocal(value: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const yyyy = String(date.getFullYear());
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mi = String(date.getMinutes()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
 function formatDateTime(value: string | null) {
   if (!value) return "Not set";
 
@@ -535,7 +551,7 @@ export default async function EventTicketsPage({
                       <input
                         name="saleStartsAt"
                         type="datetime-local"
-                        defaultValue={ticket.sale_starts_at?.slice(0, 16) ?? ""}
+                        defaultValue={toDatetimeLocal(ticket.sale_starts_at)}
                         disabled={!canManage}
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
                       />
@@ -546,7 +562,7 @@ export default async function EventTicketsPage({
                       <input
                         name="saleEndsAt"
                         type="datetime-local"
-                        defaultValue={ticket.sale_ends_at?.slice(0, 16) ?? ""}
+                        defaultValue={toDatetimeLocal(ticket.sale_ends_at)}
                         disabled={!canManage}
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
                       />
@@ -731,6 +747,10 @@ export default async function EventTicketsPage({
     </div>
   );
 }
+
+
+
+
 
 
 

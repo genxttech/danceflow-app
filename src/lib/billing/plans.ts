@@ -13,6 +13,7 @@ export type BillingFeature =
 
 export type PlanCode = "starter" | "growth" | "pro" | "organizer";
 export type StudioPlanCode = "starter" | "growth" | "pro";
+export type OrganizerPlanCode = "organizer";
 export type PlanAudience = "studio" | "organizer";
 
 export type BillingPlan = {
@@ -98,26 +99,30 @@ export const BILLING_PLANS: BillingPlan[] = [
   },
   {
     code: "organizer",
-    label: "Organizer",
+    label: "Organizer Suite",
     audience: "organizer",
     amountMonthlyCents: 1200,
     description:
-      "Event-first organizer plan for public listings, registrations, and ticketing.",
+      "All-access event suite for organizers running dance workshops, showcases, competitions, and special events.",
     trialDays: 14,
     transparentFeeNote:
-      "Transparent fees: 2.5% payment processing fee + 3.5% DanceFlow platform fee on ticket sales.",
+      "Transparent pricing: $12/month plus a 3.5% DanceFlow platform fee per ticket sale. Standard payment processing fees also apply.",
     features: [
       "organizer_tools",
       "public_events",
       "ticketing",
       "check_in",
       "waitlist",
+      "advanced_reporting",
     ],
     highlights: [
       "Public event pages",
-      "Registrations and ticketing",
+      "Ticketing and registrations",
       "Check-in",
-      "Waitlist",
+      "Event schedule / agenda",
+      "Guest coach private lesson tools",
+      "Coach schedule links and calendar feeds",
+      "Organizer marketing and reporting as released",
       "Transparent ticket-sale pricing",
     ],
   },
@@ -147,6 +152,17 @@ export const PLAN_FEATURES: Record<StudioPlanCode, BillingFeature[]> = {
   ],
 };
 
+export const ORGANIZER_PLAN_FEATURES: Record<OrganizerPlanCode, BillingFeature[]> = {
+  organizer: [
+    "organizer_tools",
+    "public_events",
+    "ticketing",
+    "check_in",
+    "waitlist",
+    "advanced_reporting",
+  ],
+};
+
 export function getBillingPlan(planCode: string | null | undefined) {
   if (!planCode) return null;
   return BILLING_PLANS.find((plan) => plan.code === planCode) ?? null;
@@ -161,11 +177,24 @@ export function planHasFeature(
   feature: BillingFeature
 ) {
   if (!planCode) return false;
-  if (planCode !== "starter" && planCode !== "growth" && planCode !== "pro") {
-    return false;
+
+  if (planCode === "starter" || planCode === "growth" || planCode === "pro") {
+    return PLAN_FEATURES[planCode].includes(feature);
   }
 
-  return PLAN_FEATURES[planCode].includes(feature);
+  if (planCode === "organizer") {
+    return ORGANIZER_PLAN_FEATURES.organizer.includes(feature);
+  }
+
+  return false;
+}
+
+export function organizerPlanHasFeature(
+  planCode: string | null | undefined,
+  feature: BillingFeature
+) {
+  if (planCode !== "organizer") return false;
+  return ORGANIZER_PLAN_FEATURES.organizer.includes(feature);
 }
 
 export function featureLabel(feature: BillingFeature) {
@@ -185,12 +214,18 @@ export function featureLabel(feature: BillingFeature) {
   return _exhaustiveCheck;
 }
 
-export function requiredPlanForFeature(feature: BillingFeature): StudioPlanCode {
+export function requiredStudioPlanForFeature(feature: BillingFeature): StudioPlanCode {
   if (feature === "crm_basic" || feature === "schedule_basic") return "starter";
   if (feature === "packages") return "growth";
   if (feature === "memberships") return "growth";
   if (feature === "payments") return "growth";
   return "pro";
+}
+
+export const requiredPlanForFeature = requiredStudioPlanForFeature;
+
+export function requiredOrganizerPlanForFeature(_feature: BillingFeature): OrganizerPlanCode {
+  return "organizer";
 }
 
 export function planLabel(plan: PlanCode) {

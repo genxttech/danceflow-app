@@ -66,16 +66,43 @@ function isActivePath(pathname: string, href: string) {
     return pathname === "/app";
   }
 
+  const eventOperationMatches: Record<string, RegExp[]> = {
+    "/app/events": [
+      /^\/app\/events$/,
+      /^\/app\/events\/[^/]+$/,
+      /^\/app\/events\/[^/]+\/edit$/,
+      /^\/app\/events\/[^/]+\/private-lessons(?:\/.*)?$/,
+    ],
+    "/app/events/new": [/^\/app\/events\/new$/],
+    "/app/events/tickets": [
+      /^\/app\/events\/tickets$/,
+      /^\/app\/events\/[^/]+\/tickets(?:\/.*)?$/,
+    ],
+    "/app/events/sell-tickets": [
+      /^\/app\/events\/sell-tickets$/,
+      /^\/app\/events\/[^/]+\/sell-tickets(?:\/.*)?$/,
+    ],
+    "/app/events/registrations": [
+      /^\/app\/events\/registrations$/,
+      /^\/app\/events\/[^/]+\/registrations(?:\/.*)?$/,
+    ],
+    "/app/events/checkin": [
+      /^\/app\/events\/checkin$/,
+      /^\/app\/events\/check-in$/,
+      /^\/app\/events\/[^/]+\/checkin(?:\/.*)?$/,
+      /^\/app\/events\/[^/]+\/check-in(?:\/.*)?$/,
+    ],
+  };
+
+  const eventMatches = eventOperationMatches[href];
+  if (eventMatches) {
+    return eventMatches.some((pattern) => pattern.test(pathname));
+  }
+
   const exactOnlyRoutes = new Set([
-    "/app/clients",
     "/app/clients/new",
-    "/app/events",
     "/app/events/new",
-    "/app/events/tickets",
     "/app/events/sell-tickets",
-    "/app/events/registrations",
-    "/app/events/checkin",
-    "/app/marketing/campaigns",
   ]);
 
   if (exactOnlyRoutes.has(href)) {

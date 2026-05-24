@@ -2,7 +2,9 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
+  organizerPlanHasFeature,
   planHasFeature,
+  requiredOrganizerPlanForFeature,
   requiredPlanForFeature,
   type BillingFeature,
 } from "./plans";
@@ -58,6 +60,206 @@ function buildBillingUpgradeUrl(feature: BillingFeature) {
   });
 
   return `/app/settings/billing?${search.toString()}`;
+}
+
+
+function buildOrganizerBillingUpgradeUrl(feature: BillingFeature) {
+  const search = new URLSearchParams({
+    reason: "feature_required",
+    feature,
+    requiredPlan: requiredOrganizerPlanForFeature(feature),
+    account: "organizer",
+  });
+
+  return `/app/settings/billing?${search.toString()}`;
+}
+
+function isActiveBillingStatus(value: string | null | undefined) {
+  return value === "active" || value === "trialing";
+}
+
+function isOrganizerRole(value: string | null | undefined) {
+  return ["organizer_owner", "organizer_admin", "organizer_staff"].includes(
+    value ?? "",
+  );
+}
+
+type EventFeatureAccessRow = {
+  id: string;
+  studio_id: string | null;
+  organizer_id: string | null;
+};
+
+type OrganizerBillingAccessRow = {
+  id: string;
+  billing_plan: string | null;
+  subscription_status: string | null;
+};
+
+export type EventWorkspaceAccess = {
+  eventId: string;
+  studioId: string | null;
+  organizerId: string | null;
+  studioRole: string | null;
+  organizerRole: string | null;
+  isPlatformAdmin: boolean;
+  accountType: "studio" | "organizer" | "platform";
+};
+
+export async function organizerHasFeatureForEvent(args: {
+  eventId: string;
+  feature: BillingFeature;
+  allowedOrganizerRoles?: string[];
+}) {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) return false;
+
+  const { data: event } = await supabase
+    .from("events")
+    .select("id, studio_id, organizer_id")
+    .eq("id", args.eventId)
+    .maybeSingle<EventFeatureAccessRow>();
+
+  if (!event?.organizer_id) return false;
+
+  const allowedRoles = args.allowedOrganizerRoles ?? [
+    "organizer_owner",
+    "organizer_admin",
+    "organizer_staff",
+  ];
+
+  const { data: organizerUser } = await supabase
+    .from("organizer_users")
+    .select("role")
+    .eq("organizer_id", event.organizer_id)
+    .eq("user_id", user.id)
+    .eq("active", true)
+    .maybeSingle<{ role: string }>();
+
+  if (!organizerUser?.role || !allowedRoles.includes(organizerUser.role)) {
+    return false;
+  }
+
+  const { data: organizer } = await supabase
+    .from("organizers")
+    .select("id, billing_plan, subscription_status")
+    .eq("id", event.organizer_id)
+    .maybeSingle<OrganizerBillingAccessRow>();
+
+  if (!organizer || !isActiveBillingStatus(organizer.subscription_status)) {
+    return false;
+  }
+
+  return organizerPlanHasFeature(organizer.billing_plan, args.feature);
+}
+
+export async function requireEventWorkspaceFeature(args: {
+  eventId: string;
+  feature: BillingFeature;
+  allowedOrganizerRoles?: string[];
+}): Promise<EventWorkspaceAccess> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login");
+  }
+
+  const context = await getCurrentStudioContext();
+
+  const { data: event, error: eventError } = await supabase
+    .from("events")
+    .select("id, studio_id, organizer_id")
+    .eq("id", args.eventId)
+    .maybeSingle<EventFeatureAccessRow>();
+
+  if (eventError || !event) {
+    redirect("/app/events");
+  }
+
+  if (context?.isPlatformAdmin) {
+    return {
+      eventId: event.id,
+      studioId: event.studio_id,
+      organizerId: event.organizer_id,
+      studioRole: "platform_admin",
+      organizerRole: null,
+      isPlatformAdmin: true,
+      accountType: "platform",
+    };
+  }
+
+  const allowedOrganizerRoles = args.allowedOrganizerRoles ?? [
+    "organizer_owner",
+    "organizer_admin",
+    "organizer_staff",
+  ];
+
+  if (event.organizer_id) {
+    const { data: organizerUser } = await supabase
+      .from("organizer_users")
+      .select("role")
+      .eq("organizer_id", event.organizer_id)
+      .eq("user_id", user.id)
+      .eq("active", true)
+      .maybeSingle<{ role: string }>();
+
+    const organizerRole = organizerUser?.role ?? null;
+
+    if (organizerRole && allowedOrganizerRoles.includes(organizerRole)) {
+      const { data: organizer } = await supabase
+        .from("organizers")
+        .select("id, billing_plan, subscription_status")
+        .eq("id", event.organizer_id)
+        .maybeSingle<OrganizerBillingAccessRow>();
+
+      if (
+        organizer &&
+        isActiveBillingStatus(organizer.subscription_status) &&
+        organizerPlanHasFeature(organizer.billing_plan, args.feature)
+      ) {
+        return {
+          eventId: event.id,
+          studioId: event.studio_id,
+          organizerId: event.organizer_id,
+          studioRole: context?.studioRole ?? null,
+          organizerRole,
+          isPlatformAdmin: false,
+          accountType: "organizer",
+        };
+      }
+
+      redirect(buildOrganizerBillingUpgradeUrl(args.feature));
+    }
+  }
+
+  if (event.studio_id && context?.studioId === event.studio_id) {
+    const allowed = await studioHasFeature(args.feature);
+
+    if (!allowed) {
+      redirect(buildBillingUpgradeUrl(args.feature));
+    }
+
+    return {
+      eventId: event.id,
+      studioId: event.studio_id,
+      organizerId: event.organizer_id,
+      studioRole: context.studioRole ?? null,
+      organizerRole: isOrganizerRole(context.studioRole) ? context.studioRole : null,
+      isPlatformAdmin: false,
+      accountType: "studio",
+    };
+  }
+
+  redirect("/app/events");
 }
 
 function normalizePlanCode(value: string | null | undefined): WorkspacePlanCode {

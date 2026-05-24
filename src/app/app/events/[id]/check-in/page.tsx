@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { requireStudioFeature } from "@/lib/billing/access";
+import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { checkInEventRegistrationAction } from "../registrations/actions";
 
@@ -69,7 +69,6 @@ type RegistrationRow = {
 type AttendanceRow = {
   id: string;
   event_registration_id: string;
-  event_session_id: string | null;
   status: string;
   checked_in_at: string | null;
 };
@@ -241,9 +240,13 @@ export default async function EventCheckInPage({
   params: Params;
   searchParams: SearchParams;
 }) {
-  await requireStudioFeature("check_in");
-
   const { id } = await params;
+
+  await requireEventWorkspaceFeature({
+    eventId: id,
+    feature: "check_in",
+    allowedOrganizerRoles: ["organizer_owner", "organizer_admin", "organizer_staff"],
+  });
   const query = await searchParams;
     const qRaw = query.q;
   const statusRaw = query.status;
@@ -398,22 +401,12 @@ export default async function EventCheckInPage({
         `
         id,
         event_registration_id,
-        event_session_id,
         status,
         checked_in_at
       `,
       )
       .eq("studio_id", studioId)
       .in("event_registration_id", registrationIds);
-
-    attendanceQuery = isGroupClass
-      ? selectedSessionId
-        ? attendanceQuery.eq("event_session_id", selectedSessionId)
-        : attendanceQuery.eq(
-            "event_session_id",
-            "00000000-0000-0000-0000-000000000000",
-          )
-      : attendanceQuery.is("event_session_id", null);
 
     const { data: attendanceRows, error: attendanceError } =
       await attendanceQuery;
@@ -900,4 +893,8 @@ export default async function EventCheckInPage({
     </div>
   );
 }
+
+
+
+
 

@@ -589,23 +589,18 @@ export async function POST(request: NextRequest) {
       },
     }));
 
-    const session = await stripe.checkout.sessions.create(
-      {
-        mode: "payment",
-        customer_email: buyerEmail,
-        success_url: absoluteEventUrl(request, eventSlug, `?success=cart_paid&order=${encodeURIComponent(order.id)}`),
-        cancel_url: new URL(`/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(eventSlug)}`, request.nextUrl.origin).toString(),
-        line_items: lineItems,
-        payment_intent_data: {
-          ...(applicationFeeAmount > 0 ? { application_fee_amount: applicationFeeAmount } : {}),
-          metadata: {
-            source: "event_cart_order",
-            studio_id: event.studio_id,
-            event_id: event.id,
-            event_slug: eventSlug,
-            order_id: order.id,
-            registration_id: registrationId ?? "",
-          },
+    const connectedAccountId = studio.stripe_connected_account_id;
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      customer_email: buyerEmail,
+      success_url: absoluteEventUrl(request, eventSlug, `?success=cart_paid&order=${encodeURIComponent(order.id)}`),
+      cancel_url: new URL(`/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(eventSlug)}`, request.nextUrl.origin).toString(),
+      line_items: lineItems,
+      payment_intent_data: {
+        ...(applicationFeeAmount > 0 ? { application_fee_amount: applicationFeeAmount } : {}),
+        transfer_data: {
+          destination: connectedAccountId,
         },
         metadata: {
           source: "event_cart_order",
@@ -614,13 +609,20 @@ export async function POST(request: NextRequest) {
           event_slug: eventSlug,
           order_id: order.id,
           registration_id: registrationId ?? "",
-          buyer_email: buyerEmail,
+          connected_account_id: connectedAccountId,
         },
       },
-      {
-        stripeAccount: studio.stripe_connected_account_id,
-      }
-    );
+      metadata: {
+        source: "event_cart_order",
+        studio_id: event.studio_id,
+        event_id: event.id,
+        event_slug: eventSlug,
+        order_id: order.id,
+        registration_id: registrationId ?? "",
+        buyer_email: buyerEmail,
+        connected_account_id: connectedAccountId,
+      },
+    });
 
     const { error: sessionLinkError } = await supabase
       .from("event_orders")
@@ -691,10 +693,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_checkout_failed"));
   }
 }
-
-
-
-
-
-
 

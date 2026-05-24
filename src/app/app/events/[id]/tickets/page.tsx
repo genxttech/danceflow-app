@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { createTicketTypeAction, updateTicketTypeAction } from "./actions";
 
 type TicketTypeRow = {
@@ -130,6 +131,12 @@ export default async function EventTicketsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+
+  await requireEventWorkspaceFeature({
+    eventId: id,
+    feature: "ticketing",
+    allowedOrganizerRoles: ["organizer_owner", "organizer_admin", "organizer_staff"],
+  });
 
   const supabase = await createClient();
 
@@ -757,5 +764,8 @@ export default async function EventTicketsPage({
     </div>
   );
 }
+
+
+
 
 

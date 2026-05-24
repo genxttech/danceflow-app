@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { requireStudioFeature } from "@/lib/billing/access";
+import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { upsertEventAttendanceAction } from "./actions";
 
@@ -336,9 +336,13 @@ export default async function EventRegistrationsPage({
   params: Params;
   searchParams: SearchParams;
 }) {
-  await requireStudioFeature("organizer_tools");
-
   const { id } = await params;
+
+  await requireEventWorkspaceFeature({
+    eventId: id,
+    feature: "organizer_tools",
+    allowedOrganizerRoles: ["organizer_owner", "organizer_admin", "organizer_staff"],
+  });
   const search = await searchParams;
   const activeFilter = (search.filter ?? "all").trim().toLowerCase();
   const banner = getBanner(search);

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import {
   bookPrivateLessonSlotOfflineAction,
   holdPrivateLessonSlotAction,
@@ -361,6 +362,12 @@ export default async function EventPrivateLessonsPage({
 }) {
   const { id } = await params;
   const query = await searchParams;
+
+  await requireEventWorkspaceFeature({
+    eventId: id,
+    feature: "organizer_tools",
+    allowedOrganizerRoles: ["organizer_owner", "organizer_admin", "organizer_staff"],
+  });
 
   const supabase = await createClient();
 
