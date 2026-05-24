@@ -114,6 +114,119 @@ export default function NewInstructorPage() {
           />
         </div>
 
+
+        <details className="rounded-2xl border border-violet-100 bg-violet-50/50 p-4" open>
+          <summary className="cursor-pointer text-sm font-semibold text-slate-950">
+            Public Staff Profile
+          </summary>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Optional. Turn this on when you want this instructor to appear on the public studio Staff tab.
+          </p>
+
+          <div className="mt-4 flex items-start gap-3 rounded-xl border border-white bg-white p-3">
+            <input
+              id="publicProfileEnabled"
+              name="publicProfileEnabled"
+              type="checkbox"
+              value="true"
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-violet-700"
+            />
+            <div>
+              <label htmlFor="publicProfileEnabled" className="text-sm font-semibold text-slate-950">
+                Show this instructor on the public studio page
+              </label>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Public profiles only show when this is checked and the instructor is active.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div>
+              <label htmlFor="publicTitle" className="mb-1 block text-sm font-medium">
+                Public Title / Role
+              </label>
+              <input
+                id="publicTitle"
+                name="publicTitle"
+                placeholder="Owner, Instructor, Coach"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="publicPhotoUrl" className="mb-1 block text-sm font-medium">
+                Headshot URL
+              </label>
+              <input
+                id="publicPhotoUrl"
+                name="publicPhotoUrl"
+                type="url"
+                placeholder="https://..."
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            <div>
+              <label htmlFor="publicSpecialties" className="mb-1 block text-sm font-medium">
+                Public Specialties
+              </label>
+              <input
+                id="publicSpecialties"
+                name="publicSpecialties"
+                placeholder="Country Two Step, Ballroom, Wedding Dance"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="yearsExperience" className="mb-1 block text-sm font-medium">
+                  Years Experience
+                </label>
+                <input
+                  id="yearsExperience"
+                  name="yearsExperience"
+                  type="number"
+                  min="0"
+                  step="1"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="displayOrder" className="mb-1 block text-sm font-medium">
+                  Display Order
+                </label>
+                <input
+                  id="displayOrder"
+                  name="displayOrder"
+                  type="number"
+                  min="0"
+                  step="1"
+                  defaultValue="0"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <label htmlFor="publicBio" className="mb-1 block text-sm font-medium">
+              Public Bio
+            </label>
+            <textarea
+              id="publicBio"
+              name="publicBio"
+              rows={4}
+              placeholder="Short public-facing bio for the studio Staff tab."
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </div>
+        </details>
+
         {state?.error ? (
           <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
             {state.error}

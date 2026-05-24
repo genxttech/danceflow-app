@@ -113,6 +113,21 @@ type EventRow = {
   public_directory_enabled: boolean | null;
 };
 
+type PublicInstructorRow = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  specialties: string | null;
+  public_profile_enabled: boolean;
+  public_photo_url: string | null;
+  public_title: string | null;
+  public_bio: string | null;
+  public_specialties: string | null;
+  years_experience: number | null;
+  display_order: number;
+};
+
+
 const siteUrl = "https://www.idanceflow.com";
 
 function studioTitle(studio: StudioRow) {
@@ -387,6 +402,7 @@ export default async function PublicStudioPage({
     { data: offerings, error: offeringsError },
     { data: events, error: eventsError },
     { data: introSettings, error: introSettingsError },
+    { data: publicInstructors, error: publicInstructorsError },
     favoriteResult,
   ] = await Promise.all([
     supabase
@@ -439,6 +455,29 @@ export default async function PublicStudioPage({
       .eq("studio_id", studio.id)
       .maybeSingle<IntroSettingsRow>(),
 
+    supabase
+      .from("instructors")
+      .select(
+        `
+          id,
+          first_name,
+          last_name,
+          specialties,
+          public_profile_enabled,
+          public_photo_url,
+          public_title,
+          public_bio,
+          public_specialties,
+          years_experience,
+          display_order
+        `
+      )
+      .eq("studio_id", studio.id)
+      .eq("active", true)
+      .eq("public_profile_enabled", true)
+      .order("display_order", { ascending: true })
+      .order("first_name", { ascending: true }),
+
     user
       ? supabase
           .from("user_favorites")
@@ -467,6 +506,12 @@ export default async function PublicStudioPage({
     );
   }
 
+  if (publicInstructorsError) {
+    throw new Error(
+      `Failed to load public staff profiles: ${publicInstructorsError.message}`
+    );
+  }
+
   if (favoriteResult?.error) {
     throw new Error(
       `Failed to load studio favorite state: ${favoriteResult.error.message}`
@@ -476,6 +521,7 @@ export default async function PublicStudioPage({
   const typedStyles = (styles ?? []) as StyleRow[];
   const typedOfferings = (offerings ?? []) as OfferingRow[];
   const typedEvents = (events ?? []) as EventRow[];
+  const typedPublicInstructors = (publicInstructors ?? []) as PublicInstructorRow[];
   const title = studioTitle(studio);
   const location = locationLabel(studio);
   const studioUrlSlug = studio.slug ?? studioSlug;
@@ -806,13 +852,99 @@ export default async function PublicStudioPage({
               </section>
 
               <section id="staff" className={tabPanelClass(activeStudioTab === "staff", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>
-                <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                  Staff
-                </h2>
-                <p className="mt-4 text-sm leading-7 text-slate-600">
-                  Instructor and staff profiles will appear here as this studio
-                  adds them to its public profile.
-                </p>
+                <div className="flex flex-wrap items-end justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.16em] text-orange-700">
+                      Public Staff Profiles
+                    </p>
+                    <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                      Meet the Team
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
+                      Get to know the instructors and staff this studio has chosen to feature publicly.
+                    </p>
+                  </div>
+                </div>
+
+                {typedPublicInstructors.length === 0 ? (
+                  <div className="mt-6 rounded-2xl border border-dashed border-orange-200 bg-orange-50/50 px-5 py-10 text-center">
+                    <p className="text-sm font-medium text-slate-800">
+                      Staff profiles coming soon.
+                    </p>
+                    <p className="mt-2 text-sm text-slate-600">
+                      This studio can add instructor headshots, bios, and specialties from its DanceFlow workspace.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {typedPublicInstructors.map((instructor) => {
+                      const instructorName = `${instructor.first_name} ${instructor.last_name}`.trim();
+                      const specialtyText =
+                        instructor.public_specialties?.trim() || instructor.specialties?.trim() || "Dance instruction";
+
+                      return (
+                        <article
+                          key={instructor.id}
+                          className="overflow-hidden rounded-3xl border border-orange-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg"
+                        >
+                          <div className="h-52 bg-[linear-gradient(135deg,#f8fafc_0%,#ede9fe_45%,#fff7ed_100%)]">
+                            {instructor.public_photo_url ? (
+                              <img
+                                src={instructor.public_photo_url}
+                                alt={instructorName}
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <div className="flex h-full items-center justify-center px-6 text-center">
+                                <div className="flex h-24 w-24 items-center justify-center rounded-full bg-white/85 text-3xl font-semibold text-slate-700 shadow-sm ring-1 ring-orange-100">
+                                  {instructor.first_name.charAt(0)}{instructor.last_name.charAt(0)}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="space-y-4 p-5">
+                            <div>
+                              <h3 className="text-lg font-semibold text-slate-950">
+                                {instructorName}
+                              </h3>
+                              <p className="mt-1 text-sm font-medium text-orange-700">
+                                {instructor.public_title?.trim() || "Instructor"}
+                              </p>
+                            </div>
+
+                            <div className="flex flex-wrap gap-2">
+                              {specialtyText
+                                .split(",")
+                                .map((item) => item.trim())
+                                .filter(Boolean)
+                                .slice(0, 5)
+                                .map((item) => (
+                                  <span
+                                    key={item}
+                                    className="rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700 ring-1 ring-orange-100"
+                                  >
+                                    {item}
+                                  </span>
+                                ))}
+                            </div>
+
+                            {instructor.years_experience ? (
+                              <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
+                                {instructor.years_experience}+ years experience
+                              </p>
+                            ) : null}
+
+                            <p className="text-sm leading-6 text-slate-600">
+                              {instructor.public_bio?.trim() ||
+                                "Bio coming soon. Contact the studio to learn more about this instructor."}
+                            </p>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
               </section>
 
               <section id="offerings" className={tabPanelClass(activeStudioTab === "offerings", "rounded-[2rem] border border-orange-100/80 bg-white/95 p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)] ring-1 ring-white/70")}>

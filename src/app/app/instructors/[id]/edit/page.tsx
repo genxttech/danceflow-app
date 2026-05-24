@@ -12,6 +12,13 @@ type InstructorRow = {
   active: boolean;
   specialties: string | null;
   bio: string | null;
+  public_profile_enabled?: boolean | null;
+  public_photo_url?: string | null;
+  public_title?: string | null;
+  public_bio?: string | null;
+  public_specialties?: string | null;
+  years_experience?: number | null;
+  display_order?: number | null;
 };
 
 export default async function EditInstructorPage({
@@ -38,3 +45,4 @@ export default async function EditInstructorPage({
 
   return <InstructorEditForm instructor={instructor as InstructorRow} />;
 }
+

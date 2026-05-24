@@ -10,6 +10,18 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function getCheckbox(formData: FormData, key: string) {
+  return formData.get(key) === "on" || formData.get(key) === "true";
+}
+
+function getOptionalInteger(formData: FormData, key: string) {
+  const value = getString(formData, key);
+  if (!value) return null;
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export async function createInstructorAction(
   prevState: { error: string },
   formData: FormData
@@ -22,6 +34,13 @@ export async function createInstructorAction(
     const email = getString(formData, "email");
     const phone = getString(formData, "phone");
     const specialties = getString(formData, "specialties");
+    const publicProfileEnabled = getCheckbox(formData, "publicProfileEnabled");
+    const publicPhotoUrl = getString(formData, "publicPhotoUrl");
+    const publicTitle = getString(formData, "publicTitle");
+    const publicBio = getString(formData, "publicBio");
+    const publicSpecialties = getString(formData, "publicSpecialties");
+    const yearsExperience = getOptionalInteger(formData, "yearsExperience");
+    const displayOrder = getOptionalInteger(formData, "displayOrder") ?? 0;
 
     if (!firstName || !lastName) {
       return { error: "First name and last name are required." };
@@ -34,6 +53,13 @@ export async function createInstructorAction(
       email: email || null,
       phone: phone || null,
       specialties: specialties || null,
+      public_profile_enabled: publicProfileEnabled,
+      public_photo_url: publicPhotoUrl || null,
+      public_title: publicTitle || null,
+      public_bio: publicBio || null,
+      public_specialties: publicSpecialties || null,
+      years_experience: yearsExperience,
+      display_order: displayOrder,
       active: true,
       created_by: user.id,
     });
@@ -63,6 +89,13 @@ export async function updateInstructorAction(
     const email = getString(formData, "email");
     const phone = getString(formData, "phone");
     const specialties = getString(formData, "specialties");
+    const publicProfileEnabled = getCheckbox(formData, "publicProfileEnabled");
+    const publicPhotoUrl = getString(formData, "publicPhotoUrl");
+    const publicTitle = getString(formData, "publicTitle");
+    const publicBio = getString(formData, "publicBio");
+    const publicSpecialties = getString(formData, "publicSpecialties");
+    const yearsExperience = getOptionalInteger(formData, "yearsExperience");
+    const displayOrder = getOptionalInteger(formData, "displayOrder") ?? 0;
     const active = getString(formData, "active");
 
     if (!instructorId) {
@@ -81,6 +114,13 @@ export async function updateInstructorAction(
         email: email || null,
         phone: phone || null,
         specialties: specialties || null,
+        public_profile_enabled: publicProfileEnabled,
+        public_photo_url: publicPhotoUrl || null,
+        public_title: publicTitle || null,
+        public_bio: publicBio || null,
+        public_specialties: publicSpecialties || null,
+        years_experience: yearsExperience,
+        display_order: displayOrder,
         active: active === "true",
       })
       .eq("id", instructorId)
@@ -209,3 +249,4 @@ export async function regenerateInstructorCalendarFeedAction(formData: FormData)
   revalidatePath("/app/instructors");
   redirect("/app/instructors");
 }
+

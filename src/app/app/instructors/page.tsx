@@ -23,8 +23,16 @@ type InstructorRow = {
   email: string | null;
   phone: string | null;
   specialties: string | null;
+  bio?: string | null;
   active: boolean;
   created_at: string;
+  public_profile_enabled: boolean;
+  public_photo_url: string | null;
+  public_title: string | null;
+  public_bio: string | null;
+  public_specialties: string | null;
+  years_experience: number | null;
+  display_order: number;
 };
 
 
@@ -60,7 +68,7 @@ export default async function InstructorsPage() {
 
   const { data: instructors, error } = await supabase
     .from("instructors")
-    .select("id, first_name, last_name, email, phone, specialties, active, created_at")
+    .select("id, first_name, last_name, email, phone, specialties, active, created_at, public_profile_enabled, public_photo_url, public_title, public_bio, public_specialties, years_experience, display_order")
     .eq("studio_id", studioId)
     .order("first_name", { ascending: true });
 
@@ -167,6 +175,7 @@ export default async function InstructorsPage() {
               <th className="px-4 py-3 font-medium">Phone</th>
               <th className="px-4 py-3 font-medium">Specialties</th>
               <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Public Profile</th>
               <th className="px-4 py-3 font-medium">Calendar Sync</th>
               <th className="px-4 py-3 font-medium">Actions</th>
             </tr>
@@ -174,7 +183,7 @@ export default async function InstructorsPage() {
           <tbody>
             {typedInstructors.length === 0 ? (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
                   No instructors yet.
                 </td>
               </tr>
@@ -200,6 +209,17 @@ export default async function InstructorsPage() {
                   <td className="px-4 py-3 text-slate-600">{instructor.specialties ?? "—"}</td>
                   <td className="px-4 py-3 text-slate-600">
                     {instructor.active ? "active" : "inactive"}
+                  </td>
+                  <td className="px-4 py-3">
+                    {instructor.public_profile_enabled ? (
+                      <span className="inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700 ring-1 ring-green-200">
+                        Public
+                      </span>
+                    ) : (
+                      <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
+                        Hidden
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3">
                     {calendarFeedUrl ? (

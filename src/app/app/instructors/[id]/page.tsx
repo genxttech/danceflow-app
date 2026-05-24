@@ -12,6 +12,13 @@ type InstructorRow = {
   active: boolean;
   specialties: string | null;
   bio: string | null;
+  public_profile_enabled?: boolean | null;
+  public_photo_url?: string | null;
+  public_title?: string | null;
+  public_bio?: string | null;
+  public_specialties?: string | null;
+  years_experience?: number | null;
+  display_order?: number | null;
 };
 
 function formatStatus(active: boolean) {
@@ -114,6 +121,69 @@ export default async function InstructorDetailPage({
         </div>
       </section>
 
+      <section className="rounded-3xl border border-violet-100 bg-gradient-to-br from-violet-50 via-white to-amber-50 p-6 shadow-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-700">
+              Public Staff Profile
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              Studio website visibility
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+              When enabled, this instructor can appear on the public studio Staff tab with a public-facing bio and specialties.
+            </p>
+          </div>
+          <span
+            className={
+              typedInstructor.public_profile_enabled
+                ? "rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700"
+                : "rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600"
+            }
+          >
+            {typedInstructor.public_profile_enabled ? "Public" : "Hidden"}
+          </span>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-[120px_1fr]">
+          <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-3xl border border-white bg-white shadow-sm">
+            {typedInstructor.public_photo_url?.trim() ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={typedInstructor.public_photo_url}
+                alt={`${instructorName} headshot`}
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="text-3xl font-bold text-violet-700">
+                {typedInstructor.first_name?.charAt(0)}{typedInstructor.last_name?.charAt(0)}
+              </span>
+            )}
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl border border-white bg-white/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Public Title</p>
+              <p className="mt-1 font-semibold text-slate-950">{typedInstructor.public_title?.trim() || "—"}</p>
+            </div>
+            <div className="rounded-2xl border border-white bg-white/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Display Order</p>
+              <p className="mt-1 font-semibold text-slate-950">{typedInstructor.display_order ?? 0}</p>
+            </div>
+            <div className="rounded-2xl border border-white bg-white/80 p-4 md:col-span-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Public Specialties</p>
+              <p className="mt-1 font-semibold text-slate-950">{typedInstructor.public_specialties?.trim() || typedInstructor.specialties?.trim() || "—"}</p>
+            </div>
+            <div className="rounded-2xl border border-white bg-white/80 p-4 md:col-span-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Public Bio</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                {typedInstructor.public_bio?.trim() || "No public bio has been added yet."}
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-2 border-b border-slate-100 pb-5 md:flex-row md:items-end md:justify-between">
           <div>
@@ -155,3 +225,4 @@ export default async function InstructorDetailPage({
     </div>
   );
 }
+

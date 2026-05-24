@@ -15,6 +15,13 @@ type InstructorRecord = {
   specialties: string | null;
   bio: string | null;
   active: boolean;
+  public_profile_enabled?: boolean | null;
+  public_photo_url?: string | null;
+  public_title?: string | null;
+  public_bio?: string | null;
+  public_specialties?: string | null;
+  years_experience?: number | null;
+  display_order?: number | null;
 };
 
 function RequiredMark() {
@@ -28,10 +35,11 @@ export default function InstructorEditForm({
 }) {
   const [state, formAction, pending] = useActionState(
     updateInstructorAction,
-    initialState
+    initialState,
   );
 
-  const instructorName = `${instructor.first_name} ${instructor.last_name}`.trim();
+  const instructorName =
+    `${instructor.first_name} ${instructor.last_name}`.trim();
 
   return (
     <div className="max-w-5xl space-y-8">
@@ -46,8 +54,9 @@ export default function InstructorEditForm({
                 Edit {instructorName || "Instructor"}
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-200 md:text-base">
-                Keep instructor details accurate so staff can schedule lessons, assign classes,
-                manage floor rentals, and support instructor workflows without extra clicks.
+                Keep instructor details accurate so staff can schedule lessons,
+                assign classes, manage floor rentals, and support instructor
+                workflows without extra clicks.
               </p>
             </div>
 
@@ -80,8 +89,10 @@ export default function InstructorEditForm({
             </h2>
           </div>
           <p className="max-w-xl text-sm text-slate-600">
-            Fields marked with <span className="font-semibold text-red-600">*</span> are required.
-            Use specialties to describe what this instructor teaches or handles most often.
+            Fields marked with{" "}
+            <span className="font-semibold text-red-600">*</span> are required.
+            Use specialties to describe what this instructor teaches or handles
+            most often.
           </p>
         </div>
 
@@ -160,7 +171,7 @@ export default function InstructorEditForm({
               htmlFor="specialties"
               className="mb-1 block text-sm font-semibold text-slate-800"
             >
-              Specialties
+              Internal Specialties
             </label>
             <input
               id="specialties"
@@ -170,7 +181,8 @@ export default function InstructorEditForm({
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
             />
             <p className="mt-2 text-sm text-slate-500">
-              Add practical teaching focus areas so staff can match the right instructor to the right lesson or class.
+              Add practical teaching focus areas so staff can match the right
+              instructor to the right lesson or class.
             </p>
           </div>
 
@@ -179,7 +191,7 @@ export default function InstructorEditForm({
               htmlFor="bio"
               className="mb-1 block text-sm font-semibold text-slate-800"
             >
-              Bio
+              Internal Bio / Notes
             </label>
             <textarea
               id="bio"
@@ -190,6 +202,164 @@ export default function InstructorEditForm({
               className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100"
             />
           </div>
+
+          <details
+            className="rounded-3xl border border-orange-100 bg-gradient-to-br from-orange-50 via-white to-fuchsia-50 p-5 shadow-sm"
+            open={Boolean(instructor.public_profile_enabled)}
+          >
+            <summary className="cursor-pointer list-none">
+              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-orange-700">
+                    Public Staff Profile
+                  </p>
+                  <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
+                    Show this instructor on the public studio page
+                  </h3>
+                </div>
+                <span className="rounded-full border border-orange-200 bg-white px-3 py-1 text-xs font-semibold text-orange-700">
+                  Optional
+                </span>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-slate-600">
+                These fields power the Staff tab on the studio public page. Keep
+                it short, friendly, and written for prospective students.
+              </p>
+            </summary>
+
+            <div className="mt-5 space-y-5 border-t border-orange-100 pt-5">
+              <label className="flex items-start gap-3 rounded-2xl border border-orange-100 bg-white/80 p-4 text-sm text-slate-700 shadow-sm">
+                <input
+                  type="checkbox"
+                  name="publicProfileEnabled"
+                  value="true"
+                  defaultChecked={Boolean(instructor.public_profile_enabled)}
+                  className="mt-1 h-4 w-4 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                />
+                <span>
+                  <span className="block font-semibold text-slate-900">
+                    Show this instructor on the public studio page
+                  </span>
+                  <span className="mt-1 block text-slate-500">
+                    Leave unchecked for internal-only instructors or staff who
+                    should not appear publicly.
+                  </span>
+                </span>
+              </label>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="publicTitle"
+                    className="mb-1 block text-sm font-semibold text-slate-800"
+                  >
+                    Public Title / Role
+                  </label>
+                  <input
+                    id="publicTitle"
+                    name="publicTitle"
+                    defaultValue={instructor.public_title ?? ""}
+                    placeholder="Example: Lead Instructor, Country Coach"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="publicPhotoUrl"
+                    className="mb-1 block text-sm font-semibold text-slate-800"
+                  >
+                    Headshot URL
+                  </label>
+                  <input
+                    id="publicPhotoUrl"
+                    name="publicPhotoUrl"
+                    type="url"
+                    defaultValue={instructor.public_photo_url ?? ""}
+                    placeholder="https://..."
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                  />
+                  <p className="mt-2 text-xs text-slate-500">
+                    Use a public image URL for V1. File upload can be added
+                    later.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label
+                  htmlFor="publicSpecialties"
+                  className="mb-1 block text-sm font-semibold text-slate-800"
+                >
+                  Public Specialties
+                </label>
+                <input
+                  id="publicSpecialties"
+                  name="publicSpecialties"
+                  defaultValue={instructor.public_specialties ?? ""}
+                  placeholder="Example: Country Two Step, West Coast Swing, wedding dance"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="publicBio"
+                  className="mb-1 block text-sm font-semibold text-slate-800"
+                >
+                  Public Bio
+                </label>
+                <textarea
+                  id="publicBio"
+                  name="publicBio"
+                  rows={4}
+                  defaultValue={instructor.public_bio ?? ""}
+                  placeholder="Write a short student-facing bio. Focus on teaching style, dance background, and who this instructor helps."
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="yearsExperience"
+                    className="mb-1 block text-sm font-semibold text-slate-800"
+                  >
+                    Years Experience
+                  </label>
+                  <input
+                    id="yearsExperience"
+                    name="yearsExperience"
+                    type="number"
+                    min="0"
+                    step="1"
+                    defaultValue={instructor.years_experience ?? ""}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="displayOrder"
+                    className="mb-1 block text-sm font-semibold text-slate-800"
+                  >
+                    Display Order
+                  </label>
+                  <input
+                    id="displayOrder"
+                    name="displayOrder"
+                    type="number"
+                    step="1"
+                    defaultValue={instructor.display_order ?? 0}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
+                  />
+                  <p className="mt-2 text-xs text-slate-500">
+                    Lower numbers appear first in the Staff tab.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </details>
 
           <div>
             <label
@@ -208,7 +378,8 @@ export default function InstructorEditForm({
               <option value="false">Inactive</option>
             </select>
             <p className="mt-2 text-sm text-slate-500">
-              Set inactive when this instructor should no longer appear in active scheduling workflows.
+              Set inactive when this instructor should no longer appear in
+              active scheduling workflows.
             </p>
           </div>
 
@@ -239,3 +410,4 @@ export default function InstructorEditForm({
     </div>
   );
 }
+
