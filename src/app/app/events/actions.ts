@@ -40,6 +40,10 @@ type OrganizerRow = {
   active: boolean;
 };
 
+function isOrganizerWorkspaceRole(role: string | null | undefined) {
+  return (role ?? "").trim().toLowerCase().startsWith("organizer_");
+}
+
 type EventLocationSessionPayload = {
   sessionDate: string;
   startTime: string | null;
@@ -380,6 +384,7 @@ async function getStudioContext() {
   return {
     supabase,
     studioId: context.studioId,
+    studioRole: context.studioRole,
     userId: user.id,
     error: null as string | null,
   };
@@ -965,8 +970,9 @@ async function ensureOrganizerValid(params: {
 async function getWorkspaceAndOrganizerPolicy(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
+  currentRole?: string | null;
 }) {
-  const { supabase, studioId } = params;
+  const { supabase, studioId, currentRole } = params;
 
   const { data: workspace, error: workspaceError } = await supabase
     .from("studios")
@@ -1018,6 +1024,7 @@ async function getWorkspaceAndOrganizerPolicy(params: {
     subscriptionPlan,
   );
   const organizerWorkspace =
+    isOrganizerWorkspaceRole(currentRole) ||
     effectiveBillingPlan === "organizer" ||
     isOrganizerWorkspaceName(workspace?.name);
   const studioHostedEvents =
@@ -1056,12 +1063,14 @@ async function resolveEffectiveOrganizerId(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
   requestedOrganizerId: string;
+  currentRole?: string | null;
 }) {
-  const { supabase, studioId, requestedOrganizerId } = params;
+  const { supabase, studioId, requestedOrganizerId, currentRole } = params;
 
   const policy = await getWorkspaceAndOrganizerPolicy({
     supabase,
     studioId,
+    currentRole,
   });
 
   if (policy.organizerWorkspace) {
@@ -2123,6 +2132,7 @@ export async function createEventAction(
     const {
       supabase,
       studioId,
+      studioRole,
       userId,
       error: studioError,
     } = await getStudioContext();
@@ -2137,6 +2147,7 @@ export async function createEventAction(
       supabase,
       studioId,
       requestedOrganizerId: payload.organizerId,
+      currentRole: studioRole,
     });
 
     if (organizerResolution.error) {
@@ -2280,7 +2291,7 @@ export async function updateEventAction(
   }
 
   try {
-    const { supabase, studioId, error: studioError } = await getStudioContext();
+    const { supabase, studioId, studioRole, error: studioError } = await getStudioContext();
 
     if (studioError) {
       return { error: studioError };
@@ -2292,6 +2303,7 @@ export async function updateEventAction(
       supabase,
       studioId,
       requestedOrganizerId: payload.organizerId,
+      currentRole: studioRole,
     });
 
     if (organizerResolution.error) {
@@ -2826,5 +2838,8 @@ export async function duplicateEventAction(formData: FormData) {
 
   redirect(redirectTo);
 }
+
+
+
 
 
