@@ -109,6 +109,21 @@ function formatDateTime(value: string | null) {
   }).format(date);
 }
 
+function toDatetimeLocal(value: string | null) {
+  if (!value) return "";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const yyyy = String(date.getFullYear());
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mi = String(date.getMinutes()).padStart(2, "0");
+
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
 export default async function EventTicketsPage({
   params,
 }: {
@@ -219,6 +234,12 @@ export default async function EventTicketsPage({
 
   return (
     <div className="space-y-6">
+      <script
+        dangerouslySetInnerHTML={{
+          __html:
+            "document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('[data-timezone-offset-minutes]').forEach(function(input){input.value=String(new Date().getTimezoneOffset());});});",
+        }}
+      />
       <section className="overflow-hidden rounded-[28px] border border-[#E9D5FF] bg-gradient-to-r from-[#2D0B45] via-[#5B197A] to-[#7C2D92] text-white shadow-sm">
         <div className="flex flex-col gap-6 px-6 py-6 md:flex-row md:items-start md:justify-between md:px-8">
           <div className="max-w-3xl">
@@ -375,6 +396,12 @@ export default async function EventTicketsPage({
                 >
                   <input type="hidden" name="ticketId" value={ticket.id} />
                   <input type="hidden" name="eventId" value={typedEvent.id} />
+                  <input
+                    type="hidden"
+                    name="timezoneOffsetMinutes"
+                    value=""
+                    data-timezone-offset-minutes
+                  />
 
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap items-center gap-2">
@@ -528,7 +555,7 @@ export default async function EventTicketsPage({
                       <input
                         name="saleStartsAt"
                         type="datetime-local"
-                        defaultValue={ticket.sale_starts_at?.slice(0, 16) ?? ""}
+                        defaultValue={toDatetimeLocal(ticket.sale_starts_at)}
                         disabled={!canManage}
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
                       />
@@ -539,7 +566,7 @@ export default async function EventTicketsPage({
                       <input
                         name="saleEndsAt"
                         type="datetime-local"
-                        defaultValue={ticket.sale_ends_at?.slice(0, 16) ?? ""}
+                        defaultValue={toDatetimeLocal(ticket.sale_ends_at)}
                         disabled={!canManage}
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
                       />
@@ -588,6 +615,12 @@ export default async function EventTicketsPage({
 
           <form action={createTicketTypeAction} className="mt-6 grid gap-4 md:grid-cols-2">
             <input type="hidden" name="eventId" value={typedEvent.id} />
+            <input
+              type="hidden"
+              name="timezoneOffsetMinutes"
+              value=""
+              data-timezone-offset-minutes
+            />
 
             <label className="space-y-2 text-sm">
               <span className="font-medium text-slate-700">Ticket name</span>
@@ -724,4 +757,5 @@ export default async function EventTicketsPage({
     </div>
   );
 }
+
 

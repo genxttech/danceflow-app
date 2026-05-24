@@ -49,6 +49,11 @@ export default function TicketTypeForm({
       className="space-y-4 rounded-2xl border bg-slate-50 p-5"
     >
       <input type="hidden" name="eventId" value={eventId} />
+      <input
+        type="hidden"
+        name="timezoneOffsetMinutes"
+        value={String(new Date().getTimezoneOffset())}
+      />
       {mode === "edit" && initialValues ? (
         <input type="hidden" name="ticketTypeId" value={initialValues.id} />
       ) : null}
@@ -204,4 +209,6 @@ export default function TicketTypeForm({
     </form>
   );
 }
+
+
 

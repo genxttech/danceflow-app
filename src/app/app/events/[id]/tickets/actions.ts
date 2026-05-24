@@ -32,8 +32,33 @@ function parseMoney(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function parseOptionalDateTimeLocal(value: string) {
+function parseOptionalTimezoneOffset(value: string) {
+  if (!value.trim()) return null;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseOptionalDateTimeLocal(value: string, timezoneOffsetMinutes: number | null) {
   if (!value) return null;
+
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+
+  if (match && timezoneOffsetMinutes !== null) {
+    const [, year, month, day, hour, minute, second = "00"] = match;
+    const utcFromWallClock = Date.UTC(
+      Number(year),
+      Number(month) - 1,
+      Number(day),
+      Number(hour),
+      Number(minute),
+      Number(second)
+    );
+
+    const parsed = new Date(utcFromWallClock + timezoneOffsetMinutes * 60_000);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return parsed.toISOString();
+  }
+
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString();
@@ -179,10 +204,17 @@ export async function createTicketTypeAction(formData: FormData) {
     const currency = (getString(formData, "currency") || "USD").toUpperCase();
     const capacity = parseOptionalInteger(getString(formData, "capacity"));
     const sortOrder = parseOptionalInteger(getString(formData, "sortOrder")) ?? 0;
-    const saleStartsAt = parseOptionalDateTimeLocal(
-      getString(formData, "saleStartsAt")
+    const timezoneOffsetMinutes = parseOptionalTimezoneOffset(
+      getString(formData, "timezoneOffsetMinutes")
     );
-    const saleEndsAt = parseOptionalDateTimeLocal(getString(formData, "saleEndsAt"));
+    const saleStartsAt = parseOptionalDateTimeLocal(
+      getString(formData, "saleStartsAt"),
+      timezoneOffsetMinutes
+    );
+    const saleEndsAt = parseOptionalDateTimeLocal(
+      getString(formData, "saleEndsAt"),
+      timezoneOffsetMinutes
+    );
     const active = getBoolean(formData, "active");
     const attendeesPerTicket = getAttendeesPerTicket(formData);
 
@@ -245,10 +277,17 @@ export async function updateTicketTypeAction(formData: FormData) {
     const currency = (getString(formData, "currency") || "USD").toUpperCase();
     const capacity = parseOptionalInteger(getString(formData, "capacity"));
     const sortOrder = parseOptionalInteger(getString(formData, "sortOrder")) ?? 0;
-    const saleStartsAt = parseOptionalDateTimeLocal(
-      getString(formData, "saleStartsAt")
+    const timezoneOffsetMinutes = parseOptionalTimezoneOffset(
+      getString(formData, "timezoneOffsetMinutes")
     );
-    const saleEndsAt = parseOptionalDateTimeLocal(getString(formData, "saleEndsAt"));
+    const saleStartsAt = parseOptionalDateTimeLocal(
+      getString(formData, "saleStartsAt"),
+      timezoneOffsetMinutes
+    );
+    const saleEndsAt = parseOptionalDateTimeLocal(
+      getString(formData, "saleEndsAt"),
+      timezoneOffsetMinutes
+    );
     const active = getBoolean(formData, "active");
     const attendeesPerTicket = getAttendeesPerTicket(formData);
 
@@ -305,3 +344,4 @@ export async function updateTicketTypeAction(formData: FormData) {
 
   redirect(redirectTo);
 }
+
