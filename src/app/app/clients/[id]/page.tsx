@@ -243,7 +243,33 @@ type SearchParams = Promise<{
   notificationId?: string;
   success?: string;
   error?: string;
+  tab?: string;
 }>;
+
+type ClientDetailTab =
+  | "overview"
+  | "schedule"
+  | "billing"
+  | "notes"
+  | "portal"
+  | "marketing"
+  | "syllabus";
+
+const clientDetailTabs: { id: ClientDetailTab; label: string; description: string }[] = [
+  { id: "overview", label: "Overview", description: "Snapshot, lead status, and event history" },
+  { id: "schedule", label: "Schedule", description: "Upcoming and recent lessons" },
+  { id: "billing", label: "Packages & Billing", description: "Packages, payments, memberships, and ledger" },
+  { id: "notes", label: "Notes & Activity", description: "Notes, lead activity, and follow-up history" },
+  { id: "portal", label: "Portal", description: "Client portal access and login tools" },
+  { id: "marketing", label: "Marketing", description: "Marketing preferences and campaign history" },
+  { id: "syllabus", label: "Syllabus", description: "Future dance figure progress tracking" },
+];
+
+function getClientDetailTab(value: string | undefined): ClientDetailTab {
+  return clientDetailTabs.some((tab) => tab.id === value)
+    ? (value as ClientDetailTab)
+    : "overview";
+}
 
 type PackageHealth =
   | "healthy"
@@ -1003,6 +1029,8 @@ export default async function ClientDetailPage({
   const query = await searchParams;
   const notificationId = query.notificationId ?? "";
   const banner = getBanner(query);
+  const activeTab = getClientDetailTab(query.tab);
+  const activeTabInfo = clientDetailTabs.find((tab) => tab.id === activeTab) ?? clientDetailTabs[0];
 
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
@@ -1729,7 +1757,70 @@ export default async function ClientDetailPage({
         </div>
       </div>
 
-      {typedClient.status === "lead" ? (
+      <div className="rounded-[28px] border border-[var(--brand-border)] bg-white/92 p-3 shadow-sm">
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {clientDetailTabs.map((tab) => {
+            const isActive = tab.id === activeTab;
+
+            return (
+              <Link
+                key={tab.id}
+                href={`/app/clients/${typedClient.id}?tab=${tab.id}`}
+                className={`whitespace-nowrap rounded-2xl px-4 py-2 text-sm font-medium transition ${
+                  isActive
+                    ? "bg-[var(--brand-primary)] text-white shadow-sm"
+                    : "border border-[var(--brand-border)] bg-white text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+                }`}
+              >
+                {tab.label}
+              </Link>
+            );
+          })}
+        </div>
+        <p className="mt-2 px-1 text-xs leading-5 text-slate-500">
+          {activeTabInfo.description}
+        </p>
+      </div>
+
+      {activeTab === "marketing" ? (
+        <SectionCard
+          title="Marketing"
+          subtitle="Marketing preferences and client campaign history will live here as campaign tools expand."
+          action={
+            <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-dark)]">
+              Coming Soon
+            </span>
+          }
+        >
+          <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
+            <p className="font-medium text-[var(--brand-text)]">Marketing tools are coming to this profile.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              This tab will show email subscription status, campaign history, follow-up activity, and client-specific marketing preferences.
+            </p>
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {activeTab === "syllabus" ? (
+        <SectionCard
+          title="Syllabus"
+          subtitle="Future student progress tracking for dance figures, levels, and instructor notes."
+          action={
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              Placeholder
+            </span>
+          }
+        >
+          <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
+            <p className="font-medium text-[var(--brand-text)]">Dance figure syllabus tracking is coming soon.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Instructors will be able to assign or upload a dance figure syllabus to this student and check off figures as they are introduced, practiced, and completed.
+            </p>
+          </div>
+        </SectionCard>
+      ) : null}
+
+      {activeTab === "overview" && typedClient.status === "lead" ? (
         <SectionCard
           title="Lead Conversion"
           subtitle="A front-desk focused workflow for moving this lead into their first booked and paid service."
@@ -1869,7 +1960,7 @@ export default async function ClientDetailPage({
         </SectionCard>
       ) : null}
 
-      {delinquencyConfig ? (
+      {activeTab === "billing" && delinquencyConfig ? (
         <SectionCard
           title="Membership Billing Warning"
           subtitle="This membership needs staff attention."
@@ -1984,7 +2075,7 @@ export default async function ClientDetailPage({
         </SectionCard>
       ) : null}
 
-      {!delinquencyConfig && membershipRecovered ? (
+      {activeTab === "billing" && !delinquencyConfig && membershipRecovered ? (
         <SectionCard
           title="Membership Billing Recovered"
           subtitle="This membership appears to be back in good standing."
@@ -2032,7 +2123,7 @@ export default async function ClientDetailPage({
         </SectionCard>
       ) : null}
 
-            {typedActiveMembership ? (
+            {activeTab === "billing" && typedActiveMembership ? (
           <div id="membership-billing-controls">
           <SectionCard
             title="Membership Billing Controls"
@@ -2132,7 +2223,7 @@ export default async function ClientDetailPage({
         </div>
       ) : null}
 
-      {typedActiveMembership ? (
+      {activeTab === "billing" && typedActiveMembership ? (
         <SectionCard
           title="Membership Billing History"
           subtitle="Recent membership-related charges and invoice activity for this client."
@@ -2229,7 +2320,7 @@ export default async function ClientDetailPage({
         </SectionCard>
       ) : null}
 
-      {(isEventRegistrationLead || typedEventRegistrations.length > 0) ? (
+      {activeTab === "overview" && (isEventRegistrationLead || typedEventRegistrations.length > 0) ? (
         <SectionCard
           title="Event Registration Origin"
           subtitle="This client has event-registration history linked into CRM."
@@ -2410,6 +2501,7 @@ export default async function ClientDetailPage({
         </SectionCard>
       ) : null}
 
+      {activeTab === "billing" ? (
       <div className="grid gap-6 xl:grid-cols-2">
         <div id="memberships">
           <SectionCard
@@ -2601,9 +2693,11 @@ export default async function ClientDetailPage({
           </SectionCard>
         </div>
       </div>
+      ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_1.35fr]">
+      <div className="space-y-6">
         <div className="space-y-6">
+          {activeTab === "overview" ? (
           <SectionCard title="Client Snapshot">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
@@ -2682,7 +2776,9 @@ export default async function ClientDetailPage({
               </div>
             ) : null}
           </SectionCard>
+          ) : null}
 
+          {activeTab === "portal" ? (
           <SectionCard
   title="Portal Access"
   subtitle="Connect this client to their login account so they can use the client portal. Independent instructors will also see floor-rental tools when that option is enabled on their client profile."
@@ -2840,7 +2936,9 @@ export default async function ClientDetailPage({
     </div>
   ) : null}
 </SectionCard>
+          ) : null}
 
+          {activeTab === "notes" ? (
           <SectionCard title="Notes">
             <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
               <p className="whitespace-pre-wrap text-slate-700">
@@ -2848,9 +2946,11 @@ export default async function ClientDetailPage({
               </p>
             </div>
           </SectionCard>
+          ) : null}
         </div>
 
         <div className="space-y-6">
+          {activeTab === "billing" ? (
           <div id="quick-sale-payment">
             <QuickActionPanel
               title="Quick Sale & Payment"
@@ -2874,8 +2974,9 @@ export default async function ClientDetailPage({
               />
             </QuickActionPanel>
           </div>
+          ) : null}
 
-          {canEditClients(role) ? (
+          {activeTab === "billing" && canEditClients(role) ? (
   <QuickActionPanel
     title="Package Count Correction"
     description="Adjust package balances when lesson, group class, or party credits need to be added back or manually deducted. Each correction is saved in package history."
@@ -2996,6 +3097,7 @@ export default async function ClientDetailPage({
             </QuickActionPanel>
           ) : null}
 
+          {activeTab === "billing" ? (
           <SectionCard
             title="Account Balance"
             subtitle="Track client-level credits, balances owed, floor fee charges, and truthful account adjustments without changing package history."
@@ -3186,8 +3288,9 @@ export default async function ClientDetailPage({
               </div>
             </details>
           </SectionCard>
+          ) : null}
 
-          {typedClient.status === "lead" ? (
+          {activeTab === "notes" && typedClient.status === "lead" ? (
             <>
               <QuickActionPanel
                 title="Quick Lead Follow-Up"
@@ -3270,7 +3373,7 @@ export default async function ClientDetailPage({
             </>
           ) : null}
 
-          {isIndependentInstructor ? (
+          {activeTab === "schedule" && isIndependentInstructor ? (
             <SectionCard
               title="Floor Space Rentals"
               subtitle="Floor rentals are tracked separately from lesson package usage and standard attendance workflows."
@@ -3386,6 +3489,7 @@ export default async function ClientDetailPage({
             </SectionCard>
           ) : null}
 
+          {activeTab === "schedule" ? (
           <div className="grid gap-5 xl:grid-cols-2">
             <SectionCard
               title="Upcoming Appointments"
@@ -3589,7 +3693,9 @@ export default async function ClientDetailPage({
               </div>
             </SectionCard>
           </div>
+          ) : null}
 
+          {activeTab === "billing" ? (
           <div className="grid gap-5 xl:grid-cols-2">
             <SectionCard
               title="Payments"
@@ -3734,6 +3840,7 @@ export default async function ClientDetailPage({
               </div>
             </SectionCard>
           </div>
+          ) : null}
         </div>
       </div>
     </div>
