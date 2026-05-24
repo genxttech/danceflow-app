@@ -2455,7 +2455,7 @@ export async function updateEventAction(
     };
   }
 
-  redirect(`/app/events/${id}`);
+  redirect(`/app/events/${id}/edit`);
 }
 
 export async function duplicateEventAction(formData: FormData) {

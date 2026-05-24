@@ -664,10 +664,25 @@ export default async function PublicStudioPage({
           </div>
         </section>
 
-        <section className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <nav
+          aria-label="Studio page sections"
+          className="sticky top-0 z-20 border-b border-slate-200 bg-white/90 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/75 sm:px-6 lg:px-8"
+        >
+          <div className="mx-auto flex max-w-7xl gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <a href="#overview" className="shrink-0 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm">Overview</a>
+            <a href="#about" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">About</a>
+            <a href="#dance-styles" className="shrink-0 rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700">Dance Styles</a>
+            <a href="#staff" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Staff</a>
+            <a href="#offerings" className="shrink-0 rounded-full border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700">Offerings</a>
+            <a href="#events" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Events</a>
+            <a href="#contact" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Contact</a>
+          </div>
+        </nav>
+
+        <section id="overview" className="mx-auto max-w-7xl scroll-mt-24 px-4 py-8 sm:px-6 lg:px-8">
           <div className="grid gap-8 lg:grid-cols-[1fr_340px]">
             <div className="space-y-8">
-              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section id="about" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   About This Studio
                 </h2>
@@ -678,7 +693,7 @@ export default async function PublicStudioPage({
                 </p>
               </section>
 
-              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section id="dance-styles" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   Dance Styles
                 </h2>
@@ -702,7 +717,17 @@ export default async function PublicStudioPage({
                 )}
               </section>
 
-              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section id="staff" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                  Staff
+                </h2>
+                <p className="mt-4 text-sm leading-7 text-slate-600">
+                  Instructor and staff profiles will appear here as this studio
+                  adds them to its public profile.
+                </p>
+              </section>
+
+              <section id="offerings" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                   Offerings
                 </h2>
@@ -726,7 +751,7 @@ export default async function PublicStudioPage({
                 )}
               </section>
 
-              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section id="events" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <div className="flex flex-wrap items-end justify-between gap-4">
                   <div>
                     <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
@@ -818,7 +843,7 @@ export default async function PublicStudioPage({
               {studio.public_lead_enabled ? (
                 <section
                   id="lead"
-                  className="rounded-[2rem] border border-violet-200 bg-violet-50 p-6 shadow-sm"
+                  className="scroll-mt-24 rounded-[2rem] border border-violet-200 bg-violet-50 p-6 shadow-sm"
                 >
                   <div className="mb-5">
                     <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
@@ -847,7 +872,7 @@ export default async function PublicStudioPage({
             </div>
 
             <aside className="space-y-6">
-              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+              <section id="contact" className="scroll-mt-24 rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <h2 className="text-xl font-semibold tracking-tight text-slate-950">
                   Contact Information
                 </h2>

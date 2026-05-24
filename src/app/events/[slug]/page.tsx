@@ -842,12 +842,15 @@ function InfoCard({
   detail?: string;
 }) {
   return (
-    <div className="rounded-2xl border bg-white/80 p-4 backdrop-blur">
+    <div className="group rounded-3xl border border-white/70 bg-white/85 p-4 shadow-sm ring-1 ring-slate-100 backdrop-blur transition hover:-translate-y-0.5 hover:shadow-md">
+      <div className="mb-3 h-1.5 w-12 rounded-full bg-gradient-to-r from-orange-400 via-fuchsia-500 to-violet-600" />
       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
         {label}
       </p>
       <p className="mt-2 text-base font-semibold text-slate-950">{value}</p>
-      {detail ? <p className="mt-1 text-sm text-slate-600">{detail}</p> : null}
+      {detail ? (
+        <p className="mt-1 text-sm leading-6 text-slate-600">{detail}</p>
+      ) : null}
     </div>
   );
 }
@@ -1465,8 +1468,10 @@ export default async function PublicEventDetailPage({
 
       <PublicSiteHeader currentPath="events" isAuthenticated={!!user} />
 
-      <main className="min-h-screen bg-slate-50">
-        <section className="border-b bg-[linear-gradient(180deg,#f5f3ff_0%,#ffffff_22%,#f8fafc_100%)]">
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff7ed_0%,transparent_32%),radial-gradient(circle_at_top_right,#ede9fe_0%,transparent_34%),linear-gradient(180deg,#f8fafc_0%,#ffffff_42%,#f8fafc_100%)]">
+        <section className="relative overflow-hidden border-b border-white/70">
+          <div className="pointer-events-none absolute left-[-8rem] top-16 h-80 w-80 rounded-full bg-orange-200/40 blur-3xl" />
+          <div className="pointer-events-none absolute right-[-8rem] top-40 h-96 w-96 rounded-full bg-violet-200/45 blur-3xl" />
           <div className="mx-auto max-w-7xl space-y-8 px-4 py-8 sm:px-6 lg:px-8">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap gap-3">
@@ -1506,9 +1511,9 @@ export default async function PublicEventDetailPage({
               </div>
             ) : null}
 
-            <section className="overflow-hidden rounded-[2rem] border border-slate-200/80 bg-white shadow-sm">
+            <section className="relative overflow-hidden rounded-[2rem] border border-white/70 bg-white/90 shadow-2xl shadow-slate-200/70 ring-1 ring-slate-100 backdrop-blur">
               <div className="relative">
-                <div className="aspect-[16/7] w-full bg-slate-100">
+                <div className="aspect-[4/3] w-full bg-slate-100 sm:aspect-[16/7]">
                   {typedEvent.cover_image_url ? (
                     <img
                       src={typedEvent.cover_image_url}
@@ -1522,14 +1527,15 @@ export default async function PublicEventDetailPage({
                   )}
                 </div>
 
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/75 via-slate-950/20 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/90 via-slate-950/35 to-orange-500/10" />
+                <div className="absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-slate-950/80 to-transparent" />
 
                 <div className="absolute inset-x-0 bottom-0 p-6 sm:p-8">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="space-y-4">
                       <div className="flex flex-wrap gap-2">
                         <span
-                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${eventTypeBadgeClass(
+                          className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold shadow-sm ${eventTypeBadgeClass(
                             typedEvent.event_type,
                           )}`}
                         >
@@ -1567,7 +1573,7 @@ export default async function PublicEventDetailPage({
                       <div className="flex flex-wrap gap-3">
                         <a
                           href="#registration"
-                          className="inline-flex rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-100"
+                          className="inline-flex rounded-xl bg-gradient-to-r from-orange-500 via-fuchsia-500 to-violet-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-fuchsia-950/20 transition hover:scale-[1.01]"
                         >
                           {heroPrimaryCtaLabel({
                             registrationRequired:
@@ -1610,7 +1616,7 @@ export default async function PublicEventDetailPage({
                 </div>
               </div>
 
-              <div className="grid gap-4 border-t bg-slate-50 p-5 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 border-t border-white/70 bg-gradient-to-r from-orange-50 via-white to-violet-50 p-5 sm:grid-cols-2 lg:grid-cols-4">
                 <InfoCard
                   label="Schedule"
                   value={formatEventSchedule(typedEvent)}
@@ -1659,23 +1665,45 @@ export default async function PublicEventDetailPage({
               </div>
             </section>
 
-            <div className="grid gap-8 lg:grid-cols-[1.35fr_0.9fr]">
+            <nav
+              aria-label="Event page sections"
+              className="sticky top-0 z-20 -mx-4 border-y border-white/70 bg-white/90 px-4 py-3 shadow-sm backdrop-blur supports-[backdrop-filter]:bg-white/75 sm:-mx-6 sm:px-6 lg:top-0 lg:-mx-8 lg:px-8"
+            >
+              <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                <a href="#overview" className="shrink-0 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm">Overview</a>
+                <a href="#tickets" className="shrink-0 rounded-full border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700">Tickets</a>
+                {groupedScheduleItems.length > 0 ? (
+                  <a href="#schedule" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Schedule</a>
+                ) : null}
+                {privateLessonSlotGroups.length > 0 ? (
+                  <a href="#private-lessons" className="shrink-0 rounded-full border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-semibold text-purple-700">Private Lessons</a>
+                ) : null}
+                <a href="#location" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Location</a>
+                <a href="#details" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Details</a>
+                <a href="#host" className="shrink-0 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700">Host</a>
+              </div>
+            </nav>
+
+            <div className="grid gap-8 lg:grid-cols-[1.35fr_0.9fr] lg:items-start">
               <div className="space-y-8">
-                <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
+                <section id="overview" className="scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
                   <div className="flex flex-wrap gap-2">
                     {typedTags.map((tag) => (
                       <span
                         key={tag.id}
-                        className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
+                        className="rounded-full border border-orange-100 bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700"
                       >
                         {tag.tag}
                       </span>
                     ))}
                   </div>
 
-                  <h2 className="mt-5 text-2xl font-semibold tracking-tight text-slate-950">
-                    Event Details
-                  </h2>
+                  <div className="mt-5 flex items-center gap-3">
+                    <div className="h-10 w-1.5 rounded-full bg-gradient-to-b from-orange-400 via-fuchsia-500 to-violet-600" />
+                    <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                      Event Details
+                    </h2>
+                  </div>
 
                   <div className="mt-4 space-y-4 text-base leading-8 text-slate-700">
                     {typedEvent.description ? (
@@ -1689,7 +1717,7 @@ export default async function PublicEventDetailPage({
                 </section>
 
                 {groupedScheduleItems.length > 0 ? (
-                  <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
+                  <section id="schedule" className="scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                         Agenda
@@ -1707,17 +1735,17 @@ export default async function PublicEventDetailPage({
                       {groupedScheduleItems.map((group) => (
                         <div
                           key={group.date}
-                          className="rounded-2xl border bg-slate-50 p-5"
+                          className="rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-violet-50/40 p-5 shadow-sm"
                         >
                           <h3 className="text-base font-semibold text-slate-950">
                             {formatSessionDate(group.date)}
                           </h3>
 
-                          <div className="mt-4 divide-y rounded-xl border bg-white">
+                          <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
                             {group.items.map((item, itemIndex) => (
                               <div
                                 key={`${group.date}-${item.start_time}-${item.title}-${itemIndex}`}
-                                className="px-4 py-4"
+                                className="border-b border-slate-100 px-4 py-4 last:border-b-0"
                               >
                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                   <div>
@@ -1758,7 +1786,7 @@ export default async function PublicEventDetailPage({
                   </section>
                 ) : null}
 
-                <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
+                <section id="location" className="scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
                   <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                     {hasDetailedLocations ? "Dates & Locations" : "Location"}
                   </h2>
@@ -1775,7 +1803,7 @@ export default async function PublicEventDetailPage({
                         return (
                           <div
                             key={location.id}
-                            className="rounded-2xl border bg-slate-50 p-5"
+                            className="rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-orange-50/40 p-5 shadow-sm"
                           >
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div>
@@ -1870,7 +1898,7 @@ export default async function PublicEventDetailPage({
                 </section>
 
                 {privateLessonSlotGroups.length > 0 ? (
-                  <section className="rounded-[2rem] border border-purple-100 bg-white p-5 shadow-sm sm:p-8">
+                  <section id="private-lessons" className="scroll-mt-24 rounded-[2rem] border border-purple-100 bg-white p-5 shadow-sm sm:p-8">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-600">
@@ -1886,9 +1914,9 @@ export default async function PublicEventDetailPage({
                     </div>
 
                     <p className="mt-3 text-sm leading-6 text-slate-600">
-                      Reserve a private lesson with a guest coach. Choose one
-                      or more available times, then complete one checkout in
-                      the ticket checkout section below.
+                      Reserve a private lesson with a guest coach. Choose one or
+                      more available times, then complete one checkout in the
+                      ticket checkout section below.
                     </p>
 
                     <div className="mt-6 space-y-4">
@@ -2011,12 +2039,15 @@ export default async function PublicEventDetailPage({
                                                 slot.ends_at,
                                                 typedEvent.timezone,
                                               )}
-                                              data-slot-price={Number(slot.price ?? 0)}
+                                              data-slot-price={Number(
+                                                slot.price ?? 0,
+                                              )}
                                               className="mt-1 h-4 w-4 rounded border-slate-300 text-purple-700"
                                             />
                                             <span className="min-w-0 flex-1">
                                               <span className="block text-sm font-semibold text-slate-950">
-                                                Add this coach lesson to checkout
+                                                Add this coach lesson to
+                                                checkout
                                               </span>
                                               <span className="mt-1 block text-xs leading-5 text-slate-600">
                                                 {coach.name} ·{" "}
@@ -2027,7 +2058,9 @@ export default async function PublicEventDetailPage({
                                                 )}
                                               </span>
                                               <span className="mt-1 block text-xs text-slate-500">
-                                                Select more than one coach lesson if needed, then pay once in the ticket checkout section.
+                                                Select more than one coach
+                                                lesson if needed, then pay once
+                                                in the ticket checkout section.
                                               </span>
                                             </span>
                                           </label>
@@ -2045,7 +2078,7 @@ export default async function PublicEventDetailPage({
                   </section>
                 ) : null}
 
-                <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
+                <section id="tickets" className="scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
                   <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                     Ticket Options
                   </h2>
@@ -2072,7 +2105,7 @@ export default async function PublicEventDetailPage({
                         return (
                           <div
                             key={ticket.id}
-                            className="rounded-2xl border bg-slate-50 p-5"
+                            className="rounded-3xl border border-slate-200/80 bg-gradient-to-br from-white via-slate-50 to-orange-50/40 p-5 shadow-sm"
                           >
                             <div className="flex flex-wrap items-center gap-2">
                               <h3 className="text-lg font-semibold text-slate-950">
@@ -2126,8 +2159,8 @@ export default async function PublicEventDetailPage({
                   )}
                 </section>
 
-                <section className="grid gap-6 lg:grid-cols-2">
-                  <div className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
+                <section id="details" className="scroll-mt-24 grid gap-6 lg:grid-cols-2">
+                  <div className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
                     <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                       Refund Policy
                     </h2>
@@ -2137,7 +2170,7 @@ export default async function PublicEventDetailPage({
                     </p>
                   </div>
 
-                  <div className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
+                  <div className="rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
                     <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                       FAQ
                     </h2>
@@ -2151,13 +2184,16 @@ export default async function PublicEventDetailPage({
               <div className="space-y-6">
                 <section
                   id="registration"
-                  className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8"
+                  className="scroll-mt-24 rounded-[2rem] border border-orange-200/80 bg-white/95 p-6 shadow-xl shadow-orange-100/70 ring-1 ring-orange-100 backdrop-blur sm:p-8 lg:sticky lg:top-6"
                 >
-                  <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                    {typedEvent.event_type === "group_class"
-                      ? "Enrollment"
-                      : "Registration"}
-                  </h2>
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-1.5 rounded-full bg-gradient-to-b from-orange-400 via-fuchsia-500 to-violet-600" />
+                    <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                      {typedEvent.event_type === "group_class"
+                        ? "Enrollment"
+                        : "Registration"}
+                    </h2>
+                  </div>
 
                   <p className="mt-3 text-sm leading-6 text-slate-600">
                     {topHint}
@@ -2196,7 +2232,7 @@ export default async function PublicEventDetailPage({
                   ) : null}
 
                   <div className="mt-5 grid gap-3">
-                    <div className="rounded-xl border bg-slate-50 p-4">
+                    <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm">
                       <p className="text-sm text-slate-500">
                         Registration Opens
                       </p>
@@ -2205,7 +2241,7 @@ export default async function PublicEventDetailPage({
                       </p>
                     </div>
 
-                    <div className="rounded-xl border bg-slate-50 p-4">
+                    <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm">
                       <p className="text-sm text-slate-500">
                         Registration Closes
                       </p>
@@ -2214,7 +2250,7 @@ export default async function PublicEventDetailPage({
                       </p>
                     </div>
 
-                    <div className="rounded-xl border bg-slate-50 p-4">
+                    <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm">
                       <p className="text-sm text-slate-500">Account Required</p>
                       <p className="mt-1 font-medium text-slate-900">
                         {typedEvent.account_required_for_registration
@@ -2223,7 +2259,7 @@ export default async function PublicEventDetailPage({
                       </p>
                     </div>
 
-                    <div className="rounded-xl border bg-slate-50 p-4">
+                    <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm">
                       <p className="text-sm text-slate-500">Capacity</p>
                       <p className="mt-1 font-medium text-slate-900">
                         {typedEvent.capacity ?? "Not specified"}
@@ -2320,7 +2356,7 @@ export default async function PublicEventDetailPage({
                   </div>
                 </section>
 
-                <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
+                <section id="host" className="scroll-mt-24 rounded-[2rem] border border-white/70 bg-white/90 p-6 shadow-lg shadow-slate-200/50 ring-1 ring-slate-100 backdrop-blur sm:p-8">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">
                     {eventHost.hostType}
                   </p>
@@ -2372,4 +2408,8 @@ export default async function PublicEventDetailPage({
     </>
   );
 }
+
+
+
+
 

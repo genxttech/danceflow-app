@@ -450,10 +450,16 @@ export default async function EditEventPage({ params }: { params: Params }) {
 
             <div className="flex flex-wrap gap-3">
               <Link
-                href={`/app/events/${typedEvent.id}`}
+                href="/app/events"
                 className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
               >
-                Back to Event
+                Back to Events
+              </Link>
+              <Link
+                href={`/app/events/${typedEvent.id}/tickets`}
+                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+              >
+                Manage Tickets
               </Link>
             </div>
           </div>
@@ -565,6 +571,4 @@ export default async function EditEventPage({ params }: { params: Params }) {
     </div>
   );
 }
-
-
 

@@ -26,6 +26,52 @@ type StudioRoleRow = {
     | null;
 };
 
+type OrganizerUserRow = {
+  organizer_id: string;
+  role: string;
+  active: boolean;
+  organizers:
+    | {
+        id: string;
+        name: string | null;
+        studio_id: string | null;
+        studios:
+          | {
+              id: string;
+              name: string;
+              slug: string | null;
+              public_name: string | null;
+            }
+          | {
+              id: string;
+              name: string;
+              slug: string | null;
+              public_name: string | null;
+            }[]
+          | null;
+      }
+    | {
+        id: string;
+        name: string | null;
+        studio_id: string | null;
+        studios:
+          | {
+              id: string;
+              name: string;
+              slug: string | null;
+              public_name: string | null;
+            }
+          | {
+              id: string;
+              name: string;
+              slug: string | null;
+              public_name: string | null;
+            }[]
+          | null;
+      }[]
+    | null;
+};
+
 type StudioStatusRow = {
   subscription_status: string | null;
 };
@@ -69,6 +115,10 @@ function getStudioFromJoin(
       public_name: string | null;
     }
   | null {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function getOrganizerFromJoin(value: OrganizerUserRow["organizers"]) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
@@ -138,7 +188,68 @@ async function getAccessibleStudioRolesForUser(userId: string) {
     throw new Error(`Failed to load studio workspaces: ${error.message}`);
   }
 
-  return (data ?? []) as StudioRoleRow[];
+  const studioRows = ((data ?? []) as StudioRoleRow[]).filter((row) =>
+    Boolean(row.studio_id)
+  );
+
+  const { data: organizerData, error: organizerError } = await supabase
+    .from("organizer_users")
+    .select(`
+      organizer_id,
+      role,
+      active,
+      organizers (
+        id,
+        name,
+        studio_id,
+        studios (
+          id,
+          name,
+          slug,
+          public_name
+        )
+      )
+    `)
+    .eq("user_id", userId)
+    .eq("active", true);
+
+  if (organizerError) {
+    throw new Error(
+      `Failed to load organizer workspaces: ${organizerError.message}`
+    );
+  }
+
+  const organizerRows = ((organizerData ?? []) as OrganizerUserRow[])
+    .map((row): StudioRoleRow | null => {
+      const organizer = getOrganizerFromJoin(row.organizers);
+      const linkedStudio = getStudioFromJoin(organizer?.studios ?? null);
+      const studioId = organizer?.studio_id ?? linkedStudio?.id ?? null;
+
+      if (!studioId || !linkedStudio) {
+        return null;
+      }
+
+      return {
+        studio_id: studioId,
+        role: row.role,
+        active: row.active,
+        studios: {
+          id: linkedStudio.id,
+          name: linkedStudio.name,
+          slug: linkedStudio.slug ?? null,
+          public_name: linkedStudio.public_name ?? organizer?.name ?? null,
+        },
+      };
+    })
+    .filter((row): row is StudioRoleRow => Boolean(row));
+
+  const seen = new Set<string>();
+  return [...studioRows, ...organizerRows].filter((row) => {
+    const key = `${row.studio_id}:${row.role}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function pickSelectedWorkspace(
@@ -329,10 +440,49 @@ export async function recordWorkspaceAccess(params: {
   const supabase = await createClient();
 
   try {
-    await supabase.rpc("record_workspace_access", {
-      p_studio_id: params.studioId,
-      p_route: params.route ?? null,
-    });
+    const { data: studio, error: studioError } = await supabase
+      .from("studios")
+      .select("last_workspace_access_at")
+      .eq("id", params.studioId)
+      .maybeSingle<{ last_workspace_access_at: string | null }>();
+
+    if (studioError) {
+      console.error("Failed to load workspace access timestamp", studioError);
+      return;
+    }
+
+    const lastAccessAt = studio?.last_workspace_access_at
+      ? new Date(studio.last_workspace_access_at).getTime()
+      : 0;
+    const thirtyMinutes = 30 * 60 * 1000;
+
+    if (lastAccessAt && Date.now() - lastAccessAt < thirtyMinutes) {
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from("studios")
+      .update({
+        last_workspace_access_at: new Date().toISOString(),
+        last_workspace_access_user_id: params.userId,
+      })
+      .eq("id", params.studioId);
+
+    if (updateError) {
+      console.error("Failed to update workspace last access", updateError);
+    }
+
+    const { error: insertError } = await supabase
+      .from("workspace_access_logs")
+      .insert({
+        studio_id: params.studioId,
+        user_id: params.userId,
+        route: params.route ?? null,
+      });
+
+    if (insertError) {
+      console.error("Failed to insert workspace access log", insertError);
+    }
   } catch (error) {
     console.error("Failed to record workspace access", error);
   }
