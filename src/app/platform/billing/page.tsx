@@ -32,6 +32,10 @@ type StudioRow = {
   trial_ends_at: string | null;
   last_workspace_access_at: string | null;
   last_workspace_access_user_id: string | null;
+  billing_override_enabled: boolean | null;
+  billing_override_reason: string | null;
+  billing_override_expires_at: string | null;
+  billing_override_notes: string | null;
 };
 
 type InvoiceRow = {
@@ -90,23 +94,6 @@ function formatDate(value: string | null) {
     day: "numeric",
     year: "numeric",
   }).format(new Date(value));
-}
-
-function formatDateTime(value: string | null) {
-  if (!value) return "Never";
-
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
-
-function formatUserId(value: string | null) {
-  if (!value) return "—";
-  return `${value.slice(0, 8)}…`;
 }
 
 function formatMoney(value: number, currency = "USD") {
@@ -182,6 +169,43 @@ function daysUntil(dateValue: string | null) {
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
 
+function isBillingOverrideActive(studio: StudioRow) {
+  if (!studio.billing_override_enabled) return false;
+  if (!studio.billing_override_expires_at) return true;
+
+  return new Date(studio.billing_override_expires_at).getTime() >= Date.now();
+}
+
+function isBillingOverrideExpired(studio: StudioRow) {
+  if (!studio.billing_override_enabled || !studio.billing_override_expires_at) return false;
+
+  return new Date(studio.billing_override_expires_at).getTime() < Date.now();
+}
+
+function billingOverrideReasonLabel(reason: string | null | undefined) {
+  const normalized = normalize(reason);
+
+  if (!normalized) return "Comped Access";
+  if (normalized === "ambassador") return "Ambassador";
+  if (normalized === "founder") return "Founder";
+  if (normalized === "internal_test") return "Internal Test";
+  if (normalized === "manual_review") return "Manual Review";
+
+  return formatFallbackLabel(normalized);
+}
+
+function billingOverrideBadgeClass(studio: StudioRow) {
+  if (isBillingOverrideExpired(studio)) {
+    return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  }
+
+  if (isBillingOverrideActive(studio)) {
+    return "bg-violet-50 text-violet-700 ring-1 ring-violet-200";
+  }
+
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
 function getTrialEndsAt(params: {
   studio?: StudioRow | null;
   subscription?: SubscriptionRow | null;
@@ -213,22 +237,32 @@ function getPlanName(params: {
   studio: StudioRow;
   subscription?: SubscriptionRow;
 }) {
+  const overrideReason = billingOverrideReasonLabel(params.studio.billing_override_reason);
   const subscriptionPlan = params.subscription
     ? getPlan(params.subscription.subscription_plans)
     : null;
   const planCode = getPlanCode(params);
 
-  return (
+  const baseName =
     subscriptionPlan?.name?.trim() ||
     PLAN_LABELS[planCode] ||
-    (planCode ? formatFallbackLabel(planCode) : "No plan")
-  );
+    (planCode ? formatFallbackLabel(planCode) : "No plan");
+
+  if (isBillingOverrideActive(params.studio)) {
+    return `${baseName} / ${overrideReason} Comp`;
+  }
+
+  return baseName;
 }
 
 function getEffectiveBillingStatus(params: {
   studio: StudioRow;
   subscription?: SubscriptionRow;
 }) {
+  if (isBillingOverrideActive(params.studio)) {
+    return "active";
+  }
+
   return (
     normalize(params.subscription?.status) ||
     normalize(params.studio.subscription_status) ||
@@ -298,8 +332,24 @@ function createBillingRisks(params: {
     const stripeSubscriptionId = getEffectiveStripeSubscriptionId({ studio, subscription });
     const trialEndsAt = getEffectiveTrialEndsAt({ studio, subscription });
     const trialDaysLeft = daysUntil(trialEndsAt);
+    const overrideActive = isBillingOverrideActive(studio);
+    const overrideExpired = isBillingOverrideExpired(studio);
 
-    if (paidPlan && !activeAccess) {
+    if (overrideExpired) {
+      risks.push({
+        key: `${studio.id}-billing-override-expired`,
+        severity: "critical",
+        title: "Comped access expired",
+        description:
+          "This workspace has a billing override, but the override expiration date has passed. Convert to paid billing, extend the override, or disable paid access.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (paidPlan && !activeAccess && !overrideActive) {
       risks.push({
         key: `${studio.id}-paid-access-no-active-subscription`,
         severity: "critical",
@@ -313,7 +363,7 @@ function createBillingRisks(params: {
       });
     }
 
-    if (activeAccess && !studio.stripe_customer_id) {
+    if (activeAccess && !studio.stripe_customer_id && !overrideActive) {
       risks.push({
         key: `${studio.id}-missing-stripe-customer`,
         severity: "warning",
@@ -327,7 +377,7 @@ function createBillingRisks(params: {
       });
     }
 
-    if (activeAccess && !stripeSubscriptionId) {
+    if (activeAccess && !stripeSubscriptionId && !overrideActive) {
       risks.push({
         key: `${studio.id}-missing-stripe-subscription`,
         severity: "warning",
@@ -451,7 +501,11 @@ export default async function PlatformBillingPage() {
     stripe_subscription_id,
     trial_ends_at,
     last_workspace_access_at,
-    last_workspace_access_user_id
+    last_workspace_access_user_id,
+    billing_override_enabled,
+    billing_override_reason,
+    billing_override_expires_at,
+    billing_override_notes
   `)
   .order("created_at", { ascending: false }),
 
@@ -549,6 +603,20 @@ typedSubscriptions
   const billingNotStartedCount = accountRows.filter(
     (row) => row.status === "not_started" || row.status === "no_subscription"
   ).length;
+  const compedAccessRows = accountRows.filter((row) => isBillingOverrideActive(row.studio));
+  const compedAccessCount = compedAccessRows.length;
+  const compedExpiringSoon = compedAccessRows
+    .map((row) => ({
+      ...row,
+      overrideDaysLeft: daysUntil(row.studio.billing_override_expires_at),
+    }))
+    .filter(
+      (row) =>
+        row.overrideDaysLeft !== null &&
+        row.overrideDaysLeft >= 0 &&
+        row.overrideDaysLeft <= 30
+    )
+    .sort((a, b) => (a.overrideDaysLeft ?? 999) - (b.overrideDaysLeft ?? 999));
 
   const monthlyCount = typedSubscriptions.filter(
     (subscription) => subscription.billing_interval === "month"
@@ -636,7 +704,7 @@ typedSubscriptions
           </p>
         </div>
 
-        <div className="grid gap-4 border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 p-6 md:grid-cols-3 xl:grid-cols-6">
+        <div className="grid gap-4 border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 p-6 md:grid-cols-3 xl:grid-cols-7">
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
             <p className="text-sm text-emerald-700">Active</p>
             <p className="mt-2 text-3xl font-semibold text-emerald-950">{activeCount}</p>
@@ -667,6 +735,18 @@ typedSubscriptions
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
             <p className="text-sm text-slate-500">Billing Not Started</p>
             <p className="mt-2 text-3xl font-semibold text-slate-950">{billingNotStartedCount}</p>
+          </div>
+
+          <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+            <p className="text-sm text-violet-700">Comped Access</p>
+            <p className="mt-2 text-3xl font-semibold text-violet-950">{compedAccessCount}</p>
+            <p className="mt-2 text-xs font-medium text-violet-700">
+              {compedExpiringSoon[0]?.overrideDaysLeft !== undefined
+                ? compedExpiringSoon[0].overrideDaysLeft === 0
+                  ? "Next comp expires today"
+                  : `Next comp expires in ${compedExpiringSoon[0].overrideDaysLeft} day${compedExpiringSoon[0].overrideDaysLeft === 1 ? "" : "s"}`
+                : "No comps expiring soon"}
+            </p>
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -758,21 +838,11 @@ typedSubscriptions
                     <p className="mt-2 text-sm text-slate-500">
                       {risk.planName} • Created {formatDate(risk.studio.created_at)}
                     </p>
-                    <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
-                      <p>
-                        <span className="font-medium text-slate-800">Last workspace access:</span>{" "}
-                        {formatDateTime(risk.studio.last_workspace_access_at)}
+                    {risk.studio.billing_override_enabled ? (
+                      <p className="mt-2 text-xs font-medium text-slate-500">
+                        Override: {billingOverrideReasonLabel(risk.studio.billing_override_reason)} • Expires {formatDate(risk.studio.billing_override_expires_at)}
                       </p>
-                      {risk.studio.last_workspace_access_at ? (
-                        <p className="mt-1 text-xs text-slate-500">
-                          Last accessed user: {formatUserId(risk.studio.last_workspace_access_user_id)}
-                        </p>
-                      ) : (
-                        <p className="mt-1 text-xs text-slate-500">
-                          No recorded workspace activity yet.
-                        </p>
-                      )}
-                    </div>
+                    ) : null}
                   </div>
 
                   <div className="md:text-right">
@@ -859,6 +929,56 @@ typedSubscriptions
           </div>
         </section>
       </div>
+
+      <section className="rounded-[32px] border border-violet-200 bg-violet-50/60 p-6 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-violet-950">Comped / Ambassador Access</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-violet-800">
+              Legitimate Pro or Organizer access granted by platform override. Active overrides are excluded from missing Stripe subscription risk checks, but expired overrides are flagged.
+            </p>
+          </div>
+          <span className="rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-violet-700 ring-1 ring-violet-200">
+            {compedAccessCount} active comp{compedAccessCount === 1 ? "" : "s"}
+          </span>
+        </div>
+
+        {compedAccessRows.length === 0 ? (
+          <div className="mt-5 rounded-xl border border-dashed border-violet-200 bg-white/70 px-4 py-8 text-sm text-violet-700">
+            No active comped workspaces right now.
+          </div>
+        ) : (
+          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {compedAccessRows.map((row) => (
+              <div key={row.studio.id} className="rounded-2xl border border-violet-200 bg-white p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${billingOverrideBadgeClass(row.studio)}`}>
+                    {billingOverrideReasonLabel(row.studio.billing_override_reason)}
+                  </span>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(row.status)}`}>
+                    {statusLabel(row.status)}
+                  </span>
+                </div>
+                <Link
+                  href={`/platform/studios/${row.studio.id}`}
+                  className="mt-3 block font-semibold text-slate-950 underline"
+                >
+                  {row.studio.name}
+                </Link>
+                <p className="mt-1 text-sm text-slate-600">{row.planName}</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  Expires: {formatDate(row.studio.billing_override_expires_at)}
+                </p>
+                {row.studio.billing_override_notes ? (
+                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">
+                    {row.studio.billing_override_notes}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-2">
         <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
@@ -1050,7 +1170,14 @@ typedSubscriptions
                         Created {formatDate(row.studio.created_at)}
                       </p>
                     </td>
-                    <td className="px-4 py-4 text-slate-700">{row.planName}</td>
+                    <td className="px-4 py-4 text-slate-700">
+                      <p>{row.planName}</p>
+                      {row.studio.billing_override_enabled ? (
+                        <span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${billingOverrideBadgeClass(row.studio)}`}>
+                          {billingOverrideReasonLabel(row.studio.billing_override_reason)} • expires {formatDate(row.studio.billing_override_expires_at)}
+                        </span>
+                      ) : null}
+                    </td>
                     <td className="px-4 py-4">
                       <span
                         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
@@ -1061,7 +1188,10 @@ typedSubscriptions
                       </span>
                     </td>
                     <td className="px-4 py-4 text-slate-700">
-                      {row.studio.active === false ? "Disabled" : "Active"}
+                      <p>{row.studio.active === false ? "Disabled" : "Active"}</p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Last access: {formatDate(row.studio.last_workspace_access_at)}
+                      </p>
                     </td>
                     <td className="px-4 py-4 text-slate-700">
                       <p>Customer: {row.studio.stripe_customer_id ? "Yes" : "No"}</p>
@@ -1080,4 +1210,5 @@ typedSubscriptions
     </div>
   );
 }
+
 

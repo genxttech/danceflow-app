@@ -18,6 +18,14 @@ type StudioSubscriptionAccessRow = {
     | null;
 };
 
+type StudioBillingAccessRow = {
+  billing_plan: string | null;
+  subscription_status: string | null;
+  billing_override_enabled: boolean | null;
+  billing_override_reason: string | null;
+  billing_override_expires_at: string | null;
+};
+
 export type WorkspacePlanCode =
   | "starter"
   | "growth"
@@ -416,26 +424,71 @@ export async function getCurrentStudioPlanForUser() {
     return null;
   }
 
-  const { data: subscription, error: subscriptionError } = await supabase
-    .from("studio_subscriptions")
-    .select(
+  const [
+    { data: studio, error: studioError },
+    { data: subscription, error: subscriptionError },
+  ] = await Promise.all([
+    supabase
+      .from("studios")
+      .select(
+        `
+        billing_plan,
+        subscription_status,
+        billing_override_enabled,
+        billing_override_reason,
+        billing_override_expires_at
       `
-      status,
-      subscription_plans (
-        code,
-        name
       )
-    `
-    )
-    .eq("studio_id", studioId)
-    .maybeSingle();
+      .eq("id", studioId)
+      .maybeSingle(),
 
-  if (subscriptionError || !subscription) {
+    supabase
+      .from("studio_subscriptions")
+      .select(
+        `
+        status,
+        subscription_plans (
+          code,
+          name
+        )
+      `
+      )
+      .eq("studio_id", studioId)
+      .maybeSingle(),
+  ]);
+
+  const typedStudio = studio as StudioBillingAccessRow | null;
+
+  const overrideExpiresAt = typedStudio?.billing_override_expires_at
+    ? new Date(typedStudio.billing_override_expires_at)
+    : null;
+
+  const overrideActive = Boolean(
+    typedStudio?.billing_override_enabled &&
+      (!overrideExpiresAt || overrideExpiresAt.getTime() >= Date.now())
+  );
+
+  if (overrideActive) {
+    const overridePlanCode =
+      normalizePlanCode(typedStudio?.billing_plan ?? "pro") ?? "pro";
+
     return {
       studioId,
-      status: "inactive",
-      planCode: null as WorkspacePlanCode,
-      planName: null,
+      status: "active",
+      planCode: overridePlanCode,
+      planName: overridePlanCode === "pro" ? "Pro" : overridePlanCode,
+    };
+  }
+
+  if (subscriptionError || !subscription) {
+    const fallbackPlanCode = normalizePlanCode(typedStudio?.billing_plan ?? null);
+    const fallbackStatus = typedStudio?.subscription_status ?? "inactive";
+
+    return {
+      studioId,
+      status: studioError ? "inactive" : fallbackStatus,
+      planCode: fallbackPlanCode,
+      planName: fallbackPlanCode,
     };
   }
 
@@ -445,7 +498,7 @@ export async function getCurrentStudioPlanForUser() {
   return {
     studioId,
     status: typedSubscription.status,
-    planCode: normalizePlanCode(plan?.code ?? null),
+    planCode: normalizePlanCode(plan?.code ?? typedStudio?.billing_plan ?? null),
     planName: plan?.name ?? null,
   };
 }
