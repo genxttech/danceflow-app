@@ -35,6 +35,14 @@ type AttendanceLookupRow = {
   status?: string | null;
 };
 
+type TicketCodeLookupRow = {
+  id: string;
+  registration_id: string;
+  event_id: string | null;
+  ticket_code: string | null;
+  checked_in_at: string | null;
+};
+
 type EventAccessRow = {
   id: string;
   event_type: string | null;
@@ -81,7 +89,15 @@ function resolveReturnUrl(params: {
 }
 
 function shouldBlockAttendanceForPayment(paymentStatus: string | null) {
-  return paymentStatus === "pending" || paymentStatus === "unpaid";
+  return ["pending", "unpaid", "failed", "refunded"].includes(paymentStatus ?? "");
+}
+
+function isRegistrationActiveForCheckIn(status: string | null) {
+  return ["confirmed", "registered", "checked_in", "attended"].includes(status ?? "");
+}
+
+function normalizeTicketCode(value: string) {
+  return value.trim().toUpperCase().replace(/\s+/g, "");
 }
 
 async function getStudioContext() {
@@ -153,6 +169,30 @@ async function getRegistrationForEvent(params: {
     .eq("id", registrationId)
     .eq("event_id", eventId)
     .maybeSingle<RegistrationRow>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ?? null;
+}
+
+async function findAttendeeByTicketCode(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  ticketCode: string;
+}) {
+  const { supabase, eventId, ticketCode } = params;
+  const normalizedCode = normalizeTicketCode(ticketCode);
+
+  if (!normalizedCode) return null;
+
+  const { data, error } = await supabase
+    .from("event_registration_attendees")
+    .select("id, registration_id, event_id, ticket_code, checked_in_at")
+    .eq("event_id", eventId)
+    .eq("ticket_code", normalizedCode)
+    .maybeSingle<TicketCodeLookupRow>();
 
   if (error) {
     throw new Error(error.message);
@@ -539,6 +579,190 @@ export async function cancelEventRegistrationAction(formData: FormData) {
   }
 }
 
+
+export async function checkInEventTicketCodeAction(formData: FormData) {
+  const eventId = getString(formData, "eventId");
+  const ticketCode = getString(formData, "ticketCode");
+  const eventSessionId = getString(formData, "eventSessionId");
+  const returnTo = getString(formData, "returnTo");
+
+  if (!eventId) {
+    redirect("/app/events");
+  }
+
+  if (!ticketCode) {
+    redirect(
+      resolveReturnUrl({
+        eventId,
+        returnTo,
+        fallbackSuffix: "error=ticket_code_required",
+      }),
+    );
+  }
+
+  let nextUrl = resolveReturnUrl({
+    eventId,
+    returnTo,
+    fallbackSuffix: "error=checkin_failed",
+  });
+
+  try {
+    const { supabase, studioId, userId } = await getStudioContext();
+    const event = await validateEventAccess(supabase, eventId, studioId);
+    const isGroupClass = event.event_type === "group_class";
+
+    const attendee = await findAttendeeByTicketCode({
+      supabase,
+      eventId,
+      ticketCode,
+    });
+
+    if (!attendee) {
+      nextUrl = resolveReturnUrl({
+        eventId,
+        returnTo,
+        fallbackSuffix: "error=ticket_code_not_found",
+      });
+    } else if (isGroupClass && !eventSessionId) {
+      nextUrl = resolveReturnUrl({
+        eventId,
+        returnTo,
+        fallbackSuffix: "error=session_required",
+      });
+    } else {
+      const registration = await getRegistrationForEvent({
+        supabase,
+        eventId,
+        registrationId: attendee.registration_id,
+      });
+
+      if (!registration) {
+        nextUrl = resolveReturnUrl({
+          eventId,
+          returnTo,
+          fallbackSuffix: "error=registration_not_found",
+        });
+      } else if (["cancelled", "refunded"].includes(registration.status ?? "")) {
+        nextUrl = resolveReturnUrl({
+          eventId,
+          returnTo,
+          fallbackSuffix: "error=cannot_check_in_cancelled",
+        });
+      } else if (!isRegistrationActiveForCheckIn(registration.status)) {
+        nextUrl = resolveReturnUrl({
+          eventId,
+          returnTo,
+          fallbackSuffix: "error=ticket_not_confirmed",
+        });
+      } else if (shouldBlockAttendanceForPayment(registration.payment_status)) {
+        nextUrl = resolveReturnUrl({
+          eventId,
+          returnTo,
+          fallbackSuffix: "error=cannot_check_in_unpaid",
+        });
+      } else {
+        if (isGroupClass) {
+          const session = await getEventSessionForEvent({
+            supabase,
+            studioId,
+            eventId,
+            eventSessionId,
+          });
+
+          if (!session || session.status === "cancelled") {
+            nextUrl = resolveReturnUrl({
+              eventId,
+              returnTo,
+              fallbackSuffix: "error=session_not_found",
+            });
+          }
+        }
+
+        if (!nextUrl.includes("error=session_not_found")) {
+          const existingAttendance = await getAttendanceForRegistration({
+            supabase,
+            studioId,
+            registrationId: attendee.registration_id,
+            eventSessionId: isGroupClass ? eventSessionId : null,
+          });
+
+          if (
+            existingAttendance?.status === "checked_in" ||
+            existingAttendance?.status === "attended" ||
+            (!isGroupClass &&
+              (registration.checked_in_at || registration.status === "checked_in"))
+          ) {
+            nextUrl = resolveReturnUrl({
+              eventId,
+              returnTo,
+              fallbackSuffix: "success=already_checked_in",
+            });
+          } else {
+            const now = new Date().toISOString();
+
+            const { error: registrationUpdateError } = await supabase
+              .from("event_registrations")
+              .update({
+                checked_in_at: now,
+              })
+              .eq("id", attendee.registration_id)
+              .eq("event_id", eventId);
+
+            if (registrationUpdateError) {
+              throw new Error(registrationUpdateError.message);
+            }
+
+            const { error: attendeeUpdateError } = await supabase
+              .from("event_registration_attendees")
+              .update({
+                checked_in_at: now,
+                checked_in_by: userId,
+                updated_at: now,
+              })
+              .eq("id", attendee.id)
+              .eq("event_id", eventId);
+
+            if (attendeeUpdateError) {
+              throw new Error(attendeeUpdateError.message);
+            }
+
+            await upsertAttendanceStatus({
+              supabase,
+              studioId,
+              registration: {
+                ...registration,
+                checked_in_at: now,
+              },
+              status: "checked_in",
+              checkedInAt: now,
+              markedAttendedAt: null,
+              eventSessionId: isGroupClass ? eventSessionId : null,
+            });
+
+            nextUrl = resolveReturnUrl({
+              eventId,
+              returnTo,
+              fallbackSuffix: `success=checked_in&ticket=${encodeURIComponent(
+                normalizeTicketCode(ticketCode),
+              )}`,
+            });
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Event ticket code check-in failed", error);
+
+    nextUrl = resolveReturnUrl({
+      eventId,
+      returnTo,
+      fallbackSuffix: "error=checkin_failed",
+    });
+  }
+
+  redirect(nextUrl);
+}
+
 export async function checkInEventRegistrationAction(formData: FormData) {
   const eventId = getString(formData, "eventId");
   const registrationId = getString(formData, "registrationId");
@@ -577,6 +801,12 @@ export async function checkInEventRegistrationAction(formData: FormData) {
         eventId,
         returnTo,
         fallbackSuffix: "error=cannot_check_in_cancelled",
+      });
+    } else if (!isRegistrationActiveForCheckIn(registration.status)) {
+      nextUrl = resolveReturnUrl({
+        eventId,
+        returnTo,
+        fallbackSuffix: "error=ticket_not_confirmed",
       });
     } else if (shouldBlockAttendanceForPayment(registration.payment_status)) {
       nextUrl = resolveReturnUrl({
@@ -1145,6 +1375,4 @@ export async function refundEventRegistrationAction(formData: FormData) {
     redirect(buildReturnUrl(eventId, "error=refund_failed"));
   }
 }
-
-
 

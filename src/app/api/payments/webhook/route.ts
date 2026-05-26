@@ -979,8 +979,13 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
           name
         ),
         event_ticket_types (
-          name
-        )
+  name
+),
+event_registration_attendees (
+  first_name,
+  last_name,
+  ticket_code
+)
       `
       )
       .eq("id", params.registrationId)
@@ -1008,6 +1013,26 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
     }
 
     const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(eventValue.slug)}`;
+
+    const attendeeRows = Array.isArray(registration.event_registration_attendees)
+  ? registration.event_registration_attendees
+  : [];
+
+const ticketCodeLines = attendeeRows
+  .map((attendee) => {
+    const name = `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim();
+    const code = attendee.ticket_code ?? "";
+
+    return code ? `${name || "Attendee"}: ${code}` : "";
+  })
+  .filter(Boolean);
+
+const ticketCodeText = ticketCodeLines.length
+  ? `
+
+Ticket check-in code${ticketCodeLines.length > 1 ? "s" : ""}:
+${ticketCodeLines.join("\n")}`
+  : "";
 
     const emailTemplate = buildEventConfirmedEmailTemplate({
       eventName: eventValue.name,
@@ -1038,7 +1063,7 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
         templateKey: "event_registration_confirmed",
         recipientEmail: registration.attendee_email,
         subject: emailTemplate.subject,
-        bodyText: emailTemplate.bodyText,
+        bodyText: `${emailTemplate.bodyText}${ticketCodeText}`,
         relatedTable: "event_registrations",
         relatedId: registration.id,
         dedupeKey: `event_registration_confirmed:email:${registration.id}`,

@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { requireEventWorkspaceFeature } from "@/lib/billing/access";
+import { requireStudioFeature } from "@/lib/billing/access";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { checkInEventRegistrationAction } from "../registrations/actions";
+import {
+  checkInEventRegistrationAction,
+  checkInEventTicketCodeAction,
+} from "../registrations/actions";
 
 type Params = Promise<{
   id: string;
@@ -62,16 +65,12 @@ type RegistrationRow = {
         attendee_role: string | null;
         sort_order: number | null;
         checked_in_at: string | null;
+        ticket_code: string | null;
+        ticket_issued_at: string | null;
       }[]
     | null;
 };
 
-type AttendanceRow = {
-  id: string;
-  event_registration_id: string;
-  status: string;
-  checked_in_at: string | null;
-};
 
 type EventSessionRow = {
   id: string;
@@ -209,6 +208,20 @@ function getBanner(search: { success?: string; error?: string; q?: string }) {
     };
   }
 
+  if (search.error === "ticket_not_confirmed") {
+    return {
+      kind: "error" as const,
+      message: "This ticket is not active yet. Confirm the registration before checking it in.",
+    };
+  }
+
+  if (search.error === "cannot_check_in_unpaid") {
+    return {
+      kind: "error" as const,
+      message: "This ticket is not paid or payment is still pending.",
+    };
+  }
+
   if (search.error === "session_required") {
     return {
       kind: "error" as const,
@@ -220,6 +233,20 @@ function getBanner(search: { success?: string; error?: string; q?: string }) {
     return {
       kind: "error" as const,
       message: "That class session could not be found.",
+    };
+  }
+
+  if (search.error === "ticket_code_required") {
+    return {
+      kind: "error" as const,
+      message: "Enter a ticket code before checking in.",
+    };
+  }
+
+  if (search.error === "ticket_code_not_found") {
+    return {
+      kind: "error" as const,
+      message: "No matching ticket code was found for this event.",
     };
   }
 
@@ -240,13 +267,9 @@ export default async function EventCheckInPage({
   params: Params;
   searchParams: SearchParams;
 }) {
-  const { id } = await params;
+  await requireStudioFeature("check_in");
 
-  await requireEventWorkspaceFeature({
-    eventId: id,
-    feature: "check_in",
-    allowedOrganizerRoles: ["organizer_owner", "organizer_admin", "organizer_staff"],
-  });
+  const { id } = await params;
   const query = await searchParams;
     const qRaw = query.q;
   const statusRaw = query.status;
@@ -332,7 +355,9 @@ export default async function EventCheckInPage({
           phone,
           attendee_role,
           sort_order,
-          checked_in_at
+          checked_in_at,
+          ticket_code,
+          ticket_issued_at
         )
       `,
       )
@@ -390,63 +415,27 @@ export default async function EventCheckInPage({
   const organizer = getOrganizer(typedEvent.organizers);
   const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
 
-  const registrationIds = typedRegistrations.map((item) => item.id);
-
-  let attendanceByRegistrationId = new Map<string, AttendanceRow>();
-
-  if (registrationIds.length > 0) {
-    let attendanceQuery = supabase
-      .from("attendance_records")
-      .select(
-        `
-        id,
-        event_registration_id,
-        status,
-        checked_in_at
-      `,
-      )
-      .eq("studio_id", studioId)
-      .in("event_registration_id", registrationIds);
-
-    const { data: attendanceRows, error: attendanceError } =
-      await attendanceQuery;
-
-    if (attendanceError) {
-      throw new Error(
-        `Failed to load attendance records: ${attendanceError.message}`,
-      );
-    }
-
-    const typedAttendanceRows = (attendanceRows ?? []) as AttendanceRow[];
-    attendanceByRegistrationId = new Map(
-      typedAttendanceRows.map((row) => [row.event_registration_id, row]),
-    );
-  }
-
   const getEffectiveStatus = (registration: RegistrationRow) => {
-    const attendance = attendanceByRegistrationId.get(registration.id);
+    const attendeeRows = registration.event_registration_attendees ?? [];
+    const hasCheckedInAttendee = attendeeRows.some(
+      (attendee) => Boolean(attendee.checked_in_at),
+    );
 
     if (registration.status === "cancelled") return "cancelled";
 
-    // V1 check-in source of truth is event_registrations.checked_in_at.
-    // Check this before mapping confirmed -> registered, otherwise checked-in
-    // confirmed registrations are still counted as Ready to Check In.
-    if (registration.checked_in_at || registration.status === "checked_in") {
+    // Event Digital Tickets V1 uses event_registrations.checked_in_at and
+    // event_registration_attendees.checked_in_at as the source of truth.
+    // Do not read attendance_records here because this schema does not have
+    // attendance_records.event_session_id.
+    if (
+      registration.checked_in_at ||
+      registration.status === "checked_in" ||
+      hasCheckedInAttendee
+    ) {
       return "checked_in";
     }
-
-    if (attendance?.checked_in_at || attendance?.status === "checked_in") {
-      return "checked_in";
-    }
-
-    if (attendance?.status === "attended") return "attended";
-    if (attendance?.status === "cancelled") return "cancelled";
 
     if (registration.status === "confirmed") return "registered";
-
-    if (isGroupClass) {
-      return registration.status === "confirmed" ? "registered" : registration.status;
-    }
 
     return registration.status;
   };
@@ -484,7 +473,8 @@ export default async function EventCheckInPage({
         (registration.event_registration_attendees ?? []).some((attendee) =>
           `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`
             .toLowerCase()
-            .includes(q)
+            .includes(q) ||
+          (attendee.ticket_code ?? "").toLowerCase().includes(q)
         )
       );
     });
@@ -650,6 +640,51 @@ export default async function EventCheckInPage({
         </div>
       </div>
 
+      <form
+        action={checkInEventTicketCodeAction}
+        className="rounded-[28px] border border-[var(--brand-border)] bg-white p-5 shadow-sm"
+      >
+        <input type="hidden" name="eventId" value={typedEvent.id} />
+        {isGroupClass && selectedSessionId ? (
+          <input type="hidden" name="eventSessionId" value={selectedSessionId} />
+        ) : null}
+        <input
+          type="hidden"
+          name="returnTo"
+          value={buildCheckInHref({
+            eventId: typedEvent.id,
+            q: query.q ?? "",
+            status: statusFilter,
+            sessionId: selectedSessionId,
+          })}
+        />
+
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+          <div className="min-w-0 flex-1">
+            <label htmlFor="ticketCode" className="mb-1 block text-sm font-medium text-slate-900">
+              Check in by ticket code
+            </label>
+            <input
+              id="ticketCode"
+              name="ticketCode"
+              className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono uppercase tracking-wide"
+              placeholder="Example: DF-A1B2C3D4E5"
+              autoComplete="off"
+            />
+            <p className="mt-2 text-xs text-slate-500">
+              Use this when a guest shows their ticket code or staff reads it from a confirmation.
+            </p>
+          </div>
+
+          <button
+            type="submit"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-white hover:opacity-90"
+          >
+            Check In Code
+          </button>
+        </div>
+      </form>
+
       <form className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         {isGroupClass && selectedSessionId ? (
           <input type="hidden" name="sessionId" value={selectedSessionId} />
@@ -719,12 +754,14 @@ export default async function EventCheckInPage({
           </div>
         ) : (
           filteredRegistrations.map((registration) => {
-            const attendance =
-              attendanceByRegistrationId.get(registration.id) ?? null;
+            const attendeeRows = [...(registration.event_registration_attendees ?? [])].sort(
+              (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0)
+            );
+            const firstCheckedInAttendee =
+              attendeeRows.find((attendee) => Boolean(attendee.checked_in_at)) ?? null;
             const effectiveStatus = getEffectiveStatus(registration);
-            const effectiveCheckedInAt = isGroupClass
-              ? (attendance?.checked_in_at ?? registration.checked_in_at)
-              : (attendance?.checked_in_at ?? registration.checked_in_at);
+            const effectiveCheckedInAt =
+              registration.checked_in_at ?? firstCheckedInAttendee?.checked_in_at ?? null;
 
             const fullName =
               `${registration.attendee_first_name} ${registration.attendee_last_name}`.trim();
@@ -732,9 +769,6 @@ export default async function EventCheckInPage({
               registration.event_ticket_types,
             );
             const ticketKind = getTicketKind(registration.event_ticket_types);
-            const attendeeRows = [...(registration.event_registration_attendees ?? [])].sort(
-              (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0)
-            );
             const canCheckIn =
               effectiveStatus === "registered" &&
               (!isGroupClass || Boolean(selectedSessionId));
@@ -805,6 +839,11 @@ export default async function EventCheckInPage({
                                   {attendee.attendee_role === "buyer" ? "Buyer" : "Attendee"}
                                   {attendee.email ? ` • ${attendee.email}` : ""}
                                 </p>
+                                {attendee.ticket_code ? (
+                                  <p className="mt-2 inline-flex rounded-lg bg-slate-100 px-2 py-1 font-mono text-xs font-semibold tracking-wide text-slate-700">
+                                    {attendee.ticket_code}
+                                  </p>
+                                ) : null}
                               </div>
                             );
                           })}
@@ -901,12 +940,4 @@ export default async function EventCheckInPage({
     </div>
   );
 }
-
-
-
-
-
-
-
-
 

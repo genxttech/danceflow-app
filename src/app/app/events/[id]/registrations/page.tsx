@@ -65,7 +65,10 @@ type RegistrationRow = {
         phone: string | null;
         attendee_role: string | null;
         sort_order: number | null;
+        registration_id: string;
         checked_in_at: string | null;
+        ticket_code: string | null;
+        ticket_issued_at: string | null;
       }[]
     | null;
 };
@@ -173,6 +176,18 @@ function paymentBadgeClass(status: string | null) {
   if (status === "partial") return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
   if (status === "refunded") return "bg-red-50 text-red-700 ring-1 ring-red-200";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function isRegistrationActiveForCheckIn(registration: Pick<RegistrationRow, "status" | "payment_status">) {
+  const statusIsActive = ["confirmed", "registered", "checked_in", "attended"].includes(
+    registration.status ?? ""
+  );
+
+  const paymentIsBlocked = ["pending", "unpaid", "failed", "refunded"].includes(
+    registration.payment_status ?? ""
+  );
+
+  return statusIsActive && !paymentIsBlocked;
 }
 
 function formatDateTime(value: string | null) {
@@ -362,9 +377,7 @@ export default async function EventRegistrationsPage({
   const [
     { data: workspace, error: workspaceError },
     { data: event, error: eventError },
-    { data: registrations, error: registrationsError },
-    { data: attendanceRows, error: attendanceError },
-    { data: paymentRows, error: paymentError },
+    { data: registrationRows, error: registrationsError },
     { data: clients, error: clientsError },
   ] = await Promise.all([
     supabase
@@ -406,45 +419,10 @@ export default async function EventRegistrationsPage({
         notes,
         created_at,
         clients ( id, first_name, last_name ),
-        event_ticket_types ( name, ticket_kind ),
-        event_registration_attendees (
-          id,
-          first_name,
-          last_name,
-          email,
-          phone,
-          attendee_role,
-          sort_order,
-          checked_in_at
-        )
+        event_ticket_types ( name, ticket_kind )
       `)
       .eq("event_id", id)
       .order("created_at", { ascending: true }),
-
-    supabase
-      .from("attendance_records")
-      .select(`
-        id,
-        event_registration_id,
-        client_id,
-        status,
-        checked_in_at
-      `)
-      .eq("studio_id", studioId),
-
-    supabase
-      .from("event_payments")
-      .select(`
-        id,
-        registration_id,
-        amount,
-        currency,
-        payment_method,
-        status,
-        refund_amount,
-        refunded_at,
-        source
-      `),
 
     supabase
       .from("clients")
@@ -466,6 +444,75 @@ export default async function EventRegistrationsPage({
     throw new Error(`Failed to load registrations: ${registrationsError.message}`);
   }
 
+  if (clientsError) {
+    throw new Error(`Failed to load clients: ${clientsError.message}`);
+  }
+
+  const registrationIds = ((registrationRows ?? []) as { id: string }[]).map(
+    (registration) => registration.id
+  );
+
+  const [
+    { data: attendeeRows, error: attendeesError },
+    { data: attendanceRows, error: attendanceError },
+    { data: paymentRows, error: paymentError },
+  ] = registrationIds.length
+    ? await Promise.all([
+        supabase
+          .from("event_registration_attendees")
+          .select(`
+            id,
+            registration_id,
+            first_name,
+            last_name,
+            email,
+            phone,
+            attendee_role,
+            sort_order,
+            checked_in_at,
+            ticket_code,
+            ticket_issued_at
+          `)
+          .in("registration_id", registrationIds)
+          .order("sort_order", { ascending: true }),
+
+        supabase
+          .from("attendance_records")
+          .select(`
+            id,
+            event_registration_id,
+            client_id,
+            status,
+            checked_in_at
+          `)
+          .eq("studio_id", studioId)
+          .in("event_registration_id", registrationIds),
+
+        supabase
+          .from("event_payments")
+          .select(`
+            id,
+            registration_id,
+            amount,
+            currency,
+            payment_method,
+            status,
+            refund_amount,
+            refunded_at,
+            source
+          `)
+          .in("registration_id", registrationIds),
+      ])
+    : [
+        { data: [], error: null },
+        { data: [], error: null },
+        { data: [], error: null },
+      ];
+
+  if (attendeesError) {
+    throw new Error(`Failed to load registration attendees: ${attendeesError.message}`);
+  }
+
   if (attendanceError) {
     throw new Error(`Failed to load attendance records: ${attendanceError.message}`);
   }
@@ -474,15 +521,27 @@ export default async function EventRegistrationsPage({
     throw new Error(`Failed to load payments: ${paymentError.message}`);
   }
 
-  if (clientsError) {
-    throw new Error(`Failed to load clients: ${clientsError.message}`);
-  }
-
   const typedEvent = event as EventRow;
-  const typedRegistrations = (registrations ?? []) as RegistrationRow[];
   const typedAttendanceRows = (attendanceRows ?? []) as AttendanceRow[];
   const typedPaymentRows = (paymentRows ?? []) as PaymentRow[];
   const typedClients = (clients ?? []) as ClientOption[];
+
+  type AttendeeRow = NonNullable<RegistrationRow["event_registration_attendees"]>[number];
+
+  const attendeesByRegistrationId = new Map<string, AttendeeRow[]>();
+  for (const attendee of (attendeeRows ?? []) as AttendeeRow[]) {
+    const current = attendeesByRegistrationId.get(attendee.registration_id) ?? [];
+    current.push(attendee);
+    attendeesByRegistrationId.set(attendee.registration_id, current);
+  }
+
+  const typedRegistrations = ((registrationRows ?? []) as RegistrationRow[]).map(
+    (registration) => ({
+      ...registration,
+      event_registration_attendees:
+        attendeesByRegistrationId.get(registration.id) ?? [],
+    })
+  );
   const organizer = getOrganizer(typedEvent.organizers);
   const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
 
@@ -710,6 +769,10 @@ export default async function EventRegistrationsPage({
             const attendeeRows = [...(registration.event_registration_attendees ?? [])].sort(
               (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0)
             );
+            const ticketCodesAreActive = isRegistrationActiveForCheckIn(registration);
+            const ticketCodeStatusText = ticketCodesAreActive
+              ? "Active for check-in"
+              : "Not active for check-in yet";
 
             return (
               <div
@@ -776,6 +839,22 @@ export default async function EventRegistrationsPage({
                                     {attendee.attendee_role === "buyer" ? "Buyer" : "Attendee"}
                                     {attendee.email ? ` • ${attendee.email}` : ""}
                                   </p>
+                                  {attendee.ticket_code ? (
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                      <span
+                                        className={`inline-flex rounded-lg px-2 py-1 font-mono text-xs font-semibold tracking-wide ${
+                                          ticketCodesAreActive
+                                            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                            : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                                        }`}
+                                      >
+                                        {attendee.ticket_code}
+                                      </span>
+                                      <span className="text-xs text-slate-500">
+                                        {ticketCodeStatusText}
+                                      </span>
+                                    </div>
+                                  ) : null}
                                 </div>
                               );
                             })}
@@ -804,6 +883,27 @@ export default async function EventRegistrationsPage({
                       <p className="text-sm text-slate-500">Check-In</p>
                       <p className="mt-1 font-medium text-slate-900">
                         {formatDateTime(checkedInAt)}
+                      </p>
+                    </div>
+
+                    <div
+                      className={`rounded-xl border p-4 ${
+                        ticketCodesAreActive
+                          ? "border-emerald-200 bg-emerald-50"
+                          : "border-amber-200 bg-amber-50"
+                      }`}
+                    >
+                      <p className="text-sm text-slate-600">Ticket Codes</p>
+                      <p className="mt-1 font-mono text-sm font-semibold tracking-wide text-slate-900">
+                        {attendeeRows
+                          .map((attendee) => attendee.ticket_code)
+                          .filter(Boolean)
+                          .join(", ") || "Not issued"}
+                      </p>
+                      <p className="mt-2 text-xs font-medium text-slate-600">
+                        {attendeeRows.some((attendee) => attendee.ticket_code)
+                          ? ticketCodeStatusText
+                          : "Codes are issued automatically."}
                       </p>
                     </div>
 
