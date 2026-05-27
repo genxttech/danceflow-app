@@ -297,26 +297,58 @@ export async function POST(request: NextRequest) {
     ticketCurrency = ticket.currency || "USD";
     ticketTotal = Number((Number(ticket.price ?? 0) * quantity).toFixed(2));
 
-    // Failed cart checkout attempts can leave a pending registration behind before Stripe is reached.
-    // The active-registration unique constraint is event + ticket + email, so cancel stale pending
-    // cart registrations before creating a fresh attempt for the same buyer.
-    const { error: staleRegistrationCleanupError } = await supabase
+    // Failed/retried cart checkout attempts can leave an active registration row behind before Stripe is reached.
+    // The active-registration unique constraint is event + ticket + email. Before creating a fresh attempt:
+    // - block if the buyer already has a paid/confirmed registration
+    // - cancel stale unpaid attempts so the unique constraint does not stop checkout
+    const { data: existingRegistrations, error: existingRegistrationError } = await supabase
       .from("event_registrations")
-      .update({
-        status: "cancelled",
-        payment_status: "failed",
-        cancelled_at: new Date().toISOString(),
-      })
+      .select("id,status,payment_status,order_id,cancelled_at")
       .eq("event_id", event.id)
       .eq("ticket_type_id", ticket.id)
-      .eq("attendee_email", buyerEmail)
-      .eq("status", "pending")
-      .eq("payment_status", "pending")
-      .not("order_id", "is", null);
+      .ilike("attendee_email", buyerEmail)
+      .is("cancelled_at", null);
 
-    if (staleRegistrationCleanupError) {
-      console.error("event cart stale registration cleanup failed:", staleRegistrationCleanupError);
-      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=registration_cleanup_failed"));
+    if (existingRegistrationError) {
+      console.error("event cart existing registration lookup failed:", existingRegistrationError);
+      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=registration_lookup_failed"));
+    }
+
+    const activeRegistrations = existingRegistrations ?? [];
+    const alreadyPaidRegistration = activeRegistrations.find((registration) => {
+      const status = String(registration.status ?? "").toLowerCase();
+      const paymentStatus = String(registration.payment_status ?? "").toLowerCase();
+
+      return (
+        status === "confirmed" ||
+        status === "checked_in" ||
+        paymentStatus === "paid" ||
+        paymentStatus === "succeeded"
+      );
+    });
+
+    if (alreadyPaidRegistration) {
+      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=already_registered"));
+    }
+
+    const staleRegistrationIds = activeRegistrations
+      .map((registration) => registration.id)
+      .filter(Boolean);
+
+    if (staleRegistrationIds.length > 0) {
+      const { error: staleRegistrationCleanupError } = await supabase
+        .from("event_registrations")
+        .update({
+          status: "cancelled",
+          payment_status: "failed",
+          cancelled_at: new Date().toISOString(),
+        })
+        .in("id", staleRegistrationIds);
+
+      if (staleRegistrationCleanupError) {
+        console.error("event cart stale registration cleanup failed:", staleRegistrationCleanupError);
+        return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=registration_cleanup_failed"));
+      }
     }
 
     const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
@@ -693,4 +725,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_checkout_failed"));
   }
 }
+
+
 

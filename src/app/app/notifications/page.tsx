@@ -39,6 +39,7 @@ type WorkspaceRow = {
 };
 
 const studioNotificationTypeOptions: NotificationTypeOption[] = [
+  { value: "event_registration", label: "Event Registration" },
   { value: "public_intro_booking", label: "Public Intro" },
   { value: "floor_rental_upcoming", label: "Floor Rental" },
   { value: "follow_up_overdue", label: "Follow-Up Overdue" },
@@ -69,6 +70,7 @@ function fmtDateTime(value: string) {
 }
 
 function notificationBadgeClass(type: string) {
+  if (type === "event_registration") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
   if (type === "public_intro_booking") return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
   if (type === "follow_up_overdue") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
   if (type === "package_low_balance") return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
