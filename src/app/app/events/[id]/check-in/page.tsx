@@ -72,6 +72,21 @@ type RegistrationRow = {
 };
 
 
+type EventRegistrationAttendeeRow = {
+  id: string;
+  registration_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+  attendee_role: string | null;
+  sort_order: number | null;
+  checked_in_at: string | null;
+  ticket_code: string | null;
+  ticket_issued_at: string | null;
+};
+
+
 type EventSessionRow = {
   id: string;
   session_date: string;
@@ -304,7 +319,7 @@ export default async function EventCheckInPage({
   const [
     { data: workspace, error: workspaceError },
     { data: event, error: eventError },
-    { data: registrations, error: registrationsError },
+    { data: registrationRows, error: registrationsError },
     { data: sessions, error: sessionsError },
   ] = await Promise.all([
     supabase
@@ -334,6 +349,9 @@ export default async function EventCheckInPage({
       .eq("studio_id", studioId)
       .single(),
 
+    // Keep the registration query intentionally small. Loading attendees through
+    // a nested select can timeout on larger events, especially after adding
+    // ticket-code lookup. Attendees are loaded in a second indexed query below.
     supabase
       .from("event_registrations")
       .select(
@@ -346,19 +364,7 @@ export default async function EventCheckInPage({
         attendee_phone,
         checked_in_at,
         created_at,
-        event_ticket_types ( name, ticket_kind ),
-        event_registration_attendees (
-          id,
-          first_name,
-          last_name,
-          email,
-          phone,
-          attendee_role,
-          sort_order,
-          checked_in_at,
-          ticket_code,
-          ticket_issued_at
-        )
+        event_ticket_types ( name, ticket_kind )
       `,
       )
       .eq("event_id", id)
@@ -400,8 +406,56 @@ export default async function EventCheckInPage({
     throw new Error(`Failed to load class sessions: ${sessionsError.message}`);
   }
 
+  const baseRegistrations = (registrationRows ?? []) as Omit<
+    RegistrationRow,
+    "event_registration_attendees"
+  >[];
+  const registrationIds = baseRegistrations.map((registration) => registration.id);
+
+  let attendeeRows: EventRegistrationAttendeeRow[] = [];
+
+  if (registrationIds.length > 0) {
+    const { data: attendees, error: attendeesError } = await supabase
+      .from("event_registration_attendees")
+      .select(
+        `
+        id,
+        registration_id,
+        first_name,
+        last_name,
+        email,
+        phone,
+        attendee_role,
+        sort_order,
+        checked_in_at,
+        ticket_code,
+        ticket_issued_at
+      `,
+      )
+      .in("registration_id", registrationIds)
+      .order("sort_order", { ascending: true });
+
+    if (attendeesError) {
+      throw new Error(`Failed to load attendees: ${attendeesError.message}`);
+    }
+
+    attendeeRows = (attendees ?? []) as EventRegistrationAttendeeRow[];
+  }
+
+  const attendeesByRegistrationId = new Map<string, EventRegistrationAttendeeRow[]>();
+
+  for (const attendee of attendeeRows) {
+    const existing = attendeesByRegistrationId.get(attendee.registration_id) ?? [];
+    existing.push(attendee);
+    attendeesByRegistrationId.set(attendee.registration_id, existing);
+  }
+
   const typedEvent = event as EventRow;
-  const typedRegistrations = (registrations ?? []) as RegistrationRow[];
+  const typedRegistrations = baseRegistrations.map((registration) => ({
+    ...registration,
+    event_registration_attendees:
+      attendeesByRegistrationId.get(registration.id) ?? [],
+  })) as RegistrationRow[];
   const typedSessions = (sessions ?? []) as EventSessionRow[];
   const isGroupClass = typedEvent.event_type === "group_class";
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -940,4 +994,6 @@ export default async function EventCheckInPage({
     </div>
   );
 }
+
+
 

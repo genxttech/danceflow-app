@@ -979,13 +979,13 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
           name
         ),
         event_ticket_types (
-  name
-),
-event_registration_attendees (
-  first_name,
-  last_name,
-  ticket_code
-)
+          name
+        ),
+        event_registration_attendees (
+          first_name,
+          last_name,
+          ticket_code
+        )
       `
       )
       .eq("id", params.registrationId)
@@ -1012,27 +1012,33 @@ event_registration_attendees (
       return;
     }
 
-    const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(eventValue.slug)}`;
+    const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(
+      eventValue.slug
+    )}`;
 
     const attendeeRows = Array.isArray(registration.event_registration_attendees)
-  ? registration.event_registration_attendees
-  : [];
+      ? registration.event_registration_attendees
+      : [];
 
-const ticketCodeLines = attendeeRows
-  .map((attendee) => {
-    const name = `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim();
-    const code = attendee.ticket_code ?? "";
+    const ticketCodeLines = attendeeRows
+      .map((attendee) => {
+        const name = `${attendee.first_name ?? ""} ${
+          attendee.last_name ?? ""
+        }`.trim();
+        const code = attendee.ticket_code ?? "";
 
-    return code ? `${name || "Attendee"}: ${code}` : "";
-  })
-  .filter(Boolean);
+        return code ? `${name || "Attendee"}: ${code}` : "";
+      })
+      .filter(Boolean);
 
-const ticketCodeText = ticketCodeLines.length
-  ? `
+    const ticketCodeText = ticketCodeLines.length
+      ? `
 
 Ticket check-in code${ticketCodeLines.length > 1 ? "s" : ""}:
-${ticketCodeLines.join("\n")}`
-  : "";
+${ticketCodeLines.join("\n")}
+
+Bring this code with you for faster check-in.`
+      : "";
 
     const emailTemplate = buildEventConfirmedEmailTemplate({
       eventName: eventValue.name,
