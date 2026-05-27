@@ -36,7 +36,7 @@ export async function queueOutboundDelivery(params: QueueOutboundDeliveryParams)
     recipient_phone: recipientPhone,
     subject: params.subject || null,
     body_text: params.bodyText,
-    body_html: params.bodyHtml || null,
+    body_html: params.bodyHtml ?? null,
     related_table: params.relatedTable || null,
     related_id: params.relatedId || null,
     dedupe_key: params.dedupeKey || null,

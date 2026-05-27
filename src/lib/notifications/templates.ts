@@ -39,6 +39,22 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
+function escapeHtmlAttribute(value: string) {
+  return escapeHtml(value);
+}
+
+function buildTicketQrUrl(eventUrl: string, ticketCode: string) {
+  try {
+    const url = new URL(eventUrl);
+    url.pathname = "/api/tickets/qr";
+    url.search = "";
+    url.searchParams.set("code", ticketCode);
+    return url.toString();
+  } catch {
+    return "";
+  }
+}
+
 function ticketCodeText(params: EventOutboundTemplateParams) {
   const rows = params.ticketCodes ?? [];
   if (!rows.length) return "";
@@ -64,20 +80,45 @@ function brandedEmailShell(params: {
   ticketCodes?: TicketCodeLine[];
 }) {
   const ticketRows = params.ticketCodes ?? [];
+
   const ticketCodeCards = ticketRows.length
     ? ticketRows
-        .map(
-          (ticket) => `
-            <div style="padding:12px 14px;border:1px solid #f3d4e6;background:#fff7fb;border-radius:14px;margin-top:10px;">
+        .map((ticket) => {
+          const qrUrl = buildTicketQrUrl(params.eventUrl, ticket.code);
+
+          return `
+            <div style="padding:14px;border:1px solid #f3d4e6;background:#fff7fb;border-radius:14px;margin-top:10px;">
               <div style="font-size:13px;color:#6b7280;margin-bottom:4px;">${escapeHtml(
                 ticket.name || "Attendee"
               )}</div>
+
               <div style="font-size:22px;line-height:1.1;font-weight:800;letter-spacing:0.08em;color:#be185d;">${escapeHtml(
                 ticket.code
               )}</div>
+
+              ${
+                qrUrl
+                  ? `
+                    <div style="margin-top:12px;text-align:center;">
+                      <img
+                        src="${escapeHtmlAttribute(qrUrl)}"
+                        width="180"
+                        height="180"
+                        alt="QR code for ticket ${escapeHtmlAttribute(
+                          ticket.code
+                        )}"
+                        style="display:block;margin:0 auto;border:1px solid #f3d4e6;border-radius:12px;background:#ffffff;padding:8px;"
+                      />
+                      <div style="margin-top:8px;font-size:12px;line-height:1.5;color:#6b7280;">
+                        Show this QR code or the ticket code above at check-in.
+                      </div>
+                    </div>
+                  `
+                  : ""
+              }
             </div>
-          `
-        )
+          `;
+        })
         .join("")
     : `<div style="padding:12px 14px;border:1px solid #e5e7eb;background:#f9fafb;border-radius:14px;color:#6b7280;">Your check-in code will be available in your registration details.</div>`;
 
@@ -148,7 +189,7 @@ function brandedEmailShell(params: {
                     ticketRows.length > 1 ? "s" : ""
                   }</div>
                   ${ticketCodeCards}
-                  <p style="margin:12px 0 0;font-size:14px;line-height:1.6;color:#4b5563;">Bring your check-in code with you for faster event entry. Staff can also look you up by name or email.</p>
+                  <p style="margin:12px 0 0;font-size:14px;line-height:1.6;color:#4b5563;">Bring your check-in code or QR code with you for faster event entry. Staff can also look you up by name or email.</p>
                 </div>
 
                 <div style="margin-top:26px;text-align:center;">
@@ -202,9 +243,8 @@ export function buildEventWaitlistSmsTemplate(
 export function buildEventConfirmedEmailTemplate(
   params: EventOutboundTemplateParams
 ) {
-  const totalLabel = params.totalPrice > 0
-    ? money(params.totalPrice, params.currency)
-    : "Free";
+  const totalLabel =
+    params.totalPrice > 0 ? money(params.totalPrice, params.currency) : "Free";
 
   const bodyText = [
     `Hi ${params.attendeeFirstName || attendeeName(params)},`,
@@ -245,5 +285,11 @@ export function buildEventConfirmedEmailTemplate(
 export function buildEventConfirmedSmsTemplate(
   params: EventOutboundTemplateParams
 ) {
-  return `Confirmed: ${params.eventName}. Ticket: ${params.ticketTypeName}. Qty: ${params.quantity}. ${params.totalPrice > 0 ? `Total ${money(params.totalPrice, params.currency)}.` : `Free registration.`} Details: ${params.eventUrl}`;
+  return `Confirmed: ${params.eventName}. Ticket: ${params.ticketTypeName}. Qty: ${
+    params.quantity
+  }. ${
+    params.totalPrice > 0
+      ? `Total ${money(params.totalPrice, params.currency)}.`
+      : `Free registration.`
+  } Details: ${params.eventUrl}`;
 }
