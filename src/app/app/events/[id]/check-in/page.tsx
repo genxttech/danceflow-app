@@ -7,6 +7,7 @@ import {
   checkInEventRegistrationAction,
   checkInEventTicketCodeAction,
 } from "../registrations/actions";
+import TicketCodeScanner from "./TicketCodeScanner";
 
 type Params = Promise<{
   id: string;
@@ -728,6 +729,9 @@ export default async function EventCheckInPage({
             <p className="mt-2 text-xs text-slate-500">
               Use this when a guest shows their ticket code or staff reads it from a confirmation.
             </p>
+            <div className="mt-3">
+              <TicketCodeScanner inputId="ticketCode" />
+            </div>
           </div>
 
           <button
@@ -994,6 +998,4 @@ export default async function EventCheckInPage({
     </div>
   );
 }
-
-
 
