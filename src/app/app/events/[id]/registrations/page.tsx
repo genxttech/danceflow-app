@@ -214,6 +214,10 @@ function registrationsHref(eventId: string, filter: string) {
     : `/app/events/${eventId}/registrations?filter=${encodeURIComponent(filter)}`;
 }
 
+function ticketQrSrc(ticketCode: string) {
+  return `/api/tickets/qr?code=${encodeURIComponent(ticketCode)}`;
+}
+
 function getBanner(search: { success?: string; error?: string }) {
   if (search.success === "attendance_updated") {
     return {
@@ -816,45 +820,84 @@ export default async function EventRegistrationsPage({
                         <span>Registered {formatDateTime(registration.created_at)}</span>
                       </div>
 
-                      {attendeeRows.length > 1 ? (
-                        <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                      {attendeeRows.length > 0 ? (
+                        <details
+                          className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3"
+                          open={attendeeRows.length === 1}
+                        >
                           <summary className="cursor-pointer text-sm font-medium text-slate-700">
-                            {attendeeRows.length} attendees on this registration
+                            Ticket codes & QR codes
+                            {attendeeRows.length > 1 ? ` • ${attendeeRows.length} attendees` : ""}
                           </summary>
-                          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                          <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                             {attendeeRows.map((attendee, index) => {
                               const attendeeName =
                                 `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim() ||
                                 `Attendee ${index + 1}`;
+                              const checkedInLabel = attendee.checked_in_at
+                                ? `Checked in ${formatDateTime(attendee.checked_in_at)}`
+                                : "Not checked in";
 
                               return (
                                 <div
                                   key={attendee.id}
                                   className="rounded-xl border border-slate-200 bg-white p-3"
                                 >
-                                  <p className="font-medium text-slate-900">
-                                    {index + 1}. {attendeeName}
-                                  </p>
-                                  <p className="mt-1 text-xs text-slate-500">
-                                    {attendee.attendee_role === "buyer" ? "Buyer" : "Attendee"}
-                                    {attendee.email ? ` • ${attendee.email}` : ""}
-                                  </p>
-                                  {attendee.ticket_code ? (
-                                    <div className="mt-2 flex flex-wrap items-center gap-2">
-                                      <span
-                                        className={`inline-flex rounded-lg px-2 py-1 font-mono text-xs font-semibold tracking-wide ${
-                                          ticketCodesAreActive
-                                            ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                                            : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
-                                        }`}
-                                      >
-                                        {attendee.ticket_code}
-                                      </span>
-                                      <span className="text-xs text-slate-500">
-                                        {ticketCodeStatusText}
-                                      </span>
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <p className="font-medium text-slate-900">
+                                        {index + 1}. {attendeeName}
+                                      </p>
+                                      <p className="mt-1 text-xs text-slate-500">
+                                        {attendee.attendee_role === "buyer" ? "Buyer" : "Attendee"}
+                                        {attendee.email ? ` • ${attendee.email}` : ""}
+                                        {attendee.phone ? ` • ${attendee.phone}` : ""}
+                                      </p>
                                     </div>
-                                  ) : null}
+                                  </div>
+
+                                  {attendee.ticket_code ? (
+                                    <div className="mt-3 space-y-3">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span
+                                          className={`inline-flex rounded-lg px-2 py-1 font-mono text-xs font-semibold tracking-wide ${
+                                            ticketCodesAreActive
+                                              ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                              : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                                          }`}
+                                        >
+                                          {attendee.ticket_code}
+                                        </span>
+                                        <span className="text-xs text-slate-500">
+                                          {ticketCodeStatusText}
+                                        </span>
+                                      </div>
+
+                                      <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                                        <summary className="cursor-pointer text-xs font-medium text-slate-700">
+                                          Show QR code
+                                        </summary>
+                                        <div className="mt-3 flex flex-col items-center text-center">
+                                          <img
+                                            src={ticketQrSrc(attendee.ticket_code)}
+                                            alt={`QR code for ticket ${attendee.ticket_code}`}
+                                            width={180}
+                                            height={180}
+                                            className="rounded-xl border border-slate-200 bg-white p-2"
+                                          />
+                                          <p className="mt-2 text-xs text-slate-500">
+                                            Scan this QR code or enter the ticket code at check-in.
+                                          </p>
+                                        </div>
+                                      </details>
+
+                                      <p className="text-xs text-slate-500">{checkedInLabel}</p>
+                                    </div>
+                                  ) : (
+                                    <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
+                                      No ticket code has been issued for this attendee yet.
+                                    </p>
+                                  )}
                                 </div>
                               );
                             })}
