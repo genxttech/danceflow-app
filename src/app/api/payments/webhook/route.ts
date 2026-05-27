@@ -1016,29 +1016,26 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
       eventValue.slug
     )}`;
 
-    const attendeeRows = Array.isArray(registration.event_registration_attendees)
-      ? registration.event_registration_attendees
+    const attendeeRows = Array.isArray(
+      (registration as any).event_registration_attendees
+    )
+      ? (registration as any).event_registration_attendees
       : [];
 
-    const ticketCodeLines = attendeeRows
-      .map((attendee) => {
+    const ticketCodes = attendeeRows
+      .map((attendee: any) => {
         const name = `${attendee.first_name ?? ""} ${
           attendee.last_name ?? ""
         }`.trim();
-        const code = attendee.ticket_code ?? "";
 
-        return code ? `${name || "Attendee"}: ${code}` : "";
+        const code =
+          typeof attendee.ticket_code === "string"
+            ? attendee.ticket_code.trim()
+            : "";
+
+        return code ? { name: name || "Attendee", code } : null;
       })
-      .filter(Boolean);
-
-    const ticketCodeText = ticketCodeLines.length
-      ? `
-
-Ticket check-in code${ticketCodeLines.length > 1 ? "s" : ""}:
-${ticketCodeLines.join("\n")}
-
-Bring this code with you for faster check-in.`
-      : "";
+      .filter(Boolean) as Array<{ name: string; code: string }>;
 
     const emailTemplate = buildEventConfirmedEmailTemplate({
       eventName: eventValue.name,
@@ -1049,6 +1046,7 @@ Bring this code with you for faster check-in.`
       totalPrice: Number(registration.total_price ?? 0),
       currency: registration.currency || "USD",
       eventUrl,
+      ticketCodes,
     });
 
     const smsBody = buildEventConfirmedSmsTemplate({
@@ -1069,7 +1067,8 @@ Bring this code with you for faster check-in.`
         templateKey: "event_registration_confirmed",
         recipientEmail: registration.attendee_email,
         subject: emailTemplate.subject,
-        bodyText: `${emailTemplate.bodyText}${ticketCodeText}`,
+        bodyText: emailTemplate.bodyText,
+        bodyHtml: emailTemplate.bodyHtml,
         relatedTable: "event_registrations",
         relatedId: registration.id,
         dedupeKey: `event_registration_confirmed:email:${registration.id}`,

@@ -13,6 +13,7 @@ type OutboundDeliveryRow = {
   recipient_phone: string | null;
   subject: string | null;
   body_text: string | null;
+  body_html: string | null;
   payload: OutboundPayload;
   status: "queued" | "sent" | "failed" | "skipped";
 };
@@ -24,6 +25,7 @@ type DispatchResult =
 type RenderedMessage = {
   subject: string;
   bodyText: string;
+  bodyHtml?: string | null;
 };
 
 type WelcomeEmailAudience = "studio" | "organizer" | "public";
@@ -175,6 +177,7 @@ function renderMessage(row: OutboundDeliveryRow): RenderedMessage {
     return {
       subject: row.subject,
       bodyText: row.body_text,
+      bodyHtml: row.body_html,
     };
   }
 
@@ -406,6 +409,7 @@ async function sendEmail(row: OutboundDeliveryRow): Promise<DispatchResult> {
       to: [row.recipient_email],
       subject: rendered.subject,
       text: rendered.bodyText,
+      html: rendered.bodyHtml || undefined,
     });
 
     if (response.error) {
@@ -510,6 +514,7 @@ export async function dispatchQueuedOutboundDeliveries(limit = 25) {
       recipient_phone,
       subject,
       body_text,
+      body_html,
       payload,
       status
     `)
@@ -554,4 +559,6 @@ export async function dispatchQueuedOutboundDeliveries(limit = 25) {
     failed,
   };
 }
+
+
 

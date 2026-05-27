@@ -8,6 +8,7 @@ type QueueOutboundDeliveryParams = {
   recipientPhone?: string | null;
   subject?: string | null;
   bodyText: string;
+  bodyHtml?: string | null;
   relatedTable?: string | null;
   relatedId?: string | null;
   dedupeKey?: string | null;
@@ -35,6 +36,7 @@ export async function queueOutboundDelivery(params: QueueOutboundDeliveryParams)
     recipient_phone: recipientPhone,
     subject: params.subject || null,
     body_text: params.bodyText,
+    body_html: params.bodyHtml || null,
     related_table: params.relatedTable || null,
     related_id: params.relatedId || null,
     dedupe_key: params.dedupeKey || null,

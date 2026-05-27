@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
 
 function getCronSecretFromRequest(request: NextRequest) {
   const authHeader = request.headers.get("authorization");
@@ -143,17 +144,27 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
 
   const pending = (deliveries ?? []) as DeliveryRow[];
 
+  let notificationSent = 0;
+  let notificationFailed = 0;
+
   if (!pending.length) {
+    const outbound = await dispatchQueuedOutboundDeliveries(100);
+
     return NextResponse.json({
       ok: true,
-      sent: 0,
-      failed: 0,
-      message: "No pending deliveries were due.",
+      notifications: {
+        processed: 0,
+        sent: 0,
+        failed: 0,
+      },
+      outbound,
+      message:
+        outbound.processed > 0
+          ? "Processed queued outbound deliveries."
+          : "No pending notification or outbound deliveries were due.",
     });
   }
 
-  let sent = 0;
-  let failed = 0;
 
   for (const delivery of pending) {
     try {
@@ -167,7 +178,7 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
           })
           .eq("id", delivery.id);
 
-        failed += 1;
+        notificationFailed += 1;
         continue;
       }
 
@@ -183,7 +194,7 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
           })
           .eq("id", delivery.id);
 
-        failed += 1;
+        notificationFailed += 1;
         continue;
       }
 
@@ -202,7 +213,7 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
         })
         .eq("id", delivery.id);
 
-      sent += 1;
+      notificationSent += 1;
     } catch (error) {
       await supabase
         .from("notification_deliveries")
@@ -214,15 +225,20 @@ async function processPendingNotificationDeliveries(request: NextRequest) {
         })
         .eq("id", delivery.id);
 
-      failed += 1;
+      notificationFailed += 1;
     }
   }
 
+  const outbound = await dispatchQueuedOutboundDeliveries(100);
+
   return NextResponse.json({
     ok: true,
-    processed: pending.length,
-    sent,
-    failed,
+    notifications: {
+      processed: pending.length,
+      sent: notificationSent,
+      failed: notificationFailed,
+    },
+    outbound,
   });
 }
 
@@ -233,3 +249,4 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   return processPendingNotificationDeliveries(request);
 }
+
