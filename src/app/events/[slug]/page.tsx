@@ -181,6 +181,9 @@ type TicketTypeRow = {
   active: boolean;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
+  early_bird_enabled: boolean | null;
+  early_bird_price: number | null;
+  early_bird_ends_at: string | null;
   attendees_per_ticket: number | null;
 };
 
@@ -666,6 +669,30 @@ function formatCurrency(value: number, currency: string) {
   }).format(Number(value ?? 0));
 }
 
+function isEarlyBirdActive(ticket: TicketTypeRow) {
+  const earlyBirdPrice =
+    ticket.early_bird_price == null ? null : Number(ticket.early_bird_price);
+  const earlyBirdEndsAt = ticket.early_bird_ends_at
+    ? new Date(ticket.early_bird_ends_at).getTime()
+    : null;
+
+  return Boolean(
+    ticket.early_bird_enabled &&
+      earlyBirdPrice != null &&
+      Number.isFinite(earlyBirdPrice) &&
+      earlyBirdPrice >= 0 &&
+      earlyBirdEndsAt != null &&
+      Number.isFinite(earlyBirdEndsAt) &&
+      earlyBirdEndsAt >= Date.now()
+  );
+}
+
+function activeTicketPrice(ticket: TicketTypeRow) {
+  return isEarlyBirdActive(ticket) && ticket.early_bird_price != null
+    ? Number(ticket.early_bird_price)
+    : Number(ticket.price ?? 0);
+}
+
 function isRegistrationOpen(event: EventRow) {
   const now = Date.now();
 
@@ -1096,6 +1123,9 @@ export default async function PublicEventDetailPage({
         active,
         sale_starts_at,
         sale_ends_at,
+        early_bird_enabled,
+        early_bird_price,
+        early_bird_ends_at,
         attendees_per_ticket
       `,
       )
@@ -1370,7 +1400,7 @@ export default async function PublicEventDetailPage({
     "@type": "Offer",
     name: ticket.name,
     description: ticket.description ?? undefined,
-    price: Number(ticket.price ?? 0),
+    price: activeTicketPrice(ticket),
     priceCurrency: ticket.currency || "USD",
     availability:
       ticketRemainingCount(ticket, ticketActiveCountById) === 0
@@ -2069,9 +2099,22 @@ export default async function PublicEventDetailPage({
                                 <h3 className="truncate text-base font-semibold text-slate-950">
                                   {ticket.name}
                                 </h3>
-                                <p className="mt-1 text-xl font-semibold text-slate-950">
-                                  {formatCurrency(ticket.price, ticket.currency)}
-                                </p>
+                                <div className="mt-1">
+                                  {isEarlyBirdActive(ticket) ? (
+                                    <div>
+                                      <p className="text-xl font-semibold text-slate-950">
+                                        {formatCurrency(activeTicketPrice(ticket), ticket.currency)}
+                                      </p>
+                                      <p className="text-xs font-medium text-amber-700">
+                                        Early bird · regular {formatCurrency(ticket.price, ticket.currency)}
+                                      </p>
+                                    </div>
+                                  ) : (
+                                    <p className="text-xl font-semibold text-slate-950">
+                                      {formatCurrency(ticket.price, ticket.currency)}
+                                    </p>
+                                  )}
+                                </div>
                               </div>
 
                               {ticketSoldOut ? (
@@ -2104,9 +2147,14 @@ export default async function PublicEventDetailPage({
                                   {remaining} left
                                 </span>
                               ) : null}
+                              {isEarlyBirdActive(ticket) && ticket.early_bird_ends_at ? (
+                                <span className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-800 ring-1 ring-amber-200">
+                                  Early bird ends {formatDateTime(ticket.early_bird_ends_at)}
+                                </span>
+                              ) : null}
                               {ticket.sale_ends_at ? (
                                 <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
-                                  Ends {formatDateTime(ticket.sale_ends_at)}
+                                  Sales end {formatDateTime(ticket.sale_ends_at)}
                                 </span>
                               ) : null}
                             </div>
@@ -2384,4 +2432,6 @@ export default async function PublicEventDetailPage({
     </>
   );
 }
+
+
 

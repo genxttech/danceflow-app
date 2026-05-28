@@ -22,6 +22,9 @@ type TicketTypeRow = {
   active: boolean;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
+  early_bird_enabled: boolean | null;
+  early_bird_price: number | null;
+  early_bird_ends_at: string | null;
   attendees_per_ticket: number | null;
 };
 
@@ -40,6 +43,30 @@ function formatCurrency(value: number, currency: string) {
     style: "currency",
     currency: currency || "USD",
   }).format(Number(value ?? 0));
+}
+
+function isEarlyBirdActive(ticket: TicketTypeRow) {
+  const earlyBirdPrice =
+    ticket.early_bird_price == null ? null : Number(ticket.early_bird_price);
+  const earlyBirdEndsAt = ticket.early_bird_ends_at
+    ? new Date(ticket.early_bird_ends_at).getTime()
+    : null;
+
+  return Boolean(
+    ticket.early_bird_enabled &&
+      earlyBirdPrice != null &&
+      Number.isFinite(earlyBirdPrice) &&
+      earlyBirdPrice >= 0 &&
+      earlyBirdEndsAt != null &&
+      Number.isFinite(earlyBirdEndsAt) &&
+      earlyBirdEndsAt >= Date.now()
+  );
+}
+
+function activeTicketPrice(ticket: TicketTypeRow) {
+  return isEarlyBirdActive(ticket) && ticket.early_bird_price != null
+    ? Number(ticket.early_bird_price)
+    : Number(ticket.price ?? 0);
 }
 
 function formatDateTime(value: string | null) {
@@ -205,7 +232,7 @@ export default function RegistrationForm({
   );
 
   const selectedTicketTotal = selectedTicket
-    ? Number(selectedTicket.price ?? 0) * Math.max(1, quantity)
+    ? activeTicketPrice(selectedTicket) * Math.max(1, quantity)
     : 0;
 
   const estimatedTotal = selectedTicketTotal + selectedCoachSlotTotal;
@@ -299,7 +326,8 @@ export default function RegistrationForm({
 
             {ticketOptions.map((ticket) => (
               <option key={ticket.id} value={ticket.id} disabled={!ticket.meta.selectable}>
-                {ticket.name} — {formatCurrency(ticket.price, ticket.currency)}
+                {ticket.name} — {formatCurrency(activeTicketPrice(ticket), ticket.currency)}
+                {isEarlyBirdActive(ticket) ? " early bird" : ""}
                 {Number(ticket.attendees_per_ticket ?? 1) > 1
                   ? ` · admits ${Number(ticket.attendees_per_ticket ?? 1)}`
                   : ""}
@@ -358,9 +386,20 @@ export default function RegistrationForm({
                     </div>
 
                     <div className="text-right">
-                      <p className="font-semibold text-slate-900">
-                        {formatCurrency(ticket.price, ticket.currency)}
-                      </p>
+                      {isEarlyBirdActive(ticket) ? (
+                        <div>
+                          <p className="font-semibold text-slate-900">
+                            {formatCurrency(activeTicketPrice(ticket), ticket.currency)}
+                          </p>
+                          <p className="text-xs font-medium text-amber-700">
+                            Early bird · regular {formatCurrency(ticket.price, ticket.currency)}
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="font-semibold text-slate-900">
+                          {formatCurrency(ticket.price, ticket.currency)}
+                        </p>
+                      )}
                       <p className="text-xs text-slate-500">
                         {ticket.capacity == null
                           ? "Unlimited"
@@ -377,6 +416,11 @@ export default function RegistrationForm({
 
                   <div className="mt-3 space-y-1 text-xs text-slate-500">
                     <p>{ticket.meta.helper}</p>
+                    {isEarlyBirdActive(ticket) && ticket.early_bird_ends_at ? (
+                      <p className="font-medium text-amber-700">
+                        Early bird ends: {formatDateTime(ticket.early_bird_ends_at)}
+                      </p>
+                    ) : null}
                     <p>Sale starts: {formatDateTime(ticket.sale_starts_at)}</p>
                     <p>Sale ends: {formatDateTime(ticket.sale_ends_at)}</p>
                   </div>
@@ -600,6 +644,7 @@ export default function RegistrationForm({
     </form>
   );
 }
+
 
 
 

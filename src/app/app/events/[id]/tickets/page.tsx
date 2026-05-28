@@ -17,6 +17,9 @@ type TicketTypeRow = {
   active: boolean;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
+  early_bird_enabled: boolean | null;
+  early_bird_price: number | string | null;
+  early_bird_ends_at: string | null;
   attendees_per_ticket: number | null;
 };
 
@@ -57,6 +60,30 @@ function formatPrice(value: number | string, currency: string) {
     style: "currency",
     currency: currency || "USD",
   }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function isEarlyBirdActive(ticket: TicketTypeRow) {
+  const earlyBirdPrice =
+    ticket.early_bird_price == null ? null : Number(ticket.early_bird_price);
+  const earlyBirdEndsAt = ticket.early_bird_ends_at
+    ? new Date(ticket.early_bird_ends_at).getTime()
+    : null;
+
+  return Boolean(
+    ticket.early_bird_enabled &&
+      earlyBirdPrice != null &&
+      Number.isFinite(earlyBirdPrice) &&
+      earlyBirdPrice >= 0 &&
+      earlyBirdEndsAt != null &&
+      Number.isFinite(earlyBirdEndsAt) &&
+      earlyBirdEndsAt >= Date.now()
+  );
+}
+
+function activeTicketPrice(ticket: TicketTypeRow) {
+  return isEarlyBirdActive(ticket) && ticket.early_bird_price != null
+    ? ticket.early_bird_price
+    : ticket.price;
 }
 
 function ticketStatusLabel(ticket: TicketTypeRow) {
@@ -213,6 +240,9 @@ export default async function EventTicketsPage({
       active,
       sale_starts_at,
       sale_ends_at,
+      early_bird_enabled,
+      early_bird_price,
+      early_bird_ends_at,
       attendees_per_ticket
     `)
     .eq("event_id", typedEvent.id)
@@ -235,6 +265,9 @@ export default async function EventTicketsPage({
     active: Boolean(ticket.active),
     sale_starts_at: ticket.sale_starts_at ?? null,
     sale_ends_at: ticket.sale_ends_at ?? null,
+    early_bird_enabled: Boolean(ticket.early_bird_enabled),
+    early_bird_price: ticket.early_bird_price ?? null,
+    early_bird_ends_at: ticket.early_bird_ends_at ?? null,
     attendees_per_ticket: Math.max(1, Number(ticket.attendees_per_ticket ?? 1)),
   }));
   const activeCount = ticketRows.filter((ticket) => ticket.active).length;
@@ -421,11 +454,12 @@ export default async function EventTicketsPage({
                     </div>
 
                     <p className="text-sm text-slate-500">
-                      Current price: {formatPrice(ticket.price, ticket.currency)}
+                      Current price: {formatPrice(activeTicketPrice(ticket), ticket.currency)}
+                      {isEarlyBirdActive(ticket) ? " early bird" : ""}
                     </p>
                   </div>
 
-                  <div className="mb-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-5">
+                  <div className="mb-4 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-6">
                     <div>
                       <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Capacity</p>
                       <p className="mt-1 text-sm font-medium text-slate-900">
@@ -452,6 +486,14 @@ export default async function EventTicketsPage({
                       <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Sale ends</p>
                       <p className="mt-1 text-sm font-medium text-slate-900">
                         {formatDateTime(ticket.sale_ends_at)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Early bird</p>
+                      <p className="mt-1 text-sm font-medium text-slate-900">
+                        {ticket.early_bird_enabled && ticket.early_bird_price != null
+                          ? `${formatPrice(ticket.early_bird_price, ticket.currency)} until ${formatDateTime(ticket.early_bird_ends_at)}`
+                          : "Not enabled"}
                       </p>
                     </div>
                   </div>
@@ -578,6 +620,50 @@ export default async function EventTicketsPage({
                         className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
                       />
                     </label>
+
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 md:col-span-2">
+                      <label className="inline-flex items-start gap-2 text-sm text-slate-700">
+                        <input
+                          name="earlyBirdEnabled"
+                          type="checkbox"
+                          defaultChecked={Boolean(ticket.early_bird_enabled)}
+                          disabled={!canManage}
+                          className="mt-1 h-4 w-4 rounded border-slate-300"
+                        />
+                        <span>
+                          <span className="block font-medium text-slate-900">Enable early bird pricing</span>
+                          <span className="mt-1 block text-xs leading-5 text-slate-600">
+                            Offer a lower price until the cutoff. Checkout enforces the active price.
+                          </span>
+                        </span>
+                      </label>
+
+                      <div className="mt-3 grid gap-3 md:grid-cols-2">
+                        <label className="space-y-2 text-sm">
+                          <span className="font-medium text-slate-700">Early bird price</span>
+                          <input
+                            name="earlyBirdPrice"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            defaultValue={ticket.early_bird_price ?? ""}
+                            disabled={!canManage}
+                            className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                          />
+                        </label>
+
+                        <label className="space-y-2 text-sm">
+                          <span className="font-medium text-slate-700">Early bird ends</span>
+                          <input
+                            name="earlyBirdEndsAt"
+                            type="datetime-local"
+                            defaultValue={toDatetimeLocal(ticket.early_bird_ends_at)}
+                            disabled={!canManage}
+                            className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                          />
+                        </label>
+                      </div>
+                    </div>
 
                     <label className="inline-flex items-center gap-2 text-sm text-slate-700">
                       <input
@@ -740,6 +826,45 @@ export default async function EventTicketsPage({
               />
             </label>
 
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 md:col-span-2">
+              <label className="inline-flex items-start gap-2 text-sm text-slate-700">
+                <input
+                  name="earlyBirdEnabled"
+                  type="checkbox"
+                  className="mt-1 h-4 w-4 rounded border-slate-300"
+                />
+                <span>
+                  <span className="block font-medium text-slate-900">Enable early bird pricing</span>
+                  <span className="mt-1 block text-xs leading-5 text-slate-600">
+                    Offer a lower price until a cutoff date/time. Checkout will enforce the active price.
+                  </span>
+                </span>
+              </label>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <label className="space-y-2 text-sm">
+                  <span className="font-medium text-slate-700">Early bird price</span>
+                  <input
+                    name="earlyBirdPrice"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                    placeholder="Optional"
+                  />
+                </label>
+
+                <label className="space-y-2 text-sm">
+                  <span className="font-medium text-slate-700">Early bird ends</span>
+                  <input
+                    name="earlyBirdEndsAt"
+                    type="datetime-local"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                  />
+                </label>
+              </div>
+            </div>
+
             <label className="inline-flex items-center gap-2 text-sm text-slate-700 md:col-span-2">
               <input
                 name="active"
@@ -764,6 +889,7 @@ export default async function EventTicketsPage({
     </div>
   );
 }
+
 
 
 

@@ -101,13 +101,37 @@ function getBoolean(formData: FormData, key: string) {
   return value === "on" || value === "true" || value === "1";
 }
 
-function toIsoDateTime(date: string, time: string) {
-  return `${date}T${time}:00`;
+async function getStudioTimeZone(
+  supabase: SupabaseClient,
+  studioId: string,
+) {
+  const { data, error } = await supabase
+    .from("studios")
+    .select("timezone")
+    .eq("id", studioId)
+    .single();
+
+  if (error) {
+    console.error("Could not load studio timezone for appointment save:", error);
+  }
+
+  return data?.timezone || CLOSEOUT_TIME_ZONE;
 }
 
-function toIsoFromLocalDateTime(value: string) {
+function toIsoDateTime(date: string, time: string, timeZone = CLOSEOUT_TIME_ZONE) {
+  if (!date || !time) return "";
+  const normalizedTime = time.length === 5 ? `${time}:00` : time;
+  return zonedDateTimeToUtc(date, normalizedTime, timeZone).toISOString();
+}
+
+function toIsoFromLocalDateTime(value: string, timeZone = CLOSEOUT_TIME_ZONE) {
   if (!value) return null;
-  return value.length === 16 ? `${value}:00` : value;
+
+  const [date, rawTime] = value.split("T");
+  if (!date || !rawTime) return null;
+
+  const time = rawTime.length === 5 ? `${rawTime}:00` : rawTime;
+  return zonedDateTimeToUtc(date, time, timeZone).toISOString();
 }
 
 function datePart(value: string) {
@@ -1275,6 +1299,7 @@ export async function createAppointmentAction(
 ): Promise<ActionState> {
   try {
     const { supabase, studioId, user } = await requireAppointmentCreateAccess();
+    const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const clientId = getString(formData, "clientId");
     const partnerClientId = getNullableString(formData, "partnerClientId");
@@ -1333,8 +1358,12 @@ export async function createAppointmentAction(
       const rows: Array<Record<string, unknown>> = [];
 
       for (const slot of slots) {
-        const startsAt = toIsoDateTime(slot.date, slot.startTime);
-        const endsAt = toIsoDateTime(slot.date, slot.endTime);
+        const startsAt = toIsoDateTime(
+          slot.date,
+          slot.startTime,
+          studioTimeZone,
+        );
+        const endsAt = toIsoDateTime(slot.date, slot.endTime, studioTimeZone);
 
         if (new Date(endsAt) <= new Date(startsAt)) {
           return { error: "Each floor rental slot must end after it starts." };
@@ -1423,16 +1452,18 @@ export async function createAppointmentAction(
     }
 
     const startsAt =
-      toIsoFromLocalDateTime(getString(formData, "startsAt")) ??
+      toIsoFromLocalDateTime(getString(formData, "startsAt"), studioTimeZone) ??
       toIsoDateTime(
         getString(formData, "date"),
         getString(formData, "startTime"),
+        studioTimeZone,
       );
     const endsAt =
-      toIsoFromLocalDateTime(getString(formData, "endsAt")) ??
+      toIsoFromLocalDateTime(getString(formData, "endsAt"), studioTimeZone) ??
       toIsoDateTime(
         getString(formData, "date"),
         getString(formData, "endTime"),
+        studioTimeZone,
       );
 
     if (!startsAt || !endsAt) {
@@ -1641,6 +1672,7 @@ export async function updateAppointmentAction(
 ): Promise<ActionState> {
   try {
     const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const appointmentId = getString(formData, "appointmentId");
     const clientId = getString(formData, "clientId");
@@ -1685,16 +1717,18 @@ export async function updateAppointmentAction(
     });
 
     const startsAt =
-      toIsoFromLocalDateTime(getString(formData, "startsAt")) ??
+      toIsoFromLocalDateTime(getString(formData, "startsAt"), studioTimeZone) ??
       toIsoDateTime(
         getString(formData, "date"),
         getString(formData, "startTime"),
+        studioTimeZone,
       );
     const endsAt =
-      toIsoFromLocalDateTime(getString(formData, "endsAt")) ??
+      toIsoFromLocalDateTime(getString(formData, "endsAt"), studioTimeZone) ??
       toIsoDateTime(
         getString(formData, "date"),
         getString(formData, "endTime"),
+        studioTimeZone,
       );
 
     if (!startsAt || !endsAt) {
@@ -2599,6 +2633,7 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
 
   try {
     const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const appointmentId = getString(formData, "appointmentId");
     const clientId = getString(formData, "clientId");
@@ -2776,6 +2811,7 @@ export async function recordFloorRentalPaymentAction(formData: FormData) {
 
   try {
     const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const appointmentId = getString(formData, "appointmentId");
     const clientId = getString(formData, "clientId");
@@ -2914,6 +2950,7 @@ export async function upsertLessonRecapAction(
 ): Promise<ActionState> {
   try {
     const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const appointmentId = getString(formData, "appointmentId");
     const summary = getString(formData, "summary");
@@ -2990,6 +3027,7 @@ export async function uploadLessonRecapVideoAction(formData: FormData) {
 
   try {
     const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const appointmentId = getString(formData, "appointmentId");
     const file = formData.get("video");

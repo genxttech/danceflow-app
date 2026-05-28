@@ -17,6 +17,9 @@ type TicketTypeRow = {
   active: boolean;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
+  early_bird_enabled: boolean | null;
+  early_bird_price: number | null;
+  early_bird_ends_at: string | null;
   attendees_per_ticket: number | null;
 };
 
@@ -55,7 +58,7 @@ export default function TicketTypeForm({
         value={String(new Date().getTimezoneOffset())}
       />
       {mode === "edit" && initialValues ? (
-        <input type="hidden" name="ticketTypeId" value={initialValues.id} />
+        <input type="hidden" name="ticketId" value={initialValues.id} />
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-2">
@@ -172,6 +175,52 @@ export default function TicketTypeForm({
         </div>
       </div>
 
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+        <label className="flex items-start gap-3">
+          <input
+            type="checkbox"
+            name="earlyBirdEnabled"
+            defaultChecked={Boolean(initialValues?.early_bird_enabled)}
+            className="mt-1"
+          />
+          <div>
+            <p className="font-medium text-slate-900">Enable early bird pricing</p>
+            <p className="mt-1 text-sm text-slate-600">
+              Offer a lower price until a specific cutoff date and time. Checkout will enforce the active price server-side.
+            </p>
+          </div>
+        </label>
+
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="mb-1 block text-sm font-medium">Early Bird Price</label>
+            <input
+              name="earlyBirdPrice"
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={
+                initialValues?.early_bird_price == null
+                  ? ""
+                  : String(initialValues.early_bird_price)
+              }
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              placeholder="Optional"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1 block text-sm font-medium">Early Bird Ends At</label>
+            <input
+              name="earlyBirdEndsAt"
+              type="datetime-local"
+              defaultValue={toDatetimeLocal(initialValues?.early_bird_ends_at ?? null)}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </div>
+        </div>
+      </div>
+
       <div>
         <label className="mb-1 block text-sm font-medium">Description</label>
         <textarea
@@ -209,6 +258,4 @@ export default function TicketTypeForm({
     </form>
   );
 }
-
-
 

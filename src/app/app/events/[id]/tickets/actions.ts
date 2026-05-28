@@ -32,6 +32,12 @@ function parseMoney(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function parseOptionalMoney(value: string) {
+  if (!value.trim()) return null;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function parseOptionalTimezoneOffset(value: string) {
   if (!value.trim()) return null;
   const parsed = Number.parseInt(value, 10);
@@ -215,6 +221,16 @@ export async function createTicketTypeAction(formData: FormData) {
       getString(formData, "saleEndsAt"),
       timezoneOffsetMinutes
     );
+    const earlyBirdEnabled = getBoolean(formData, "earlyBirdEnabled");
+    const earlyBirdPrice = earlyBirdEnabled
+      ? parseOptionalMoney(getString(formData, "earlyBirdPrice"))
+      : null;
+    const earlyBirdEndsAt = earlyBirdEnabled
+      ? parseOptionalDateTimeLocal(
+          getString(formData, "earlyBirdEndsAt"),
+          timezoneOffsetMinutes
+        )
+      : null;
     const active = getBoolean(formData, "active");
     const attendeesPerTicket = getAttendeesPerTicket(formData);
 
@@ -224,6 +240,16 @@ export async function createTicketTypeAction(formData: FormData) {
 
     if (!name) {
       throw new Error("Ticket name is required.");
+    }
+
+    if (earlyBirdEnabled) {
+      if (earlyBirdPrice == null || earlyBirdPrice < 0) {
+        throw new Error("Early bird price is required when early bird pricing is enabled.");
+      }
+
+      if (earlyBirdEndsAt == null) {
+        throw new Error("Early bird end date/time is required when early bird pricing is enabled.");
+      }
     }
 
     const { supabase, access } = await getTicketEventAccess(eventId);
@@ -239,6 +265,9 @@ export async function createTicketTypeAction(formData: FormData) {
       sort_order: sortOrder,
       sale_starts_at: saleStartsAt,
       sale_ends_at: saleEndsAt,
+      early_bird_enabled: earlyBirdEnabled,
+      early_bird_price: earlyBirdEnabled ? earlyBirdPrice : null,
+      early_bird_ends_at: earlyBirdEnabled ? earlyBirdEndsAt : null,
       active,
       attendees_per_ticket: attendeesPerTicket,
     });
@@ -288,6 +317,16 @@ export async function updateTicketTypeAction(formData: FormData) {
       getString(formData, "saleEndsAt"),
       timezoneOffsetMinutes
     );
+    const earlyBirdEnabled = getBoolean(formData, "earlyBirdEnabled");
+    const earlyBirdPrice = earlyBirdEnabled
+      ? parseOptionalMoney(getString(formData, "earlyBirdPrice"))
+      : null;
+    const earlyBirdEndsAt = earlyBirdEnabled
+      ? parseOptionalDateTimeLocal(
+          getString(formData, "earlyBirdEndsAt"),
+          timezoneOffsetMinutes
+        )
+      : null;
     const active = getBoolean(formData, "active");
     const attendeesPerTicket = getAttendeesPerTicket(formData);
 
@@ -301,6 +340,16 @@ export async function updateTicketTypeAction(formData: FormData) {
 
     if (!name) {
       throw new Error("Ticket name is required.");
+    }
+
+    if (earlyBirdEnabled) {
+      if (earlyBirdPrice == null || earlyBirdPrice < 0) {
+        throw new Error("Early bird price is required when early bird pricing is enabled.");
+      }
+
+      if (earlyBirdEndsAt == null) {
+        throw new Error("Early bird end date/time is required when early bird pricing is enabled.");
+      }
     }
 
     const { supabase, access } = await getTicketEventAccess(eventId);
@@ -317,6 +366,9 @@ export async function updateTicketTypeAction(formData: FormData) {
         sort_order: sortOrder,
         sale_starts_at: saleStartsAt,
         sale_ends_at: saleEndsAt,
+        early_bird_enabled: earlyBirdEnabled,
+        early_bird_price: earlyBirdEnabled ? earlyBirdPrice : null,
+        early_bird_ends_at: earlyBirdEnabled ? earlyBirdEndsAt : null,
         active,
         attendees_per_ticket: attendeesPerTicket,
         updated_at: new Date().toISOString(),
@@ -344,4 +396,6 @@ export async function updateTicketTypeAction(formData: FormData) {
 
   redirect(redirectTo);
 }
+
+
 

@@ -123,6 +123,9 @@ type TicketTypeRow = {
   active: boolean | null;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
+  early_bird_enabled: boolean | null;
+  early_bird_price: number | null;
+  early_bird_ends_at: string | null;
   attendees_per_ticket: number | null;
 };
 
@@ -180,6 +183,36 @@ function validateTicketWindow(ticket: TicketTypeRow) {
 
   return null;
 }
+
+function getActiveTicketPrice(ticket: TicketTypeRow) {
+  const regularPrice = Number(ticket.price ?? 0);
+  const earlyBirdPrice =
+    ticket.early_bird_price == null ? null : Number(ticket.early_bird_price);
+  const earlyBirdEndsAt = ticket.early_bird_ends_at
+    ? new Date(ticket.early_bird_ends_at).getTime()
+    : null;
+
+  if (
+    ticket.early_bird_enabled &&
+    earlyBirdPrice != null &&
+    Number.isFinite(earlyBirdPrice) &&
+    earlyBirdPrice >= 0 &&
+    earlyBirdEndsAt != null &&
+    Number.isFinite(earlyBirdEndsAt) &&
+    earlyBirdEndsAt >= Date.now()
+  ) {
+    return Number(earlyBirdPrice.toFixed(2));
+  }
+
+  return Number((Number.isFinite(regularPrice) ? regularPrice : 0).toFixed(2));
+}
+
+function getTicketPriceLabel(ticket: TicketTypeRow) {
+  return getActiveTicketPrice(ticket) < Number(ticket.price ?? 0)
+    ? "early_bird"
+    : "regular";
+}
+
 
 export async function POST(request: NextRequest) {
   const supabase = getSupabaseAdmin();
@@ -278,6 +311,9 @@ export async function POST(request: NextRequest) {
         active,
         sale_starts_at,
         sale_ends_at,
+        early_bird_enabled,
+        early_bird_price,
+        early_bird_ends_at,
         attendees_per_ticket
       `)
       .eq("id", ticketTypeId)
@@ -295,7 +331,7 @@ export async function POST(request: NextRequest) {
 
     ticketType = ticket;
     ticketCurrency = ticket.currency || "USD";
-    ticketTotal = Number((Number(ticket.price ?? 0) * quantity).toFixed(2));
+    ticketTotal = Number((getActiveTicketPrice(ticket) * quantity).toFixed(2));
 
     // Failed/retried cart checkout attempts can leave an active registration row behind before Stripe is reached.
     // The active-registration unique constraint is event + ticket + email. Before creating a fresh attempt:
@@ -429,6 +465,7 @@ export async function POST(request: NextRequest) {
       expires_at: expiresAt,
       metadata: {
         source: "event_cart_v1",
+        ticket_price_source: ticketType ? getTicketPriceLabel(ticketType) : null,
       },
     })
     .select("id")
@@ -443,7 +480,7 @@ export async function POST(request: NextRequest) {
     const orderItems = [];
 
     if (ticketType) {
-      const unitPrice = Number(ticketType.price ?? 0);
+      const unitPrice = getActiveTicketPrice(ticketType);
       const attendeeNames = [
         buyerName,
         ...additionalAttendeeNames.slice(
