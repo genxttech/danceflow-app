@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import FavoriteButton from "@/components/public/FavoriteButton";
 import ShareButton from "@/components/public/ShareButton";
 import RegistrationForm from "./register/RegistrationForm";
+import EventPublicTabs from "./EventPublicTabs";
 import { retryEventRegistrationCheckoutAction } from "./register/actions";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
@@ -172,6 +173,7 @@ type GroupedCoachSlots = {
 
 type TicketTypeRow = {
   id: string;
+  event_id?: string | null;
   name: string;
   description: string | null;
   ticket_kind: string;
@@ -669,28 +671,46 @@ function formatCurrency(value: number, currency: string) {
   }).format(Number(value ?? 0));
 }
 
-function isEarlyBirdActive(ticket: TicketTypeRow) {
+function activeTicketPrice(ticket: TicketTypeRow) {
+  const regularPrice = Number(ticket.price ?? 0);
   const earlyBirdPrice =
-    ticket.early_bird_price == null ? null : Number(ticket.early_bird_price);
+    ticket.early_bird_price === null || ticket.early_bird_price === undefined
+      ? null
+      : Number(ticket.early_bird_price);
   const earlyBirdEndsAt = ticket.early_bird_ends_at
     ? new Date(ticket.early_bird_ends_at).getTime()
     : null;
 
-  return Boolean(
+  if (
     ticket.early_bird_enabled &&
-      earlyBirdPrice != null &&
-      Number.isFinite(earlyBirdPrice) &&
-      earlyBirdPrice >= 0 &&
-      earlyBirdEndsAt != null &&
-      Number.isFinite(earlyBirdEndsAt) &&
-      earlyBirdEndsAt >= Date.now()
-  );
+    earlyBirdPrice !== null &&
+    Number.isFinite(earlyBirdPrice) &&
+    earlyBirdPrice >= 0 &&
+    earlyBirdEndsAt !== null &&
+    earlyBirdEndsAt >= Date.now()
+  ) {
+    return {
+      price: earlyBirdPrice,
+      isEarlyBird: true,
+      regularPrice,
+      endsAt: ticket.early_bird_ends_at,
+    };
+  }
+
+  return {
+    price: regularPrice,
+    isEarlyBird: false,
+    regularPrice,
+    endsAt: ticket.early_bird_ends_at,
+  };
 }
 
-function activeTicketPrice(ticket: TicketTypeRow) {
-  return isEarlyBirdActive(ticket) && ticket.early_bird_price != null
-    ? Number(ticket.early_bird_price)
-    : Number(ticket.price ?? 0);
+function lowestVisibleTicketPriceLabel(tickets: TicketTypeRow[]) {
+  if (!tickets.length) return "Tickets";
+  const currency = tickets[0]?.currency || "USD";
+  const prices = tickets.map((ticket) => activeTicketPrice(ticket).price);
+  const min = Math.min(...prices);
+  return `From ${formatCurrency(min, currency)}`;
 }
 
 function isRegistrationOpen(event: EventRow) {
@@ -1114,6 +1134,7 @@ export default async function PublicEventDetailPage({
       .select(
         `
         id,
+        event_id,
         name,
         description,
         ticket_kind,
@@ -1400,7 +1421,7 @@ export default async function PublicEventDetailPage({
     "@type": "Offer",
     name: ticket.name,
     description: ticket.description ?? undefined,
-    price: activeTicketPrice(ticket),
+    price: activeTicketPrice(ticket).price,
     priceCurrency: ticket.currency || "USD",
     availability:
       ticketRemainingCount(ticket, ticketActiveCountById) === 0
@@ -1465,6 +1486,19 @@ export default async function PublicEventDetailPage({
       },
     ],
   };
+
+  const hasPrivateLessons = privateLessonSlotGroups.length > 0;
+  const hasSchedule = groupedScheduleItems.length > 0;
+  const ticketPriceLabel = lowestVisibleTicketPriceLabel(visibleTicketTypes);
+
+  const eventTabs = [
+    { id: "overview", label: "Overview", show: true },
+    { id: "tickets", label: "Tickets", show: true },
+    { id: "private-lessons", label: "Private Lessons", show: hasPrivateLessons },
+    { id: "schedule", label: "Schedule", show: hasSchedule },
+    { id: "location", label: "Location", show: true },
+    { id: "details", label: "Details", show: true },
+  ].filter((tab) => tab.show);
 
   return (
     <>
@@ -1573,7 +1607,7 @@ export default async function PublicEventDetailPage({
 
                       <div className="flex flex-wrap gap-3">
                         <a
-                          href="#registration"
+                          href="#tickets"
                           className="inline-flex rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-100"
                         >
                           {heroPrimaryCtaLabel({
@@ -1666,9 +1700,12 @@ export default async function PublicEventDetailPage({
               </div>
             </section>
 
-            <div className="grid gap-8 lg:grid-cols-[1.35fr_0.9fr]">
-              <div className="space-y-8">
-                <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
+            <div className="grid gap-8 pb-24 lg:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.9fr)] lg:pb-0">
+              <EventPublicTabs
+                tabs={eventTabs.map(({ id, label }) => ({ id, label }))}
+                defaultTabId="overview"
+              >
+                <section id="overview" className="scroll-mt-28 rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
                   <div className="flex flex-wrap gap-2">
                     {typedTags.map((tag) => (
                       <span
@@ -1696,12 +1733,12 @@ export default async function PublicEventDetailPage({
                 </section>
 
                 {groupedScheduleItems.length > 0 ? (
-                  <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
-                        Agenda
+                  <section id="schedule" className="scroll-mt-28 overflow-hidden rounded-[2rem] border border-orange-200/80 bg-[radial-gradient(circle_at_top_left,#fff7ed_0%,#ffffff_42%,#fdf2f8_100%)] p-0 shadow-sm">
+                    <div className="border-b border-orange-100 bg-gradient-to-r from-orange-50 via-rose-50 to-white px-6 py-5 sm:px-8">
+                      <p className="inline-flex rounded-full bg-orange-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-orange-700">
+                        DanceFlow Agenda
                       </p>
-                      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                      <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
                         Event Schedule
                       </h2>
                       <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -1710,21 +1747,21 @@ export default async function PublicEventDetailPage({
                       </p>
                     </div>
 
-                    <div className="mt-6 space-y-6">
+                    <div className="space-y-6 p-6 sm:p-8">
                       {groupedScheduleItems.map((group) => (
                         <div
                           key={group.date}
-                          className="rounded-2xl border bg-slate-50 p-5"
+                          className="overflow-hidden rounded-2xl border border-orange-100 bg-white shadow-sm"
                         >
-                          <h3 className="text-base font-semibold text-slate-950">
+                          <h3 className="bg-gradient-to-r from-orange-100 to-rose-50 px-5 py-3 text-base font-semibold text-slate-950">
                             {formatSessionDate(group.date)}
                           </h3>
 
-                          <div className="mt-4 divide-y rounded-xl border bg-white">
+                          <div className="divide-y divide-orange-100">
                             {group.items.map((item, itemIndex) => (
                               <div
                                 key={`${group.date}-${item.start_time}-${item.title}-${itemIndex}`}
-                                className="px-4 py-4"
+                                className="px-5 py-4 transition hover:bg-orange-50/50"
                               >
                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                   <div>
@@ -1743,7 +1780,7 @@ export default async function PublicEventDetailPage({
                                     ) : null}
                                   </div>
 
-                                  <p className="text-sm font-semibold text-slate-700">
+                                  <p className="rounded-full bg-slate-950 px-3 py-1 text-sm font-semibold text-white">
                                     {formatTimeRange(
                                       item.start_time,
                                       item.end_time,
@@ -1765,13 +1802,19 @@ export default async function PublicEventDetailPage({
                   </section>
                 ) : null}
 
-                <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-                  <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                <section id="location" className="scroll-mt-28 overflow-hidden rounded-[2rem] border border-purple-200/80 bg-[radial-gradient(circle_at_top_left,#faf5ff_0%,#ffffff_45%,#fff7ed_100%)] shadow-sm">
+                  <div className="border-b border-purple-100 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-white px-6 py-5 sm:px-8">
+                    <p className="inline-flex rounded-full bg-purple-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-purple-700">
+                      Where to Dance
+                    </p>
+                    <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
                     {hasDetailedLocations ? "Dates & Locations" : "Location"}
                   </h2>
 
+                  </div>
+
                   {hasDetailedLocations ? (
-                    <div className="mt-5 space-y-5">
+                    <div className="space-y-5 p-6 sm:p-8">
                       {typedEventLocations.map((location, index) => {
                         const sessions = sortLocationSessions(
                           location.event_location_sessions,
@@ -1782,12 +1825,12 @@ export default async function PublicEventDetailPage({
                         return (
                           <div
                             key={location.id}
-                            className="rounded-2xl border bg-slate-50 p-5"
+                            className="rounded-2xl border border-purple-100 bg-white p-5 shadow-sm"
                           >
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div>
                                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                  Location {index + 1}
+                                  Dance location {index + 1}
                                 </p>
                                 <h3 className="mt-1 text-lg font-semibold text-slate-950">
                                   {eventLocationDisplayName(location)}
@@ -1795,7 +1838,7 @@ export default async function PublicEventDetailPage({
                               </div>
 
                               {location.capacity != null ? (
-                                <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                                <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 ring-1 ring-purple-100">
                                   Capacity {location.capacity}
                                 </span>
                               ) : null}
@@ -1825,7 +1868,7 @@ export default async function PublicEventDetailPage({
                               </p>
 
                               {sessions.length > 0 ? (
-                                <div className="mt-3 divide-y rounded-xl border bg-white">
+                                <div className="mt-3 divide-y divide-purple-100 rounded-xl border border-purple-100 bg-purple-50/40">
                                   {sessions.map((session, sessionIndex) => (
                                     <div
                                       key={`${location.id}-session-${sessionIndex}`}
@@ -1864,7 +1907,7 @@ export default async function PublicEventDetailPage({
                       })}
                     </div>
                   ) : (
-                    <div className="mt-4 space-y-2 text-sm leading-7 text-slate-700">
+                    <div className="m-6 rounded-2xl border border-purple-100 bg-white p-5 text-sm leading-7 text-slate-700 shadow-sm sm:m-8">
                       {locationParts.length > 0 ? (
                         locationParts.map((part, index) => (
                           <p key={`${part}-${index}`}>{part}</p>
@@ -1877,28 +1920,29 @@ export default async function PublicEventDetailPage({
                 </section>
 
                 {privateLessonSlotGroups.length > 0 ? (
-                  <section className="rounded-[2rem] border border-purple-100 bg-white p-5 shadow-sm sm:p-8">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
+                  <section id="private-lessons" className="scroll-mt-28 overflow-hidden rounded-[2rem] border border-fuchsia-200/80 bg-[radial-gradient(circle_at_top_left,#fdf2f8_0%,#ffffff_45%,#faf5ff_100%)] shadow-sm">
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-fuchsia-100 bg-gradient-to-r from-fuchsia-50 via-purple-50 to-white px-5 py-5 sm:px-8">
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-purple-600">
+                        <p className="inline-flex rounded-full bg-fuchsia-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-fuchsia-700">
                           Add-on lessons
                         </p>
                         <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                           Guest Coach Private Lessons
                         </h2>
                       </div>
-                      <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-fuchsia-700 ring-1 ring-fuchsia-100">
                         Limited slots
                       </span>
                     </div>
 
-                    <p className="mt-3 text-sm leading-6 text-slate-600">
-                      Reserve a private lesson with a guest coach. Choose one
-                      or more available times, then complete one checkout in
-                      the ticket checkout section below.
-                    </p>
+                    <div className="p-5 sm:p-8">
+                      <p className="rounded-2xl border border-fuchsia-100 bg-white/80 p-4 text-sm leading-6 text-slate-600 shadow-sm">
+                        Reserve a private lesson with a guest coach. Choose one
+                        or more available times, then complete one checkout in
+                        the ticket checkout section below.
+                      </p>
 
-                    <div className="mt-6 space-y-4">
+                      <div className="mt-6 space-y-4">
                       {privateLessonSlotGroups.map(({ coach, slots }) => {
                         const groupedSlots = groupPrivateLessonSlotsByDate(
                           slots,
@@ -1917,9 +1961,9 @@ export default async function PublicEventDetailPage({
                         return (
                           <details
                             key={coach.id}
-                            className="group rounded-2xl border bg-slate-50 p-4 open:bg-white sm:p-5"
+                            className="group overflow-hidden rounded-2xl border border-fuchsia-100 bg-white shadow-sm open:ring-2 open:ring-fuchsia-100"
                           >
-                            <summary className="flex cursor-pointer list-none items-start justify-between gap-4">
+                            <summary className="flex cursor-pointer list-none items-start justify-between gap-4 bg-gradient-to-r from-fuchsia-50 to-purple-50 p-4">
                               <div className="flex min-w-0 gap-3 sm:gap-4">
                                 {coach.photo_url ? (
                                   // eslint-disable-next-line @next/next/no-img-element
@@ -1961,7 +2005,7 @@ export default async function PublicEventDetailPage({
                               </span>
                             </summary>
 
-                            <div className="mt-5 space-y-5">
+                            <div className="space-y-5 p-4 sm:p-5">
                               {groupedSlots.map((dateGroup) => (
                                 <div key={`${coach.id}-${dateGroup.dateKey}`}>
                                   <h4 className="text-sm font-semibold text-slate-950">
@@ -1972,7 +2016,7 @@ export default async function PublicEventDetailPage({
                                     {dateGroup.slots.map((slot) => (
                                       <details
                                         key={slot.id}
-                                        className="group/slot rounded-2xl border bg-white p-3 open:border-purple-200 open:bg-purple-50/30"
+                                        className="group/slot rounded-2xl border border-slate-200 bg-white p-3 shadow-sm open:border-fuchsia-200 open:bg-fuchsia-50/50"
                                       >
                                         <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
                                           <div>
@@ -1995,17 +2039,17 @@ export default async function PublicEventDetailPage({
                                                 "USD",
                                               )}
                                             </p>
-                                            <p className="mt-1 text-xs font-medium text-purple-700 group-open/slot:hidden">
+                                            <p className="mt-1 text-xs font-medium text-fuchsia-700 group-open/slot:hidden">
                                               Select
                                             </p>
-                                            <p className="mt-1 hidden text-xs font-medium text-purple-700 group-open/slot:block">
+                                            <p className="mt-1 hidden text-xs font-medium text-fuchsia-700 group-open/slot:block">
                                               Selected
                                             </p>
                                           </div>
                                         </summary>
 
                                         <div className="mt-4 border-t pt-4">
-                                          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-purple-100 bg-white p-3 transition hover:border-purple-300">
+                                          <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-fuchsia-100 bg-white p-3 transition hover:border-fuchsia-300 hover:bg-fuchsia-50/40">
                                             <input
                                               form="event-cart-checkout-form"
                                               type="checkbox"
@@ -2049,10 +2093,11 @@ export default async function PublicEventDetailPage({
                         );
                       })}
                     </div>
+                    </div>
                   </section>
                 ) : null}
 
-                <section className="rounded-[2rem] border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
+                <section id="tickets" className="scroll-mt-28 rounded-[2rem] border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
                   <div className="flex flex-wrap items-end justify-between gap-3">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">
@@ -2099,22 +2144,9 @@ export default async function PublicEventDetailPage({
                                 <h3 className="truncate text-base font-semibold text-slate-950">
                                   {ticket.name}
                                 </h3>
-                                <div className="mt-1">
-                                  {isEarlyBirdActive(ticket) ? (
-                                    <div>
-                                      <p className="text-xl font-semibold text-slate-950">
-                                        {formatCurrency(activeTicketPrice(ticket), ticket.currency)}
-                                      </p>
-                                      <p className="text-xs font-medium text-amber-700">
-                                        Early bird · regular {formatCurrency(ticket.price, ticket.currency)}
-                                      </p>
-                                    </div>
-                                  ) : (
-                                    <p className="text-xl font-semibold text-slate-950">
-                                      {formatCurrency(ticket.price, ticket.currency)}
-                                    </p>
-                                  )}
-                                </div>
+                                <p className="mt-1 text-xl font-semibold text-slate-950">
+                                  {formatCurrency(activeTicketPrice(ticket).price, ticket.currency)}
+                                </p>
                               </div>
 
                               {ticketSoldOut ? (
@@ -2147,14 +2179,9 @@ export default async function PublicEventDetailPage({
                                   {remaining} left
                                 </span>
                               ) : null}
-                              {isEarlyBirdActive(ticket) && ticket.early_bird_ends_at ? (
-                                <span className="rounded-full bg-amber-50 px-2.5 py-1 font-medium text-amber-800 ring-1 ring-amber-200">
-                                  Early bird ends {formatDateTime(ticket.early_bird_ends_at)}
-                                </span>
-                              ) : null}
                               {ticket.sale_ends_at ? (
                                 <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
-                                  Sales end {formatDateTime(ticket.sale_ends_at)}
+                                  Ends {formatDateTime(ticket.sale_ends_at)}
                                 </span>
                               ) : null}
                             </div>
@@ -2165,7 +2192,7 @@ export default async function PublicEventDetailPage({
                   )}
                 </section>
 
-                <section className="grid gap-6 lg:grid-cols-2">
+                <section id="details" className="scroll-mt-28 grid gap-6 lg:grid-cols-2">
                   <div className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
                     <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
                       Refund Policy
@@ -2185,9 +2212,10 @@ export default async function PublicEventDetailPage({
                     </p>
                   </div>
                 </section>
-              </div>
+                </EventPublicTabs>
+              
 
-              <div className="space-y-6">
+              <div className="space-y-6 lg:sticky lg:top-24 lg:self-start">
                 <section
                   id="registration"
                   className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8"
@@ -2197,6 +2225,18 @@ export default async function PublicEventDetailPage({
                       ? "Enrollment"
                       : "Registration"}
                   </h2>
+
+                  <div className="mt-3 rounded-2xl border border-purple-100 bg-purple-50 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-700">
+                      Persistent Event Cart
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-purple-950">
+                      Select tickets or guest coach private lessons from any section. Your cart total stays here and on the mobile checkout bar.
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-purple-950">
+                      {ticketPriceLabel}
+                    </p>
+                  </div>
 
                   <p className="mt-3 text-sm leading-6 text-slate-600">
                     {topHint}
@@ -2422,9 +2462,9 @@ export default async function PublicEventDetailPage({
                     ) : null}
                   </div>
                 </section>
-              </div>
             </div>
           </div>
+        </div>
         </section>
       </main>
 
@@ -2432,6 +2472,3 @@ export default async function PublicEventDetailPage({
     </>
   );
 }
-
-
-

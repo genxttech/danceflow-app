@@ -45,28 +45,38 @@ function formatCurrency(value: number, currency: string) {
   }).format(Number(value ?? 0));
 }
 
-function isEarlyBirdActive(ticket: TicketTypeRow) {
+function activeTicketPrice(ticket: TicketTypeRow) {
+  const regularPrice = Number(ticket.price ?? 0);
   const earlyBirdPrice =
-    ticket.early_bird_price == null ? null : Number(ticket.early_bird_price);
+    ticket.early_bird_price === null || ticket.early_bird_price === undefined
+      ? null
+      : Number(ticket.early_bird_price);
   const earlyBirdEndsAt = ticket.early_bird_ends_at
     ? new Date(ticket.early_bird_ends_at).getTime()
     : null;
 
-  return Boolean(
+  if (
     ticket.early_bird_enabled &&
-      earlyBirdPrice != null &&
-      Number.isFinite(earlyBirdPrice) &&
-      earlyBirdPrice >= 0 &&
-      earlyBirdEndsAt != null &&
-      Number.isFinite(earlyBirdEndsAt) &&
-      earlyBirdEndsAt >= Date.now()
-  );
-}
+    earlyBirdPrice !== null &&
+    Number.isFinite(earlyBirdPrice) &&
+    earlyBirdPrice >= 0 &&
+    earlyBirdEndsAt !== null &&
+    earlyBirdEndsAt >= Date.now()
+  ) {
+    return {
+      price: earlyBirdPrice,
+      isEarlyBird: true,
+      regularPrice,
+      endsAt: ticket.early_bird_ends_at,
+    };
+  }
 
-function activeTicketPrice(ticket: TicketTypeRow) {
-  return isEarlyBirdActive(ticket) && ticket.early_bird_price != null
-    ? Number(ticket.early_bird_price)
-    : Number(ticket.price ?? 0);
+  return {
+    price: regularPrice,
+    isEarlyBird: false,
+    regularPrice,
+    endsAt: ticket.early_bird_ends_at,
+  };
 }
 
 function formatDateTime(value: string | null) {
@@ -231,8 +241,12 @@ export default function RegistrationForm({
     0,
   );
 
-  const selectedTicketTotal = selectedTicket
-    ? activeTicketPrice(selectedTicket) * Math.max(1, quantity)
+  const selectedTicketPriceMeta = selectedTicket
+    ? activeTicketPrice(selectedTicket)
+    : null;
+
+  const selectedTicketTotal = selectedTicketPriceMeta
+    ? selectedTicketPriceMeta.price * Math.max(1, quantity)
     : 0;
 
   const estimatedTotal = selectedTicketTotal + selectedCoachSlotTotal;
@@ -326,8 +340,7 @@ export default function RegistrationForm({
 
             {ticketOptions.map((ticket) => (
               <option key={ticket.id} value={ticket.id} disabled={!ticket.meta.selectable}>
-                {ticket.name} — {formatCurrency(activeTicketPrice(ticket), ticket.currency)}
-                {isEarlyBirdActive(ticket) ? " early bird" : ""}
+                {ticket.name} — {formatCurrency(activeTicketPrice(ticket).price, ticket.currency)}
                 {Number(ticket.attendees_per_ticket ?? 1) > 1
                   ? ` · admits ${Number(ticket.attendees_per_ticket ?? 1)}`
                   : ""}
@@ -386,20 +399,14 @@ export default function RegistrationForm({
                     </div>
 
                     <div className="text-right">
-                      {isEarlyBirdActive(ticket) ? (
-                        <div>
-                          <p className="font-semibold text-slate-900">
-                            {formatCurrency(activeTicketPrice(ticket), ticket.currency)}
-                          </p>
-                          <p className="text-xs font-medium text-amber-700">
-                            Early bird · regular {formatCurrency(ticket.price, ticket.currency)}
-                          </p>
-                        </div>
-                      ) : (
-                        <p className="font-semibold text-slate-900">
-                          {formatCurrency(ticket.price, ticket.currency)}
+                      <p className="font-semibold text-slate-900">
+                        {formatCurrency(activeTicketPrice(ticket).price, ticket.currency)}
+                      </p>
+                      {activeTicketPrice(ticket).isEarlyBird ? (
+                        <p className="text-xs text-orange-700">
+                          Early bird · regular {formatCurrency(ticket.price, ticket.currency)}
                         </p>
-                      )}
+                      ) : null}
                       <p className="text-xs text-slate-500">
                         {ticket.capacity == null
                           ? "Unlimited"
@@ -416,11 +423,6 @@ export default function RegistrationForm({
 
                   <div className="mt-3 space-y-1 text-xs text-slate-500">
                     <p>{ticket.meta.helper}</p>
-                    {isEarlyBirdActive(ticket) && ticket.early_bird_ends_at ? (
-                      <p className="font-medium text-amber-700">
-                        Early bird ends: {formatDateTime(ticket.early_bird_ends_at)}
-                      </p>
-                    ) : null}
                     <p>Sale starts: {formatDateTime(ticket.sale_starts_at)}</p>
                     <p>Sale ends: {formatDateTime(ticket.sale_ends_at)}</p>
                   </div>
@@ -595,6 +597,7 @@ export default function RegistrationForm({
                 <p className="text-xs text-slate-500">
                   Quantity {Math.max(1, quantity)} · {totalAttendeeCount} total{" "}
                   {totalAttendeeCount === 1 ? "attendee" : "attendees"}
+                  {selectedTicketPriceMeta?.isEarlyBird ? " · early bird pricing" : ""}
                 </p>
               </div>
               <p className="font-semibold text-slate-900">
@@ -641,9 +644,36 @@ export default function RegistrationForm({
       >
         {buttonLabel}
       </button>
+
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.12)] backdrop-blur lg:hidden">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Event Cart
+            </p>
+            <p className="truncate text-sm font-bold text-slate-950">
+              {selectedTicket || selectedCoachSlots.length > 0
+                ? `${selectedTicket ? Math.max(1, quantity) : 0} ticket${selectedTicket && Math.max(1, quantity) === 1 ? "" : "s"} · ${selectedCoachSlots.length} lesson${selectedCoachSlots.length === 1 ? "" : "s"}`
+                : "No items selected"}
+            </p>
+          </div>
+          <button
+            type="submit"
+            disabled={!allowSubmission || (!selectedTicket && selectedCoachSlots.length === 0)}
+            className="shrink-0 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {formatCurrency(estimatedTotal, selectedTicket?.currency || "USD")}
+          </button>
+        </div>
+      </div>
     </form>
   );
 }
+
+
+
+
+
 
 
 
