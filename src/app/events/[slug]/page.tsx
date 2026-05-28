@@ -888,13 +888,63 @@ function InfoCard({
   value: string;
   detail?: string;
 }) {
+  const toneByLabel: Record<
+    string,
+    {
+      card: string;
+      label: string;
+      icon: string;
+    }
+  > = {
+    Schedule: {
+      card: "border-orange-200 bg-gradient-to-br from-orange-50 via-white to-rose-50",
+      label: "text-orange-700",
+      icon: "bg-orange-100 text-orange-700",
+    },
+    Location: {
+      card: "border-fuchsia-200 bg-gradient-to-br from-fuchsia-50 via-white to-purple-50",
+      label: "text-fuchsia-700",
+      icon: "bg-fuchsia-100 text-fuchsia-700",
+    },
+    Capacity: {
+      card: "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50",
+      label: "text-emerald-700",
+      icon: "bg-emerald-100 text-emerald-700",
+    },
+    "Hosted by": {
+      card: "border-purple-200 bg-gradient-to-br from-purple-50 via-white to-orange-50",
+      label: "text-purple-700",
+      icon: "bg-purple-100 text-purple-700",
+    },
+  };
+
+  const tone =
+    toneByLabel[label] ??
+    ({
+      card: "border-slate-200 bg-white/80",
+      label: "text-slate-500",
+      icon: "bg-slate-100 text-slate-600",
+    } as const);
+
+  const icon = label.slice(0, 1).toUpperCase();
+
   return (
-    <div className="rounded-2xl border bg-white/80 p-4 backdrop-blur">
-      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-        {label}
-      </p>
-      <p className="mt-2 text-base font-semibold text-slate-950">{value}</p>
-      {detail ? <p className="mt-1 text-sm text-slate-600">{detail}</p> : null}
+    <div className={`relative overflow-hidden rounded-2xl border p-4 shadow-sm backdrop-blur ${tone.card}`}>
+      <div className="absolute -right-8 -top-8 h-20 w-20 rounded-full bg-white/55" />
+      <div className="relative flex items-start gap-3">
+        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl text-sm font-semibold ${tone.icon}`}>
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <p className={`text-[11px] font-semibold uppercase tracking-[0.16em] ${tone.label}`}>
+            {label}
+          </p>
+          <p className="mt-2 text-base font-semibold text-slate-900">{value}</p>
+          {detail ? (
+            <p className="mt-1 text-sm font-normal text-slate-600">{detail}</p>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1651,7 +1701,7 @@ export default async function PublicEventDetailPage({
                 </div>
               </div>
 
-              <div className="grid gap-4 border-t bg-slate-50 p-5 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-4 border-t border-white/30 bg-gradient-to-br from-slate-950 via-purple-950 to-orange-900 p-5 sm:grid-cols-2 lg:grid-cols-4">
                 <InfoCard
                   label="Schedule"
                   value={formatEventSchedule(typedEvent)}
@@ -1705,30 +1755,46 @@ export default async function PublicEventDetailPage({
                 tabs={eventTabs.map(({ id, label }) => ({ id, label }))}
                 defaultTabId="overview"
               >
-                <section id="overview" className="scroll-mt-28 rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-                  <div className="flex flex-wrap gap-2">
-                    {typedTags.map((tag) => (
-                      <span
-                        key={tag.id}
-                        className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
-                      >
-                        {tag.tag}
-                      </span>
-                    ))}
+                <section id="overview" className="scroll-mt-28 overflow-hidden rounded-[2rem] border border-fuchsia-200/80 bg-[radial-gradient(circle_at_top_left,#fdf2f8_0%,#ffffff_45%,#faf5ff_100%)] shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-fuchsia-100 bg-gradient-to-r from-fuchsia-50 via-purple-50 to-white px-5 py-5 sm:px-8">
+                    <div>
+                      <p className="inline-flex rounded-full bg-fuchsia-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-fuchsia-700">
+                        Event Overview
+                      </p>
+                      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                        What to Expect
+                      </h2>
+                    </div>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-fuchsia-700 ring-1 ring-fuchsia-100">
+                      DanceFlow Event
+                    </span>
                   </div>
 
-                  <h2 className="mt-5 text-2xl font-semibold tracking-tight text-slate-950">
-                    Event Details
-                  </h2>
+                  <div className="p-5 sm:p-8">
+                    <p className="rounded-2xl border border-fuchsia-100 bg-white/80 p-4 text-sm leading-6 text-slate-600 shadow-sm">
+                      A quick look at the experience, who it is for, and why dancers should register.
+                    </p>
 
-                  <div className="mt-4 space-y-4 text-base leading-8 text-slate-700">
-                    {typedEvent.description ? (
-                      <p className="whitespace-pre-wrap">
-                        {typedEvent.description}
-                      </p>
-                    ) : (
-                      <p>Full public event details are coming soon.</p>
-                    )}
+                    <div className="mt-5 flex flex-wrap gap-2">
+                      {typedTags.map((tag) => (
+                        <span
+                          key={tag.id}
+                          className="rounded-full bg-white px-3 py-1 text-xs font-bold text-purple-800 ring-1 ring-purple-100"
+                        >
+                          {tag.tag}
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="mt-5 rounded-2xl border border-fuchsia-100 bg-white p-5 text-base leading-8 text-slate-700 shadow-sm">
+                      {typedEvent.description ? (
+                        <p className="whitespace-pre-wrap">
+                          {typedEvent.description}
+                        </p>
+                      ) : (
+                        <p>Full public event details are coming soon.</p>
+                      )}
+                    </div>
                   </div>
                 </section>
 
@@ -2097,10 +2163,10 @@ export default async function PublicEventDetailPage({
                   </section>
                 ) : null}
 
-                <section id="tickets" className="scroll-mt-28 rounded-[2rem] border border-slate-200/80 bg-white p-5 shadow-sm sm:p-6">
-                  <div className="flex flex-wrap items-end justify-between gap-3">
+                <section id="tickets" className="scroll-mt-28 overflow-hidden rounded-[2rem] border border-orange-200/80 bg-[radial-gradient(circle_at_top_left,#fff7ed_0%,#ffffff_42%,#fdf2f8_100%)] shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-orange-100 bg-gradient-to-r from-orange-50 via-rose-50 to-white px-5 py-5 sm:px-8">
                     <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-600">
+                      <p className="inline-flex rounded-full bg-orange-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-orange-700">
                         Choose Your Pass
                       </p>
                       <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
@@ -2109,107 +2175,142 @@ export default async function PublicEventDetailPage({
                     </div>
                     <a
                       href="#registration"
-                      className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                      className="rounded-full bg-white px-3 py-1 text-xs font-bold text-orange-700 ring-1 ring-orange-100 hover:bg-orange-50"
                     >
-                      Register
+                      Go to checkout
                     </a>
                   </div>
 
-                  {allActiveTicketTypes.length === 0 ? (
-                    <p className="mt-4 text-sm leading-6 text-slate-600">
-                      No ticket types are available yet.
+                  <div className="p-5 sm:p-8">
+                    <p className="rounded-2xl border border-orange-100 bg-white/80 p-4 text-sm leading-6 text-slate-600 shadow-sm">
+                      Pick the best ticket, lock in any active early-bird pricing, and keep your cart ready from any tab.
                     </p>
-                  ) : (
-                    <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                      {allActiveTicketTypes.map((ticket) => {
-                        const remaining = ticketRemainingCount(
-                          ticket,
-                          ticketActiveCountById,
-                        );
-                        const ticketSoldOut =
-                          remaining !== null && remaining <= 0;
-                        const saleOpen =
-                          (!ticket.sale_starts_at ||
-                            new Date(ticket.sale_starts_at).getTime() <= now) &&
-                          (!ticket.sale_ends_at ||
-                            new Date(ticket.sale_ends_at).getTime() >= now);
 
-                        return (
-                          <article
-                            key={ticket.id}
-                            className="rounded-2xl border border-slate-200 bg-[linear-gradient(135deg,#ffffff_0%,#f8fafc_58%,#fff7ed_100%)] p-4 shadow-sm"
-                          >
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <h3 className="truncate text-base font-semibold text-slate-950">
-                                  {ticket.name}
-                                </h3>
-                                <p className="mt-1 text-xl font-semibold text-slate-950">
-                                  {formatCurrency(activeTicketPrice(ticket).price, ticket.currency)}
-                                </p>
+                    {allActiveTicketTypes.length === 0 ? (
+                      <p className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-600 shadow-sm">
+                        No ticket types are available yet.
+                      </p>
+                    ) : (
+                      <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                        {allActiveTicketTypes.map((ticket) => {
+                          const remaining = ticketRemainingCount(
+                            ticket,
+                            ticketActiveCountById,
+                          );
+                          const ticketSoldOut =
+                            remaining !== null && remaining <= 0;
+                          const saleOpen =
+                            (!ticket.sale_starts_at ||
+                              new Date(ticket.sale_starts_at).getTime() <= now) &&
+                            (!ticket.sale_ends_at ||
+                              new Date(ticket.sale_ends_at).getTime() >= now);
+
+                          return (
+                            <article
+                              key={ticket.id}
+                              className="rounded-2xl border border-orange-100 bg-white p-4 shadow-sm transition hover:border-orange-200 hover:bg-orange-50/30"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <h3 className="truncate text-base font-semibold text-slate-950">
+                                    {ticket.name}
+                                  </h3>
+                                  <p className="mt-1 text-xl font-semibold text-slate-950">
+                                    {formatCurrency(activeTicketPrice(ticket).price, ticket.currency)}
+                                  </p>
+                                  {activeTicketPrice(ticket).isEarlyBird ? (
+                                    <p className="mt-1 text-xs font-semibold text-orange-700">
+                                      Early bird pricing active
+                                    </p>
+                                  ) : null}
+                                </div>
+
+                                {ticketSoldOut ? (
+                                  <span className="shrink-0 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
+                                    Sold Out
+                                  </span>
+                                ) : !saleOpen ? (
+                                  <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                                    Not on sale
+                                  </span>
+                                ) : (
+                                  <span className="shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700">
+                                    Available
+                                  </span>
+                                )}
                               </div>
 
-                              {ticketSoldOut ? (
-                                <span className="shrink-0 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
-                                  Sold Out
-                                </span>
-                              ) : !saleOpen ? (
-                                <span className="shrink-0 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                                  Not on sale
-                                </span>
-                              ) : (
-                                <span className="shrink-0 rounded-full bg-green-50 px-2.5 py-1 text-xs font-semibold text-green-700">
-                                  Available
-                                </span>
-                              )}
-                            </div>
-
-                            {ticket.description ? (
-                              <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">
-                                {ticket.description}
-                              </p>
-                            ) : null}
-
-                            <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
-                              <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
-                                {ticket.capacity ?? "Unlimited"} capacity
-                              </span>
-                              {remaining != null ? (
-                                <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
-                                  {remaining} left
-                                </span>
+                              {ticket.description ? (
+                                <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-600">
+                                  {ticket.description}
+                                </p>
                               ) : null}
-                              {ticket.sale_ends_at ? (
-                                <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
-                                  Ends {formatDateTime(ticket.sale_ends_at)}
+
+                              <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-600">
+                                <span className="rounded-full bg-orange-50 px-2.5 py-1 text-orange-700 ring-1 ring-orange-100">
+                                  {ticket.capacity ?? "Unlimited"} capacity
                                 </span>
-                              ) : null}
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  )}
+                                {remaining != null ? (
+                                  <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
+                                    {remaining} left
+                                  </span>
+                                ) : null}
+                                {ticket.sale_ends_at ? (
+                                  <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
+                                    Ends {formatDateTime(ticket.sale_ends_at)}
+                                  </span>
+                                ) : null}
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </section>
 
-                <section id="details" className="scroll-mt-28 grid gap-6 lg:grid-cols-2">
-                  <div className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-                    <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                      Refund Policy
-                    </h2>
-                    <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-700">
-                      {typedEvent.refund_policy ||
-                        "No refund policy has been provided."}
-                    </p>
+                <section id="details" className="scroll-mt-28 overflow-hidden rounded-[2rem] border border-purple-200/80 bg-[radial-gradient(circle_at_top_left,#faf5ff_0%,#ffffff_45%,#fff7ed_100%)] shadow-sm">
+                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-purple-100 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-white px-5 py-5 sm:px-8">
+                    <div>
+                      <p className="inline-flex rounded-full bg-purple-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-purple-700">
+                        Helpful Details
+                      </p>
+                      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                        Event Details
+                      </h2>
+                    </div>
+                    <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-purple-700 ring-1 ring-purple-100">
+                      Policies & FAQ
+                    </span>
                   </div>
 
-                  <div className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">
-                    <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
-                      FAQ
-                    </h2>
-                    <p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-700">
-                      {typedEvent.faq || "No FAQ has been provided."}
-                    </p>
+                  <div className="grid gap-4 p-5 sm:p-8 lg:grid-cols-2">
+                    <div className="overflow-hidden rounded-2xl border border-purple-100 bg-white shadow-sm">
+                      <div className="border-b border-purple-100 bg-gradient-to-r from-purple-50 to-fuchsia-50 px-5 py-4">
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-purple-700">
+                          Refund Policy
+                        </p>
+                      </div>
+                      <div className="p-5">
+                        <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                          {typedEvent.refund_policy ||
+                            "No refund policy has been provided."}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="overflow-hidden rounded-2xl border border-orange-100 bg-white shadow-sm">
+                      <div className="border-b border-orange-100 bg-gradient-to-r from-orange-50 to-rose-50 px-5 py-4">
+                        <p className="text-xs font-bold uppercase tracking-[0.18em] text-orange-700">
+                          FAQ
+                        </p>
+                      </div>
+                      <div className="p-5">
+                        <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                          {typedEvent.faq || "No FAQ has been provided."}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </section>
                 </EventPublicTabs>
@@ -2472,3 +2573,6 @@ export default async function PublicEventDetailPage({
     </>
   );
 }
+
+
+
