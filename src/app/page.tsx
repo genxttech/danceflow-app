@@ -6,98 +6,94 @@ import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { JsonLd } from "@/components/seo/JsonLd";
 
-const audienceCards = [
+const featureCards = [
   {
-    eyebrow: "Dancers",
-    title: "Find your next studio, class, or event.",
+    eyebrow: "For dancers",
+    title: "Find places to dance and events to attend.",
     description:
-      "DanceFlow gives dancers one place to discover studios and events, save favorites, register for events, and stay connected with the studios they follow.",
+      "DanceFlow gives dancers a public discovery path for studios, events, favorites, registrations, and future portal access from the studios they dance with.",
+    accent: "pink",
+    bullets: [
+      "Discover studios and events",
+      "Register for events and private lesson opportunities",
+      "Save favorites and use portal access when invited",
+    ],
+  },
+  {
+    eyebrow: "For studios",
+    title: "Keep the business side connected.",
+    description:
+      "Studios can manage clients, schedules, packages, leads, payments, campaigns, public profiles, and event activity without stitching together disconnected tools.",
+    accent: "purple",
+    bullets: [
+      "CRM, scheduling, packages, and payments",
+      "Public profiles connected to leads",
+      "Marketing campaigns and follow-up workflows",
+    ],
+  },
+  {
+    eyebrow: "For events",
+    title: "Make registration and check-in easier.",
+    description:
+      "Organizers and studios can publish events, sell tickets, offer early bird pricing, add guest coach private lesson slots, and check people in with ticket codes or QR codes.",
     accent: "orange",
-    badge: "Free",
-    action: "publicLogin",
     bullets: [
-      "Discover studios and public events",
-      "Save favorite studios and events",
-      "Track registrations from your account",
-      "View linked studio portals, lesson notes, and shared video summaries",
-    ],
-  },
-  {
-    eyebrow: "Independent Instructors",
-    title: "Teach across studios without extra admin work.",
-    description:
-      "Independent instructors can connect with multiple studios, rent floor space, pay floor fees from their portal, and keep lessons and rentals easier to manage.",
-    accent: "emerald",
-    bullets: [
-      "Create portal links with multiple host studios",
-      "Rent floor space and pay balances from the portal",
-      "Schedule lessons and floor rental in one flow with a studio workspace",
-      "Reduce double-booking, duplicate messages, and manual payment follow-up",
-    ],
-  },
-  {
-    eyebrow: "Studios",
-    title: "Run daily operations and improve the student experience.",
-    description:
-      "Studios can manage clients, scheduling, packages, memberships, leads, payments, public profiles, and built-in email follow-up in one connected workspace.",
-    accent: "violet",
-    badge: "Trial Available",
-    action: "studioPricing",
-    bullets: [
-      "Manage clients, instructors, rooms, lessons, packages, and memberships",
-      "Turn public discovery into new leads",
-      "Send targeted email campaigns to clients, leads, and event audiences",
-      "Send lesson notes directly to student portals",
-      "Upload post-lesson video summaries students can review later",
-    ],
-  },
-  {
-    eyebrow: "Organizers",
-    title: "Publish events and make registration easier.",
-    description:
-      "Organizers can create public event pages, collect registrations, manage check-in, track payments, follow up with event audiences, and help dancers find their events faster.",
-    accent: "sky",
-    badge: "Trial Available",
-    action: "organizerPricing",
-    bullets: [
-      "Publish searchable public event pages",
-      "Collect registrations and ticket payments",
-      "Manage check-in and attendee activity",
-      "Send event reminders and post-event follow-up campaigns",
-      "Give dancers one place to discover your events",
+      "Event pages, tickets, and early bird pricing",
+      "Guest coach private lesson options",
+      "Ticket codes, QR confirmations, and check-in",
     ],
   },
 ];
 
-function audienceAccentClasses(accent: string) {
+const audienceCards = [
+  {
+    title: "Dancers",
+    description:
+      "Find studios and events, save favorites, register when events are open, and use your portal when a studio invites you.",
+    href: "/discover/events",
+    cta: "Find Events",
+    accent: "pink",
+  },
+  {
+    title: "Studios",
+    description:
+      "Manage clients, schedules, packages, leads, payments, campaigns, public profiles, and event sales in one connected workspace.",
+    href: "/get-started/studio",
+    cta: "View Studio Plans",
+    accent: "purple",
+  },
+  {
+    title: "Organizers",
+    description:
+      "Publish events, sell tickets, offer private lesson slots, send confirmations, and check in attendees with ticket codes or QR codes.",
+    href: "/get-started/organizer",
+    cta: "For Organizers",
+    accent: "orange",
+  },
+];
+
+function accentClasses(accent: string) {
   switch (accent) {
     case "orange":
       return {
         border: "border-orange-200",
         soft: "bg-orange-50",
         text: "text-orange-700",
-        dot: "bg-orange-500",
+        button: "bg-orange-500 hover:bg-orange-600",
       };
-    case "emerald":
+    case "pink":
       return {
-        border: "border-emerald-200",
-        soft: "bg-emerald-50",
-        text: "text-emerald-700",
-        dot: "bg-emerald-500",
-      };
-    case "sky":
-      return {
-        border: "border-sky-200",
-        soft: "bg-sky-50",
-        text: "text-sky-700",
-        dot: "bg-sky-500",
+        border: "border-pink-200",
+        soft: "bg-pink-50",
+        text: "text-pink-700",
+        button: "bg-pink-600 hover:bg-pink-700",
       };
     default:
       return {
-        border: "border-violet-200",
-        soft: "bg-violet-50",
-        text: "text-violet-700",
-        dot: "bg-violet-500",
+        border: "border-purple-200",
+        soft: "bg-purple-50",
+        text: "text-purple-700",
+        button: "bg-purple-700 hover:bg-purple-800",
       };
   }
 }
@@ -129,7 +125,7 @@ export default async function HomePage() {
 
       if (studioRole) {
         dashboardHref = "/app";
-        dashboardLabel = "Studio Dashboard";
+        dashboardLabel = "Workspace";
       } else {
         dashboardHref = "/account";
         dashboardLabel = "My Account";
@@ -146,7 +142,7 @@ export default async function HomePage() {
     url: siteUrl,
     logo: `${siteUrl}/brand/danceflow-logo.png`,
     description:
-      "DanceFlow provides dance studio CRM, scheduling, event registration, ticketing, portals, payments, email marketing, and public discovery tools for the dance community.",
+      "DanceFlow provides dance studio CRM, scheduling, event registration, ticketing, public discovery, payments, email marketing, and organizer tools for the dance community.",
   };
 
   const websiteJsonLd = {
@@ -155,7 +151,7 @@ export default async function HomePage() {
     name: "DanceFlow",
     url: siteUrl,
     description:
-      "DanceFlow helps dancers discover studios and events while helping studios and organizers manage scheduling, clients, registrations, payments, portals, and built-in follow-up marketing.",
+      "DanceFlow helps dancers find studios and events while giving studios and organizers connected tools for CRM, scheduling, ticketing, and public discovery.",
     publisher: {
       "@type": "Organization",
       name: "DanceFlow",
@@ -171,7 +167,7 @@ export default async function HomePage() {
     operatingSystem: "Web",
     url: siteUrl,
     description:
-      "DanceFlow is dance studio CRM, scheduling, event registration, ticketing, email marketing, and public discovery software built for dance studios, organizers, independent instructors, and dancers.",
+      "DanceFlow is a public dance discovery platform with CRM, scheduling, event ticketing, payments, and marketing tools for studios, organizers, instructors, and dancers.",
     offers: {
       "@type": "Offer",
       price: "0",
@@ -214,19 +210,23 @@ export default async function HomePage() {
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_18%,#f8fafc_100%)]">
         <section className="relative overflow-hidden border-b border-slate-200/70">
-          <div className="absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.18),transparent_45%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.16),transparent_42%)]" />
+          <div className="absolute inset-x-0 top-0 h-72 bg-[radial-gradient(circle_at_top_left,rgba(251,146,60,0.22),transparent_45%),radial-gradient(circle_at_top_right,rgba(168,85,247,0.18),transparent_42%)]" />
 
           <div className="relative mx-auto max-w-7xl px-6 py-14 lg:px-8 lg:py-20">
-            <div className="grid gap-12 lg:grid-cols-[1.02fr_0.98fr] lg:items-center">
+            <div className="grid gap-12 lg:grid-cols-[1.03fr_0.97fr] lg:items-center">
               <div>
-                <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-                  <div className="flex h-32 w-32 shrink-0 items-center justify-center rounded-[32px] bg-white shadow-sm ring-1 ring-slate-200 sm:h-40 sm:w-40 lg:h-48 lg:w-48">
+                <div className="inline-flex rounded-full border border-orange-200 bg-white/80 px-4 py-2 text-sm font-semibold text-orange-700 shadow-sm">
+                  Built for dancers, studios, instructors, and organizers
+                </div>
+
+                <div className="mt-6 flex flex-col gap-5 sm:flex-row sm:items-center">
+                  <div className="flex h-28 w-28 shrink-0 items-center justify-center rounded-[32px] bg-white shadow-sm ring-1 ring-slate-200 sm:h-36 sm:w-36">
                     <Image
                       src="/brand/danceflow-logo.png"
                       alt="DanceFlow logo"
-                      width={180}
-                      height={180}
-                      className="h-24 w-24 object-contain sm:h-32 sm:w-32 lg:h-40 lg:w-40"
+                      width={160}
+                      height={160}
+                      className="h-24 w-24 object-contain sm:h-30 sm:w-30"
                       priority
                     />
                   </div>
@@ -235,43 +235,57 @@ export default async function HomePage() {
                     <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
                       DanceFlow
                     </p>
-                    <p className="mt-1 text-sm text-slate-600 sm:text-base">
-                      Next-generation studio software for ballroom and country
+                    <p className="mt-1 text-base text-slate-600">
+                      Find dance opportunities and keep dance businesses connected
                     </p>
                   </div>
                 </div>
 
-                <h1 className="mt-8 text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
-                  DanceFlow is where studios grow and dancers connect!
+                <h1 className="mt-8 max-w-4xl text-4xl font-semibold tracking-tight text-slate-950 sm:text-5xl lg:text-6xl">
+                  Find dance. Run the studio. Grow the community.
                 </h1>
 
                 <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">
-                  Manage your studio, grow your community, follow up with leads and clients,
-                  and help dancers discover the lessons, events, and experiences they
-                  are looking for — all in one platform.
+                  DanceFlow helps dancers discover studios and events, while giving studios and organizers the tools to manage schedules, registrations, tickets, payments, and follow-up in one connected place.
                 </p>
 
                 <div className="mt-8 flex flex-wrap gap-3">
                   <Link
-                    href="/discover/events"
-                    className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800"
+                    href="/get-started/studio"
+                    className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
                   >
-                    Explore Events
+                    For Studios
                   </Link>
 
                   <Link
-                    href="/discover/studios"
-                    className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    href="/get-started/organizer"
+                    className="rounded-xl bg-orange-500 px-5 py-3 text-sm font-semibold text-white hover:bg-orange-600"
                   >
-                    Explore Studios
+                    For Organizers
+                  </Link>
+
+                  <Link
+                    href="/discover/events"
+                    className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Find Events
                   </Link>
                 </div>
 
-                <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-500">
-                  You can explore studios and events without an account. A free
-                  discovery account lets you save favorites, track registrations,
-                  and keep everything in one place.
-                </p>
+                <div className="mt-8 grid gap-3 sm:grid-cols-3">
+                  {[
+                    "Find studios and events nearby",
+                    "Register and check in faster",
+                    "Studios keep follow-up connected",
+                  ].map((item) => (
+                    <div
+                      key={item}
+                      className="rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 text-sm font-medium text-slate-700 shadow-sm"
+                    >
+                      {item}
+                    </div>
+                  ))}
+                </div>
               </div>
 
               <div className="relative">
@@ -279,7 +293,7 @@ export default async function HomePage() {
                   <div className="overflow-hidden rounded-[28px] bg-[linear-gradient(135deg,#fff7ed_0%,#fdf2f8_38%,#eef2ff_100%)]">
                     <Image
                       src="/brand/danceflow-home-hero.png"
-                      alt="DanceFlow connects studio operations and dancers on the dance floor"
+                      alt="DanceFlow connects studio operations, public discovery, and dance events"
                       width={1400}
                       height={1000}
                       className="h-auto w-full object-cover"
@@ -290,200 +304,21 @@ export default async function HomePage() {
 
                 <div className="absolute -bottom-5 left-5 rounded-2xl border border-orange-100 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">
-                    Studio Growth
+                    Dance Discovery
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Operations that feel cleaner and easier to run
+                    Studios, events, and dance opportunities
                   </p>
                 </div>
 
                 <div className="absolute -top-5 right-5 rounded-2xl border border-violet-100 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
                   <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
-                    Dancer Connection
+                    Connected Tools
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Discovery that helps people actually find you
+                    Scheduling, tickets, CRM, and follow-up
                   </p>
                 </div>
-              </div>
-            </div>
-
-            <section className="mt-14 overflow-hidden rounded-[36px] border border-slate-200 bg-white shadow-sm">
-              <div className="bg-[linear-gradient(135deg,#2e1065_0%,#4c1d95_48%,#f97316_100%)] px-7 py-8 text-white sm:px-8 lg:px-10">
-                <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-end">
-                  <div>
-                    <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/75">
-                      Built for the dance community
-                    </p>
-                    <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-                      One platform for dancers, independent instructors, studios,
-                      and organizers.
-                    </h2>
-                  </div>
-
-                  <p className="text-sm leading-7 text-white/85 sm:text-base">
-                    DanceFlow connects public discovery with the real daily work
-                    behind dance businesses: scheduling, rentals, portals,
-                    payments, event registration, lesson follow-up, lead capture,
-                    and built-in studio marketing.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-4 bg-slate-50/70 p-5 sm:p-6 lg:grid-cols-2">
-                {audienceCards.map((card) => {
-                  const colors = audienceAccentClasses(card.accent);
-
-                  return (
-                    <article
-                      key={card.eyebrow}
-                      className={`rounded-[28px] border ${colors.border} bg-white p-6 shadow-sm`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex items-center gap-3">
-                          <span className={`h-3 w-3 rounded-full ${colors.dot}`} />
-                          <p
-                            className={`text-sm font-semibold uppercase tracking-[0.16em] ${colors.text}`}
-                          >
-                            {card.eyebrow}
-                          </p>
-                        </div>
-
-                        {card.badge ? (
-                          <span
-                            className={`rounded-full border ${colors.border} ${colors.soft} px-3 py-1 text-xs font-semibold ${colors.text}`}
-                          >
-                            {card.badge}
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <h3 className="mt-4 text-xl font-semibold tracking-tight text-slate-950">
-                        {card.title}
-                      </h3>
-
-                      <p className="mt-3 text-sm leading-7 text-slate-600">
-                        {card.description}
-                      </p>
-
-                      <div className="mt-5 grid gap-2">
-                        {card.bullets.map((bullet) => (
-                          <div
-                            key={bullet}
-                            className={`rounded-2xl ${colors.soft} px-4 py-3 text-sm leading-6 text-slate-700`}
-                          >
-                            {bullet}
-                          </div>
-                        ))}
-                      </div>
-
-                      {card.action === "publicLogin" ? (
-                        <form action="/login" method="get" className="mt-6 space-y-3">
-                          <input type="hidden" name="intent" value="public" />
-
-                          <div>
-                            <label
-                              htmlFor="home-discovery-email"
-                              className="mb-1.5 block text-sm font-medium text-slate-800"
-                            >
-                              Email
-                            </label>
-                            <input
-                              id="home-discovery-email"
-                              name="email"
-                              type="email"
-                              required
-                              autoComplete="email"
-                              placeholder="you@example.com"
-                              className="w-full rounded-xl border border-orange-200 px-3 py-3 outline-none focus:border-orange-400"
-                            />
-                          </div>
-
-                          <button
-                            type="submit"
-                            className="inline-flex w-full items-center justify-center rounded-xl bg-orange-500 px-5 py-3 text-sm font-medium text-white hover:bg-orange-600"
-                          >
-                            Email My Sign-In Link
-                          </button>
-                        </form>
-                      ) : null}
-
-                      {card.action === "studioPricing" ? (
-                        <Link
-                          href="/get-started/studio"
-                          className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-violet-600 px-5 py-3 text-sm font-medium text-white hover:bg-violet-700"
-                        >
-                          View Studio Pricing
-                        </Link>
-                      ) : null}
-
-                      {card.action === "organizerPricing" ? (
-                        <Link
-                          href="/get-started/organizer"
-                          className="mt-6 inline-flex w-full items-center justify-center rounded-xl bg-sky-600 px-5 py-3 text-sm font-medium text-white hover:bg-sky-700"
-                        >
-                          View Organizer Pricing
-                        </Link>
-                      ) : null}
-                    </article>
-                  );
-                })}
-              </div>
-            </section>
-
-            <div className="mt-10 rounded-[28px] border border-slate-200 bg-white/90 p-6 shadow-sm">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Already have an account?
-                  </p>
-                  <p className="mt-2 text-base leading-7 text-slate-600">
-                    Choose the login that matches your account type. Public
-                    accounts use a magic link. Studio and organizer accounts use
-                    password login.
-                  </p>
-                </div>
-
-                {user ? (
-                  <div className="flex flex-wrap gap-3">
-                    <Link
-                      href={dashboardHref}
-                      className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
-                    >
-                      {dashboardLabel}
-                    </Link>
-
-                    <Link
-                      href="/account"
-                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                    >
-                      My Account
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-3">
-                    <Link
-                      href="/login"
-                      className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-3 text-sm font-medium text-orange-700 hover:bg-orange-100"
-                    >
-                      Public Log In
-                    </Link>
-
-                    <Link
-                      href="/login?intent=studio"
-                      className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm font-medium text-violet-700 hover:bg-violet-100"
-                    >
-                      Studio Log In
-                    </Link>
-
-                    <Link
-                      href="/login?intent=organizer"
-                      className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700 hover:bg-sky-100"
-                    >
-                      Organizer Log In
-                    </Link>
-                  </div>
-                )}
               </div>
             </div>
           </div>
@@ -492,58 +327,131 @@ export default async function HomePage() {
         <section className="mx-auto max-w-7xl px-6 py-14 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-              Why DanceFlow
+              One platform, two sides of dance
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
-              One platform for the business side of dance and the people searching for it
+              Built for dancers and the people who run dance
             </h2>
             <p className="mt-4 text-lg leading-8 text-slate-600">
-              Dance studios need more than a simple calendar. Dancers need more
-              than a static listing. DanceFlow brings both sides together in a
-              way that feels modern, warm, and built for real growth.
+              Dancers need a simple way to find where to dance. Studios and organizers need tools that turn interest into registrations, relationships, and smoother day-to-day operations.
             </p>
           </div>
 
           <div className="mt-10 grid gap-6 lg:grid-cols-3">
-            <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
-                Studio CRM + Marketing
-              </p>
-              <h3 className="mt-3 text-xl font-semibold text-slate-900">
-                Turn client records into real follow-up
-              </h3>
-              <p className="mt-3 text-sm leading-7 text-slate-600">
-                Keep client details, lesson scheduling, payments, packages, and
-                targeted email campaigns together so studios can follow up without
-                leaving DanceFlow.
-              </p>
-            </section>
+            {featureCards.map((card) => {
+              const colors = accentClasses(card.accent);
 
-            <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">
-                Discovery Experience
-              </p>
-              <h3 className="mt-3 text-xl font-semibold text-slate-900">
-                Help dancers find your studio and events faster
-              </h3>
-              <p className="mt-3 text-sm leading-7 text-slate-600">
-                Public profiles, favorites, searchable events, nearby discovery, and lead
-                capture make your digital front door stronger.
-              </p>
-            </section>
+              return (
+                <article
+                  key={card.title}
+                  className={`rounded-[2rem] border ${colors.border} bg-white p-6 shadow-sm`}
+                >
+                  <div className={`inline-flex rounded-full ${colors.soft} px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${colors.text}`}>
+                    {card.eyebrow}
+                  </div>
 
-            <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-orange-700">
-                Event Growth
+                  <h3 className="mt-4 text-2xl font-semibold tracking-tight text-slate-950">
+                    {card.title}
+                  </h3>
+
+                  <p className="mt-3 text-sm leading-7 text-slate-600">
+                    {card.description}
+                  </p>
+
+                  <div className="mt-5 grid gap-2">
+                    {card.bullets.map((bullet) => (
+                      <div
+                        key={bullet}
+                        className={`rounded-2xl ${colors.soft} px-4 py-3 text-sm leading-6 text-slate-700`}
+                      >
+                        {bullet}
+                      </div>
+                    ))}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="border-y border-slate-200 bg-white/80">
+          <div className="mx-auto max-w-7xl px-6 py-14 lg:px-8">
+            <div className="grid gap-8 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+                  Choose your path
+                </p>
+                <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
+                  Dancers, studios, and organizers each get a clear experience.
+                </h2>
+                <p className="mt-4 text-base leading-7 text-slate-600">
+                  DanceFlow is public-facing for dancers and operational for the businesses and organizers that serve them.
+                </p>
+              </div>
+
+              <div className="grid gap-4">
+                {audienceCards.map((card) => {
+                  const colors = accentClasses(card.accent);
+
+                  return (
+                    <article
+                      key={card.title}
+                      className={`rounded-[2rem] border ${colors.border} bg-white p-6 shadow-sm`}
+                    >
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div>
+                          <h3 className="text-xl font-semibold tracking-tight text-slate-950">
+                            {card.title}
+                          </h3>
+                          <p className="mt-2 text-sm leading-7 text-slate-600">
+                            {card.description}
+                          </p>
+                        </div>
+
+                        <Link
+                          href={card.href}
+                          className={`shrink-0 rounded-xl px-4 py-3 text-center text-sm font-semibold text-white ${colors.button}`}
+                        >
+                          {card.cta}
+                        </Link>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-7xl px-6 py-14 lg:px-8">
+          <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+            <div className="bg-[linear-gradient(135deg,#2e1065_0%,#4c1d95_48%,#f97316_100%)] p-8 text-white sm:p-10">
+              <p className="text-sm font-semibold uppercase tracking-[0.2em] text-white/75">
+                Event experience highlight
               </p>
-              <h3 className="mt-3 text-xl font-semibold text-slate-900">
-                Publish, register, and ticket events with clarity
-              </h3>
-              <p className="mt-3 text-sm leading-7 text-slate-600">
-                Organizers can create public-facing events, manage registrations,
-                sell tickets, and follow up with registrants through a cleaner workflow.
+              <h2 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
+                From event discovery to check-in, keep the experience simple.
+              </h2>
+              <p className="mt-4 max-w-3xl text-sm leading-7 text-white/85 sm:text-base">
+                Dancers can discover events and register clearly. Studios and organizers can manage tickets, early bird pricing, guest coach private lesson slots, confirmations, QR codes, and check-in tools behind the scenes.
               </p>
-            </section>
+            </div>
+
+            <div className="grid gap-4 bg-slate-50 p-5 sm:p-6 lg:grid-cols-4">
+              {[
+                "Tabbed event pages with clear checkout",
+                "Early bird pricing when offered",
+                "Guest coach private lesson options",
+                "Ticket codes and QR check-in",
+              ].map((item) => (
+                <div
+                  key={item}
+                  className="rounded-2xl border border-slate-200 bg-white p-5 text-sm font-medium leading-6 text-slate-700 shadow-sm"
+                >
+                  {item}
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
@@ -552,36 +460,34 @@ export default async function HomePage() {
             <div className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
-                  Keep exploring
+                  Ready to explore DanceFlow?
                 </p>
                 <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
-                  Discover studios, discover events, or log back in
+                  Find an event, explore studios, or start setting up your DanceFlow workspace.
                 </h2>
                 <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-                  Browse the public side of DanceFlow or return to your account to
-                  manage favorites, registrations, studio operations, or organizer
-                  event workflows.
+                  DanceFlow is live and continuing to grow around real ballroom, country, and social dance community workflows.
                 </p>
               </div>
 
               <div className="flex flex-wrap gap-3">
                 <Link
-                  href="/discover/studios"
-                  className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  href="/get-started/studio"
+                  className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
                 >
-                  Explore Studios
+                  Studio Trial
                 </Link>
 
                 <Link
-                  href="/discover/events"
-                  className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  href="/get-started/organizer"
+                  className="rounded-xl bg-orange-500 px-5 py-3 text-sm font-semibold text-white hover:bg-orange-600"
                 >
-                  Explore Events
+                  Organizer Suite
                 </Link>
 
                 <Link
                   href={dashboardHref}
-                  className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800"
+                  className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   {dashboardLabel}
                 </Link>
@@ -595,3 +501,4 @@ export default async function HomePage() {
     </>
   );
 }
+

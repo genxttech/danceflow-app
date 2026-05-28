@@ -18,7 +18,7 @@ function normalizeIntent(value: string | undefined): LoginIntent {
     return value;
   }
 
-  return "public";
+  return "studio";
 }
 
 function normalizeMode(value: string | undefined) {
@@ -50,69 +50,22 @@ function buildLoginHref(params: {
   return `/login?${search.toString()}`;
 }
 
-function LoginChoiceCard({
-  href,
-  selected,
-  eyebrow,
-  title,
-  description,
-  cta,
-}: {
-  href: string;
-  selected: boolean;
-  eyebrow: string;
-  title: string;
-  description: string;
-  cta: string;
-}) {
-  return (
-    <Link
-      href={href}
-      aria-current={selected ? "page" : undefined}
-      className={[
-        "group relative flex min-h-[168px] flex-col justify-between rounded-2xl border p-5 text-left shadow-sm transition",
-        "focus:outline-none focus:ring-4 focus:ring-violet-100",
-        selected
-          ? "border-violet-400 bg-violet-50 shadow-md"
-          : "border-slate-200 bg-white hover:-translate-y-0.5 hover:border-violet-300 hover:bg-violet-50/50 hover:shadow-md",
-      ].join(" ")}
-    >
-      <span className="flex items-start justify-between gap-3">
-        <span>
-          <span className="text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-slate-500">
-            {eyebrow}
-          </span>
-          <span className="mt-2 block text-base font-semibold text-slate-950">
-            {title}
-          </span>
-        </span>
+function intentLabel(intent: LoginIntent) {
+  if (intent === "organizer") return "Organizer";
+  if (intent === "public") return "Student / Dancer";
+  return "Studio";
+}
 
-        {selected ? (
-          <span className="rounded-full bg-violet-600 px-2.5 py-1 text-xs font-semibold text-white">
-            Selected
-          </span>
-        ) : (
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600 transition group-hover:border-violet-200 group-hover:bg-white group-hover:text-violet-700">
-            Choose
-          </span>
-        )}
-      </span>
+function intentDescription(intent: LoginIntent) {
+  if (intent === "organizer") {
+    return "For event organizers managing event pages, tickets, registrations, private lesson slots, and check-in.";
+  }
 
-      <span className="mt-3 block text-sm leading-6 text-slate-600">
-        {description}
-      </span>
+  if (intent === "public") {
+    return "For dancers, students, and clients using public discovery, favorites, event registrations, or studio portal access.";
+  }
 
-      <span
-        className={[
-          "mt-4 inline-flex items-center text-sm font-semibold",
-          selected ? "text-violet-700" : "text-slate-900 group-hover:text-violet-700",
-        ].join(" ")}
-      >
-        {cta}
-        <span className="ml-1 transition group-hover:translate-x-0.5">→</span>
-      </span>
-    </Link>
-  );
+  return "For studio owners, admins, front desk staff, and instructors managing the studio workspace.";
 }
 
 export default async function LoginPage({
@@ -140,398 +93,321 @@ export default async function LoginPage({
     await requestPasswordResetAction(formData);
   }
 
-  const isBusiness = loginIntent === "studio" || loginIntent === "organizer";
-  const effectiveNext = nextPath || (isBusiness ? "/app" : "/account");
-
-  const eyebrow = isBusiness
-    ? loginIntent === "studio"
-      ? "Studio Login"
-      : "Organizer Login"
-    : "Public Login";
-
-  const title = isBusiness
-    ? loginIntent === "studio"
-      ? "Sign in to your studio workspace"
-      : "Sign in to your organizer workspace"
-    : "Log in to DanceFlow";
-
-  const description = isBusiness
-    ? loginIntent === "studio"
-      ? "Use your studio email and password to access your DanceFlow workspace."
-      : "Use your organizer email and password to access your DanceFlow workspace."
-    : "Use your email to receive a secure sign-in link for your public account or client portal.";
-
-  const selectedLabel =
-    loginIntent === "studio"
-      ? "Studio Workspace"
-      : loginIntent === "organizer"
-        ? "Organizer Workspace"
-        : "Public Account / Client Portal";
+  const isPublic = loginIntent === "public";
+  const effectiveNext = nextPath || (isPublic ? "/account" : "/app");
+  const selectedLabel = intentLabel(loginIntent);
 
   return (
     <>
       <PublicSiteHeader isAuthenticated={false} />
 
       <main className="min-h-screen bg-[linear-gradient(180deg,#fff7ed_0%,#ffffff_18%,#f8fafc_100%)]">
-        <section className="mx-auto max-w-5xl px-6 py-14 lg:px-8">
-          <div className="mb-8 rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-              {eyebrow}
-            </p>
-
-            <h1 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-              {title}
-            </h1>
-
-            <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-              {description}
-            </p>
-
-            <div className="mt-8 rounded-3xl border border-slate-200 bg-slate-50 p-4">
-              <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Step 1
-                  </p>
-                  <h2 className="mt-1 text-xl font-semibold text-slate-950">
-                    Choose how you want to sign in
-                  </h2>
-                  <p className="mt-1 text-sm leading-6 text-slate-600">
-                    Select one option below to open the correct login form.
-                  </p>
-                </div>
-
-                <div className="rounded-full border border-violet-200 bg-white px-3 py-1.5 text-xs font-semibold text-violet-700">
-                  Selected: {selectedLabel}
-                </div>
+        <section className="mx-auto max-w-6xl px-6 py-12 lg:px-8 lg:py-16">
+          <div className="grid gap-8 lg:grid-cols-[0.92fr_1.08fr] lg:items-start">
+            <div className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
+              <div className="bg-[linear-gradient(135deg,#2e1065_0%,#6d28d9_48%,#f97316_100%)] p-8 text-white sm:p-10">
+                <p className="text-sm font-semibold uppercase tracking-[0.22em] text-white/75">
+                  DanceFlow Login
+                </p>
+                <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
+                  One sign-in page. DanceFlow routes you where you belong.
+                </h1>
+                <p className="mt-5 text-base leading-7 text-white/85">
+                  Studio teams, organizers, instructors, students, and dancers can
+                  all start here. Choose the account type that best matches what
+                  you are trying to access.
+                </p>
               </div>
 
-              <div className="grid gap-3 md:grid-cols-3">
-                <LoginChoiceCard
+              <div className="grid gap-3 bg-slate-50 p-5 sm:grid-cols-3">
+                <Link
                   href={buildLoginHref({
                     intent: "studio",
                     nextPath,
                     selectedPlan,
                     emailHint,
                   })}
-                  selected={loginIntent === "studio"}
-                  eyebrow="Workspace"
-                  title="Studio Workspace"
-                  description="Owners, studio admins, front desk, and instructors."
-                  cta="Use Studio Login"
-                />
+                  className={`rounded-2xl border px-4 py-4 text-sm transition ${
+                    loginIntent === "studio"
+                      ? "border-purple-300 bg-purple-50 text-purple-900 shadow-sm"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-purple-200 hover:bg-purple-50"
+                  }`}
+                >
+                  <span className="block font-semibold">Studio</span>
+                  <span className="mt-1 block text-xs leading-5">
+                    Owners, staff, front desk, instructors
+                  </span>
+                </Link>
 
-                <LoginChoiceCard
+                <Link
                   href={buildLoginHref({
                     intent: "organizer",
                     nextPath,
                     selectedPlan,
                     emailHint,
                   })}
-                  selected={loginIntent === "organizer"}
-                  eyebrow="Events"
-                  title="Organizer Workspace"
-                  description="Organizers and event admin staff managing registrations."
-                  cta="Use Organizer Login"
-                />
+                  className={`rounded-2xl border px-4 py-4 text-sm transition ${
+                    loginIntent === "organizer"
+                      ? "border-orange-300 bg-orange-50 text-orange-900 shadow-sm"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-orange-200 hover:bg-orange-50"
+                  }`}
+                >
+                  <span className="block font-semibold">Organizer</span>
+                  <span className="mt-1 block text-xs leading-5">
+                    Event pages, ticketing, check-in
+                  </span>
+                </Link>
 
-                <LoginChoiceCard
+                <Link
                   href={buildLoginHref({
                     intent: "public",
                     nextPath,
                     selectedPlan,
                     emailHint,
                   })}
-                  selected={loginIntent === "public"}
-                  eyebrow="Public"
-                  title="Public Account / Client Portal"
-                  description="Dancers, students, clients, favorites, events, and portal access."
-                  cta="Use Public Login"
-                />
-              </div>
-            </div>
-
-            {mode === "check-email" ? (
-              <div className="mt-6 rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                <p className="text-sm font-medium text-slate-900">
-                  Check your email
-                </p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  We sent a sign-in link to{" "}
-                  <span className="font-medium text-slate-900">
-                    {emailHint || "your email address"}
-                  </span>
-                  . Open it on this device to continue.
-                </p>
-              </div>
-            ) : null}
-
-            {mode === "verify-email" ? (
-              <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                <p className="text-sm font-medium text-slate-900">
-                  Verify your email first
-                </p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Your account was created for{" "}
-                  <span className="font-medium text-slate-900">
-                    {emailHint || "your email address"}
-                  </span>
-                  . Open the verification email first, then sign in here.
-                </p>
-              </div>
-            ) : null}
-
-            {mode === "resume-signup" ? (
-              <div className="mt-6 rounded-2xl border border-violet-200 bg-violet-50 p-4">
-                <p className="text-sm font-medium text-slate-900">
-                  Account already exists
-                </p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Sign in with the email and password you already created to
-                  continue.
-                </p>
-              </div>
-            ) : null}
-
-            {mode === "reset-sent" ? (
-              <div className="mt-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                <p className="text-sm font-medium text-slate-900">
-                  Password reset email sent
-                </p>
-                <p className="mt-2 text-sm leading-7 text-slate-600">
-                  Check your inbox for a password reset email for{" "}
-                  <span className="font-medium text-slate-900">
-                    {emailHint || "your email address"}
-                  </span>
-                  .
-                </p>
-              </div>
-            ) : null}
-          </div>
-
-          {!isBusiness ? (
-            <section className="rounded-[32px] border border-orange-200 bg-white p-8 shadow-sm">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-                Step 2 · Magic Link Login
-              </p>
-
-              <h2 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-                Email me a sign-in link
-              </h2>
-
-              <p className="mt-4 text-base leading-7 text-slate-600">
-                Enter the email connected to your public account or client
-                portal. The email link should take you directly to the right
-                account area.
-              </p>
-
-              <form action={submitLogin} className="mt-8 space-y-5">
-                <input type="hidden" name="loginMode" value="magic_link" />
-                <input type="hidden" name="loginIntent" value="public" />
-                <input type="hidden" name="next" value={effectiveNext} />
-
-                <div>
-                  <label
-                    htmlFor="magic-email"
-                    className="mb-1.5 block text-sm font-medium text-slate-800"
-                  >
-                    Email
-                  </label>
-                  <input
-                    id="magic-email"
-                    name="email"
-                    type="email"
-                    required
-                    autoComplete="email"
-                    defaultValue={emailHint}
-                    placeholder="you@example.com"
-                    className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
+                  className={`rounded-2xl border px-4 py-4 text-sm transition ${
+                    loginIntent === "public"
+                      ? "border-pink-300 bg-pink-50 text-pink-900 shadow-sm"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-pink-200 hover:bg-pink-50"
+                  }`}
                 >
-                  Email me a sign-in link
-                </button>
-              </form>
-
-              <div className="mt-6 rounded-2xl border border-orange-200 bg-orange-50 p-4">
-                <p className="text-sm font-medium text-slate-900">
-                  Public account and client portal access
-                </p>
-                <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                  <li>• Favorites and saved discovery</li>
-                  <li>• Event registrations and client portal access</li>
-                  <li>• No password required</li>
-                </ul>
+                  <span className="block font-semibold">Student / Dancer</span>
+                  <span className="mt-1 block text-xs leading-5">
+                    Portal, favorites, registrations
+                  </span>
+                </Link>
               </div>
-            </section>
-          ) : (
-            <div className="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
-              <section className="rounded-[32px] border border-violet-200 bg-white p-8 shadow-sm">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-700">
-                  Step 2 · Password Login
-                </p>
+            </div>
 
-                <h2 className="mt-3 text-4xl font-semibold tracking-tight text-slate-950">
-                  {loginIntent === "studio"
-                    ? "Studio workspace login"
-                    : "Organizer workspace login"}
-                </h2>
+            <div className="space-y-5">
+              {mode === "check-email" ? (
+                <div className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                    Check your email
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-slate-950">
+                    We sent your sign-in link.
+                  </h2>
+                  <p className="mt-3 text-sm leading-7 text-slate-700">
+                    Open the email sent to {emailHint || "your email address"} to
+                    continue. You can safely close this page after using that link.
+                  </p>
+                </div>
+              ) : null}
 
-                <p className="mt-4 text-base leading-7 text-slate-600">
-                  Business accounts use password login so account ownership,
-                  billing, and workspace access stay clear and consistent.
-                </p>
+              {mode === "reset-sent" ? (
+                <div className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                    Password reset sent
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-slate-950">
+                    Check your inbox.
+                  </h2>
+                  <p className="mt-3 text-sm leading-7 text-slate-700">
+                    We sent reset instructions to {emailHint || "your email address"}.
+                  </p>
+                </div>
+              ) : null}
 
-                <form action={submitLogin} className="mt-8 space-y-5">
-                  <input type="hidden" name="loginMode" value="password" />
-                  <input type="hidden" name="loginIntent" value={loginIntent} />
-                  <input type="hidden" name="next" value={effectiveNext} />
+              {mode === "resume-signup" ? (
+                <div className="rounded-[2rem] border border-amber-200 bg-amber-50 p-6 shadow-sm">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-amber-700">
+                    Account already exists
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-slate-950">
+                    Sign in to continue setup.
+                  </h2>
+                  <p className="mt-3 text-sm leading-7 text-slate-700">
+                    Use the same email and password to continue your DanceFlow setup.
+                  </p>
+                </div>
+              ) : null}
 
+              <section className="rounded-[2rem] border border-slate-200 bg-white p-7 shadow-sm sm:p-8">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
-                    <label
-                      htmlFor="password-email"
-                      className="mb-1.5 block text-sm font-medium text-slate-800"
-                    >
-                      Email
-                    </label>
-                    <input
-                      id="password-email"
-                      name="email"
-                      type="email"
-                      required
-                      autoComplete="email"
-                      defaultValue={emailHint}
-                      placeholder={
-                        loginIntent === "studio"
-                          ? "studio@example.com"
-                          : "organizer@example.com"
-                      }
-                      className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
-                    />
+                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+                      {selectedLabel} Access
+                    </p>
+                    <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+                      {isPublic ? "Email me a secure sign-in link" : "Sign in with email and password"}
+                    </h2>
+                    <p className="mt-3 text-sm leading-7 text-slate-600">
+                      {intentDescription(loginIntent)}
+                    </p>
                   </div>
 
-                  <div>
-                    <label
-                      htmlFor="password"
-                      className="mb-1.5 block text-sm font-medium text-slate-800"
-                    >
-                      Password
-                    </label>
-                    <input
-                      id="password"
-                      name="password"
-                      type="password"
-                      required
-                      autoComplete="current-password"
-                      className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
-                    />
-                  </div>
+                  <span className="inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">
+                    Selected: {selectedLabel}
+                  </span>
+                </div>
 
-                  <button
-                    type="submit"
-                    className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-medium text-white hover:bg-violet-700"
-                  >
-                    Sign in with password
-                  </button>
-                </form>
+                {isPublic ? (
+                  <form action={submitLogin} className="mt-8 space-y-5">
+                    <input type="hidden" name="loginMode" value="magic_link" />
+                    <input type="hidden" name="loginIntent" value="public" />
+                    <input type="hidden" name="next" value={effectiveNext} />
+
+                    <div>
+                      <label
+                        htmlFor="public-email"
+                        className="mb-1.5 block text-sm font-medium text-slate-800"
+                      >
+                        Email
+                      </label>
+                      <input
+                        id="public-email"
+                        name="email"
+                        type="email"
+                        required
+                        autoComplete="email"
+                        defaultValue={emailHint}
+                        placeholder="you@example.com"
+                        className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-orange-400"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+                    >
+                      Email My Sign-In Link
+                    </button>
+
+                    <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-slate-700">
+                      Student/client portal access usually starts from a studio invite
+                      or event confirmation email. Use the same email address your
+                      studio has on file.
+                    </div>
+                  </form>
+                ) : (
+                  <form action={submitLogin} className="mt-8 space-y-5">
+                    <input type="hidden" name="loginMode" value="password" />
+                    <input type="hidden" name="loginIntent" value={loginIntent} />
+                    <input type="hidden" name="next" value={effectiveNext} />
+
+                    <div>
+                      <label
+                        htmlFor="password-email"
+                        className="mb-1.5 block text-sm font-medium text-slate-800"
+                      >
+                        Email
+                      </label>
+                      <input
+                        id="password-email"
+                        name="email"
+                        type="email"
+                        required
+                        autoComplete="email"
+                        defaultValue={emailHint}
+                        placeholder={
+                          loginIntent === "studio"
+                            ? "studio@example.com"
+                            : "organizer@example.com"
+                        }
+                        className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-purple-400"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="password"
+                        className="mb-1.5 block text-sm font-medium text-slate-800"
+                      >
+                        Password
+                      </label>
+                      <input
+                        id="password"
+                        name="password"
+                        type="password"
+                        required
+                        autoComplete="current-password"
+                        className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-purple-400"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-purple-700 px-4 py-3 text-sm font-semibold text-white hover:bg-purple-800"
+                    >
+                      Sign In to {selectedLabel}
+                    </button>
+                  </form>
+                )}
               </section>
 
-              <section className="rounded-[32px] border border-slate-200 bg-white p-8 shadow-sm">
-                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                  Need help?
-                </p>
+              {!isPublic ? (
+                <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">
+                        Forgot your password?
+                      </p>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">
+                        Send a reset email for your studio or organizer account.
+                      </p>
+                    </div>
 
-                <h2 className="mt-3 text-2xl font-semibold text-slate-950">
-                  Forgot your password?
-                </h2>
-
-                <p className="mt-4 text-base leading-7 text-slate-600">
-                  Enter your business account email and we’ll send you a password
-                  reset email.
-                </p>
-
-                <form action={submitReset} className="mt-8 space-y-5">
-                  <input type="hidden" name="loginIntent" value={loginIntent} />
-                  <input type="hidden" name="next" value={effectiveNext} />
-
-                  <div>
-                    <label
-                      htmlFor="reset-email"
-                      className="mb-1.5 block text-sm font-medium text-slate-800"
-                    >
-                      Email
-                    </label>
-                    <input
-                      id="reset-email"
-                      name="email"
-                      type="email"
-                      required
-                      autoComplete="email"
-                      defaultValue={emailHint}
-                      placeholder={
-                        loginIntent === "studio"
-                          ? "studio@example.com"
-                          : "organizer@example.com"
-                      }
-                      className="w-full rounded-xl border border-slate-300 px-3 py-3 outline-none focus:border-slate-500"
-                    />
+                    <form action={submitReset} className="flex w-full flex-col gap-3 sm:flex-row lg:w-auto">
+                      <input type="hidden" name="loginIntent" value={loginIntent} />
+                      <input type="hidden" name="next" value={effectiveNext} />
+                      <input
+                        name="email"
+                        type="email"
+                        required
+                        defaultValue={emailHint}
+                        placeholder="email@example.com"
+                        className="min-w-0 flex-1 rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-slate-500 lg:w-64"
+                      />
+                      <button
+                        type="submit"
+                        className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                      >
+                        Send Reset
+                      </button>
+                    </form>
                   </div>
+                </section>
+              ) : null}
 
-                  <button
-                    type="submit"
-                    className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
+              <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
+                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Need an account first?
+                </p>
+
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <Link
+                    href={
+                      loginIntent === "studio" || loginIntent === "organizer"
+                        ? `/signup?intent=${encodeURIComponent(loginIntent)}${
+                            selectedPlan
+                              ? `&plan=${encodeURIComponent(selectedPlan)}`
+                              : ""
+                          }${
+                            nextPath ? `&next=${encodeURIComponent(nextPath)}` : ""
+                          }`
+                        : "/signup"
+                    }
+                    className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
                   >
-                    Send reset email
-                  </button>
-                </form>
+                    Create Account
+                  </Link>
 
-                <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm font-medium text-slate-900">
-                    Business account access
-                  </p>
-                  <ul className="mt-2 space-y-1 text-sm text-slate-600">
-                    <li>• Password-based login only</li>
-                    <li>• Cleaner owner and billing flow</li>
-                    <li>• Better recovery than magic links for paid users</li>
-                  </ul>
+                  <Link
+                    href="/get-started"
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    View Plans
+                  </Link>
+
+                  <Link
+                    href="/knowledgebase"
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                  >
+                    Help Center
+                  </Link>
                 </div>
               </section>
-            </div>
-          )}
-
-          <div className="mt-8 rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-              Need an account first?
-            </p>
-
-            <div className="mt-4 flex flex-wrap gap-3">
-              <Link
-                href={
-                  loginIntent === "studio" || loginIntent === "organizer"
-                    ? `/signup?intent=${encodeURIComponent(loginIntent)}${
-                        selectedPlan
-                          ? `&plan=${encodeURIComponent(selectedPlan)}`
-                          : ""
-                      }${
-                        nextPath ? `&next=${encodeURIComponent(nextPath)}` : ""
-                      }`
-                    : "/signup"
-                }
-                className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
-              >
-                Create Account
-              </Link>
-
-              <Link
-                href="/get-started"
-                className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Back to Get Started
-              </Link>
             </div>
           </div>
         </section>
@@ -541,3 +417,4 @@ export default async function LoginPage({
     </>
   );
 }
+

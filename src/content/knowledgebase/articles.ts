@@ -1441,6 +1441,20 @@ On event day:
 3. Confirm their registration or payment status if needed.
 4. Mark the attendee as checked in or attended.
 
+## Ticket codes and QR codes
+
+For ticketed events, DanceFlow can generate a unique ticket code for each attendee.
+
+That code may appear in the attendee confirmation email and in the event registration tools.
+
+At check-in, staff can:
+
+- Search by attendee name, email, or phone
+- Enter the ticket code manually
+- Scan the attendee QR code when QR scan mode is available
+
+The QR code is tied to the ticket code, so scanning the QR code follows the same check-in rules as entering the code manually.
+
 ## Group class session check-in
 
 Group classes may have multiple class meetings.
@@ -2336,6 +2350,439 @@ Studios should:
 Clients may ask about their data, corrections, or deletion. Studios should have a simple process for handling those requests and should contact DanceFlow support when platform assistance is needed.
 `,
   },
+{
+    slug: "using-early-bird-ticket-pricing",
+    title: "Using Early Bird Ticket Pricing",
+    category: "Events",
+    audience: "public",
+    description:
+      "Learn how to add time-limited early bird pricing to event tickets and how DanceFlow handles the active ticket price.",
+    content: `
+## Overview
+
+Early bird pricing helps create urgency for event registrations by offering a lower price until a cutoff date and time.
+
+Use early bird pricing when you want dancers to register sooner instead of waiting until the last minute.
+
+## When to use early bird pricing
+
+Early bird pricing works well for:
+
+- Workshops
+- Social dance weekends
+- Guest coach events
+- Camps and intensives
+- Competitions and showcases
+- Events where you need earlier registration commitments
+
+## How early bird pricing works
+
+Each ticket type can have its own early bird settings.
+
+A ticket can have:
+
+- Regular price
+- Early bird price
+- Early bird cutoff date and time
+- Early bird enabled or disabled
+
+When early bird pricing is active, public event pages and registration forms show the early bird price.
+
+After the cutoff passes, DanceFlow uses the regular ticket price.
+
+## Checkout price protection
+
+The checkout price is calculated by DanceFlow at checkout time.
+
+This means the public page can show the active price, but the server still confirms whether the early bird price is valid before payment is created.
+
+This helps prevent someone from using an outdated page or cart to get an expired discount.
+
+## Best practice
+
+Set the early bird cutoff clearly and leave enough time between the cutoff and the event date.
+
+For example:
+
+- Early bird ends 2 weeks before the event
+- Regular pricing continues until sales close
+- Ticket sales close shortly before the event or when capacity is reached
+
+Clear pricing helps reduce confusion and support questions.
+`,
+  },
+  {
+    slug: "understanding-public-event-pages-and-the-event-cart",
+    title: "Understanding Public Event Pages and the Event Cart",
+    category: "Events",
+    audience: "public",
+    description:
+      "Learn how public event pages organize event details, tickets, private lessons, schedules, locations, and checkout.",
+    content: `
+## Overview
+
+Public event pages are designed to help dancers quickly understand an event and take action.
+
+A public event page may include:
+
+- Event overview
+- Tickets
+- Guest coach private lesson slots
+- Event schedule or agenda
+- Location details
+- Policies and additional details
+
+## Why event pages use tabs
+
+Tabs keep the page easier to read, especially on mobile.
+
+Instead of forcing visitors to scroll through one long page, tabs help them jump directly to the information they care about.
+
+Common tabs include:
+
+- Overview
+- Tickets
+- Private Lessons
+- Schedule
+- Location
+- Details
+
+## How the event cart works
+
+The event cart keeps track of selected event items.
+
+Depending on the event setup, the cart may include:
+
+- Registration tickets
+- Spectator tickets
+- Guest coach private lesson slots
+
+The cart helps dancers see what they selected and continue to checkout without losing their place.
+
+## Why the cart stays visible
+
+When an event has multiple tabs, a visitor might add a ticket on one tab and a private lesson on another.
+
+A persistent cart helps keep the checkout path clear.
+
+On desktop, the cart may appear as a side panel.
+
+On mobile, it may appear as a bottom cart bar.
+
+## Best practice
+
+Keep event pages focused on the buyer journey:
+
+- Make the event name, date, and location easy to find
+- Put tickets and registration options in a clear place
+- Use the schedule tab for agenda details
+- Use the details tab for policies, refund notes, and extra information
+
+A clear public event page can turn interest into registrations more effectively.
+`,
+  },
+  {
+    slug: "turning-event-registrations-into-crm-leads",
+    title: "Turning Event Registrations into CRM Leads",
+    category: "Public Discovery & Leads",
+    audience: "public",
+    description:
+      "Learn how studio-owned event registrations can help build your DanceFlow CRM and support follow-up.",
+    content: `
+## Overview
+
+Event registrations are not just sales.
+
+They can also become useful CRM leads for future follow-up.
+
+When someone registers for a studio-owned event, DanceFlow can connect that person to the studio CRM so the studio can continue the relationship after the event.
+
+## What happens after a studio-owned registration
+
+When a paid registration is confirmed, DanceFlow can:
+
+- Look for an existing client or lead with the same email
+- Link the registration to that existing record when found
+- Create a new lead when no matching record exists
+- Mark the source as an event registration
+- Alert the studio that a new event registration lead came in
+
+## Why this matters
+
+Studios often meet new dancers through workshops, socials, camps, and guest coach events.
+
+Capturing those registrants in the CRM helps staff follow up with:
+
+- Trial lesson offers
+- Class recommendations
+- Package options
+- Future events
+- Post-event thank-you messages
+
+## Studio-owned events vs organizer-owned events
+
+Studio-owned events can feed the studio CRM.
+
+Organizer-owned events may use a separate organizer contact and audience workflow in a later version.
+
+This separation helps keep studio CRM records and organizer event contacts clean.
+
+## Best practice
+
+After an event, review new event registration leads and decide the next follow-up step.
+
+Useful follow-up ideas include:
+
+- Thank attendees for coming
+- Invite them to a related class
+- Offer an intro lesson
+- Share upcoming events
+- Ask for feedback
+
+A good follow-up process helps one-time event attendees become repeat students or clients.
+`,
+  },
+  {
+    slug: "creating-a-marketing-campaign",
+    title: "Creating a Marketing Campaign",
+    category: "Marketing",
+    audience: "public",
+    description:
+      "Learn the basic steps for drafting, previewing, testing, and sending a DanceFlow marketing campaign.",
+    content: `
+## Overview
+
+Marketing campaigns help studios communicate with leads and clients from inside DanceFlow.
+
+Campaigns can be used for:
+
+- Upcoming event announcements
+- Trial lesson follow-up
+- Inactive client outreach
+- Low package credit reminders
+- Class and workshop promotions
+
+## Basic campaign workflow
+
+A simple campaign workflow is:
+
+1. Open Marketing Campaigns.
+2. Create a new campaign draft.
+3. Choose the campaign audience.
+4. Write the subject, preview text, and email body.
+5. Preview the audience.
+6. Send a test email.
+7. Review the final confirmation details.
+8. Send the campaign.
+
+## Audience preview
+
+Before sending, review the audience preview.
+
+This helps confirm the campaign is going to the right contacts.
+
+Audience rules may include leads, clients, inactive clients, clients with no upcoming lesson, or clients with low package credits.
+
+## Test emails
+
+Always send a test email before sending to the full audience.
+
+Check:
+
+- Subject line
+- Preview text
+- Spacing and formatting
+- Links
+- Call to action
+- Footer information
+
+## Consent and unsubscribes
+
+Only send marketing emails to contacts you are allowed to email.
+
+DanceFlow can suppress unsubscribed contacts, but each studio is responsible for using marketing tools responsibly.
+
+Marketing emails should include the studio's required footer information and a clear unsubscribe option.
+
+## Best practice
+
+Keep campaigns focused.
+
+A strong campaign usually has:
+
+- One main message
+- One clear call to action
+- A simple next step
+- A subject line that matches the email content
+`,
+  },
+  {
+    slug: "understanding-marketing-audiences",
+    title: "Understanding Marketing Audiences",
+    category: "Marketing",
+    audience: "public",
+    description:
+      "Learn how DanceFlow marketing audiences help studios send more targeted messages to leads and clients.",
+    content: `
+## Overview
+
+Marketing audiences help studios send the right message to the right people.
+
+Instead of sending every message to every contact, audiences make campaigns more targeted.
+
+## Examples of useful audiences
+
+Common audiences may include:
+
+- All active clients
+- New leads
+- Inactive clients
+- Clients with no upcoming lesson
+- Clients with low package credits
+- Event registrants
+- Checked-in event attendees
+
+Some audiences may depend on your subscription tier or the features currently enabled in your workspace.
+
+## Why targeted audiences matter
+
+Targeted campaigns usually perform better because the message is more relevant.
+
+For example:
+
+- Low package credit clients may need a package renewal reminder.
+- Event registrants may need a post-event follow-up.
+- Inactive clients may need a friendly reactivation message.
+- Leads may need a clear invitation to schedule their first lesson.
+
+## Audience preview
+
+Before sending a campaign, review the audience preview.
+
+Look for:
+
+- Expected recipient count
+- Suppressed or unsubscribed contacts
+- Contacts that do not belong in the audience
+- Missing contacts that may need updated CRM information
+
+## Best practice
+
+Start with simple audiences.
+
+Once the studio is comfortable, use more specific audiences for better follow-up and stronger conversion.
+`,
+  },
+  {
+    slug: "setting-up-team-members-and-front-desk-access",
+    title: "Setting Up Team Members and Front Desk Access",
+    category: "Getting Started",
+    audience: "public",
+    description:
+      "Learn how studios can think about team access for owners, instructors, admins, and front desk staff.",
+    content: `
+## Overview
+
+Dance studios often have more than one person helping with daily operations.
+
+A studio may need access for:
+
+- Studio owners
+- Admin staff
+- Front desk staff
+- Instructors
+- Independent instructors
+- Event staff
+
+## Why role access matters
+
+Not every team member needs the same permissions.
+
+For example, an owner may need billing, reports, settings, and team management.
+
+A front desk staff member may need clients, schedule, check-in, payments, and tickets, but may not need full owner-level settings.
+
+An instructor may need schedule and student information without full billing or admin control.
+
+## Inviting team members
+
+When team invitations are available in your workspace, use the team settings area to invite staff.
+
+Before inviting someone, decide:
+
+- What tasks they need to complete
+- Whether they should see financial details
+- Whether they should manage events or tickets
+- Whether they should access settings
+- Whether they should manage clients or only view schedules
+
+## Best practice
+
+Start with the least access someone needs to do their job.
+
+Review team access regularly, especially when staff roles change.
+
+This keeps the workspace cleaner and helps protect client and payment information.
+`,
+  },
+  {
+    slug: "using-share-buttons-for-studios-and-events",
+    title: "Using Share Buttons for Studios and Events",
+    category: "Public Discovery & Leads",
+    audience: "public",
+    description:
+      "Learn how public share buttons can help studios and organizers promote studio profiles and event pages.",
+    content: `
+## Overview
+
+Public studio and event pages are easier to promote when visitors can share them quickly.
+
+DanceFlow public pages may include share buttons so dancers, studios, and organizers can copy or share the current page link.
+
+## Where share buttons help
+
+Share buttons are useful for:
+
+- Studio profile pages
+- Public event pages
+- Workshop announcements
+- Social dance events
+- Competitions and showcases
+- Guest coach events
+
+## How sharing works
+
+When supported by the device or browser, the share button can open the native share menu.
+
+This may let someone share the page through text message, email, social apps, or other installed apps.
+
+When native sharing is not available, the page can fall back to copying the link.
+
+## Why this matters
+
+Sharing helps public pages travel beyond the original audience.
+
+A dancer might share an event with a partner.
+
+A studio owner might share a public event page on social media.
+
+An organizer might send the event link directly to instructors, competitors, or attendees.
+
+## Best practice
+
+Before sharing, make sure the public page has the correct:
+
+- Event name
+- Date and time
+- Location
+- Ticket options
+- Registration details
+- Public visibility settings
+
+A complete public page makes shared links more effective.
+`,
+  },
+
 ];
 
 export function getPublicKnowledgebaseArticles() {
@@ -2355,4 +2802,6 @@ export function getKnowledgebaseCategories() {
     ),
   );
 }
+
+
 
