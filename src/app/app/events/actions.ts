@@ -2606,12 +2606,19 @@ export async function duplicateEventAction(formData: FormData) {
         .select(
           `
           name,
+          description,
+          ticket_kind,
           price,
           currency,
           capacity,
           active,
           sale_starts_at,
-          sale_ends_at
+          sale_ends_at,
+          early_bird_enabled,
+          early_bird_price,
+          early_bird_ends_at,
+          attendees_per_ticket,
+          sort_order
         `,
         )
         .eq("event_id", eventId),
@@ -2744,12 +2751,19 @@ export async function duplicateEventAction(formData: FormData) {
             event_id: duplicatedEvent.id,
             studio_id: studioId,
             name: ticket.name,
+            description: ticket.description ?? null,
+            ticket_kind: ticket.ticket_kind ?? "general",
             price: ticket.price,
             currency: ticket.currency,
             capacity: ticket.capacity,
             active: ticket.active,
             sale_starts_at: ticket.sale_starts_at,
             sale_ends_at: ticket.sale_ends_at,
+            early_bird_enabled: ticket.early_bird_enabled ?? false,
+            early_bird_price: ticket.early_bird_price ?? null,
+            early_bird_ends_at: ticket.early_bird_ends_at ?? null,
+            attendees_per_ticket: ticket.attendees_per_ticket ?? 1,
+            sort_order: ticket.sort_order ?? null,
           })),
         );
 
@@ -2838,8 +2852,5 @@ export async function duplicateEventAction(formData: FormData) {
 
   redirect(redirectTo);
 }
-
-
-
 
 

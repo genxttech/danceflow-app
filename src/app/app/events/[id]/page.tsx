@@ -6,6 +6,7 @@ import {
   createTicketTypeAction,
   updateTicketTypeAction,
 } from "./tickets/actions";
+import { duplicateEventAction } from "../actions";
 
 type TicketTypeRow = {
   id: string;
@@ -281,6 +282,16 @@ export default async function EventTicketsPage({
                 Manage Private Lessons
               </Link>
             ) : null}
+            <form action={duplicateEventAction}>
+              <input type="hidden" name="eventId" value={typedEvent.id} />
+              <button
+                type="submit"
+                className="inline-flex w-full items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+              >
+                Duplicate Event
+              </button>
+            </form>
+
             <Link
               href={`/events/${typedEvent.slug}`}
               className="inline-flex items-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#5B197A] transition hover:bg-[#F9F1FF]"
@@ -747,10 +758,6 @@ export default async function EventTicketsPage({
     </div>
   );
 }
-
-
-
-
 
 
 

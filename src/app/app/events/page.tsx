@@ -14,6 +14,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import CopyCalendarFeedButton from "@/components/app/CopyCalendarFeedButton";
+import { duplicateEventAction } from "./actions";
 
 type EventRow = {
   id: string;
@@ -1162,6 +1163,16 @@ export default async function EventsPage() {
                           Check-In
                         </Link>
                       </div>
+
+                      <form action={duplicateEventAction}>
+                        <input type="hidden" name="eventId" value={event.id} />
+                        <button
+                          type="submit"
+                          className="inline-flex w-full items-center justify-center rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-medium text-orange-800 hover:bg-orange-100"
+                        >
+                          Duplicate Event
+                        </button>
+                      </form>
 
                       <Link
                         href={`/events/${event.slug}`}
