@@ -2461,6 +2461,7 @@ export async function updateEventAction(
 export async function duplicateEventAction(formData: FormData) {
   const eventId = getString(formData, "eventId");
   let redirectTo = "/app/events";
+  let duplicatedEventId: string | null = null;
 
   if (!eventId) {
     redirect("/app/events");
@@ -2586,6 +2587,9 @@ export async function duplicateEventAction(formData: FormData) {
         }`,
       );
     }
+
+    duplicatedEventId = duplicatedEvent.id;
+    redirectTo = `/app/events/${duplicatedEvent.id}/edit?duplicated=1`;
 
     const [
       { data: sourceTags, error: tagsError },
@@ -2845,9 +2849,15 @@ export async function duplicateEventAction(formData: FormData) {
         ? error.message
         : "Could not duplicate this event.";
 
-    redirectTo = `/app/events/${encodeURIComponent(eventId)}?error=${encodeURIComponent(
-      message,
-    )}`;
+    if (duplicatedEventId) {
+      redirectTo = `/app/events/${duplicatedEventId}/edit?duplicated=1&warning=${encodeURIComponent(
+        `Event was duplicated, but one or more related items could not be copied: ${message}`,
+      )}`;
+    } else {
+      redirectTo = `/app/events/${encodeURIComponent(eventId)}?error=${encodeURIComponent(
+        message,
+      )}`;
+    }
   }
 
   redirect(redirectTo);

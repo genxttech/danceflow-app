@@ -31,6 +31,7 @@ type TicketTypeRow = {
 type RegistrationFormProps = {
   eventSlug: string;
   ticketTypes: TicketTypeRow[];
+    eventTimezone?: string;
   currentUserEmail?: string;
   isSoldOut?: boolean;
   waitlistEnabled?: boolean;
@@ -79,10 +80,11 @@ function activeTicketPrice(ticket: TicketTypeRow) {
   };
 }
 
-function formatDateTime(value: string | null) {
+function formatDateTime(value: string | null, timeZone = "America/New_York") {
   if (!value) return "—";
 
   return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -104,7 +106,11 @@ function ticketKindLabel(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function ticketStatusMeta(ticket: TicketTypeRow, waitlistEnabled: boolean) {
+function ticketStatusMeta(
+  ticket: TicketTypeRow,
+  waitlistEnabled: boolean,
+  eventTimezone = "America/New_York",
+) {
   const now = Date.now();
 
   if (!ticket.active) {
@@ -123,7 +129,7 @@ function ticketStatusMeta(ticket: TicketTypeRow, waitlistEnabled: boolean) {
       soldOut: false,
       label: "Not on sale yet",
       className: "bg-slate-100 text-slate-700",
-      helper: `Sales open ${formatDateTime(ticket.sale_starts_at)}.`,
+      helper: `Sales open ${formatDateTime(ticket.sale_starts_at, eventTimezone)}.`,
     };
   }
 
@@ -133,7 +139,7 @@ function ticketStatusMeta(ticket: TicketTypeRow, waitlistEnabled: boolean) {
       soldOut: false,
       label: "Sales ended",
       className: "bg-slate-100 text-slate-700",
-      helper: `Sales ended ${formatDateTime(ticket.sale_ends_at)}.`,
+      helper: `Sales ended ${formatDateTime(ticket.sale_ends_at, eventTimezone)}.`,
     };
   }
 
@@ -171,6 +177,7 @@ function ticketStatusMeta(ticket: TicketTypeRow, waitlistEnabled: boolean) {
 export default function RegistrationForm({
   eventSlug,
   ticketTypes,
+  eventTimezone = "America/New_York",
   currentUserEmail = "",
   isSoldOut = false,
   waitlistEnabled = false,
@@ -183,7 +190,7 @@ export default function RegistrationForm({
   const ticketOptions = useMemo(() => {
     return ticketTypes.map((ticket) => ({
       ...ticket,
-      meta: ticketStatusMeta(ticket, waitlistEnabled),
+      meta: ticketStatusMeta(ticket, waitlistEnabled, eventTimezone),
     }));
   }, [ticketTypes, waitlistEnabled]);
 
@@ -423,8 +430,8 @@ export default function RegistrationForm({
 
                   <div className="mt-3 space-y-1 text-xs text-slate-500">
                     <p>{ticket.meta.helper}</p>
-                    <p>Sale starts: {formatDateTime(ticket.sale_starts_at)}</p>
-                    <p>Sale ends: {formatDateTime(ticket.sale_ends_at)}</p>
+                    <p>Sale starts: {formatDateTime(ticket.sale_starts_at, eventTimezone)}</p>
+<p>Sale ends: {formatDateTime(ticket.sale_ends_at, eventTimezone)}</p>
                   </div>
                 </button>
               );

@@ -583,9 +583,11 @@ function formatEventSchedule(event: EventRow) {
     .join(" · ");
 }
 
-function formatDateTime(value: string | null) {
+function formatDateTime(value: string | null, timeZone = "America/New_York") {
   if (!value) return "—";
+
   return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -2257,7 +2259,7 @@ export default async function PublicEventDetailPage({
                                 ) : null}
                                 {ticket.sale_ends_at ? (
                                   <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
-                                    Ends {formatDateTime(ticket.sale_ends_at)}
+                                    Ends {formatDateTime(ticket.sale_ends_at, typedEvent.timezone)}
                                   </span>
                                 ) : null}
                               </div>
@@ -2382,7 +2384,7 @@ export default async function PublicEventDetailPage({
                           Opens
                         </p>
                         <p className="mt-1 font-medium text-slate-900">
-                          {formatDateTime(typedEvent.registration_opens_at)}
+                          {formatDateTime(typedEvent.registration_opens_at, typedEvent.timezone)}
                         </p>
                       </div>
                       <div>
@@ -2390,7 +2392,7 @@ export default async function PublicEventDetailPage({
                           Closes
                         </p>
                         <p className="mt-1 font-medium text-slate-900">
-                          {formatDateTime(typedEvent.registration_closes_at)}
+                          {formatDateTime(typedEvent.registration_closes_at, typedEvent.timezone)}
                         </p>
                       </div>
                       <div>
@@ -2489,6 +2491,7 @@ export default async function PublicEventDetailPage({
                             <RegistrationForm
                               eventSlug={typedEvent.slug}
                               ticketTypes={visibleTicketTypes}
+                                eventTimezone={typedEvent.timezone}
                               currentUserEmail={user?.email ?? ""}
                               isSoldOut={eventSoldOut}
                               waitlistEnabled={typedEvent.waitlist_enabled}
@@ -2501,6 +2504,7 @@ export default async function PublicEventDetailPage({
                             <RegistrationForm
                               eventSlug={typedEvent.slug}
                               ticketTypes={allActiveTicketTypes}
+                                eventTimezone={typedEvent.timezone}
                               currentUserEmail={user?.email ?? ""}
                               isSoldOut={true}
                               waitlistEnabled={typedEvent.waitlist_enabled}
