@@ -226,13 +226,14 @@ function getBaseDate(raw?: string) {
   return new Date().toISOString().slice(0, 10);
 }
 
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString([], {
+function formatDateTime(value: string, timeZone = CLOSEOUT_TIME_ZONE) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+  }).format(new Date(value));
 }
 
 function formatDate(value: string) {
@@ -1954,4 +1955,6 @@ export default async function SchedulePage({
     </div>
   );
 }
+
+
 

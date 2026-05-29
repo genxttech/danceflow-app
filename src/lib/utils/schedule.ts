@@ -42,9 +42,15 @@ export function formatShortDate(date: Date) {
   });
 }
 
-export function formatTime(dateString: string) {
-  return new Date(dateString).toLocaleTimeString("en-US", {
+const DEFAULT_SCHEDULE_TIME_ZONE = "America/New_York";
+
+export function formatTime(
+  dateString: string,
+  timeZone = DEFAULT_SCHEDULE_TIME_ZONE,
+) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
-  });
+  }).format(new Date(dateString));
 }

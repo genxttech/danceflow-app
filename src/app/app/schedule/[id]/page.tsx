@@ -127,31 +127,36 @@ type LessonRecapRow = {
   video_uploaded_at: string | null;
 };
 
+const APPOINTMENT_DISPLAY_TIME_ZONE = "America/New_York";
+
 function formatDateTime(value: string) {
-  return new Date(value).toLocaleString([], {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: APPOINTMENT_DISPLAY_TIME_ZONE,
     weekday: "short",
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+  }).format(new Date(value));
 }
 
 function formatDateOnly(value: string) {
-  return new Date(value).toLocaleDateString([], {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: APPOINTMENT_DISPLAY_TIME_ZONE,
     weekday: "short",
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
+  }).format(new Date(value));
 }
 
 function formatTimeOnly(value: string) {
-  return new Date(value).toLocaleTimeString([], {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: APPOINTMENT_DISPLAY_TIME_ZONE,
     hour: "numeric",
     minute: "2-digit",
-  });
+  }).format(new Date(value));
 }
 
 function appointmentTypeLabel(value: string) {
