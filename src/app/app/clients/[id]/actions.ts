@@ -885,3 +885,246 @@ export async function addClientAccountLedgerEntryAction(formData: FormData) {
   redirectWithResult(returnTo, "success", "account_ledger_entry_saved");
 }
 
+
+
+const syllabusProgressStatuses = new Set([
+  "not_started",
+  "introduced",
+  "practicing",
+  "comfortable",
+  "mastered",
+]);
+
+function getOptionalNumber(formData: FormData, key: string) {
+  const rawValue = getString(formData, key);
+  if (!rawValue) return null;
+
+  const parsed = Number(rawValue);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export async function createSyllabusTemplateAction(formData: FormData) {
+  const returnTo = getString(formData, "returnTo") || "/app/clients";
+  const name = getString(formData, "name");
+  const danceStyle = getString(formData, "danceStyle");
+  const level = getString(formData, "level");
+  const description = getString(formData, "description");
+
+  if (!name) {
+    redirectWithResult(returnTo, "error", "syllabus_template_name_required");
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+
+  const { error } = await supabase.from("syllabus_templates").insert({
+    studio_id: studioId,
+    name,
+    dance_style: danceStyle || null,
+    level: level || null,
+    description: description || null,
+    active: true,
+  });
+
+  if (error) {
+    redirectWithResult(returnTo, "error", "syllabus_template_create_failed");
+  }
+
+  revalidatePath(returnTo.split("?")[0] || "/app/clients");
+  redirectWithResult(returnTo, "success", "syllabus_template_created");
+}
+
+export async function addSyllabusTemplateItemAction(formData: FormData) {
+  const returnTo = getString(formData, "returnTo") || "/app/clients";
+  const templateId = getString(formData, "templateId");
+  const title = getString(formData, "title");
+  const category = getString(formData, "category");
+  const description = getString(formData, "description");
+  const sortOrder = getOptionalNumber(formData, "sortOrder");
+
+  if (!templateId || !title) {
+    redirectWithResult(returnTo, "error", "syllabus_item_missing_required_fields");
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+
+  const { data: template, error: templateError } = await supabase
+    .from("syllabus_templates")
+    .select("id")
+    .eq("id", templateId)
+    .eq("studio_id", studioId)
+    .single();
+
+  if (templateError || !template) {
+    redirectWithResult(returnTo, "error", "syllabus_template_not_found");
+  }
+
+  const { error } = await supabase.from("syllabus_template_items").insert({
+    studio_id: studioId,
+    template_id: templateId,
+    title,
+    category: category || null,
+    description: description || null,
+    sort_order: sortOrder,
+    active: true,
+  });
+
+  if (error) {
+    redirectWithResult(returnTo, "error", "syllabus_item_create_failed");
+  }
+
+  revalidatePath(returnTo.split("?")[0] || "/app/clients");
+  redirectWithResult(returnTo, "success", "syllabus_item_created");
+}
+
+export async function assignSyllabusTemplateToClientAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}?tab=syllabus`;
+  const templateId = getString(formData, "templateId");
+  const showInPortal = formData.get("showInPortal") === "on";
+
+  if (!clientId || !templateId) {
+    redirectWithResult(returnTo, "error", "syllabus_assignment_missing_required_fields");
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+
+  await getStudioClientOrRedirect({
+    supabase,
+    studioId,
+    clientId,
+    returnTo,
+  });
+
+  const { data: template, error: templateError } = await supabase
+    .from("syllabus_templates")
+    .select("id")
+    .eq("id", templateId)
+    .eq("studio_id", studioId)
+    .eq("active", true)
+    .single();
+
+  if (templateError || !template) {
+    redirectWithResult(returnTo, "error", "syllabus_template_not_found");
+  }
+
+  const { error } = await supabase
+    .from("client_syllabus_assignments")
+    .upsert(
+      {
+        studio_id: studioId,
+        client_id: clientId,
+        template_id: templateId,
+        status: "active",
+        show_in_portal: showInPortal,
+      },
+      {
+        onConflict: "client_id,template_id",
+      }
+    );
+
+  if (error) {
+    redirectWithResult(returnTo, "error", "syllabus_assignment_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  redirectWithResult(returnTo, "success", "syllabus_assigned");
+}
+
+export async function updateClientSyllabusProgressAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}?tab=syllabus`;
+  const assignmentId = getString(formData, "assignmentId");
+  const templateItemId = getString(formData, "templateItemId");
+  const statusRaw = getString(formData, "status") || "not_started";
+  const status = syllabusProgressStatuses.has(statusRaw) ? statusRaw : "not_started";
+  const instructorNotes = getString(formData, "instructorNotes");
+  const showNotesInPortal = formData.get("showNotesInPortal") === "on";
+
+  if (!clientId || !assignmentId || !templateItemId) {
+    redirectWithResult(returnTo, "error", "syllabus_progress_missing_required_fields");
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { data: assignment, error: assignmentError } = await supabase
+    .from("client_syllabus_assignments")
+    .select("id, template_id")
+    .eq("id", assignmentId)
+    .eq("client_id", clientId)
+    .eq("studio_id", studioId)
+    .eq("status", "active")
+    .single();
+
+  if (assignmentError || !assignment) {
+    redirectWithResult(returnTo, "error", "syllabus_assignment_not_found");
+  }
+
+  const { data: templateItem, error: itemError } = await supabase
+    .from("syllabus_template_items")
+    .select("id")
+    .eq("id", templateItemId)
+    .eq("template_id", assignment.template_id)
+    .eq("studio_id", studioId)
+    .single();
+
+  if (itemError || !templateItem) {
+    redirectWithResult(returnTo, "error", "syllabus_item_not_found");
+  }
+
+  const { error } = await supabase
+    .from("client_syllabus_progress")
+    .upsert(
+      {
+        studio_id: studioId,
+        client_id: clientId,
+        assignment_id: assignmentId,
+        template_item_id: templateItemId,
+        status,
+        instructor_notes: instructorNotes || null,
+        show_notes_in_portal: showNotesInPortal,
+        updated_by: userData.user?.id ?? null,
+        updated_at: new Date().toISOString(),
+      },
+      {
+        onConflict: "assignment_id,template_item_id",
+      }
+    );
+
+  if (error) {
+    redirectWithResult(returnTo, "error", "syllabus_progress_save_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  redirectWithResult(returnTo, "success", "syllabus_progress_saved");
+}
+
+export async function removeClientSyllabusAssignmentAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}?tab=syllabus`;
+  const assignmentId = getString(formData, "assignmentId");
+
+  if (!clientId || !assignmentId) {
+    redirectWithResult(returnTo, "error", "syllabus_assignment_missing_required_fields");
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+
+  const { error } = await supabase
+    .from("client_syllabus_assignments")
+    .update({
+      status: "archived",
+    })
+    .eq("id", assignmentId)
+    .eq("client_id", clientId)
+    .eq("studio_id", studioId);
+
+  if (error) {
+    redirectWithResult(returnTo, "error", "syllabus_assignment_remove_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  redirectWithResult(returnTo, "success", "syllabus_assignment_removed");
+}
+
+

@@ -12,6 +12,7 @@ import { completeLeadFollowUpAction } from "@/app/app/leads/activity-actions";
 import QuickActionPanel from "@/components/ui/QuickActionPanel";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
 import QuickPaymentPanel from "./QuickPaymentPanel";
+import ClientSyllabusTab from "./ClientSyllabusTab";
 import {
   linkPartnerAction,
   linkPortalAccessAction,
@@ -1067,6 +1068,8 @@ export default async function ClientDetailPage({
     { data: membershipPlans, error: membershipPlansError },
     { data: activeMembership, error: activeMembershipError },
     { data: eventRegistrations, error: eventRegistrationsError },
+    { data: syllabusTemplates, error: syllabusTemplatesError },
+    { data: clientSyllabusAssignments, error: clientSyllabusAssignmentsError },
   ] = await Promise.all([
     supabase.from("studios").select("id, name, slug").eq("id", studioId).single(),
 
@@ -1287,6 +1290,66 @@ export default async function ClientDetailPage({
       .eq("client_id", id)
       .order("created_at", { ascending: false })
       .limit(12),
+
+    supabase
+      .from("syllabus_templates")
+      .select(`
+        id,
+        name,
+        dance_style,
+        level,
+        description,
+        active,
+        created_at,
+        syllabus_template_items (
+          id,
+          title,
+          category,
+          description,
+          sort_order,
+          active
+        )
+      `)
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .order("name", { ascending: true }),
+
+    supabase
+      .from("client_syllabus_assignments")
+      .select(`
+        id,
+        template_id,
+        status,
+        show_in_portal,
+        assigned_at,
+        syllabus_templates (
+          id,
+          name,
+          dance_style,
+          level,
+          description,
+          syllabus_template_items (
+            id,
+            title,
+            category,
+            description,
+            sort_order,
+            active
+          )
+        ),
+        client_syllabus_progress (
+          id,
+          template_item_id,
+          status,
+          instructor_notes,
+          show_notes_in_portal,
+          updated_at
+        )
+      `)
+      .eq("studio_id", studioId)
+      .eq("client_id", id)
+      .eq("status", "active")
+      .order("assigned_at", { ascending: false }),
   ]);
 
   if (clientError || !client) {
@@ -1308,6 +1371,10 @@ export default async function ClientDetailPage({
   if (membershipPlansError) throw new Error(`Failed to load membership plans: ${membershipPlansError.message}`);
   if (activeMembershipError) throw new Error(`Failed to load active membership: ${activeMembershipError.message}`);
   if (eventRegistrationsError) throw new Error(`Failed to load event registrations: ${eventRegistrationsError.message}`);
+  if (syllabusTemplatesError) throw new Error(`Failed to load syllabus templates: ${syllabusTemplatesError.message}`);
+  if (clientSyllabusAssignmentsError) {
+    throw new Error(`Failed to load client syllabus progress: ${clientSyllabusAssignmentsError.message}`);
+  }
 
   const typedStudio = studio as StudioRecord;
   const typedClient = client as ClientRecord;
@@ -1329,6 +1396,8 @@ export default async function ClientDetailPage({
       }
     : null;
   const typedEventRegistrations = (eventRegistrations ?? []) as EventRegistrationRow[];
+  const typedSyllabusTemplates = (syllabusTemplates ?? []) as any[];
+  const typedClientSyllabusAssignments = (clientSyllabusAssignments ?? []) as any[];
 
   const { data: linkedRelationship, error: linkedRelationshipError } = await supabase
     .from("client_relationships")
@@ -1802,22 +1871,14 @@ export default async function ClientDetailPage({
       ) : null}
 
       {activeTab === "syllabus" ? (
-        <SectionCard
-          title="Syllabus"
-          subtitle="Future student progress tracking for dance figures, levels, and instructor notes."
-          action={
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-              Placeholder
-            </span>
-          }
-        >
-          <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
-            <p className="font-medium text-[var(--brand-text)]">Dance figure syllabus tracking is coming soon.</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Instructors will be able to assign or upload a dance figure syllabus to this student and check off figures as they are introduced, practiced, and completed.
-            </p>
-          </div>
-        </SectionCard>
+        <ClientSyllabusTab
+          clientId={typedClient.id}
+          clientName={`${typedClient.first_name} ${typedClient.last_name}`.trim()}
+          canEdit={canEditClients(role)}
+          returnTo={`/app/clients/${typedClient.id}?tab=syllabus`}
+          templates={typedSyllabusTemplates}
+          assignments={typedClientSyllabusAssignments}
+        />
       ) : null}
 
       {activeTab === "overview" && typedClient.status === "lead" ? (
