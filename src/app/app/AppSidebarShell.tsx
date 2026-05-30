@@ -10,6 +10,7 @@ import {
   UserRoundPlus,
   CalendarDays,
   GraduationCap,
+  BookOpen,
   DoorOpen,
   Package,
   CreditCard,
@@ -117,6 +118,7 @@ function getIcon(icon: string) {
   if (icon === "dashboard") return LayoutDashboard;
   if (icon === "leads") return UserRoundPlus;
   if (icon === "clients") return Users;
+  if (icon === "syllabus") return BookOpen;
   if (icon === "schedule") return CalendarDays;
   if (icon === "events") return CalendarDays;
   if (icon === "tickets") return Ticket;
@@ -226,7 +228,7 @@ function isRedundantDiscoveryChild(item: NavItem) {
 
 function removeRedundantDiscoveryLinks(sections: NavSectionType[]) {
   const hasDiscoveryHome = sections.some((section) =>
-    section.items.some(isDiscoveryHomeItem)
+    section.items.some(isDiscoveryHomeItem),
   );
 
   if (!hasDiscoveryHome) {
@@ -241,7 +243,106 @@ function removeRedundantDiscoveryLinks(sections: NavSectionType[]) {
     .filter((section) => section.items.length > 0);
 }
 
-function injectEventWorkflowLinks(sections: NavSectionType[]): NavSectionType[] {
+function injectSyllabusLink(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const hasSyllabus = flatItems.some((item) => item.href === "/app/syllabus");
+
+  if (hasSyllabus) {
+    return sections;
+  }
+
+  const syllabusItem: NavItem = {
+    label: "Syllabus",
+    href: "/app/syllabus",
+    icon: "syllabus",
+  };
+
+  const peopleSectionIndex = sections.findIndex((section) => {
+    const title = section.title.trim().toLowerCase();
+
+    return (
+      title === "people" ||
+      title === "clients" ||
+      title === "crm" ||
+      section.items.some(
+        (item) =>
+          item.href === "/app/clients" ||
+          item.href === "/app/leads" ||
+          item.href === "/app/instructors",
+      )
+    );
+  });
+
+  if (peopleSectionIndex >= 0) {
+    return sections.map((section, index) => {
+      if (index !== peopleSectionIndex) {
+        return section;
+      }
+
+      const clientsIndex = section.items.findIndex(
+        (item) => item.href === "/app/clients",
+      );
+
+      if (clientsIndex >= 0) {
+        return {
+          ...section,
+          items: [
+            ...section.items.slice(0, clientsIndex + 1),
+            syllabusItem,
+            ...section.items.slice(clientsIndex + 1),
+          ],
+        };
+      }
+
+      const instructorsIndex = section.items.findIndex(
+        (item) => item.href === "/app/instructors",
+      );
+
+      if (instructorsIndex >= 0) {
+        return {
+          ...section,
+          items: [
+            ...section.items.slice(0, instructorsIndex + 1),
+            syllabusItem,
+            ...section.items.slice(instructorsIndex + 1),
+          ],
+        };
+      }
+
+      return {
+        ...section,
+        items: [...section.items, syllabusItem],
+      };
+    });
+  }
+
+  const dashboardIndex = sections.findIndex((section) =>
+    section.items.some((item) => item.href === "/app"),
+  );
+
+  if (dashboardIndex >= 0) {
+    return [
+      ...sections.slice(0, dashboardIndex + 1),
+      {
+        title: "People",
+        items: [syllabusItem],
+      },
+      ...sections.slice(dashboardIndex + 1),
+    ];
+  }
+
+  return [
+    {
+      title: "People",
+      items: [syllabusItem],
+    },
+    ...sections,
+  ];
+}
+
+function injectEventWorkflowLinks(
+  sections: NavSectionType[],
+): NavSectionType[] {
   const flatItems = sections.flatMap((section) => section.items);
   const hasEventsAccess = flatItems.some((item) => item.href === "/app/events");
 
@@ -295,7 +396,7 @@ function injectEventWorkflowLinks(sections: NavSectionType[]): NavSectionType[] 
           item.href !== "/app/events/tickets" &&
           item.href !== "/app/events/sell-tickets" &&
           item.href !== "/app/events/registrations" &&
-          item.href !== "/app/events/checkin"
+          item.href !== "/app/events/checkin",
       ),
     }))
     .filter((section) => section.items.length > 0);
@@ -311,7 +412,7 @@ function injectEventWorkflowLinks(sections: NavSectionType[]): NavSectionType[] 
         (item) =>
           item.href.startsWith("/app/payments") ||
           item.href.startsWith("/app/packages") ||
-          item.href.startsWith("/app/memberships")
+          item.href.startsWith("/app/memberships"),
       )
     );
   });
@@ -325,7 +426,7 @@ function injectEventWorkflowLinks(sections: NavSectionType[]): NavSectionType[] 
   }
 
   const dashboardIndex = cleanedSections.findIndex((section) =>
-    section.items.some((item) => item.href === "/app")
+    section.items.some((item) => item.href === "/app"),
   );
 
   if (dashboardIndex >= 0) {
@@ -388,8 +489,11 @@ function normalizeSections(input: unknown): NavSectionType[] {
     .filter((section) => section.items.length > 0);
 
   const withoutDiscoveryDuplicates = removeRedundantDiscoveryLinks(normalized);
+  const withEventWorkflowLinks = injectEventWorkflowLinks(
+    withoutDiscoveryDuplicates,
+  );
 
-  return injectEventWorkflowLinks(withoutDiscoveryDuplicates);
+  return injectSyllabusLink(withEventWorkflowLinks);
 }
 
 function prettyRole(role: string) {
@@ -672,7 +776,7 @@ export default function AppSidebarShell({
 
   const normalizedSections = useMemo(
     () => normalizeSections(sections),
-    [sections]
+    [sections],
   );
 
   return (

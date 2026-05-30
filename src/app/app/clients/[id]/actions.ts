@@ -886,144 +886,90 @@ export async function addClientAccountLedgerEntryAction(formData: FormData) {
 }
 
 
-
-const syllabusProgressStatuses = new Set([
-  "not_started",
-  "introduced",
-  "practicing",
-  "comfortable",
-  "mastered",
-]);
-
-function getOptionalNumber(formData: FormData, key: string) {
-  const rawValue = getString(formData, key);
-  if (!rawValue) return null;
-
-  const parsed = Number(rawValue);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-export async function createSyllabusTemplateAction(formData: FormData) {
-  const returnTo = getString(formData, "returnTo") || "/app/clients";
-  const name = getString(formData, "name");
-  const danceStyle = getString(formData, "danceStyle");
-  const level = getString(formData, "level");
-  const description = getString(formData, "description");
-
-  if (!name) {
-    redirectWithResult(returnTo, "error", "syllabus_template_name_required");
-  }
-
-  const { supabase, studioId } = await getEditableStudioContext(returnTo);
-
-  const { error } = await supabase.from("syllabus_templates").insert({
-    studio_id: studioId,
-    name,
-    dance_style: danceStyle || null,
-    level: level || null,
-    description: description || null,
-    active: true,
-  });
-
-  if (error) {
-    redirectWithResult(returnTo, "error", "syllabus_template_create_failed");
-  }
-
-  revalidatePath(returnTo.split("?")[0] || "/app/clients");
-  redirectWithResult(returnTo, "success", "syllabus_template_created");
-}
-
-export async function addSyllabusTemplateItemAction(formData: FormData) {
-  const returnTo = getString(formData, "returnTo") || "/app/clients";
-  const templateId = getString(formData, "templateId");
-  const title = getString(formData, "title");
-  const category = getString(formData, "category");
-  const description = getString(formData, "description");
-  const sortOrder = getOptionalNumber(formData, "sortOrder");
-
-  if (!templateId || !title) {
-    redirectWithResult(returnTo, "error", "syllabus_item_missing_required_fields");
-  }
-
-  const { supabase, studioId } = await getEditableStudioContext(returnTo);
-
-  const { data: template, error: templateError } = await supabase
-    .from("syllabus_templates")
-    .select("id")
-    .eq("id", templateId)
-    .eq("studio_id", studioId)
-    .single();
-
-  if (templateError || !template) {
-    redirectWithResult(returnTo, "error", "syllabus_template_not_found");
-  }
-
-  const { error } = await supabase.from("syllabus_template_items").insert({
-    studio_id: studioId,
-    template_id: templateId,
-    title,
-    category: category || null,
-    description: description || null,
-    sort_order: sortOrder,
-    active: true,
-  });
-
-  if (error) {
-    redirectWithResult(returnTo, "error", "syllabus_item_create_failed");
-  }
-
-  revalidatePath(returnTo.split("?")[0] || "/app/clients");
-  redirectWithResult(returnTo, "success", "syllabus_item_created");
-}
-
 export async function assignSyllabusTemplateToClientAction(formData: FormData) {
   const clientId = getString(formData, "clientId");
-  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}?tab=syllabus`;
   const templateId = getString(formData, "templateId");
-  const showInPortal = formData.get("showInPortal") === "on";
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}?tab=syllabus`;
 
   if (!clientId || !templateId) {
-    redirectWithResult(returnTo, "error", "syllabus_assignment_missing_required_fields");
+    redirectWithResult(returnTo, "error", "syllabus_assignment_missing");
   }
 
   const { supabase, studioId } = await getEditableStudioContext(returnTo);
 
-  await getStudioClientOrRedirect({
-    supabase,
-    studioId,
-    clientId,
-    returnTo,
-  });
+  const [{ data: client }, { data: template, error: templateError }] = await Promise.all([
+    supabase.from("clients").select("id").eq("id", clientId).eq("studio_id", studioId).single(),
+    supabase
+      .from("syllabus_templates")
+      .select("id, studio_id")
+      .eq("id", templateId)
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .single(),
+  ]);
 
-  const { data: template, error: templateError } = await supabase
-    .from("syllabus_templates")
-    .select("id")
-    .eq("id", templateId)
-    .eq("studio_id", studioId)
-    .eq("active", true)
-    .single();
-
-  if (templateError || !template) {
-    redirectWithResult(returnTo, "error", "syllabus_template_not_found");
+  if (!client || templateError || !template) {
+    redirectWithResult(returnTo, "error", "syllabus_assignment_not_found");
   }
 
-  const { error } = await supabase
+  const { data: existingAssignment } = await supabase
     .from("client_syllabus_assignments")
-    .upsert(
-      {
+    .select("id, archived_at")
+    .eq("studio_id", studioId)
+    .eq("client_id", clientId)
+    .eq("syllabus_template_id", templateId)
+    .maybeSingle();
+
+  let assignmentId = existingAssignment?.id ?? "";
+
+  if (existingAssignment?.id) {
+    const { error } = await supabase
+      .from("client_syllabus_assignments")
+      .update({
+        archived_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", existingAssignment.id)
+      .eq("studio_id", studioId);
+
+    if (error) redirectWithResult(returnTo, "error", "syllabus_assignment_failed");
+  } else {
+    const { data: createdAssignment, error } = await supabase
+      .from("client_syllabus_assignments")
+      .insert({
         studio_id: studioId,
         client_id: clientId,
-        template_id: templateId,
-        status: "active",
-        show_in_portal: showInPortal,
-      },
-      {
-        onConflict: "client_id,template_id",
-      }
-    );
+        syllabus_template_id: templateId,
+        visible_in_portal: false,
+      })
+      .select("id")
+      .single();
 
-  if (error) {
-    redirectWithResult(returnTo, "error", "syllabus_assignment_failed");
+    if (error || !createdAssignment) {
+      redirectWithResult(returnTo, "error", "syllabus_assignment_failed");
+    }
+
+    assignmentId = createdAssignment.id;
+  }
+
+  const { data: templateItems } = await supabase
+    .from("syllabus_template_items")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("template_id", templateId)
+    .eq("active", true);
+
+  if (assignmentId && templateItems && templateItems.length > 0) {
+    await supabase.from("client_syllabus_progress").upsert(
+      templateItems.map((item) => ({
+        studio_id: studioId,
+        client_id: clientId,
+        assignment_id: assignmentId,
+        template_item_id: item.id,
+        status: "not_started",
+      })),
+      { onConflict: "assignment_id,template_item_id", ignoreDuplicates: true },
+    );
   }
 
   revalidatePath(`/app/clients/${clientId}`);
@@ -1032,64 +978,54 @@ export async function assignSyllabusTemplateToClientAction(formData: FormData) {
 
 export async function updateClientSyllabusProgressAction(formData: FormData) {
   const clientId = getString(formData, "clientId");
-  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}?tab=syllabus`;
   const assignmentId = getString(formData, "assignmentId");
   const templateItemId = getString(formData, "templateItemId");
-  const statusRaw = getString(formData, "status") || "not_started";
-  const status = syllabusProgressStatuses.has(statusRaw) ? statusRaw : "not_started";
-  const instructorNotes = getString(formData, "instructorNotes");
-  const showNotesInPortal = formData.get("showNotesInPortal") === "on";
+  const status = getString(formData, "status") || "not_started";
+  const notes = getString(formData, "notes");
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}?tab=syllabus`;
 
-  if (!clientId || !assignmentId || !templateItemId) {
-    redirectWithResult(returnTo, "error", "syllabus_progress_missing_required_fields");
+  const allowedStatuses = new Set([
+    "not_started",
+    "introduced",
+    "practicing",
+    "comfortable",
+    "mastered",
+  ]);
+
+  if (!clientId || !assignmentId || !templateItemId || !allowedStatuses.has(status)) {
+    redirectWithResult(returnTo, "error", "syllabus_progress_missing");
   }
 
   const { supabase, studioId } = await getEditableStudioContext(returnTo);
-  const { data: userData } = await supabase.auth.getUser();
 
-  const { data: assignment, error: assignmentError } = await supabase
+  const { data: assignment } = await supabase
     .from("client_syllabus_assignments")
-    .select("id, template_id")
+    .select("id")
     .eq("id", assignmentId)
     .eq("client_id", clientId)
     .eq("studio_id", studioId)
-    .eq("status", "active")
+    .is("archived_at", null)
     .single();
 
-  if (assignmentError || !assignment) {
+  if (!assignment) {
     redirectWithResult(returnTo, "error", "syllabus_assignment_not_found");
   }
 
-  const { data: templateItem, error: itemError } = await supabase
-    .from("syllabus_template_items")
-    .select("id")
-    .eq("id", templateItemId)
-    .eq("template_id", assignment.template_id)
-    .eq("studio_id", studioId)
-    .single();
+  const { data: userData } = await supabase.auth.getUser();
 
-  if (itemError || !templateItem) {
-    redirectWithResult(returnTo, "error", "syllabus_item_not_found");
-  }
-
-  const { error } = await supabase
-    .from("client_syllabus_progress")
-    .upsert(
-      {
-        studio_id: studioId,
-        client_id: clientId,
-        assignment_id: assignmentId,
-        template_item_id: templateItemId,
-        status,
-        instructor_notes: instructorNotes || null,
-        show_notes_in_portal: showNotesInPortal,
-        updated_by: userData.user?.id ?? null,
-        updated_at: new Date().toISOString(),
-      },
-      {
-        onConflict: "assignment_id,template_item_id",
-      }
-    );
+  const { error } = await supabase.from("client_syllabus_progress").upsert(
+    {
+      studio_id: studioId,
+      client_id: clientId,
+      assignment_id: assignmentId,
+      template_item_id: templateItemId,
+      status,
+      notes: notes || null,
+      updated_by: userData.user?.id ?? null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "assignment_id,template_item_id" },
+  );
 
   if (error) {
     redirectWithResult(returnTo, "error", "syllabus_progress_save_failed");
@@ -1101,11 +1037,11 @@ export async function updateClientSyllabusProgressAction(formData: FormData) {
 
 export async function removeClientSyllabusAssignmentAction(formData: FormData) {
   const clientId = getString(formData, "clientId");
-  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}?tab=syllabus`;
   const assignmentId = getString(formData, "assignmentId");
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}?tab=syllabus`;
 
   if (!clientId || !assignmentId) {
-    redirectWithResult(returnTo, "error", "syllabus_assignment_missing_required_fields");
+    redirectWithResult(returnTo, "error", "syllabus_assignment_missing");
   }
 
   const { supabase, studioId } = await getEditableStudioContext(returnTo);
@@ -1113,7 +1049,8 @@ export async function removeClientSyllabusAssignmentAction(formData: FormData) {
   const { error } = await supabase
     .from("client_syllabus_assignments")
     .update({
-      status: "archived",
+      archived_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
     .eq("id", assignmentId)
     .eq("client_id", clientId)
@@ -1126,5 +1063,4 @@ export async function removeClientSyllabusAssignmentAction(formData: FormData) {
   revalidatePath(`/app/clients/${clientId}`);
   redirectWithResult(returnTo, "success", "syllabus_assignment_removed");
 }
-
 

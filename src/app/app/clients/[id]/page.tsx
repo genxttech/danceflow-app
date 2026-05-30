@@ -11,8 +11,8 @@ import {
 import { completeLeadFollowUpAction } from "@/app/app/leads/activity-actions";
 import QuickActionPanel from "@/components/ui/QuickActionPanel";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
-import QuickPaymentPanel from "./QuickPaymentPanel";
 import ClientSyllabusTab from "./ClientSyllabusTab";
+import QuickPaymentPanel from "./QuickPaymentPanel";
 import {
   linkPartnerAction,
   linkPortalAccessAction,
@@ -1069,7 +1069,7 @@ export default async function ClientDetailPage({
     { data: activeMembership, error: activeMembershipError },
     { data: eventRegistrations, error: eventRegistrationsError },
     { data: syllabusTemplates, error: syllabusTemplatesError },
-    { data: clientSyllabusAssignments, error: clientSyllabusAssignmentsError },
+    { data: syllabusAssignments, error: syllabusAssignmentsError },
   ] = await Promise.all([
     supabase.from("studios").select("id, name, slug").eq("id", studioId).single(),
 
@@ -1300,7 +1300,6 @@ export default async function ClientDetailPage({
         level,
         description,
         active,
-        created_at,
         syllabus_template_items (
           id,
           title,
@@ -1318,16 +1317,18 @@ export default async function ClientDetailPage({
       .from("client_syllabus_assignments")
       .select(`
         id,
-        template_id,
-        status,
-        show_in_portal,
+        client_id,
+        syllabus_template_id,
         assigned_at,
+        visible_in_portal,
+        archived_at,
         syllabus_templates (
           id,
           name,
           dance_style,
           level,
           description,
+          active,
           syllabus_template_items (
             id,
             title,
@@ -1341,14 +1342,14 @@ export default async function ClientDetailPage({
           id,
           template_item_id,
           status,
-          instructor_notes,
+          notes,
           show_notes_in_portal,
           updated_at
         )
       `)
       .eq("studio_id", studioId)
       .eq("client_id", id)
-      .eq("status", "active")
+      .is("archived_at", null)
       .order("assigned_at", { ascending: false }),
   ]);
 
@@ -1372,9 +1373,7 @@ export default async function ClientDetailPage({
   if (activeMembershipError) throw new Error(`Failed to load active membership: ${activeMembershipError.message}`);
   if (eventRegistrationsError) throw new Error(`Failed to load event registrations: ${eventRegistrationsError.message}`);
   if (syllabusTemplatesError) throw new Error(`Failed to load syllabus templates: ${syllabusTemplatesError.message}`);
-  if (clientSyllabusAssignmentsError) {
-    throw new Error(`Failed to load client syllabus progress: ${clientSyllabusAssignmentsError.message}`);
-  }
+  if (syllabusAssignmentsError) throw new Error(`Failed to load client syllabus assignments: ${syllabusAssignmentsError.message}`);
 
   const typedStudio = studio as StudioRecord;
   const typedClient = client as ClientRecord;
@@ -1396,8 +1395,6 @@ export default async function ClientDetailPage({
       }
     : null;
   const typedEventRegistrations = (eventRegistrations ?? []) as EventRegistrationRow[];
-  const typedSyllabusTemplates = (syllabusTemplates ?? []) as any[];
-  const typedClientSyllabusAssignments = (clientSyllabusAssignments ?? []) as any[];
 
   const { data: linkedRelationship, error: linkedRelationshipError } = await supabase
     .from("client_relationships")
@@ -1869,17 +1866,16 @@ export default async function ClientDetailPage({
           </div>
         </SectionCard>
       ) : null}
-
       {activeTab === "syllabus" ? (
         <ClientSyllabusTab
           clientId={typedClient.id}
-          clientName={`${typedClient.first_name} ${typedClient.last_name}`.trim()}
+          clientName={`${typedClient.first_name ?? ""} ${typedClient.last_name ?? ""}`.trim()}
           canEdit={canEditClients(role)}
-          returnTo={`/app/clients/${typedClient.id}?tab=syllabus`}
-          templates={typedSyllabusTemplates}
-          assignments={typedClientSyllabusAssignments}
+          templates={(syllabusTemplates ?? []) as any}
+          assignments={(syllabusAssignments ?? []) as any}
         />
       ) : null}
+
 
       {activeTab === "overview" && typedClient.status === "lead" ? (
         <SectionCard
