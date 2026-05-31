@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import PortalTabs from "./PortalTabs";
 
 type Params = Promise<{
   studioSlug: string;
@@ -584,28 +585,22 @@ export default async function PortalHomePage({ params }: { params: Params }) {
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
                   {isInstructorPortal
                     ? "DanceFlow Instructor Portal"
-                    : "DanceFlow Client Portal"}
+                    : "DanceFlow Student Portal"}
                 </p>
                 <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
                   Welcome back, {getClientFirstName(typedClient)}
                 </h1>
                 <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
                   {isInstructorPortal
-                    ? "Use this page to see your schedule, manage floor rentals, and get to the tools you use most."
-                    : "Use this page to check your upcoming appointments, view your membership, and stay on top of your studio activity."}
+                    ? "Use your portal to review schedule activity, floor rentals, payments, and account details without digging through long pages."
+                    : "Use your portal to review upcoming lessons, packages, recaps, payments, and account details in a cleaner tabbed layout."}
                 </p>
                 <div className="mt-4 flex flex-wrap gap-3 text-sm text-white/80">
                   <span>
-                    Studio:{" "}
-                    <span className="font-medium text-white">
-                      {studioLabel}
-                    </span>
+                    Studio: <span className="font-medium text-white">{studioLabel}</span>
                   </span>
                   <span>
-                    Portal:{" "}
-                    <span className="font-medium text-white">
-                      {isInstructorPortal ? "Independent Instructor" : "Client"}
-                    </span>
+                    Portal: <span className="font-medium text-white">{isInstructorPortal ? "Independent Instructor" : "Student"}</span>
                   </span>
                 </div>
               </div>
@@ -642,9 +637,7 @@ export default async function PortalHomePage({ params }: { params: Params }) {
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/75">
                   {isInstructorPortal ? "Coming Up" : "Upcoming Appointments"}
                 </p>
-                <p className="mt-3 text-3xl font-semibold text-white">
-                  {upcomingCount}
-                </p>
+                <p className="mt-3 text-3xl font-semibold text-white">{upcomingCount}</p>
               </div>
 
               <div className="rounded-[28px] border border-white/15 bg-white/10 p-5 backdrop-blur-sm">
@@ -660,425 +653,147 @@ export default async function PortalHomePage({ params }: { params: Params }) {
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/75">
                   Active Packages
                 </p>
-                <p className="mt-3 text-3xl font-semibold text-white">
-                  {typedPackages.length}
-                </p>
+                <p className="mt-3 text-3xl font-semibold text-white">{typedPackages.length}</p>
               </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
-              <h2 className="text-lg font-semibold text-sky-950">
-                {isInstructorPortal
-                  ? "See your schedule quickly"
-                  : "See your appointments quickly"}
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-sky-900">
-                {isInstructorPortal
-                  ? "Check your upcoming lessons and floor rentals without digging through extra pages."
-                  : "Check your upcoming lessons and class bookings in one place."}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
-              <h2 className="text-lg font-semibold text-violet-950">
-                {isInstructorPortal
-                  ? "Use the links you need most"
-                  : "Keep your membership in view"}
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-violet-900">
-                {isInstructorPortal
-                  ? "Jump straight to your schedule, booking floor space, or reviewing your rentals."
-                  : "See your current membership details and know what is active right now."}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <h2 className="text-lg font-semibold text-amber-950">
-                {isInstructorPortal
-                  ? "Stay on top of rentals"
-                  : "Stay ready for your next visit"}
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-amber-900">
-                {isInstructorPortal
-                  ? "Review rental dates, payment activity, and what is coming up next."
-                  : "Use your portal to keep track of upcoming appointments and recent studio activity."}
-              </p>
             </div>
           </div>
         </div>
       </section>
 
-      <CardShell
-        title="Quick Actions"
-        accent="sky"
-        subtitle={
-          isInstructorPortal
-            ? "Use these links to move between your schedule, rentals, account details, and workspace access."
-            : "Use these links to view your schedule, packages, payments, and account details."
-        }
+      <PortalTabs
+        tabs={[
+          { id: "overview", label: "Overview" },
+          { id: "schedule", label: "Schedule" },
+          { id: "packages", label: "Packages" },
+          { id: "recaps", label: "Recaps" },
+          { id: "payments", label: "Payments" },
+          { id: "rentals", label: "Rentals" },
+          { id: "account", label: "Account" },
+        ]}
+        defaultTabId="overview"
       >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-          <ActionTile
-            href={`/portal/${encodeURIComponent(typedStudio.slug)}`}
-            title="Portal Home"
-            description="Return to your main portal dashboard."
-            tone="slate"
-          />
-          <ActionTile
-            href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
-            title="My Schedule"
-            description="See upcoming lessons and recent activity."
-            tone="sky"
-          />
-          {isInstructorPortal ? (
-            <ActionTile
-              href={`/portal/${encodeURIComponent(studioSlug)}/floor-space`}
-              title="Book Floor Space"
-              description="Reserve time for teaching and rentals."
-              tone="orange"
-            />
-          ) : null}
-          {isInstructorPortal ? (
-            <ActionTile
-              href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space/my-rentals`}
-              title="My Rentals"
-              description="Review rentals, payments, and balances."
-              tone="emerald"
-            />
-          ) : null}
-          {!isInstructorPortal ? (
-            <ActionTile
-              href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
-              title="Packages & Credits"
-              description="Check remaining lesson, group, and party credits."
-              tone="emerald"
-            />
-          ) : null}
-          <ActionTile
-            href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
-            title="My Account"
-            description="Update your profile and account details."
-            tone="violet"
-          />
-          {canReturnToWorkspace ? (
-            <ActionTile
-              href={`/app?studio=${encodeURIComponent(typedStudio.id)}`}
-              title="Back to Workspace"
-              description="Return to the full staff workspace for this studio."
-              tone="slate"
-            />
-          ) : null}
-        </div>
-      </CardShell>
-
-      <div className="grid gap-8 xl:grid-cols-[1.25fr_0.95fr]">
-        <div className="space-y-8">
+        <section id="overview" className="space-y-8">
           <CardShell
-            title="Pending Payments"
-            accent="orange"
-            subtitle="Any unpaid payment requests from the studio will appear here. Use Pay Now when you are ready to complete the purchase."
+            title="At a Glance"
+            accent="sky"
+            subtitle={
+              isInstructorPortal
+                ? "Your most important schedule, rental, and payment details in one quick view."
+                : "Your most important lesson, package, and account details in one quick view."
+            }
           >
-            {typedPendingPayments.length ? (
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="rounded-3xl border border-sky-200 bg-sky-50 p-5">
+                <p className="text-sm font-medium text-sky-900">Next up</p>
+                <p className="mt-2 text-3xl font-semibold text-sky-950">{upcomingItems.length}</p>
+                <p className="mt-2 text-sm text-sky-800">Upcoming schedule items</p>
+              </div>
+              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+                <p className="text-sm font-medium text-emerald-900">Packages</p>
+                <p className="mt-2 text-3xl font-semibold text-emerald-950">{typedPackages.length}</p>
+                <p className="mt-2 text-sm text-emerald-800">Active package records</p>
+              </div>
+              <div className="rounded-3xl border border-violet-200 bg-violet-50 p-5">
+                <p className="text-sm font-medium text-violet-900">Recaps</p>
+                <p className="mt-2 text-3xl font-semibold text-violet-950">{typedLessonRecaps.length}</p>
+                <p className="mt-2 text-sm text-violet-800">Shared lesson notes</p>
+              </div>
+            </div>
+          </CardShell>
+
+          <CardShell
+            title="Quick Actions"
+            accent="sky"
+            subtitle={
+              isInstructorPortal
+                ? "Jump to schedule, rentals, account details, and workspace access."
+                : "Jump to your schedule, packages, recaps, payments, and account details."
+            }
+          >
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <ActionTile
+                href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
+                title="My Schedule"
+                description="See upcoming lessons and recent activity."
+                tone="sky"
+              />
+              {isInstructorPortal ? (
+                <ActionTile
+                  href={`/portal/${encodeURIComponent(studioSlug)}/floor-space`}
+                  title="Book Floor Space"
+                  description="Reserve time for teaching and rentals."
+                  tone="orange"
+                />
+              ) : null}
+              {isInstructorPortal ? (
+                <ActionTile
+                  href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space/my-rentals`}
+                  title="My Rentals"
+                  description="Review rentals, payments, and balances."
+                  tone="emerald"
+                />
+              ) : null}
+              <ActionTile
+                href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
+                title="My Account"
+                description="Update your profile and account details."
+                tone="violet"
+              />
+              {canReturnToWorkspace ? (
+                <ActionTile
+                  href={`/app?studio=${encodeURIComponent(typedStudio.id)}`}
+                  title="Back to Workspace"
+                  description="Return to the full staff workspace for this studio."
+                  tone="slate"
+                />
+              ) : null}
+            </div>
+          </CardShell>
+
+          {typedPendingPayments.length ? (
+            <CardShell
+              title="Needs Attention"
+              accent="orange"
+              subtitle="You have pending payment requests from the studio."
+            >
               <div className="space-y-3">
-                {typedPendingPayments.map((payment) => (
+                {typedPendingPayments.slice(0, 3).map((payment) => (
                   <div
                     key={payment.id}
-                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-                  >
-                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-100">
-                            Pending
-                          </span>
-                          <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                            {paymentTypeLabel(payment.payment_type)}
-                          </span>
-                        </div>
-                        <p className="mt-3 text-2xl font-semibold text-slate-950">
-                          {formatCurrency(payment.amount)}
-                        </p>
-                        {payment.notes ? (
-                          <p className="mt-1 text-sm leading-6 text-slate-600">
-                            {payment.notes}
-                          </p>
-                        ) : null}
-                      </div>
-                      <Link
-                        href={
-                          "/api/stripe/client-checkout?paymentId=" +
-                          encodeURIComponent(payment.id) +
-                          "&returnTo=" +
-                          encodeURIComponent(`/portal/${typedStudio.slug}`) +
-                          "&cancelTo=" +
-                          encodeURIComponent(
-                            `/portal/${typedStudio.slug}?error=payment_cancelled`,
-                          )
-                        }
-                        className="inline-flex items-center justify-center rounded-2xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-medium text-white hover:opacity-95"
-                      >
-                        Pay Now
-                      </Link>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">
-                  No pending payment requests right now.
-                </p>
-              </div>
-            )}
-          </CardShell>
-
-          <CardShell
-            title="Packages & Credits"
-            accent="emerald"
-            subtitle="See active packages and the credits you have available for lessons, groups, and parties."
-          >
-            {typedPackages.length ? (
-              <div className="space-y-4">
-                {typedPackages.map((clientPackage) => (
-                  <div
-                    key={clientPackage.id}
-                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-                  >
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
-                            Active
-                          </span>
-                          {clientPackage.expiration_date ? (
-                            <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                              Expires{" "}
-                              {formatDate(clientPackage.expiration_date)}
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="mt-3 text-lg font-semibold text-slate-950">
-                          {clientPackage.name_snapshot}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-600">
-                          {formatCurrency(
-                            clientPackage.sold_price ??
-                              clientPackage.price_snapshot,
-                          )}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      {(clientPackage.client_package_items ?? []).map(
-                        (item) => (
-                          <div
-                            key={`${clientPackage.id}-${item.usage_type}`}
-                            className="rounded-2xl border border-white bg-white p-4"
-                          >
-                            <p className="text-sm font-medium text-slate-900">
-                              {packageUsageTypeLabel(item.usage_type)}
-                            </p>
-                            <p className="mt-2 text-2xl font-semibold text-slate-950">
-                              {item.is_unlimited
-                                ? "Unlimited"
-                                : toNumber(item.quantity_remaining)}
-                            </p>
-                            {!item.is_unlimited ? (
-                              <p className="mt-1 text-xs text-slate-500">
-                                {toNumber(item.quantity_used)} used of{" "}
-                                {toNumber(item.quantity_total)}
-                              </p>
-                            ) : null}
-                          </div>
-                        ),
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">
-                  No active packages are linked to this portal profile right
-                  now.
-                </p>
-              </div>
-            )}
-          </CardShell>
-
-          <CardShell
-            title={isInstructorPortal ? "My Membership" : "Membership Snapshot"}
-            accent="violet"
-            subtitle={
-              isInstructorPortal
-                ? "If this portal account also has a membership, you can review it here."
-                : "See your current membership and billing period in one place."
-            }
-          >
-            {typedMembership ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                  <p className="text-sm text-slate-500">Plan</p>
-                  <p className="mt-2 text-xl font-semibold text-slate-950">
-                    {typedMembership.name_snapshot}
-                  </p>
-                  <p className="mt-2 text-sm text-slate-600">
-                    {formatCurrency(typedMembership.price_snapshot)} /{" "}
-                    {typedMembership.billing_interval_snapshot || "period"}
-                  </p>
-                </div>
-
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                  <p className="text-sm text-slate-500">Status</p>
-                  <p className="mt-2 text-xl font-semibold text-slate-950">
-                    {statusLabel(typedMembership.status)}
-                  </p>
-                  <p className="mt-2 text-sm text-slate-600">
-                    Current period:{" "}
-                    {formatDate(typedMembership.current_period_start)} –{" "}
-                    {formatDate(typedMembership.current_period_end)}
-                  </p>
-                </div>
-
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 md:col-span-2">
-                  <p className="text-sm text-slate-500">Renewal</p>
-                  <p className="mt-2 text-sm text-slate-700">
-                    {typedMembership.cancel_at_period_end
-                      ? "Your membership will end at the close of the current billing period."
-                      : typedMembership.auto_renew
-                        ? "Your membership is set to renew automatically."
-                        : "Auto-renew is currently turned off."}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">
-                  No active membership is linked to this portal profile right
-                  now.
-                </p>
-              </div>
-            )}
-          </CardShell>
-
-          <CardShell
-            title={
-              isInstructorPortal
-                ? "Recent Lesson Activity"
-                : "Recent Appointments"
-            }
-            accent="emerald"
-            subtitle={
-              isInstructorPortal
-                ? "A quick look at your recent lesson-side activity."
-                : "A quick look at your most recent lessons and class bookings."
-            }
-          >
-            {recentAppointments.length ? (
-              <div className="space-y-3">
-                {recentAppointments.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-5 md:flex-row md:items-center md:justify-between"
+                    className="flex flex-col gap-4 rounded-3xl border border-amber-200 bg-amber-50 p-5 md:flex-row md:items-center md:justify-between"
                   >
                     <div>
-                      <p className="font-medium text-slate-950">
-                        {item.title?.trim() ||
-                          appointmentTypeLabel(item.appointment_type)}
+                      <p className="text-sm font-medium text-amber-800">
+                        {paymentTypeLabel(payment.payment_type)}
                       </p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {formatDateTime(item.starts_at)}
+                      <p className="mt-2 text-2xl font-semibold text-amber-950">
+                        {formatCurrency(payment.amount)}
                       </p>
+                      {payment.notes ? (
+                        <p className="mt-1 text-sm text-amber-900">{payment.notes}</p>
+                      ) : null}
                     </div>
-
-                    <div className="flex items-center gap-3">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(item.status)}`}
-                      >
-                        {statusLabel(item.status)}
-                      </span>
-                    </div>
+                    <Link
+                      href={
+                        "/api/stripe/client-checkout?paymentId=" +
+                        encodeURIComponent(payment.id) +
+                        "&returnTo=" +
+                        encodeURIComponent(`/portal/${typedStudio.slug}`) +
+                        "&cancelTo=" +
+                        encodeURIComponent(`/portal/${typedStudio.slug}?error=payment_cancelled`)
+                      }
+                      className="inline-flex items-center justify-center rounded-2xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-medium text-white hover:opacity-95"
+                    >
+                      Pay Now
+                    </Link>
                   </div>
                 ))}
               </div>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">
-                  No recent appointment history yet.
-                </p>
-              </div>
-            )}
-          </CardShell>
+            </CardShell>
+          ) : null}
+        </section>
 
-          <CardShell
-            title="Lesson Recaps"
-            accent="violet"
-            subtitle="When your instructor shares a lesson recap, you can review notes, homework, and next focus areas here."
-          >
-            {typedLessonRecaps.length ? (
-              <div className="space-y-3">
-                {typedLessonRecaps.map((recap) => (
-                  <div
-                    key={recap.id}
-                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="inline-flex rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 ring-1 ring-violet-100">
-                        Shared by instructor
-                      </span>
-                      <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                        Updated {formatDate(recap.updated_at.slice(0, 10))}
-                      </span>
-                    </div>
-                    {recap.summary ? (
-                      <div className="mt-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          Summary
-                        </p>
-                        <p className="mt-2 text-sm leading-7 text-slate-700">
-                          {recap.summary}
-                        </p>
-                      </div>
-                    ) : null}
-                    {recap.homework ? (
-                      <div className="mt-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          Homework
-                        </p>
-                        <p className="mt-2 text-sm leading-7 text-slate-700">
-                          {recap.homework}
-                        </p>
-                      </div>
-                    ) : null}
-                    {recap.next_focus ? (
-                      <div className="mt-4">
-                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                          Next Focus
-                        </p>
-                        <p className="mt-2 text-sm leading-7 text-slate-700">
-                          {recap.next_focus}
-                        </p>
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">
-                  No shared lesson recaps yet.
-                </p>
-              </div>
-            )}
-          </CardShell>
-        </div>
-
-        <div className="space-y-8">
+        <section id="schedule" className="space-y-8">
           <CardShell
             title="Coming Up"
             accent="sky"
@@ -1096,37 +811,24 @@ export default async function PortalHomePage({ params }: { params: Params }) {
                     className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
                   >
                     <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(item.status)}`}
-                      >
+                      <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(item.status)}`}>
                         {statusLabel(item.status)}
                       </span>
-
                       <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
                         {item.kind === "rental" ? "Rental" : "Lesson"}
                       </span>
                     </div>
-
-                    <p className="mt-3 font-medium text-slate-950">
-                      {item.title}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      {formatDateTime(item.starts_at)}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {formatTimeRange(item.starts_at, item.ends_at)}
-                    </p>
+                    <p className="mt-3 font-medium text-slate-950">{item.title}</p>
+                    <p className="mt-1 text-sm text-slate-600">{formatDateTime(item.starts_at)}</p>
+                    <p className="mt-1 text-sm text-slate-500">{formatTimeRange(item.starts_at, item.ends_at)}</p>
                   </div>
                 ))}
               </div>
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">
-                  No upcoming schedule items right now.
-                </p>
+                <p className="text-sm text-slate-600">No upcoming schedule items right now.</p>
               </div>
             )}
-
             <div className="mt-5">
               <Link
                 href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
@@ -1138,6 +840,234 @@ export default async function PortalHomePage({ params }: { params: Params }) {
           </CardShell>
 
           <CardShell
+            title={isInstructorPortal ? "Recent Lesson Activity" : "Recent Appointments"}
+            accent="emerald"
+            subtitle={
+              isInstructorPortal
+                ? "A quick look at your recent lesson-side activity."
+                : "A quick look at your most recent lessons and class bookings."
+            }
+          >
+            {recentAppointments.length ? (
+              <div className="space-y-3">
+                {recentAppointments.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex flex-col gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-5 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div>
+                      <p className="font-medium text-slate-950">
+                        {item.title?.trim() || appointmentTypeLabel(item.appointment_type)}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">{formatDateTime(item.starts_at)}</p>
+                    </div>
+                    <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(item.status)}`}>
+                      {statusLabel(item.status)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">No recent appointment history yet.</p>
+              </div>
+            )}
+          </CardShell>
+        </section>
+
+        <section id="packages" className="space-y-8">
+          <CardShell
+            title="Packages & Credits"
+            accent="emerald"
+            subtitle="See active packages and the credits you have available for lessons, groups, and parties."
+          >
+            {typedPackages.length ? (
+              <div className="space-y-4">
+                {typedPackages.map((clientPackage) => (
+                  <div key={clientPackage.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
+                            Active
+                          </span>
+                          {clientPackage.expiration_date ? (
+                            <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                              Expires {formatDate(clientPackage.expiration_date)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-3 text-lg font-semibold text-slate-950">{clientPackage.name_snapshot}</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {formatCurrency(clientPackage.sold_price ?? clientPackage.price_snapshot)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                      {(clientPackage.client_package_items ?? []).map((item) => (
+                        <div key={`${clientPackage.id}-${item.usage_type}`} className="rounded-2xl border border-white bg-white p-4">
+                          <p className="text-sm font-medium text-slate-900">{packageUsageTypeLabel(item.usage_type)}</p>
+                          <p className="mt-2 text-2xl font-semibold text-slate-950">
+                            {item.is_unlimited ? "Unlimited" : toNumber(item.quantity_remaining)}
+                          </p>
+                          {!item.is_unlimited ? (
+                            <p className="mt-1 text-xs text-slate-500">
+                              {toNumber(item.quantity_used)} used of {toNumber(item.quantity_total)}
+                            </p>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">No active packages are linked to this portal profile right now.</p>
+              </div>
+            )}
+          </CardShell>
+
+          <CardShell
+            title={isInstructorPortal ? "My Membership" : "Membership Snapshot"}
+            accent="violet"
+            subtitle={
+              isInstructorPortal
+                ? "If this portal account also has a membership, you can review it here."
+                : "See your current membership and billing period in one place."
+            }
+          >
+            {typedMembership ? (
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-sm text-slate-500">Plan</p>
+                  <p className="mt-2 text-xl font-semibold text-slate-950">{typedMembership.name_snapshot}</p>
+                  <p className="mt-2 text-sm text-slate-600">
+                    {formatCurrency(typedMembership.price_snapshot)} / {typedMembership.billing_interval_snapshot || "period"}
+                  </p>
+                </div>
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <p className="text-sm text-slate-500">Status</p>
+                  <p className="mt-2 text-xl font-semibold text-slate-950">{statusLabel(typedMembership.status)}</p>
+                  <p className="mt-2 text-sm text-slate-600">
+                    Current period: {formatDate(typedMembership.current_period_start)} – {formatDate(typedMembership.current_period_end)}
+                  </p>
+                </div>
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 md:col-span-2">
+                  <p className="text-sm text-slate-500">Renewal</p>
+                  <p className="mt-2 text-sm text-slate-700">
+                    {typedMembership.cancel_at_period_end
+                      ? "Your membership will end at the close of the current billing period."
+                      : typedMembership.auto_renew
+                        ? "Your membership is set to renew automatically."
+                        : "Auto-renew is currently turned off."}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">No active membership is linked to this portal profile right now.</p>
+              </div>
+            )}
+          </CardShell>
+        </section>
+
+        <section id="recaps" className="space-y-8">
+          <CardShell
+            title="Lesson Recaps"
+            accent="violet"
+            subtitle="When your instructor shares a lesson recap, you can review notes, homework, and next focus areas here."
+          >
+            {typedLessonRecaps.length ? (
+              <div className="space-y-3">
+                {typedLessonRecaps.map((recap) => (
+                  <div key={recap.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 ring-1 ring-violet-100">
+                        Shared by instructor
+                      </span>
+                      <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                        Updated {formatDate(recap.updated_at.slice(0, 10))}
+                      </span>
+                    </div>
+                    {recap.summary ? (
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Summary</p>
+                        <p className="mt-2 text-sm leading-7 text-slate-700">{recap.summary}</p>
+                      </div>
+                    ) : null}
+                    {recap.homework ? (
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Homework</p>
+                        <p className="mt-2 text-sm leading-7 text-slate-700">{recap.homework}</p>
+                      </div>
+                    ) : null}
+                    {recap.next_focus ? (
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Next Focus</p>
+                        <p className="mt-2 text-sm leading-7 text-slate-700">{recap.next_focus}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">No shared lesson recaps yet.</p>
+              </div>
+            )}
+          </CardShell>
+        </section>
+
+        <section id="payments" className="space-y-8">
+          <CardShell
+            title="Pending Payments"
+            accent="orange"
+            subtitle="Any unpaid payment requests from the studio will appear here. Use Pay Now when you are ready to complete the purchase."
+          >
+            {typedPendingPayments.length ? (
+              <div className="space-y-3">
+                {typedPendingPayments.map((payment) => (
+                  <div key={payment.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-100">
+                            Pending
+                          </span>
+                          <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                            {paymentTypeLabel(payment.payment_type)}
+                          </span>
+                        </div>
+                        <p className="mt-3 text-2xl font-semibold text-slate-950">{formatCurrency(payment.amount)}</p>
+                        {payment.notes ? <p className="mt-1 text-sm leading-6 text-slate-600">{payment.notes}</p> : null}
+                      </div>
+                      <Link
+                        href={
+                          "/api/stripe/client-checkout?paymentId=" +
+                          encodeURIComponent(payment.id) +
+                          "&returnTo=" +
+                          encodeURIComponent(`/portal/${typedStudio.slug}`) +
+                          "&cancelTo=" +
+                          encodeURIComponent(`/portal/${typedStudio.slug}?error=payment_cancelled`)
+                        }
+                        className="inline-flex items-center justify-center rounded-2xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-medium text-white hover:opacity-95"
+                      >
+                        Pay Now
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm text-slate-600">No pending payment requests right now.</p>
+              </div>
+            )}
+          </CardShell>
+
+          <CardShell
             title="Payment History"
             accent="slate"
             subtitle="Review recent completed payments recorded by the studio."
@@ -1145,31 +1075,18 @@ export default async function PortalHomePage({ params }: { params: Params }) {
             {typedPaymentHistory.length ? (
               <div className="space-y-3">
                 {typedPaymentHistory.map((payment) => (
-                  <div
-                    key={payment.id}
-                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-                  >
+                  <div key={payment.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                     <div className="flex items-start justify-between gap-4">
                       <div>
-                        <p className="font-medium text-slate-950">
-                          {paymentTypeLabel(payment.payment_type)}
-                        </p>
+                        <p className="font-medium text-slate-950">{paymentTypeLabel(payment.payment_type)}</p>
                         <p className="mt-1 text-sm text-slate-600">
-                          {payment.paid_at
-                            ? formatDateTime(payment.paid_at)
-                            : formatDateTime(payment.created_at)}
+                          {payment.paid_at ? formatDateTime(payment.paid_at) : formatDateTime(payment.created_at)}
                         </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {paymentMethodLabel(payment.payment_method)}
-                        </p>
+                        <p className="mt-1 text-xs text-slate-500">{paymentMethodLabel(payment.payment_method)}</p>
                       </div>
                       <div className="text-right">
-                        <p className="font-semibold text-slate-950">
-                          {formatCurrency(payment.amount)}
-                        </p>
-                        <span
-                          className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(payment.status)}`}
-                        >
+                        <p className="font-semibold text-slate-950">{formatCurrency(payment.amount)}</p>
+                        <span className={`mt-2 inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(payment.status)}`}>
                           {statusLabel(payment.status)}
                         </span>
                       </div>
@@ -1179,14 +1096,14 @@ export default async function PortalHomePage({ params }: { params: Params }) {
               </div>
             ) : (
               <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">
-                  No payment history is available yet.
-                </p>
+                <p className="text-sm text-slate-600">No payment history is available yet.</p>
               </div>
             )}
           </CardShell>
+        </section>
 
-          {isInstructorPortal ? (
+        {isInstructorPortal ? (
+          <section id="rentals" className="space-y-8">
             <CardShell
               title="Floor Rentals"
               accent="orange"
@@ -1197,11 +1114,8 @@ export default async function PortalHomePage({ params }: { params: Params }) {
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-sm text-slate-500">Upcoming rentals</p>
-                      <p className="mt-2 text-3xl font-semibold text-slate-950">
-                        {typedRentals.length}
-                      </p>
+                      <p className="mt-2 text-3xl font-semibold text-slate-950">{typedRentals.length}</p>
                     </div>
-
                     <Link
                       href={`/portal/${encodeURIComponent(typedStudio.slug)}/floor-space/my-rentals`}
                       className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
@@ -1214,41 +1128,70 @@ export default async function PortalHomePage({ params }: { params: Params }) {
                 {typedRentals.length ? (
                   <div className="space-y-3">
                     {typedRentals.map((item) => (
-                      <div
-                        key={item.id}
-                        className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-                      >
+                      <div key={item.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(item.status)}`}
-                          >
+                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(item.status)}`}>
                             {statusLabel(item.status)}
                           </span>
                         </div>
-                        <p className="mt-3 font-medium text-slate-950">
-                          Floor Space Rental
-                        </p>
-                        <p className="mt-1 text-sm text-slate-600">
-                          {formatDateTime(item.starts_at)}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-500">
-                          {formatTimeRange(item.starts_at, item.ends_at)}
-                        </p>
+                        <p className="mt-3 font-medium text-slate-950">Floor Space Rental</p>
+                        <p className="mt-1 text-sm text-slate-600">{formatDateTime(item.starts_at)}</p>
+                        <p className="mt-1 text-sm text-slate-500">{formatTimeRange(item.starts_at, item.ends_at)}</p>
                       </div>
                     ))}
                   </div>
                 ) : (
                   <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                    <p className="text-sm text-slate-600">
-                      You do not have any upcoming rentals booked.
-                    </p>
+                    <p className="text-sm text-slate-600">You do not have any upcoming rentals booked.</p>
                   </div>
                 )}
               </div>
             </CardShell>
-          ) : null}
-        </div>
-      </div>
+          </section>
+        ) : null}
+
+        <section id="account" className="space-y-8">
+          <CardShell
+            title="Account"
+            accent="violet"
+            subtitle="Manage your profile, return to the studio workspace when available, or sign out."
+          >
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <ActionTile
+                href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
+                title="My Account"
+                description="Update your profile and account details."
+                tone="violet"
+              />
+              <ActionTile
+                href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
+                title="Full Schedule"
+                description="Open the dedicated schedule page."
+                tone="sky"
+              />
+              {canReturnToWorkspace ? (
+                <ActionTile
+                  href={`/app?studio=${encodeURIComponent(typedStudio.id)}`}
+                  title="Back to Workspace"
+                  description="Return to the full staff workspace for this studio."
+                  tone="slate"
+                />
+              ) : null}
+            </div>
+
+            <form action="/auth/logout" method="post" className="mt-6">
+              <button
+                type="submit"
+                className="inline-flex rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Log Out
+              </button>
+            </form>
+          </CardShell>
+        </section>
+      </PortalTabs>
     </div>
   );
 }
+
+
