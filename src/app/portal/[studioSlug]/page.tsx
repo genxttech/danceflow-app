@@ -104,6 +104,60 @@ type LessonRecapRow = {
   updated_at: string;
 };
 
+type SyllabusAssignmentRow = {
+  id: string;
+  syllabus_template_id: string;
+  assigned_at: string;
+  visible_in_portal: boolean;
+};
+
+type SyllabusTemplateRow = {
+  id: string;
+  name: string;
+  dance_style: string | null;
+  level: string | null;
+  description: string | null;
+};
+
+type SyllabusTemplateItemRow = {
+  id: string;
+  template_id: string;
+  title: string;
+  category: string | null;
+  description: string | null;
+  sort_order: number | null;
+};
+
+type SyllabusProgressRow = {
+  assignment_id: string;
+  template_item_id: string;
+  status: string;
+  notes: string | null;
+  show_notes_in_portal: boolean | null;
+  updated_at: string;
+};
+
+type PortalSyllabusFigure = {
+  id: string;
+  title: string;
+  category: string | null;
+  description: string | null;
+  status: string;
+  visibleNote: string | null;
+  updatedAt: string | null;
+};
+
+type PortalSyllabusAssignment = {
+  id: string;
+  assigned_at: string;
+  template: SyllabusTemplateRow;
+  figures: PortalSyllabusFigure[];
+  totalFigures: number;
+  startedCount: number;
+  masteredCount: number;
+  progressPercent: number;
+};
+
 type UpcomingItem = {
   id: string;
   kind: "appointment" | "rental";
@@ -216,6 +270,42 @@ function statusBadgeClass(status: string) {
   if (status === "past_due")
     return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function syllabusStatusLabel(value: string) {
+  if (value === "not_started") return "Not Started";
+  if (value === "introduced") return "Introduced";
+  if (value === "practicing") return "Practicing";
+  if (value === "comfortable") return "Comfortable";
+  if (value === "mastered") return "Mastered";
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function syllabusStatusBadgeClass(status: string) {
+  if (status === "mastered") {
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100";
+  }
+
+  if (status === "comfortable") {
+    return "bg-sky-50 text-sky-700 ring-1 ring-sky-100";
+  }
+
+  if (status === "practicing") {
+    return "bg-violet-50 text-violet-700 ring-1 ring-violet-100";
+  }
+
+  if (status === "introduced") {
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
+  }
+
+  return "bg-slate-100 text-slate-600 ring-1 ring-slate-200";
+}
+
+function getSyllabusProgressPercent(startedCount: number, totalFigures: number) {
+  if (!totalFigures) return 0;
+  return Math.min(100, Math.round((startedCount / totalFigures) * 100));
 }
 
 function getClientFirstName(client: ClientRow) {
@@ -540,6 +630,150 @@ export default async function PortalHomePage({ params }: { params: Params }) {
     typedLessonRecaps = (lessonRecaps ?? []) as LessonRecapRow[];
   }
 
+  let portalSyllabusAssignments: PortalSyllabusAssignment[] = [];
+
+  const { data: syllabusAssignments, error: syllabusAssignmentsError } =
+    await supabase
+      .from("client_syllabus_assignments")
+      .select("id, syllabus_template_id, assigned_at, visible_in_portal")
+      .eq("studio_id", typedStudio.id)
+      .eq("client_id", typedClient.id)
+      .eq("visible_in_portal", true)
+      .is("archived_at", null)
+      .order("assigned_at", { ascending: false });
+
+  if (syllabusAssignmentsError) {
+    throw syllabusAssignmentsError;
+  }
+
+  const typedSyllabusAssignments =
+    (syllabusAssignments ?? []) as SyllabusAssignmentRow[];
+
+  if (typedSyllabusAssignments.length) {
+    const templateIds = Array.from(
+      new Set(
+        typedSyllabusAssignments
+          .map((assignment) => assignment.syllabus_template_id)
+          .filter(Boolean),
+      ),
+    );
+    const assignmentIds = typedSyllabusAssignments.map((assignment) => assignment.id);
+
+    const [
+      { data: syllabusTemplates, error: syllabusTemplatesError },
+      { data: syllabusItems, error: syllabusItemsError },
+      { data: syllabusProgress, error: syllabusProgressError },
+    ] = await Promise.all([
+      supabase
+        .from("syllabus_templates")
+        .select("id, name, dance_style, level, description")
+        .eq("studio_id", typedStudio.id)
+        .in("id", templateIds)
+        .eq("active", true),
+      supabase
+        .from("syllabus_template_items")
+        .select("id, template_id, title, category, description, sort_order")
+        .eq("studio_id", typedStudio.id)
+        .in("template_id", templateIds)
+        .eq("active", true)
+        .order("sort_order", { ascending: true })
+        .order("title", { ascending: true }),
+      supabase
+        .from("client_syllabus_progress")
+        .select(
+          "assignment_id, template_item_id, status, notes, show_notes_in_portal, updated_at",
+        )
+        .eq("studio_id", typedStudio.id)
+        .eq("client_id", typedClient.id)
+        .in("assignment_id", assignmentIds),
+    ]);
+
+    if (syllabusTemplatesError) {
+      throw syllabusTemplatesError;
+    }
+
+    if (syllabusItemsError) {
+      throw syllabusItemsError;
+    }
+
+    if (syllabusProgressError) {
+      throw syllabusProgressError;
+    }
+
+    const templatesById = new Map(
+      ((syllabusTemplates ?? []) as SyllabusTemplateRow[]).map((template) => [
+        template.id,
+        template,
+      ]),
+    );
+
+    const itemsByTemplateId = new Map<string, SyllabusTemplateItemRow[]>();
+
+    ((syllabusItems ?? []) as SyllabusTemplateItemRow[]).forEach((item) => {
+      const existing = itemsByTemplateId.get(item.template_id) ?? [];
+      existing.push(item);
+      itemsByTemplateId.set(item.template_id, existing);
+    });
+
+    const progressByAssignmentAndItem = new Map<string, SyllabusProgressRow>();
+
+    ((syllabusProgress ?? []) as SyllabusProgressRow[]).forEach((progress) => {
+      progressByAssignmentAndItem.set(
+        `${progress.assignment_id}:${progress.template_item_id}`,
+        progress,
+      );
+    });
+
+    portalSyllabusAssignments = typedSyllabusAssignments
+      .map((assignment) => {
+        const template = templatesById.get(assignment.syllabus_template_id);
+
+        if (!template) {
+          return null;
+        }
+
+        const figures = (itemsByTemplateId.get(template.id) ?? []).map((item) => {
+          const progress = progressByAssignmentAndItem.get(
+            `${assignment.id}:${item.id}`,
+          );
+          const status = progress?.status ?? "not_started";
+
+          return {
+            id: item.id,
+            title: item.title,
+            category: item.category,
+            description: item.description,
+            status,
+            visibleNote:
+              progress?.show_notes_in_portal && progress.notes?.trim()
+                ? progress.notes.trim()
+                : null,
+            updatedAt: progress?.updated_at ?? null,
+          };
+        });
+
+        const totalFigures = figures.length;
+        const startedCount = figures.filter(
+          (figure) => figure.status !== "not_started",
+        ).length;
+        const masteredCount = figures.filter(
+          (figure) => figure.status === "mastered",
+        ).length;
+
+        return {
+          id: assignment.id,
+          assigned_at: assignment.assigned_at,
+          template,
+          figures,
+          totalFigures,
+          startedCount,
+          masteredCount,
+          progressPercent: getSyllabusProgressPercent(startedCount, totalFigures),
+        };
+      })
+      .filter(Boolean) as PortalSyllabusAssignment[];
+  }
+
   const upcomingAppointments = typedAppointments
     .filter((item) => item.starts_at >= nowIso)
     .sort((a, b) => a.starts_at.localeCompare(b.starts_at))
@@ -666,6 +900,7 @@ export default async function PortalHomePage({ params }: { params: Params }) {
           { id: "schedule", label: "Schedule" },
           { id: "packages", label: "Packages" },
           { id: "recaps", label: "Recaps" },
+          { id: "syllabus", label: "Syllabus" },
           { id: "payments", label: "Payments" },
           { id: "rentals", label: "Rentals" },
           { id: "account", label: "Account" },
@@ -1020,6 +1255,141 @@ export default async function PortalHomePage({ params }: { params: Params }) {
           </CardShell>
         </section>
 
+        <section id="syllabus" className="space-y-8">
+          <CardShell
+            title="Syllabus Progress"
+            accent="violet"
+            subtitle="View the syllabus progress your instructor has chosen to share in your portal. This is read-only, so ask your instructor if something needs to be updated."
+          >
+            {portalSyllabusAssignments.length ? (
+              <div className="space-y-5">
+                {portalSyllabusAssignments.map((assignment) => (
+                  <div
+                    key={assignment.id}
+                    className="overflow-hidden rounded-[28px] border border-violet-100 bg-violet-50/60"
+                  >
+                    <div className="border-b border-violet-100 bg-white/80 p-5">
+                      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                            Shared Syllabus
+                          </p>
+                          <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                            {assignment.template.name}
+                          </h2>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {assignment.template.dance_style ? (
+                              <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-violet-700 ring-1 ring-violet-100">
+                                {assignment.template.dance_style}
+                              </span>
+                            ) : null}
+                            {assignment.template.level ? (
+                              <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                                {assignment.template.level}
+                              </span>
+                            ) : null}
+                            <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                              Assigned {formatDateTime(assignment.assigned_at)}
+                            </span>
+                          </div>
+                          {assignment.template.description ? (
+                            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+                              {assignment.template.description}
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <div className="rounded-2xl border border-white bg-white p-4 text-sm text-slate-600 shadow-sm md:min-w-52">
+                          <p className="font-medium text-slate-900">Progress</p>
+                          <p className="mt-1">
+                            {assignment.startedCount} of {assignment.totalFigures} started
+                          </p>
+                          <p className="mt-1">
+                            {assignment.masteredCount} mastered
+                          </p>
+                          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                            <div
+                              className="h-full rounded-full bg-[var(--brand-primary)]"
+                              style={{ width: `${assignment.progressPercent}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {assignment.figures.length ? (
+                      <div className="divide-y divide-violet-100 bg-white">
+                        {assignment.figures.map((figure) => (
+                          <div
+                            key={`${assignment.id}-${figure.id}`}
+                            className="p-4 sm:p-5"
+                          >
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <p className="font-medium text-slate-950">
+                                  {figure.title}
+                                </p>
+                                <div className="mt-2 flex flex-wrap gap-2">
+                                  {figure.category ? (
+                                    <span className="inline-flex rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                                      {figure.category}
+                                    </span>
+                                  ) : null}
+                                  {figure.updatedAt ? (
+                                    <span className="inline-flex rounded-full bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
+                                      Updated {formatDateTime(figure.updatedAt)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                {figure.description ? (
+                                  <p className="mt-3 text-sm leading-6 text-slate-600">
+                                    {figure.description}
+                                  </p>
+                                ) : null}
+                                {figure.visibleNote ? (
+                                  <div className="mt-3 rounded-2xl border border-violet-100 bg-violet-50 p-4">
+                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">
+                                      Instructor Note
+                                    </p>
+                                    <p className="mt-2 text-sm leading-6 text-slate-700">
+                                      {figure.visibleNote}
+                                    </p>
+                                  </div>
+                                ) : null}
+                              </div>
+
+                              <span
+                                className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${syllabusStatusBadgeClass(figure.status)}`}
+                              >
+                                {syllabusStatusLabel(figure.status)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="bg-white p-6">
+                        <p className="text-sm text-slate-600">
+                          This syllabus does not have figures listed yet.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm font-medium text-slate-800">
+                  No syllabus progress is shared yet.
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  When your instructor shares a syllabus assignment, your progress will appear here.
+                </p>
+              </div>
+            )}
+          </CardShell>
+        </section>
+
         <section id="payments" className="space-y-8">
           <CardShell
             title="Pending Payments"
@@ -1193,5 +1563,6 @@ export default async function PortalHomePage({ params }: { params: Params }) {
     </div>
   );
 }
+
 
 
