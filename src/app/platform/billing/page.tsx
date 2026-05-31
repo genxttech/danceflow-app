@@ -61,6 +61,18 @@ type BillingRisk = {
   subscription?: SubscriptionRow;
   status: string;
   planName: string;
+  recommendedAction: string;
+};
+
+type AccountRow = {
+  studio: StudioRow;
+  subscription?: SubscriptionRow;
+  status: string;
+  planName: string;
+  trialEndsAt: string | null;
+  trialDaysLeft: number | null;
+  paidPlan: boolean;
+  stripeSubscriptionId: string;
 };
 
 const PLAN_LABELS: Record<string, string> = {
@@ -96,6 +108,18 @@ function formatDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function formatDateTime(value: string | null) {
+  if (!value) return "—";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 function formatMoney(value: number, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -104,15 +128,15 @@ function formatMoney(value: number, currency = "USD") {
   }).format(Number(value ?? 0));
 }
 
-function statusBadgeClass(status: string) {
+function statusBadgeClass(status: string | null | undefined) {
   const normalized = normalize(status);
 
   if (normalized === "active" || normalized === "paid") {
-    return "bg-green-50 text-green-700 ring-1 ring-green-200";
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
   }
 
   if (normalized === "trialing") {
-    return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
+    return "bg-sky-50 text-sky-700 ring-1 ring-sky-200";
   }
 
   if (normalized === "past_due" || normalized === "open") {
@@ -120,16 +144,22 @@ function statusBadgeClass(status: string) {
   }
 
   if (normalized === "cancelled" || normalized === "canceled" || normalized === "void") {
-    return "bg-red-50 text-red-700 ring-1 ring-red-200";
+    return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
   }
 
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function riskBadgeClass(severity: BillingRisk["severity"]) {
-  if (severity === "critical") return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  if (severity === "critical") return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
   if (severity === "warning") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+  return "bg-sky-50 text-sky-700 ring-1 ring-sky-200";
+}
+
+function riskCardClass(severity: BillingRisk["severity"]) {
+  if (severity === "critical") return "border-rose-200 bg-rose-50/70";
+  if (severity === "warning") return "border-amber-200 bg-amber-50/70";
+  return "border-sky-200 bg-sky-50/70";
 }
 
 function statusLabel(status: string | null | undefined) {
@@ -196,7 +226,7 @@ function billingOverrideReasonLabel(reason: string | null | undefined) {
 
 function billingOverrideBadgeClass(studio: StudioRow) {
   if (isBillingOverrideExpired(studio)) {
-    return "bg-red-50 text-red-700 ring-1 ring-red-200";
+    return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
   }
 
   if (isBillingOverrideActive(studio)) {
@@ -204,18 +234,6 @@ function billingOverrideBadgeClass(studio: StudioRow) {
   }
 
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
-}
-
-function getTrialEndsAt(params: {
-  studio?: StudioRow | null;
-  subscription?: SubscriptionRow | null;
-}) {
-  return (
-    params.subscription?.trial_ends_at ??
-    params.studio?.trial_ends_at ??
-    params.subscription?.current_period_end ??
-    null
-  );
 }
 
 function getPlanCode(params: {
@@ -341,7 +359,9 @@ function createBillingRisks(params: {
         severity: "critical",
         title: "Comped access expired",
         description:
-          "This workspace has a billing override, but the override expiration date has passed. Convert to paid billing, extend the override, or disable paid access.",
+          "This workspace has a billing override, but the override expiration date has passed.",
+        recommendedAction:
+          "Extend the override, convert the workspace to paid billing, or disable paid access.",
         studio,
         subscription,
         status,
@@ -353,79 +373,11 @@ function createBillingRisks(params: {
       risks.push({
         key: `${studio.id}-paid-access-no-active-subscription`,
         severity: "critical",
-        title: "Paid access needs subscription review",
+        title: "Paid access without active billing",
         description:
           "This workspace has a paid plan or Stripe subscription reference, but the billing status is not active or trialing.",
-        studio,
-        subscription,
-        status,
-        planName,
-      });
-    }
-
-    if (activeAccess && !studio.stripe_customer_id && !overrideActive) {
-      risks.push({
-        key: `${studio.id}-missing-stripe-customer`,
-        severity: "warning",
-        title: "Missing Stripe customer ID",
-        description:
-          "This workspace is active or trialing, but the studio record does not have a Stripe customer ID.",
-        studio,
-        subscription,
-        status,
-        planName,
-      });
-    }
-
-    if (activeAccess && !stripeSubscriptionId && !overrideActive) {
-      risks.push({
-        key: `${studio.id}-missing-stripe-subscription`,
-        severity: "warning",
-        title: "Missing Stripe subscription ID",
-        description:
-          "This workspace is active or trialing, but no Stripe subscription ID is available from the studio or subscription record.",
-        studio,
-        subscription,
-        status,
-        planName,
-      });
-    }
-
-    if (status === "trialing" && !trialEndsAt) {
-      risks.push({
-        key: `${studio.id}-trial-missing-end-date`,
-        severity: "warning",
-        title: "Trial is missing an end date",
-        description:
-          "This account is trialing, but no trial end date is stored. Trial reminders and risk checks may be inaccurate.",
-        studio,
-        subscription,
-        status,
-        planName,
-      });
-    }
-
-    if (status === "trialing" && trialDaysLeft !== null && trialDaysLeft < 0) {
-      risks.push({
-        key: `${studio.id}-trial-expired`,
-        severity: "critical",
-        title: "Trial appears expired",
-        description:
-          "This account is still marked trialing, but the trial end date has passed.",
-        studio,
-        subscription,
-        status,
-        planName,
-      });
-    }
-
-    if (subscription?.cancel_at_period_end) {
-      risks.push({
-        key: `${studio.id}-cancel-at-period-end`,
-        severity: "info",
-        title: "Subscription set to cancel",
-        description:
-          "This subscription is active for now, but it is scheduled to cancel at the end of the billing period.",
+        recommendedAction:
+          "Review access immediately. Suspend paid features or repair the subscription record.",
         studio,
         subscription,
         status,
@@ -440,6 +392,88 @@ function createBillingRisks(params: {
         title: "Subscription is past due",
         description:
           "This account has a past-due billing status and may need payment follow-up.",
+        recommendedAction:
+          "Open the studio record, review Stripe status, and contact the owner if needed.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (status === "trialing" && trialDaysLeft !== null && trialDaysLeft < 0) {
+      risks.push({
+        key: `${studio.id}-trial-expired`,
+        severity: "critical",
+        title: "Trial appears expired",
+        description:
+          "This account is still marked trialing, but the trial end date has passed.",
+        recommendedAction:
+          "Convert to paid billing, extend trial intentionally, or disable paid access.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (activeAccess && !studio.stripe_customer_id && !overrideActive) {
+      risks.push({
+        key: `${studio.id}-missing-stripe-customer`,
+        severity: "warning",
+        title: "Missing Stripe customer ID",
+        description:
+          "This workspace is active or trialing, but the studio record does not have a Stripe customer ID.",
+        recommendedAction:
+          "Confirm whether the account completed checkout or needs a billing repair.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (activeAccess && !stripeSubscriptionId && !overrideActive) {
+      risks.push({
+        key: `${studio.id}-missing-stripe-subscription`,
+        severity: "warning",
+        title: "Missing Stripe subscription ID",
+        description:
+          "This workspace is active or trialing, but no Stripe subscription ID is available from the studio or subscription record.",
+        recommendedAction:
+          "Review whether this is legitimate free access or a subscription sync issue.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (status === "trialing" && !trialEndsAt) {
+      risks.push({
+        key: `${studio.id}-trial-missing-end-date`,
+        severity: "warning",
+        title: "Trial is missing an end date",
+        description:
+          "This account is trialing, but no trial end date is stored.",
+        recommendedAction:
+          "Add the correct trial end date so reminders and access rules stay accurate.",
+        studio,
+        subscription,
+        status,
+        planName,
+      });
+    }
+
+    if (subscription?.cancel_at_period_end) {
+      risks.push({
+        key: `${studio.id}-cancel-at-period-end`,
+        severity: "info",
+        title: "Subscription set to cancel",
+        description:
+          "This subscription is active for now, but it is scheduled to cancel at the end of the billing period.",
+        recommendedAction:
+          "Monitor for churn and consider outreach before the period ends.",
         studio,
         subscription,
         status,
@@ -458,6 +492,69 @@ function createBillingRisks(params: {
       sensitivity: "base",
     });
   });
+}
+
+function accountSortValue(row: AccountRow) {
+  const rank: Record<string, number> = {
+    past_due: 0,
+    trialing: 1,
+    active: 2,
+    canceled: 3,
+    cancelled: 3,
+    inactive: 4,
+    not_started: 5,
+    no_subscription: 5,
+  };
+
+  return rank[row.status] ?? 9;
+}
+
+function CompactMetricCard({
+  label,
+  value,
+  helper,
+  tone = "slate",
+}: {
+  label: string;
+  value: string | number;
+  helper?: string;
+  tone?: "slate" | "green" | "blue" | "amber" | "rose" | "violet";
+}) {
+  const tones = {
+    slate: "border-slate-200 bg-white text-slate-950",
+    green: "border-emerald-200 bg-emerald-50 text-emerald-950",
+    blue: "border-sky-200 bg-sky-50 text-sky-950",
+    amber: "border-amber-200 bg-amber-50 text-amber-950",
+    rose: "border-rose-200 bg-rose-50 text-rose-950",
+    violet: "border-violet-200 bg-violet-50 text-violet-950",
+  };
+
+  return (
+    <div className={`rounded-2xl border p-5 shadow-sm ${tones[tone]}`}>
+      <p className="text-sm font-medium opacity-75">{label}</p>
+      <p className="mt-2 text-3xl font-semibold">{value}</p>
+      {helper ? <p className="mt-2 text-xs leading-5 opacity-75">{helper}</p> : null}
+    </div>
+  );
+}
+
+function StudioActionLinks({ studioId }: { studioId: string }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <Link
+        href={`/platform/studios/${studioId}`}
+        className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-semibold text-white"
+      >
+        Open Studio
+      </Link>
+      <Link
+        href={`/platform/studios/${studioId}#billing`}
+        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700"
+      >
+        Billing Details
+      </Link>
+    </div>
+  );
 }
 
 export default async function PlatformBillingPage() {
@@ -489,25 +586,25 @@ export default async function PlatformBillingPage() {
       `),
 
     supabase
-  .from("studios")
-  .select(`
-    id,
-    name,
-    created_at,
-    billing_plan,
-    subscription_status,
-    active,
-    stripe_customer_id,
-    stripe_subscription_id,
-    trial_ends_at,
-    last_workspace_access_at,
-    last_workspace_access_user_id,
-    billing_override_enabled,
-    billing_override_reason,
-    billing_override_expires_at,
-    billing_override_notes
-  `)
-  .order("created_at", { ascending: false }),
+      .from("studios")
+      .select(`
+        id,
+        name,
+        created_at,
+        billing_plan,
+        subscription_status,
+        active,
+        stripe_customer_id,
+        stripe_subscription_id,
+        trial_ends_at,
+        last_workspace_access_at,
+        last_workspace_access_user_id,
+        billing_override_enabled,
+        billing_override_reason,
+        billing_override_expires_at,
+        billing_override_notes
+      `)
+      .order("created_at", { ascending: false }),
 
     supabase
       .from("studio_invoices")
@@ -547,52 +644,59 @@ export default async function PlatformBillingPage() {
   const studioById = new Map(typedStudios.map((studio) => [studio.id, studio]));
   const subscriptionByStudioId = new Map<string, SubscriptionRow>();
 
-typedSubscriptions
-  .slice()
-  .sort((a, b) => {
-    const priority = (status: string | null) => {
-      if (status === "trialing") return 1;
-      if (status === "active") return 2;
-      if (status === "past_due") return 3;
-      if (status === "canceled") return 4;
-      return 9;
-    };
+  typedSubscriptions
+    .slice()
+    .sort((a, b) => {
+      const priority = (status: string | null) => {
+        const normalized = normalize(status);
+        if (normalized === "trialing") return 1;
+        if (normalized === "active") return 2;
+        if (normalized === "past_due") return 3;
+        if (normalized === "canceled" || normalized === "cancelled") return 4;
+        return 9;
+      };
 
-    const priorityCompare = priority(a.status) - priority(b.status);
+      const priorityCompare = priority(a.status) - priority(b.status);
 
-    if (priorityCompare !== 0) {
-      return priorityCompare;
-    }
+      if (priorityCompare !== 0) {
+        return priorityCompare;
+      }
 
-    const aDate = a.trial_ends_at ?? a.current_period_end ?? "";
-    const bDate = b.trial_ends_at ?? b.current_period_end ?? "";
+      const aDate = a.trial_ends_at ?? a.current_period_end ?? "";
+      const bDate = b.trial_ends_at ?? b.current_period_end ?? "";
 
-    return bDate.localeCompare(aDate);
-  })
-  .forEach((subscription) => {
-    if (!subscriptionByStudioId.has(subscription.studio_id)) {
-      subscriptionByStudioId.set(subscription.studio_id, subscription);
-    }
-  });
+      return bDate.localeCompare(aDate);
+    })
+    .forEach((subscription) => {
+      if (!subscriptionByStudioId.has(subscription.studio_id)) {
+        subscriptionByStudioId.set(subscription.studio_id, subscription);
+      }
+    });
 
-  const accountRows = typedStudios.map((studio) => {
-    const subscription = subscriptionByStudioId.get(studio.id);
-    const status = getEffectiveBillingStatus({ studio, subscription });
-    const planName = getPlanName({ studio, subscription });
-    const trialEndsAt = getEffectiveTrialEndsAt({ studio, subscription });
-    const trialDaysLeft = daysUntil(trialEndsAt);
+  const accountRows: AccountRow[] = typedStudios
+    .map((studio) => {
+      const subscription = subscriptionByStudioId.get(studio.id);
+      const status = getEffectiveBillingStatus({ studio, subscription });
+      const planName = getPlanName({ studio, subscription });
+      const trialEndsAt = getEffectiveTrialEndsAt({ studio, subscription });
+      const trialDaysLeft = daysUntil(trialEndsAt);
 
-    return {
-      studio,
-      subscription,
-      status,
-      planName,
-      trialEndsAt,
-      trialDaysLeft,
-      paidPlan: hasPaidPlan({ studio, subscription }),
-      stripeSubscriptionId: getEffectiveStripeSubscriptionId({ studio, subscription }),
-    };
-  });
+      return {
+        studio,
+        subscription,
+        status,
+        planName,
+        trialEndsAt,
+        trialDaysLeft,
+        paidPlan: hasPaidPlan({ studio, subscription }),
+        stripeSubscriptionId: getEffectiveStripeSubscriptionId({ studio, subscription }),
+      };
+    })
+    .sort((a, b) => {
+      const rankCompare = accountSortValue(a) - accountSortValue(b);
+      if (rankCompare !== 0) return rankCompare;
+      return a.studio.name.localeCompare(b.studio.name, undefined, { sensitivity: "base" });
+    });
 
   const activeCount = accountRows.filter((row) => row.status === "active").length;
   const trialingCount = accountRows.filter((row) => row.status === "trialing").length;
@@ -605,6 +709,7 @@ typedSubscriptions
   ).length;
   const compedAccessRows = accountRows.filter((row) => isBillingOverrideActive(row.studio));
   const compedAccessCount = compedAccessRows.length;
+
   const compedExpiringSoon = compedAccessRows
     .map((row) => ({
       ...row,
@@ -639,17 +744,15 @@ typedSubscriptions
     (invoice) => normalize(invoice.status) === "open"
   ).length;
 
-  const planMix = accountRows.reduce<Record<string, number>>((acc, row) => {
-    acc[row.planName] = (acc[row.planName] ?? 0) + 1;
-    return acc;
-  }, {});
-
   const billingRisks = createBillingRisks({
     studios: typedStudios,
     subscriptionByStudioId,
   });
 
   const riskSummary = getRiskSummary(billingRisks);
+  const criticalRisks = billingRisks.filter((risk) => risk.severity === "critical");
+  const warningRisks = billingRisks.filter((risk) => risk.severity === "warning");
+  const infoRisks = billingRisks.filter((risk) => risk.severity === "info");
 
   const trialsEndingSoon = accountRows
     .filter(
@@ -682,12 +785,13 @@ typedSubscriptions
     )
     .sort((a, b) => (a.days ?? 999) - (b.days ?? 999));
 
-  const missingStripeCustomerCount = billingRisks.filter(
-    (risk) => risk.key.endsWith("missing-stripe-customer")
-  ).length;
-  const missingStripeSubscriptionCount = billingRisks.filter(
-    (risk) => risk.key.endsWith("missing-stripe-subscription")
-  ).length;
+  const planMix = accountRows.reduce<Record<string, number>>((acc, row) => {
+    acc[row.planName] = (acc[row.planName] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const recentOpenInvoices = typedInvoices.filter((invoice) => normalize(invoice.status) === "open").slice(0, 8);
+  const recentInvoices = typedInvoices.slice(0, 12);
 
   return (
     <div className="space-y-8">
@@ -696,171 +800,143 @@ typedSubscriptions
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
             DanceFlow Platform Admin
           </p>
-          <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-            Billing Risk & Subscription Health
-          </h1>
-          <p className="mt-3 max-w-3xl text-sm leading-7 text-white/85 md:text-base">
-            Monitor subscription status, trial health, Stripe sync, invoice activity, and paid-plan access from one place.
-          </p>
+          <div className="mt-3 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+                Billing Risk Workflow
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-white/85 md:text-base">
+                Review paid access, trials, Stripe sync, comped workspaces, invoices, and subscription status from one actionable queue.
+              </p>
+            </div>
+            <Link
+              href="/platform"
+              className="inline-flex w-fit rounded-full bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-primary)] shadow-sm"
+            >
+              Back to admin dashboard
+            </Link>
+          </div>
         </div>
 
-        <div className="grid gap-4 border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 p-6 md:grid-cols-3 xl:grid-cols-7">
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-            <p className="text-sm text-emerald-700">Active</p>
-            <p className="mt-2 text-3xl font-semibold text-emerald-950">{activeCount}</p>
-          </div>
-
-          <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
-            <p className="text-sm text-sky-700">Trial</p>
-            <p className="mt-2 text-3xl font-semibold text-sky-950">{trialingCount}</p>
-            <p className="mt-2 text-xs font-medium text-sky-700">
-              {trialsEndingSoon[0]?.trialDaysLeft !== undefined
-                ? trialsEndingSoon[0].trialDaysLeft === 0
-                  ? "Next trial ends today"
-                  : `Next trial ends in ${trialsEndingSoon[0].trialDaysLeft} day${trialsEndingSoon[0].trialDaysLeft === 1 ? "" : "s"}`
-                : "No trials ending soon"}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-            <p className="text-sm text-amber-700">Past Due</p>
-            <p className="mt-2 text-3xl font-semibold text-amber-950">{pastDueCount}</p>
-          </div>
-
-          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
-            <p className="text-sm text-rose-700">Canceled</p>
-            <p className="mt-2 text-3xl font-semibold text-rose-950">{cancelledCount}</p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <p className="text-sm text-slate-500">Billing Not Started</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-950">{billingNotStartedCount}</p>
-          </div>
-
-          <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
-            <p className="text-sm text-violet-700">Comped Access</p>
-            <p className="mt-2 text-3xl font-semibold text-violet-950">{compedAccessCount}</p>
-            <p className="mt-2 text-xs font-medium text-violet-700">
-              {compedExpiringSoon[0]?.overrideDaysLeft !== undefined
-                ? compedExpiringSoon[0].overrideDaysLeft === 0
-                  ? "Next comp expires today"
-                  : `Next comp expires in ${compedExpiringSoon[0].overrideDaysLeft} day${compedExpiringSoon[0].overrideDaysLeft === 1 ? "" : "s"}`
-                : "No comps expiring soon"}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-5">
-            <p className="text-sm text-slate-500">Open Invoices</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-950">{openInvoiceCount}</p>
-          </div>
+        <div className="grid gap-4 border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 p-6 md:grid-cols-3 xl:grid-cols-6">
+          <CompactMetricCard label="Critical Risks" value={riskSummary.critical} tone="rose" helper="Review these first." />
+          <CompactMetricCard label="Warnings" value={riskSummary.warning} tone="amber" helper="Likely sync or setup issues." />
+          <CompactMetricCard label="Trials" value={trialingCount} tone="blue" helper={`${trialsEndingSoon.length} ending soon`} />
+          <CompactMetricCard label="Active" value={activeCount} tone="green" helper={`${monthlyCount} monthly / ${yearlyCount} yearly`} />
+          <CompactMetricCard label="Comped" value={compedAccessCount} tone="violet" helper={`${compedExpiringSoon.length} expiring soon`} />
+          <CompactMetricCard label="Open Invoices" value={openInvoiceCount} helper={formatMoney(totalInvoiceDue, "USD")} />
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-[28px] border border-red-200 bg-red-50 p-6 shadow-sm">
-          <p className="text-sm font-medium text-red-700">Critical Risks</p>
-          <p className="mt-2 text-4xl font-semibold text-red-950">{riskSummary.critical}</p>
-          <p className="mt-2 text-sm leading-6 text-red-800">
-            Items that can affect revenue, access, or subscription accuracy.
+      <section className="grid gap-4 lg:grid-cols-3">
+        <div className="rounded-[28px] border border-rose-200 bg-rose-50 p-6 shadow-sm">
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-rose-700">Handle first</p>
+          <h2 className="mt-2 text-2xl font-semibold text-rose-950">Critical billing risk</h2>
+          <p className="mt-2 text-sm leading-6 text-rose-800">
+            Paid access, expired trials, past-due subscriptions, and expired comped access.
           </p>
+          <p className="mt-5 text-4xl font-semibold text-rose-950">{criticalRisks.length}</p>
         </div>
 
         <div className="rounded-[28px] border border-amber-200 bg-amber-50 p-6 shadow-sm">
-          <p className="text-sm font-medium text-amber-700">Warnings</p>
-          <p className="mt-2 text-4xl font-semibold text-amber-950">{riskSummary.warning}</p>
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-700">Review next</p>
+          <h2 className="mt-2 text-2xl font-semibold text-amber-950">Billing setup warnings</h2>
           <p className="mt-2 text-sm leading-6 text-amber-800">
-            Records that need cleanup or Stripe sync review.
+            Missing Stripe identifiers, trial end gaps, and likely subscription sync issues.
           </p>
+          <p className="mt-5 text-4xl font-semibold text-amber-950">{warningRisks.length}</p>
         </div>
 
-        <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="text-sm font-medium text-slate-500">Monitoring Notes</p>
-          <p className="mt-2 text-4xl font-semibold text-slate-950">{riskSummary.info}</p>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Subscriptions scheduled to cancel or accounts that should be watched.
+        <div className="rounded-[28px] border border-sky-200 bg-sky-50 p-6 shadow-sm">
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-sky-700">Monitor</p>
+          <h2 className="mt-2 text-2xl font-semibold text-sky-950">Cancellation / churn watch</h2>
+          <p className="mt-2 text-sm leading-6 text-sky-800">
+            Scheduled cancellations and other billing information that may need outreach.
           </p>
+          <p className="mt-5 text-4xl font-semibold text-sky-950">{infoRisks.length}</p>
         </div>
       </section>
 
       <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="text-2xl font-semibold text-slate-900">Billing Risk Review</h2>
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Action queue</p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">Billing risks to review</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Review workspaces with subscription, trial, or Stripe sync issues. These checks help catch paid access, expired trials, and missing billing references before they become support problems.
+              Use this queue to decide whether to repair billing data, contact a studio, extend intentional access, or disable paid features.
             </p>
           </div>
-
-          <span
-            className={`rounded-full px-4 py-2 text-sm font-semibold ${
-              billingRisks.length === 0
-                ? "bg-green-50 text-green-700 ring-1 ring-green-200"
-                : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
-            }`}
-          >
-            {billingRisks.length} item{billingRisks.length === 1 ? "" : "s"} to review
-          </span>
+          <div className="flex flex-wrap gap-2">
+            <span className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
+              {criticalRisks.length} critical
+            </span>
+            <span className="rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+              {warningRisks.length} warnings
+            </span>
+            <span className="rounded-full bg-sky-50 px-3 py-1.5 text-xs font-semibold text-sky-700 ring-1 ring-sky-200">
+              {infoRisks.length} monitor
+            </span>
+          </div>
         </div>
 
         {billingRisks.length === 0 ? (
-          <div className="mt-6 rounded-2xl border border-green-200 bg-green-50 px-4 py-10 text-sm text-green-700">
-            No billing risk items detected right now.
+          <div className="mt-6 rounded-2xl border border-dashed border-emerald-200 bg-emerald-50 px-5 py-10 text-sm text-emerald-800">
+            No billing risks found right now.
           </div>
         ) : (
-          <div className="mt-6 space-y-3">
+          <div className="mt-6 space-y-4">
             {billingRisks.map((risk) => (
-              <div key={risk.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div key={risk.key} className={`rounded-2xl border p-5 ${riskCardClass(risk.severity)}`}>
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(260px,0.35fr)]">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-semibold ${riskBadgeClass(
-                          risk.severity
-                        )}`}
-                      >
-                        {risk.severity.toUpperCase()}
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${riskBadgeClass(risk.severity)}`}>
+                        {risk.severity === "critical" ? "Critical" : risk.severity === "warning" ? "Warning" : "Monitor"}
                       </span>
-                      <span
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                          risk.status
-                        )}`}
-                      >
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(risk.status)}`}>
                         {statusLabel(risk.status)}
                       </span>
+                      {risk.studio.billing_override_enabled ? (
+                        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${billingOverrideBadgeClass(risk.studio)}`}>
+                          {billingOverrideReasonLabel(risk.studio.billing_override_reason)} override
+                        </span>
+                      ) : null}
                     </div>
 
-                    <h3 className="mt-3 text-base font-semibold text-slate-950">
-                      {risk.title}
-                    </h3>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">
-                      {risk.description}
-                    </p>
-                    <p className="mt-2 text-sm text-slate-500">
-                      {risk.planName} • Created {formatDate(risk.studio.created_at)}
-                    </p>
-                    {risk.studio.billing_override_enabled ? (
-                      <p className="mt-2 text-xs font-medium text-slate-500">
-                        Override: {billingOverrideReasonLabel(risk.studio.billing_override_reason)} • Expires {formatDate(risk.studio.billing_override_expires_at)}
-                      </p>
-                    ) : null}
+                    <h3 className="mt-3 text-lg font-semibold text-slate-950">{risk.title}</h3>
+                    <p className="mt-2 text-sm leading-6 text-slate-700">{risk.description}</p>
+                    <div className="mt-3 rounded-xl border border-white/80 bg-white/70 p-3 text-sm leading-6 text-slate-700">
+                      <span className="font-semibold text-slate-950">Recommended action:</span> {risk.recommendedAction}
+                    </div>
+
+                    <div className="mt-4 grid gap-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
+                      <p><span className="font-semibold text-slate-800">Plan:</span> {risk.planName}</p>
+                      <p><span className="font-semibold text-slate-800">Created:</span> {formatDate(risk.studio.created_at)}</p>
+                      <p><span className="font-semibold text-slate-800">Last access:</span> {formatDateTime(risk.studio.last_workspace_access_at)}</p>
+                      <p><span className="font-semibold text-slate-800">Next date:</span> {formatDate(getEffectiveTrialEndsAt({ studio: risk.studio, subscription: risk.subscription }))}</p>
+                    </div>
                   </div>
 
-                  <div className="md:text-right">
+                  <div className="rounded-2xl border border-white/80 bg-white/80 p-4">
                     <Link
                       href={`/platform/studios/${risk.studio.id}`}
-                      className="font-medium text-slate-950 underline"
+                      className="font-semibold text-slate-950 underline"
                     >
                       {risk.studio.name}
                     </Link>
-                    <p className="mt-2 text-xs text-slate-500">
-                      Stripe customer: {risk.studio.stripe_customer_id ?? "—"}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Stripe subscription: {getEffectiveStripeSubscriptionId({
-                        studio: risk.studio,
-                        subscription: risk.subscription,
-                      }) || "—"}
-                    </p>
+                    <div className="mt-3 space-y-1 text-xs text-slate-600">
+                      <p>Stripe customer: {risk.studio.stripe_customer_id ?? "—"}</p>
+                      <p>
+                        Stripe subscription: {getEffectiveStripeSubscriptionId({
+                          studio: risk.studio,
+                          subscription: risk.subscription,
+                        }) || "—"}
+                      </p>
+                      <p>Workspace: {risk.studio.active === false ? "Disabled" : "Active"}</p>
+                    </div>
+                    <div className="mt-4">
+                      <StudioActionLinks studioId={risk.studio.id} />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -869,45 +945,67 @@ typedSubscriptions
         )}
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">Revenue Snapshot</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Recent subscription invoice totals from stored Stripe invoice records.
-          </p>
+      <section className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+        <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-semibold text-slate-900">Revenue and invoice snapshot</h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Subscription invoice totals from stored Stripe invoice records.
+              </p>
+            </div>
+          </div>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Recent Invoice Paid Total</p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+              <p className="text-sm text-emerald-700">Recent invoice paid total</p>
+              <p className="mt-2 text-3xl font-semibold text-emerald-950">
                 {formatMoney(totalInvoicePaid, "USD")}
               </p>
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Recent Invoice Due Total</p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <p className="text-sm text-slate-500">Recent invoice due total</p>
+              <p className="mt-2 text-3xl font-semibold text-slate-950">
                 {formatMoney(totalInvoiceDue, "USD")}
               </p>
             </div>
           </div>
 
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-sm text-slate-500">Monthly Subscriptions</p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900">{monthlyCount}</p>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <p className="text-sm text-slate-500">Yearly Subscriptions</p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900">{yearlyCount}</p>
-            </div>
-          </div>
-        </section>
+          {recentOpenInvoices.length > 0 ? (
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Open invoices</h3>
+              <div className="mt-3 space-y-3">
+                {recentOpenInvoices.map((invoice) => {
+                  const studio = studioById.get(invoice.studio_id);
 
-        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">Plan Mix</h2>
+                  return (
+                    <div key={invoice.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <Link href={`/platform/studios/${invoice.studio_id}`} className="font-semibold text-slate-950 underline">
+                            {studio?.name ?? "Unknown studio"}
+                          </Link>
+                          <p className="mt-1 text-xs text-slate-500">
+                            Created {formatDate(invoice.created_at)} • Period {formatDate(invoice.period_start)} - {formatDate(invoice.period_end)}
+                          </p>
+                        </div>
+                        <div className="text-sm font-semibold text-slate-950">
+                          {formatMoney(invoice.amount_due, invoice.currency || "USD")}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold text-slate-900">Plan mix and lifecycle</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Current workspace plan distribution based on subscription plan records and studio billing plan fallback.
+            Quick view of active plans, trialing accounts, cancellations, and comped access.
           </p>
 
           <div className="mt-5 grid gap-3">
@@ -917,25 +1015,105 @@ typedSubscriptions
               </div>
             ) : (
               Object.entries(planMix).map(([planName, count]) => (
-                <div
-                  key={planName}
-                  className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4"
-                >
+                <div key={planName} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-sm font-medium text-slate-700">{planName}</p>
                   <p className="text-lg font-semibold text-slate-950">{count}</p>
                 </div>
               ))
             )}
           </div>
-        </section>
-      </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-sm text-slate-500">Past Due</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">{pastDueCount}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-sm text-slate-500">Canceled</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">{cancelledCount}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-sm text-slate-500">Billing Not Started</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">{billingNotStartedCount}</p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <p className="text-sm text-slate-500">Comped Access</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">{compedAccessCount}</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold text-slate-900">Trials ending soon</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Trialing accounts with a trial end date in the next 14 days.</p>
+
+          {trialsEndingSoon.length === 0 ? (
+            <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
+              No trials ending in the next 14 days.
+            </div>
+          ) : (
+            <div className="mt-5 space-y-3">
+              {trialsEndingSoon.map((item) => (
+                <div key={item.studio.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <Link href={`/platform/studios/${item.studio.id}`} className="font-medium text-slate-900 underline">
+                        {item.studio.name}
+                      </Link>
+                      <p className="mt-1 text-sm text-slate-500">{item.planName}</p>
+                    </div>
+                    <div className="text-right text-sm text-slate-600">
+                      <p>{item.trialDaysLeft} day{item.trialDaysLeft === 1 ? "" : "s"}</p>
+                      <p>{formatDate(item.trialEndsAt)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-xl font-semibold text-slate-900">Renewals ending soon</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Active subscriptions with a billing period ending in the next 14 days.</p>
+
+          {renewalsEndingSoon.length === 0 ? (
+            <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
+              No active renewals ending in the next 14 days.
+            </div>
+          ) : (
+            <div className="mt-5 space-y-3">
+              {renewalsEndingSoon.map((item) => (
+                <div key={item.subscription.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <Link href={`/platform/studios/${item.subscription.studio_id}`} className="font-medium text-slate-900 underline">
+                        {item.studio?.name ?? "Unknown studio"}
+                      </Link>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {item.planName} • {billingIntervalLabel(item.subscription.billing_interval)}
+                      </p>
+                    </div>
+                    <div className="text-right text-sm text-slate-600">
+                      <p>{item.days} day{item.days === 1 ? "" : "s"}</p>
+                      <p>{formatDate(item.subscription.current_period_end)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
 
       <section className="rounded-[32px] border border-violet-200 bg-violet-50/60 p-6 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
-            <h2 className="text-xl font-semibold text-violet-950">Comped / Ambassador Access</h2>
+            <h2 className="text-xl font-semibold text-violet-950">Comped / ambassador access</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-violet-800">
-              Legitimate Pro or Organizer access granted by platform override. Active overrides are excluded from missing Stripe subscription risk checks, but expired overrides are flagged.
+              Legitimate Pro or Organizer access granted by platform override. Active overrides are excluded from missing Stripe subscription risk checks, but expired overrides are flagged above.
             </p>
           </div>
           <span className="rounded-full bg-white px-3 py-1.5 text-sm font-semibold text-violet-700 ring-1 ring-violet-200">
@@ -959,20 +1137,13 @@ typedSubscriptions
                     {statusLabel(row.status)}
                   </span>
                 </div>
-                <Link
-                  href={`/platform/studios/${row.studio.id}`}
-                  className="mt-3 block font-semibold text-slate-950 underline"
-                >
+                <Link href={`/platform/studios/${row.studio.id}`} className="mt-3 block font-semibold text-slate-950 underline">
                   {row.studio.name}
                 </Link>
                 <p className="mt-1 text-sm text-slate-600">{row.planName}</p>
-                <p className="mt-2 text-xs text-slate-500">
-                  Expires: {formatDate(row.studio.billing_override_expires_at)}
-                </p>
+                <p className="mt-2 text-xs text-slate-500">Expires: {formatDate(row.studio.billing_override_expires_at)}</p>
                 {row.studio.billing_override_notes ? (
-                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">
-                    {row.studio.billing_override_notes}
-                  </p>
+                  <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{row.studio.billing_override_notes}</p>
                 ) : null}
               </div>
             ))}
@@ -980,96 +1151,12 @@ typedSubscriptions
         )}
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">Trials Ending Soon</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Trialing accounts with a trial end date in the next 14 days.
-          </p>
-
-          {trialsEndingSoon.length === 0 ? (
-            <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
-              No trials ending in the next 14 days.
-            </div>
-          ) : (
-            <div className="mt-5 space-y-3">
-              {trialsEndingSoon.map((item) => (
-                <div key={item.studio.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <Link
-                        href={`/platform/studios/${item.studio.id}`}
-                        className="font-medium text-slate-900 underline"
-                      >
-                        {item.studio.name}
-                      </Link>
-                      <p className="mt-1 text-sm text-slate-500">{item.planName}</p>
-                    </div>
-
-                    <div className="text-right text-sm text-slate-600">
-                      <p>
-                        {item.trialDaysLeft} day{item.trialDaysLeft === 1 ? "" : "s"}
-                      </p>
-                      <p>{formatDate(item.trialEndsAt)}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold text-slate-900">Renewals Ending Soon</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Active subscriptions with a billing period ending in the next 14 days.
-          </p>
-
-          {renewalsEndingSoon.length === 0 ? (
-            <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
-              No active renewals ending in the next 14 days.
-            </div>
-          ) : (
-            <div className="mt-5 space-y-3">
-              {renewalsEndingSoon.map((item) => (
-                <div key={item.subscription.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <Link
-                        href={`/platform/studios/${item.subscription.studio_id}`}
-                        className="font-medium text-slate-900 underline"
-                      >
-                        {item.studio?.name ?? "Unknown studio"}
-                      </Link>
-                      <p className="mt-1 text-sm text-slate-500">
-                        {item.planName} • {billingIntervalLabel(item.subscription.billing_interval)}
-                      </p>
-                    </div>
-
-                    <div className="text-right text-sm text-slate-600">
-                      <p>
-                        {item.days} day{item.days === 1 ? "" : "s"}
-                      </p>
-                      <p>{formatDate(item.subscription.current_period_end)}</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-      </div>
-
       <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-xl font-semibold text-slate-900">Recent Invoices</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">
-          Recent invoice activity stored in the platform database.
-        </p>
+        <h2 className="text-xl font-semibold text-slate-900">Recent invoices</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">Recent invoice activity stored in the platform database.</p>
 
-        {typedInvoices.length === 0 ? (
-          <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
-            No invoices yet.
-          </div>
+        {recentInvoices.length === 0 ? (
+          <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">No invoices yet.</div>
         ) : (
           <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
             <table className="min-w-full divide-y divide-slate-200 text-sm">
@@ -1084,45 +1171,25 @@ typedSubscriptions
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
-                {typedInvoices.map((invoice) => {
+                {recentInvoices.map((invoice) => {
                   const studio = studioById.get(invoice.studio_id);
 
                   return (
                     <tr key={invoice.id}>
                       <td className="px-4 py-4 text-slate-900">
-                        <Link
-                          href={`/platform/studios/${invoice.studio_id}`}
-                          className="font-medium underline"
-                        >
+                        <Link href={`/platform/studios/${invoice.studio_id}`} className="font-medium underline">
                           {studio?.name ?? "Unknown studio"}
                         </Link>
                       </td>
-
                       <td className="px-4 py-4">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                            invoice.status
-                          )}`}
-                        >
+                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(invoice.status)}`}>
                           {statusLabel(invoice.status)}
                         </span>
                       </td>
-
-                      <td className="px-4 py-4 text-slate-700">
-                        {formatMoney(invoice.amount_due, invoice.currency || "USD")}
-                      </td>
-
-                      <td className="px-4 py-4 text-slate-700">
-                        {formatMoney(invoice.amount_paid, invoice.currency || "USD")}
-                      </td>
-
-                      <td className="px-4 py-4 text-slate-700">
-                        {formatDate(invoice.period_start)} - {formatDate(invoice.period_end)}
-                      </td>
-
-                      <td className="px-4 py-4 text-slate-700">
-                        {formatDate(invoice.created_at)}
-                      </td>
+                      <td className="px-4 py-4 text-slate-700">{formatMoney(invoice.amount_due, invoice.currency || "USD")}</td>
+                      <td className="px-4 py-4 text-slate-700">{formatMoney(invoice.amount_paid, invoice.currency || "USD")}</td>
+                      <td className="px-4 py-4 text-slate-700">{formatDate(invoice.period_start)} - {formatDate(invoice.period_end)}</td>
+                      <td className="px-4 py-4 text-slate-700">{formatDate(invoice.created_at)}</td>
                     </tr>
                   );
                 })}
@@ -1133,7 +1200,7 @@ typedSubscriptions
       </section>
 
       <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-        <h2 className="text-xl font-semibold text-slate-900">All Subscription Accounts</h2>
+        <h2 className="text-xl font-semibold text-slate-900">All subscription accounts</h2>
         <p className="mt-2 text-sm leading-6 text-slate-600">
           Review each workspace billing status, plan, Stripe references, and trial or renewal timing.
         </p>
@@ -1145,30 +1212,22 @@ typedSubscriptions
                 <th className="px-4 py-3 text-left font-medium text-slate-600">Workspace</th>
                 <th className="px-4 py-3 text-left font-medium text-slate-600">Plan</th>
                 <th className="px-4 py-3 text-left font-medium text-slate-600">Billing Status</th>
-                <th className="px-4 py-3 text-left font-medium text-slate-600">Workspace</th>
+                <th className="px-4 py-3 text-left font-medium text-slate-600">Access</th>
                 <th className="px-4 py-3 text-left font-medium text-slate-600">Stripe</th>
                 <th className="px-4 py-3 text-left font-medium text-slate-600">Next Date</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
               {accountRows.map((row) => {
-                const nextDate =
-                  row.status === "trialing"
-                    ? row.trialEndsAt
-                    : row.subscription?.current_period_end ?? null;
+                const nextDate = row.status === "trialing" ? row.trialEndsAt : row.subscription?.current_period_end ?? null;
 
                 return (
                   <tr key={row.studio.id}>
                     <td className="px-4 py-4">
-                      <Link
-                        href={`/platform/studios/${row.studio.id}`}
-                        className="font-medium text-slate-950 underline"
-                      >
+                      <Link href={`/platform/studios/${row.studio.id}`} className="font-medium text-slate-950 underline">
                         {row.studio.name}
                       </Link>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Created {formatDate(row.studio.created_at)}
-                      </p>
+                      <p className="mt-1 text-xs text-slate-500">Created {formatDate(row.studio.created_at)}</p>
                     </td>
                     <td className="px-4 py-4 text-slate-700">
                       <p>{row.planName}</p>
@@ -1179,27 +1238,19 @@ typedSubscriptions
                       ) : null}
                     </td>
                     <td className="px-4 py-4">
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                          row.status
-                        )}`}
-                      >
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(row.status)}`}>
                         {statusLabel(row.status)}
                       </span>
                     </td>
                     <td className="px-4 py-4 text-slate-700">
                       <p>{row.studio.active === false ? "Disabled" : "Active"}</p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Last access: {formatDate(row.studio.last_workspace_access_at)}
-                      </p>
+                      <p className="mt-1 text-xs text-slate-500">Last access: {formatDateTime(row.studio.last_workspace_access_at)}</p>
                     </td>
                     <td className="px-4 py-4 text-slate-700">
                       <p>Customer: {row.studio.stripe_customer_id ? "Yes" : "No"}</p>
                       <p className="mt-1">Subscription: {row.stripeSubscriptionId ? "Yes" : "No"}</p>
                     </td>
-                    <td className="px-4 py-4 text-slate-700">
-                      {formatDate(nextDate)}
-                    </td>
+                    <td className="px-4 py-4 text-slate-700">{formatDate(nextDate)}</td>
                   </tr>
                 );
               })}
@@ -1210,5 +1261,6 @@ typedSubscriptions
     </div>
   );
 }
+
 
 

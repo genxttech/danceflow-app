@@ -17,6 +17,8 @@ type StudioRow = {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   trial_ends_at: string | null;
+  last_workspace_access_at: string | null;
+  last_workspace_access_user_id: string | null;
 };
 
 type SubscriptionRow = {
@@ -156,6 +158,18 @@ function formatDate(value: string | null) {
     month: "short",
     day: "numeric",
     year: "numeric",
+  }).format(new Date(value));
+}
+
+function formatLastWorkspaceAccess(value: string | null) {
+  if (!value) return "Never";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   }).format(new Date(value));
 }
 
@@ -413,7 +427,7 @@ export default async function PlatformDashboardPage() {
     supabase
   .from("studios")
   .select(
-    "id, name, created_at, billing_plan, subscription_status, active, stripe_customer_id, stripe_subscription_id, trial_ends_at"
+    "id, name, created_at, billing_plan, subscription_status, active, stripe_customer_id, stripe_subscription_id, trial_ends_at, last_workspace_access_at, last_workspace_access_user_id"
   )
   .order("created_at", { ascending: false }),
 
@@ -844,6 +858,78 @@ export default async function PlatformDashboardPage() {
 
   const recentStudios = studioWorkspaces.slice(0, 8);
   const recentOrganizers = organizerWorkspaces.slice(0, 8);
+  const neverAccessedStudios = studioWorkspaces.filter(
+    (studio) => !studio.last_workspace_access_at
+  );
+  const staleAccessStudios = studioWorkspaces
+    .filter((studio) => {
+      if (!studio.last_workspace_access_at) return false;
+      return Date.now() - new Date(studio.last_workspace_access_at).getTime() >
+        1000 * 60 * 60 * 24 * 30;
+    })
+    .sort((a, b) =>
+      new Date(a.last_workspace_access_at ?? 0).getTime() -
+      new Date(b.last_workspace_access_at ?? 0).getTime()
+    );
+
+  const attentionItems = [
+    {
+      label: "Paid access risk",
+      count: paidAccessWithoutActiveSubscription.length,
+      detail: "Paid-plan workspaces without active or trialing subscription access.",
+      href: "/platform/billing",
+      action: "Review billing",
+      tone: "rose" as const,
+    },
+    {
+      label: "Billing issues",
+      count: billingIssues.length,
+      detail: "Past due or canceled subscriptions that may need follow-up.",
+      href: "/platform/billing",
+      action: "Open billing health",
+      tone: "amber" as const,
+    },
+    {
+      label: "Workspace inactivity",
+      count: neverAccessedStudios.length + staleAccessStudios.length,
+      detail: "Studio workspaces never accessed or not opened in 30+ days.",
+      href: "/platform/studios",
+      action: "Review studios",
+      tone: "sky" as const,
+    },
+    {
+      label: "Server-side alerts",
+      count: serverSideAlertCount,
+      detail: "Unresolved platform errors and package deduction problems.",
+      href: "/platform/alerts",
+      action: "Review alerts",
+      tone: "orange" as const,
+    },
+    {
+      label: "Active broadcasts",
+      count: activePlatformBroadcastAlerts.length,
+      detail: "Dashboard announcements currently visible to users.",
+      href: "/platform/alerts",
+      action: "Manage broadcasts",
+      tone: "violet" as const,
+    },
+  ];
+
+  const attentionToneClass = {
+    rose: "border-rose-200 bg-rose-50 text-rose-950",
+    amber: "border-amber-200 bg-amber-50 text-amber-950",
+    orange: "border-orange-200 bg-orange-50 text-orange-950",
+    violet: "border-violet-200 bg-violet-50 text-violet-950",
+    sky: "border-sky-200 bg-sky-50 text-sky-950",
+  };
+
+  const attentionButtonClass = {
+    rose: "bg-rose-700 text-white hover:bg-rose-800",
+    amber: "bg-amber-700 text-white hover:bg-amber-800",
+    orange: "bg-orange-700 text-white hover:bg-orange-800",
+    violet: "bg-violet-700 text-white hover:bg-violet-800",
+    sky: "bg-sky-700 text-white hover:bg-sky-800",
+  };
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.42)_0%,rgba(255,255,255,0)_20%)] p-1">
@@ -913,6 +999,158 @@ export default async function PlatformDashboardPage() {
               <p className="mt-1 text-2xl font-semibold text-amber-950">
                 {formatMoney(grossPaymentVolume, "USD")}
               </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-primary)]">
+              Needs Attention
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+              Platform operations console
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Start here each day. These cards highlight billing risk, backend issues, active broadcasts, and the fastest admin actions to take next.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/api/platform/daily-digest"
+              className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100"
+            >
+              Open digest endpoint
+            </Link>
+            <Link
+              href="/platform/billing"
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
+            >
+              Billing health
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {attentionItems.map((item) => (
+            <div
+              key={item.label}
+              className={`rounded-3xl border p-5 ${attentionToneClass[item.tone]}`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">{item.label}</p>
+                  <p className="mt-1 text-3xl font-semibold">{item.count}</p>
+                </div>
+                <span className="rounded-full bg-white/70 px-2.5 py-1 text-xs font-semibold ring-1 ring-black/5">
+                  {item.count > 0 ? "Review" : "Clear"}
+                </span>
+              </div>
+              <p className="mt-3 min-h-12 text-sm leading-6 opacity-85">
+                {item.detail}
+              </p>
+              <Link
+                href={item.href}
+                className={`mt-4 inline-flex rounded-xl px-3 py-2 text-xs font-semibold shadow-sm transition ${attentionButtonClass[item.tone]}`}
+              >
+                {item.action}
+              </Link>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-6 grid gap-4 xl:grid-cols-3">
+          <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-rose-950">Top billing risks</h3>
+              <Link href="/platform/billing" className="text-xs font-semibold text-rose-800 underline">
+                View all
+              </Link>
+            </div>
+            {paidAccessWithoutActiveSubscription.length === 0 ? (
+              <p className="mt-4 rounded-2xl border border-rose-100 bg-white/70 p-4 text-sm text-rose-800">
+                No paid-access mismatches found.
+              </p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {paidAccessWithoutActiveSubscription.slice(0, 3).map(({ studio, status, workspaceType }) => (
+                  <Link
+                    key={studio.id}
+                    href={`/platform/studios/${studio.id}`}
+                    className="block rounded-2xl border border-rose-100 bg-white/80 p-4 transition hover:bg-white"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-rose-950">{studio.name}</p>
+                      <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-semibold text-rose-800">
+                        {workspaceType}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-rose-700">Status: {statusLabel(status)}</p>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
+            <div className="flex items-center justify-between gap-3">
+              <h3 className="text-sm font-semibold text-amber-950">Latest backend issues</h3>
+              <Link href="/platform/alerts" className="text-xs font-semibold text-amber-800 underline">
+                View all
+              </Link>
+            </div>
+            {serverSideAlertCount === 0 ? (
+              <p className="mt-4 rounded-2xl border border-amber-100 bg-white/70 p-4 text-sm text-amber-800">
+                No unresolved backend issues found.
+              </p>
+            ) : (
+              <div className="mt-4 space-y-3">
+                {typedPlatformErrorLogs.slice(0, 2).map((errorLog) => (
+                  <div key={errorLog.id} className="rounded-2xl border border-amber-100 bg-white/80 p-4">
+                    <p className="text-sm font-semibold text-amber-950">{errorLog.source}</p>
+                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-amber-800">{errorLog.message}</p>
+                    <p className="mt-2 text-xs text-amber-700">{formatDateTime(errorLog.created_at)}</p>
+                  </div>
+                ))}
+                {typedPackageDeductionErrors.slice(0, 2).map((errorLog) => (
+                  <div key={errorLog.id} className="rounded-2xl border border-orange-100 bg-white/80 p-4">
+                    <p className="text-sm font-semibold text-orange-950">Package deduction error</p>
+                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-orange-800">
+                      {errorLog.error_message ?? "Package credit deduction failed."}
+                    </p>
+                    <p className="mt-2 text-xs text-orange-700">{formatDateTime(errorLog.created_at)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+            <h3 className="text-sm font-semibold text-emerald-950">Today at a glance</h3>
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between rounded-2xl border border-emerald-100 bg-white/80 px-4 py-3">
+                <span className="text-sm text-emerald-800">Ticket platform fees</span>
+                <span className="text-sm font-semibold text-emerald-950">
+                  {formatMoney(eventPaymentRevenueFor(todayStart) * PLATFORM_TICKET_FEE_RATE, "USD")}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl border border-emerald-100 bg-white/80 px-4 py-3">
+                <span className="text-sm text-emerald-800">Subscription revenue</span>
+                <span className="text-sm font-semibold text-emerald-950">
+                  {formatMoney(subscriptionRevenueFor(todayStart), "USD")}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl border border-emerald-100 bg-white/80 px-4 py-3">
+                <span className="text-sm text-emerald-800">New trials</span>
+                <span className="text-sm font-semibold text-emerald-950">{newTrialSignupsFor(todayStart)}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-2xl border border-emerald-100 bg-white/80 px-4 py-3">
+                <span className="text-sm text-emerald-800">Cancellations</span>
+                <span className="text-sm font-semibold text-emerald-950">{cancellationsFor(todayStart)}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -1426,7 +1664,72 @@ export default async function PlatformDashboardPage() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
-        <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+  
+      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-sky-700">Workspace activity</p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">Last access tracking</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Use this to spot abandoned trials, paid accounts that are not adopting the workspace, and billing/access mismatches.
+            </p>
+          </div>
+          <Link href="/platform/studios" className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+            Open studio directory
+          </Link>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm text-slate-600">Never accessed</p>
+            <p className="mt-1 text-3xl font-semibold text-slate-950">{neverAccessedStudios.length}</p>
+          </div>
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm text-amber-700">No access in 30+ days</p>
+            <p className="mt-1 text-3xl font-semibold text-amber-950">{staleAccessStudios.length}</p>
+          </div>
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-sm text-emerald-700">Recently active</p>
+            <p className="mt-1 text-3xl font-semibold text-emerald-950">
+              {Math.max(0, studioWorkspaces.length - neverAccessedStudios.length - staleAccessStudios.length)}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 p-4">
+            <h3 className="font-semibold text-slate-900">Never accessed workspaces</h3>
+            <div className="mt-3 space-y-2">
+              {neverAccessedStudios.slice(0, 5).map((studio) => (
+                <Link key={studio.id} href={`/platform/studios/${studio.id}`} className="block rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+                  <span className="font-medium text-slate-900">{studio.name}</span>
+                  <span className="ml-2 text-slate-500">Created {formatDate(studio.created_at)}</span>
+                </Link>
+              ))}
+              {neverAccessedStudios.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">No never-accessed studios.</p>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 p-4">
+            <h3 className="font-semibold text-slate-900">Oldest recent access</h3>
+            <div className="mt-3 space-y-2">
+              {staleAccessStudios.slice(0, 5).map((studio) => (
+                <Link key={studio.id} href={`/platform/studios/${studio.id}`} className="block rounded-xl border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
+                  <span className="font-medium text-slate-900">{studio.name}</span>
+                  <span className="ml-2 text-slate-500">Last access {formatLastWorkspaceAccess(studio.last_workspace_access_at)}</span>
+                </Link>
+              ))}
+              {staleAccessStudios.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">No stale studio access older than 30 days.</p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
           <div className="grid gap-4 lg:grid-cols-2">
             <details className="group rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-3 [&::-webkit-details-marker]:hidden">
@@ -1474,6 +1777,9 @@ export default async function PlatformDashboardPage() {
                               </Link>
                               <p className="mt-1 text-sm text-slate-500">
                                 Created {formatDate(studio.created_at)}
+                              </p>
+                              <p className="mt-1 text-xs font-medium text-slate-500">
+                                Last workspace access: {formatLastWorkspaceAccess(studio.last_workspace_access_at)}
                               </p>
                             </div>
 
@@ -1552,6 +1858,9 @@ export default async function PlatformDashboardPage() {
                               </Link>
                               <p className="mt-1 text-sm text-slate-500">
                                 Created {formatDate(studio.created_at)}
+                              </p>
+                              <p className="mt-1 text-xs font-medium text-slate-500">
+                                Last workspace access: {formatLastWorkspaceAccess(studio.last_workspace_access_at)}
                               </p>
                             </div>
 

@@ -14,6 +14,8 @@ type StudioRow = {
   name: string;
   created_at: string;
   subscription_status?: string | null;
+  last_workspace_access_at: string | null;
+  last_workspace_access_user_id: string | null;
 };
 
 type SubscriptionRow = {
@@ -82,6 +84,17 @@ function formatDate(value: string | null) {
     month: "short",
     day: "numeric",
     year: "numeric",
+  }).format(new Date(value));
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "Never";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   }).format(new Date(value));
 }
 
@@ -163,7 +176,7 @@ export default async function PlatformStudioDetailPage({
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, created_at, subscription_status")
+      .select("id, name, created_at, subscription_status, last_workspace_access_at, last_workspace_access_user_id")
       .eq("id", id)
       .maybeSingle(),
 
@@ -489,6 +502,18 @@ export default async function PlatformStudioDetailPage({
               <p className="text-sm text-slate-500">Created</p>
               <p className="mt-1 font-medium text-slate-900">
                 {formatDate(typedStudio.created_at)}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
+              <p className="text-sm text-sky-700">Last Workspace Access</p>
+              <p className="mt-1 font-medium text-sky-950">
+                {formatDateTime(typedStudio.last_workspace_access_at)}
+              </p>
+              <p className="mt-1 text-xs text-sky-700/80">
+                {typedStudio.last_workspace_access_user_id
+                  ? `User ${typedStudio.last_workspace_access_user_id}`
+                  : "No workspace access user recorded yet."}
               </p>
             </div>
 

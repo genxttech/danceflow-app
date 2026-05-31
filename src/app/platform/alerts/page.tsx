@@ -47,6 +47,22 @@ function formatDateTime(value: string | null) {
   }).format(new Date(value));
 }
 
+function formatRelativeAge(value: string | null) {
+  if (!value) return "—";
+
+  const created = new Date(value).getTime();
+  const diffMs = Date.now() - created;
+  const diffMinutes = Math.max(0, Math.floor(diffMs / 60000));
+
+  if (diffMinutes < 60) return `${diffMinutes}m ago`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d ago`;
+}
+
 function statusBadgeClass(status: string) {
   if (status === "active") return "bg-green-50 text-green-700 ring-1 ring-green-200";
   if (status === "trialing") return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
@@ -71,6 +87,18 @@ function severityBadgeClass(severity: string) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
+function severityPanelClass(severity: string) {
+  if (severity === "critical") return "border-red-200 bg-red-50";
+  if (severity === "warning") return "border-amber-200 bg-amber-50";
+  return "border-slate-200 bg-slate-50";
+}
+
+function severityTextClass(severity: string) {
+  if (severity === "critical") return "text-red-950";
+  if (severity === "warning") return "text-amber-950";
+  return "text-slate-950";
+}
+
 function isOrganizerWorkspace(studioName: string) {
   const normalizedName = studioName.trim().toLowerCase();
 
@@ -88,6 +116,29 @@ function hasActiveBillingAccess(status: string | null | undefined) {
 
 function hasPaidBillingFootprint(studio: StudioRow) {
   return Boolean(studio.stripe_subscription_id);
+}
+
+function recommendedErrorAction(errorLog: PlatformErrorLogRow) {
+  const source = errorLog.source.toLowerCase();
+  const message = errorLog.message.toLowerCase();
+
+  if (source.includes("stripe") || message.includes("stripe")) {
+    return "Check Stripe/webhook state, confirm payment status, then mark resolved once the affected record is corrected.";
+  }
+
+  if (source.includes("registration") || message.includes("registration")) {
+    return "Open the related event or registration if available, confirm the user-facing flow still works, then resolve.";
+  }
+
+  if (source.includes("notification") || message.includes("email") || message.includes("resend")) {
+    return "Review outbound delivery status and confirm whether the message should be retried or ignored.";
+  }
+
+  if (errorLog.severity === "critical") {
+    return "Review immediately. Confirm whether users are blocked, patch the issue, then mark resolved.";
+  }
+
+  return "Review details, confirm whether action is needed, then mark resolved or leave open for follow-up.";
 }
 
 export default async function PlatformAlertsPage() {
@@ -118,7 +169,6 @@ export default async function PlatformAlertsPage() {
 
     redirect("/platform/alerts?status=resolved");
   }
-
 
   async function resolvePackageDeductionErrorAction(formData: FormData) {
     "use server";
@@ -166,7 +216,7 @@ export default async function PlatformAlertsPage() {
       .from("platform_error_logs")
       .select("id, severity, source, message, details, created_at, resolved_at")
       .order("created_at", { ascending: false })
-      .limit(100),
+      .limit(125),
 
     supabase
       .from("appointment_package_deduction_errors")
@@ -174,7 +224,7 @@ export default async function PlatformAlertsPage() {
         "id, appointment_id, studio_id, client_id, client_package_id, appointment_type, error_message, created_at, resolved_at, resolution_notes"
       )
       .order("created_at", { ascending: false })
-      .limit(100),
+      .limit(125),
   ]);
 
   if (studiosError) {
@@ -213,9 +263,32 @@ export default async function PlatformAlertsPage() {
     (errorLog) => !errorLog.resolved_at
   );
 
+  const resolvedPlatformErrors = typedPlatformErrorLogs.filter(
+    (errorLog) => Boolean(errorLog.resolved_at)
+  );
+
   const unresolvedPackageDeductionErrors = typedPackageDeductionErrors.filter(
     (errorLog) => !errorLog.resolved_at
   );
+
+  const resolvedPackageDeductionErrors = typedPackageDeductionErrors.filter(
+    (errorLog) => Boolean(errorLog.resolved_at)
+  );
+
+  const criticalErrors = unresolvedPlatformErrors.filter(
+    (errorLog) => errorLog.severity === "critical"
+  );
+  const warningErrors = unresolvedPlatformErrors.filter(
+    (errorLog) => errorLog.severity === "warning"
+  );
+  const monitorErrors = unresolvedPlatformErrors.filter(
+    (errorLog) => errorLog.severity !== "critical" && errorLog.severity !== "warning"
+  );
+
+  const mostRecentOpenIssue = [
+    ...unresolvedPlatformErrors.map((issue) => ({ type: "backend", created_at: issue.created_at })),
+    ...unresolvedPackageDeductionErrors.map((issue) => ({ type: "package", created_at: issue.created_at })),
+  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
 
   const totalAlertCount =
     billingRiskAccounts.length +
@@ -232,10 +305,10 @@ export default async function PlatformAlertsPage() {
                 DanceFlow Platform Admin
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Platform Alerts
+                Server Error Review
               </h1>
               <p className="mt-3 text-sm leading-7 text-white/85 md:text-base">
-                Review billing risk, backend errors, and package deduction issues in one place so problems can be handled before users report them.
+                Work the open platform queue: billing risk, backend errors, and package deduction issues that need review before studios report them.
               </p>
             </div>
 
@@ -250,36 +323,103 @@ export default async function PlatformAlertsPage() {
                 href="/platform/billing"
                 className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
               >
-                Billing Health
+                Billing Risk
               </Link>
             </div>
           </div>
         </div>
 
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
-              <p className="text-sm text-rose-700">Billing Risk</p>
-              <p className="mt-1 text-2xl font-semibold text-rose-950">
-                {billingRiskAccounts.length}
-              </p>
+          <div className="grid gap-4 md:grid-cols-4">
+            <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+              <p className="text-sm text-red-700">Critical Errors</p>
+              <p className="mt-1 text-2xl font-semibold text-red-950">{criticalErrors.length}</p>
+              <p className="mt-1 text-xs text-red-700">Fix first</p>
             </div>
 
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-              <p className="text-sm text-amber-700">Backend Errors</p>
-              <p className="mt-1 text-2xl font-semibold text-amber-950">
-                {unresolvedPlatformErrors.length}
-              </p>
+              <p className="text-sm text-amber-700">Warnings</p>
+              <p className="mt-1 text-2xl font-semibold text-amber-950">{warningErrors.length}</p>
+              <p className="mt-1 text-xs text-amber-700">Review today</p>
             </div>
 
             <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
-              <p className="text-sm text-orange-700">Package Deduction Errors</p>
-              <p className="mt-1 text-2xl font-semibold text-orange-950">
-                {unresolvedPackageDeductionErrors.length}
-              </p>
+              <p className="text-sm text-orange-700">Package Issues</p>
+              <p className="mt-1 text-2xl font-semibold text-orange-950">{unresolvedPackageDeductionErrors.length}</p>
+              <p className="mt-1 text-xs text-orange-700">May affect balances</p>
+            </div>
+
+            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+              <p className="text-sm text-rose-700">Billing Risks</p>
+              <p className="mt-1 text-2xl font-semibold text-rose-950">{billingRiskAccounts.length}</p>
+              <p className="mt-1 text-xs text-rose-700">Access/billing mismatch</p>
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Needs Attention
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                Open operations queue
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                Start with critical backend errors, then billing risk, then warnings and package deduction issues.
+              </p>
+            </div>
+            <span className="rounded-full bg-slate-950 px-3 py-1 text-sm font-semibold text-white">
+              {totalAlertCount} open
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-3">
+            <a href="#backend-errors" className="rounded-2xl border border-amber-200 bg-amber-50 p-4 transition hover:border-amber-300 hover:bg-amber-100">
+              <p className="text-sm font-semibold text-amber-950">Backend errors</p>
+              <p className="mt-1 text-2xl font-semibold text-amber-950">{unresolvedPlatformErrors.length}</p>
+              <p className="mt-1 text-xs text-amber-800">Critical, warning, and monitor items</p>
+            </a>
+            <a href="#package-errors" className="rounded-2xl border border-orange-200 bg-orange-50 p-4 transition hover:border-orange-300 hover:bg-orange-100">
+              <p className="text-sm font-semibold text-orange-950">Package errors</p>
+              <p className="mt-1 text-2xl font-semibold text-orange-950">{unresolvedPackageDeductionErrors.length}</p>
+              <p className="mt-1 text-xs text-orange-800">Credit/balance follow-up</p>
+            </a>
+            <Link href="/platform/billing" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 transition hover:border-rose-300 hover:bg-rose-100">
+              <p className="text-sm font-semibold text-rose-950">Billing risk</p>
+              <p className="mt-1 text-2xl font-semibold text-rose-950">{billingRiskAccounts.length}</p>
+              <p className="mt-1 text-xs text-rose-800">Open billing workflow</p>
+            </Link>
+          </div>
+        </div>
+
+        <aside className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            Triage Snapshot
+          </p>
+          <dl className="mt-4 space-y-3 text-sm">
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-slate-600">Most recent open issue</dt>
+              <dd className="font-semibold text-slate-950">
+                {mostRecentOpenIssue ? formatRelativeAge(mostRecentOpenIssue.created_at) : "None"}
+              </dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-slate-600">Resolved backend logs shown</dt>
+              <dd className="font-semibold text-slate-950">{resolvedPlatformErrors.length}</dd>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <dt className="text-slate-600">Resolved package issues shown</dt>
+              <dd className="font-semibold text-slate-950">{resolvedPackageDeductionErrors.length}</dd>
+            </div>
+          </dl>
+          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+            Resolve an item only after the root issue has been reviewed or the affected data has been corrected.
+          </div>
+        </aside>
       </section>
 
       {totalAlertCount === 0 ? (
@@ -303,10 +443,10 @@ export default async function PlatformAlertsPage() {
               Billing Risk
             </p>
             <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-              Paid-plan access without active subscription
+              Paid access without healthy billing
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              These workspaces have a Stripe subscription ID but are not currently active or trialing.
+              These workspaces have a Stripe subscription footprint but are not active or trialing. Review them in the billing workflow.
             </p>
           </div>
 
@@ -314,7 +454,7 @@ export default async function PlatformAlertsPage() {
             href="/platform/billing"
             className="rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-rose-800"
           >
-            Open Billing
+            Open Billing Risk
           </Link>
         </div>
 
@@ -323,44 +463,26 @@ export default async function PlatformAlertsPage() {
             No billing risk accounts detected.
           </div>
         ) : (
-          <div className="mt-5 overflow-hidden rounded-2xl border border-rose-100">
-            <div className="grid grid-cols-12 gap-3 bg-rose-50 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-rose-700">
-              <div className="col-span-4">Workspace</div>
-              <div className="col-span-2">Type</div>
-              <div className="col-span-2">Billing</div>
-              <div className="col-span-2">Status</div>
-              <div className="col-span-2 text-right">Review</div>
-            </div>
-
-            {billingRiskAccounts.map(({ studio, workspaceType, status }) => (
-              <div
-                key={studio.id}
-                className="grid grid-cols-12 gap-3 border-t border-rose-100 px-4 py-4 text-sm"
-              >
-                <div className="col-span-4">
-                  <Link
-                    href={`/platform/studios/${studio.id}`}
-                    className="font-semibold text-slate-950 underline"
-                  >
-                    {studio.name}
-                  </Link>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Created {formatDateTime(studio.created_at)}
-                  </p>
-                </div>
-                <div className="col-span-2 text-slate-600">{workspaceType}</div>
-                <div className="col-span-2 text-slate-600">Stripe subscription</div>
-                <div className="col-span-2">
+          <div className="mt-5 grid gap-3">
+            {billingRiskAccounts.slice(0, 6).map(({ studio, workspaceType, status }) => (
+              <div key={studio.id} className="rounded-2xl border border-rose-100 bg-rose-50 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <Link href={`/platform/studios/${studio.id}`} className="font-semibold text-rose-950 underline">
+                      {studio.name}
+                    </Link>
+                    <p className="mt-1 text-xs text-rose-800">
+                      {workspaceType} · Created {formatDateTime(studio.created_at)}
+                    </p>
+                  </div>
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${statusBadgeClass(status)}`}>
                     {statusLabel(status)}
                   </span>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Stripe sub {studio.stripe_subscription_id ? `${studio.stripe_subscription_id.slice(0, 12)}…` : "—"}
-                  </p>
                 </div>
-                <div className="col-span-2 text-right">
-                  <Link href="/platform/billing" className="text-sm font-semibold underline">
-                    Billing
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white p-3 text-sm text-slate-600">
+                  <span>Recommended action: confirm Stripe status and suspend or restore access intentionally.</span>
+                  <Link href="/platform/billing" className="font-semibold text-rose-700 underline">
+                    Review billing
                   </Link>
                 </div>
               </div>
@@ -369,17 +491,24 @@ export default async function PlatformAlertsPage() {
         )}
       </section>
 
-      <section className="rounded-[32px] border border-amber-200 bg-white p-6 shadow-sm">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
-            Backend Errors
-          </p>
-          <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-            Unresolved backend errors
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Review unresolved backend errors that may need attention.
-          </p>
+      <section id="backend-errors" className="rounded-[32px] border border-amber-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+              Server Error Review
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+              Unresolved backend errors
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Expand each issue, review the details, follow the recommended action, and mark it resolved when handled.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs font-semibold">
+            <span className="rounded-full bg-red-50 px-3 py-1 text-red-700 ring-1 ring-red-200">Critical {criticalErrors.length}</span>
+            <span className="rounded-full bg-amber-50 px-3 py-1 text-amber-700 ring-1 ring-amber-200">Warning {warningErrors.length}</span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-slate-700 ring-1 ring-slate-200">Monitor {monitorErrors.length}</span>
+          </div>
         </div>
 
         {unresolvedPlatformErrors.length === 0 ? (
@@ -389,47 +518,43 @@ export default async function PlatformAlertsPage() {
         ) : (
           <div className="mt-5 space-y-3">
             {unresolvedPlatformErrors.map((errorLog) => (
-              <details
-                key={errorLog.id}
-                className="group rounded-2xl border border-amber-200 bg-amber-50 p-4"
-              >
+              <details key={errorLog.id} className={`group rounded-2xl border p-4 ${severityPanelClass(errorLog.severity)}`}>
                 <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold text-amber-950">{errorLog.source}</p>
+                      <p className={`font-semibold ${severityTextClass(errorLog.severity)}`}>{errorLog.source}</p>
                       <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${severityBadgeClass(errorLog.severity)}`}>
-                        {errorLog.severity}
+                        {errorLog.severity || "info"}
+                      </span>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                        {formatRelativeAge(errorLog.created_at)}
                       </span>
                     </div>
-                    <p className="mt-2 line-clamp-2 text-sm text-amber-800">
-                      {errorLog.message}
-                    </p>
-                    <p className="mt-2 text-xs text-amber-700">
-                      {formatDateTime(errorLog.created_at)}
-                    </p>
+                    <p className="mt-2 line-clamp-2 text-sm text-slate-700">{errorLog.message}</p>
+                    <p className="mt-2 text-xs text-slate-500">Created {formatDateTime(errorLog.created_at)}</p>
                   </div>
 
-                  <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-amber-800 ring-1 ring-amber-200">
-                    <span className="group-open:hidden">Expand</span>
+                  <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-slate-800 ring-1 ring-slate-200">
+                    <span className="group-open:hidden">Review</span>
                     <span className="hidden group-open:inline">Collapse</span>
                   </span>
                 </summary>
 
                 <div className="mt-4 space-y-4">
-                  <pre className="max-h-72 overflow-auto rounded-xl bg-white p-4 text-xs text-slate-700">
+                  <div className="rounded-xl border border-white bg-white/80 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Recommended action</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-700">{recommendedErrorAction(errorLog)}</p>
+                  </div>
+
+                  <pre className="max-h-72 overflow-auto rounded-xl bg-white p-4 text-xs text-slate-700 ring-1 ring-slate-200">
                     {JSON.stringify(errorLog.details ?? {}, null, 2)}
                   </pre>
 
-                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-white p-4">
-                    <p className="text-sm text-slate-600">
-                      Mark this alert resolved after it has been reviewed or no longer needs action.
-                    </p>
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4">
+                    <p className="text-sm text-slate-600">Mark resolved after review, data correction, or code fix.</p>
                     <form action={resolvePlatformErrorAction}>
                       <input type="hidden" name="errorId" value={errorLog.id} />
-                      <button
-                        type="submit"
-                        className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-800"
-                      >
+                      <button type="submit" className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-amber-800">
                         Mark Resolved
                       </button>
                     </form>
@@ -441,16 +566,16 @@ export default async function PlatformAlertsPage() {
         )}
       </section>
 
-      <section className="rounded-[32px] border border-orange-200 bg-white p-6 shadow-sm">
+      <section id="package-errors" className="rounded-[32px] border border-orange-200 bg-white p-6 shadow-sm">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">
-            Package Deduction Errors
+            Package Deduction Review
           </p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-950">
             Appointment package credit issues
           </h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Review appointment package credit issues that may need manual follow-up.
+            Resolve these after the client/package balance has been checked or corrected.
           </p>
         </div>
 
@@ -461,25 +586,25 @@ export default async function PlatformAlertsPage() {
         ) : (
           <div className="mt-5 space-y-3">
             {unresolvedPackageDeductionErrors.map((errorLog) => (
-              <details
-                key={errorLog.id}
-                className="group rounded-2xl border border-orange-200 bg-orange-50 p-4"
-              >
+              <details key={errorLog.id} className="group rounded-2xl border border-orange-200 bg-orange-50 p-4">
                 <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-4 [&::-webkit-details-marker]:hidden">
-                  <div>
-                    <p className="font-semibold text-orange-950">
-                      {errorLog.appointment_type ?? "Appointment"} package deduction issue
-                    </p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold text-orange-950">
+                        {errorLog.appointment_type ?? "Appointment"} package deduction issue
+                      </p>
+                      <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-orange-700 ring-1 ring-orange-200">
+                        {formatRelativeAge(errorLog.created_at)}
+                      </span>
+                    </div>
                     <p className="mt-2 line-clamp-2 text-sm text-orange-800">
                       {errorLog.error_message ?? "Package credit deduction needs review."}
                     </p>
-                    <p className="mt-2 text-xs text-orange-700">
-                      {formatDateTime(errorLog.created_at)}
-                    </p>
+                    <p className="mt-2 text-xs text-orange-700">Created {formatDateTime(errorLog.created_at)}</p>
                   </div>
 
                   <span className="rounded-full bg-white px-3 py-1 text-sm font-semibold text-orange-800 ring-1 ring-orange-200">
-                    <span className="group-open:hidden">Expand</span>
+                    <span className="group-open:hidden">Review</span>
                     <span className="hidden group-open:inline">Collapse</span>
                   </span>
                 </summary>
@@ -491,11 +616,7 @@ export default async function PlatformAlertsPage() {
                   <p><span className="font-semibold">Package:</span> {errorLog.client_package_id ?? "—"}</p>
                 </div>
 
-
-                <form
-                  action={resolvePackageDeductionErrorAction}
-                  className="mt-4 rounded-xl border border-orange-200 bg-white p-4"
-                >
+                <form action={resolvePackageDeductionErrorAction} className="mt-4 rounded-xl border border-orange-200 bg-white p-4">
                   <input type="hidden" name="errorId" value={errorLog.id} />
                   <label className="block text-sm font-semibold text-slate-800" htmlFor={`resolutionNotes-${errorLog.id}`}>
                     Resolution notes
@@ -508,13 +629,8 @@ export default async function PlatformAlertsPage() {
                     className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
                   />
                   <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                    <p className="text-sm text-slate-600">
-                      Mark this package credit issue resolved after the client/package record has been reviewed.
-                    </p>
-                    <button
-                      type="submit"
-                      className="rounded-xl bg-orange-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-800"
-                    >
+                    <p className="text-sm text-slate-600">Add a note before resolving so the issue has a short audit trail.</p>
+                    <button type="submit" className="rounded-xl bg-orange-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-orange-800">
                       Mark Resolved
                     </button>
                   </div>
@@ -524,9 +640,60 @@ export default async function PlatformAlertsPage() {
           </div>
         )}
       </section>
+
+      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Recently Resolved</p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">Review history</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">Recent resolved items are shown for context while auditing platform health.</p>
+          </div>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="font-semibold text-slate-950">Backend errors</p>
+            {resolvedPlatformErrors.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-600">No resolved backend errors in the latest results.</p>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {resolvedPlatformErrors.slice(0, 6).map((errorLog) => (
+                  <div key={errorLog.id} className="rounded-xl bg-white p-3 text-sm ring-1 ring-slate-200">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium text-slate-900">{errorLog.source}</span>
+                      <span className="text-xs text-slate-500">{formatDateTime(errorLog.resolved_at)}</span>
+                    </div>
+                    <p className="mt-1 line-clamp-1 text-xs text-slate-600">{errorLog.message}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="font-semibold text-slate-950">Package deduction issues</p>
+            {resolvedPackageDeductionErrors.length === 0 ? (
+              <p className="mt-3 text-sm text-slate-600">No resolved package issues in the latest results.</p>
+            ) : (
+              <div className="mt-3 space-y-2">
+                {resolvedPackageDeductionErrors.slice(0, 6).map((errorLog) => (
+                  <div key={errorLog.id} className="rounded-xl bg-white p-3 text-sm ring-1 ring-slate-200">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium text-slate-900">{errorLog.appointment_type ?? "Appointment"}</span>
+                      <span className="text-xs text-slate-500">{formatDateTime(errorLog.resolved_at)}</span>
+                    </div>
+                    <p className="mt-1 line-clamp-1 text-xs text-slate-600">{errorLog.resolution_notes || errorLog.error_message || "Resolved"}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
+
 
 
 

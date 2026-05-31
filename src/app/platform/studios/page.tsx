@@ -13,6 +13,8 @@ type StudioRow = {
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   trial_ends_at: string | null;
+  last_workspace_access_at: string | null;
+  last_workspace_access_user_id: string | null;
 };
 
 type SubscriptionRow = {
@@ -52,6 +54,7 @@ type SearchParams = Promise<{
   q?: string;
   status?: string;
   plan?: string;
+  access?: string;
 }>;
 
 const PLAN_LABELS: Record<string, string> = {
@@ -150,6 +153,17 @@ function formatDate(value: string | null) {
     month: "short",
     day: "numeric",
     year: "numeric",
+  }).format(new Date(value));
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "Never";
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   }).format(new Date(value));
 }
 
@@ -254,6 +268,7 @@ export default async function PlatformStudiosPage({
   const q = (query.q ?? "").trim().toLowerCase();
   const statusFilter = (query.status ?? "").trim().toLowerCase();
   const planFilter = (query.plan ?? "").trim().toLowerCase();
+  const accessFilter = (query.access ?? "").trim().toLowerCase();
 
   const supabase = await createClient();
 
@@ -266,7 +281,7 @@ export default async function PlatformStudiosPage({
     supabase
       .from("studios")
       .select(
-        "id, name, created_at, billing_plan, subscription_status, active, stripe_customer_id, stripe_subscription_id, trial_ends_at"
+        "id, name, created_at, billing_plan, subscription_status, active, stripe_customer_id, stripe_subscription_id, trial_ends_at, last_workspace_access_at, last_workspace_access_user_id"
       )
       .order("created_at", { ascending: false }),
 
@@ -480,7 +495,7 @@ export default async function PlatformStudiosPage({
       </section>
 
       <form className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="grid gap-4 md:grid-cols-[1fr_220px_220px_auto]">
+        <div className="grid gap-4 md:grid-cols-[1fr_190px_190px_190px_auto]">
           <div>
             <label
               htmlFor="q"
@@ -517,6 +532,26 @@ export default async function PlatformStudiosPage({
               <option value="canceled">Canceled</option>
               <option value="not_started">Billing Not Started</option>
               <option value="inactive">Inactive</option>
+            </select>
+          </div>
+
+          <div>
+            <label
+              htmlFor="access"
+              className="mb-1 block text-sm font-medium text-slate-700"
+            >
+              Last Access
+            </label>
+            <select
+              id="access"
+              name="access"
+              defaultValue={query.access ?? ""}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            >
+              <option value="">All</option>
+              <option value="never">Never accessed</option>
+              <option value="stale">No access in 30+ days</option>
+              <option value="recent">Has accessed</option>
             </select>
           </div>
 
@@ -605,6 +640,9 @@ export default async function PlatformStudiosPage({
                   </th>
                   <th className="px-4 py-3 text-left font-medium text-slate-600">
                     Events
+                  </th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">
+                    Last Access
                   </th>
                   <th className="px-4 py-3 text-left font-medium text-slate-600">
                     Created
@@ -697,6 +735,19 @@ export default async function PlatformStudiosPage({
                         <span className="ml-1 text-xs text-slate-500">
                           ({eventStats.publicPublished} public)
                         </span>
+                      </td>
+
+                      <td className="px-4 py-4 text-slate-700">
+                        <div>
+                          <p className="font-medium text-slate-900">
+                            {formatDateTime(studio.last_workspace_access_at)}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {studio.last_workspace_access_user_id
+                              ? `User ${studio.last_workspace_access_user_id.slice(0, 8)}…`
+                              : "No user recorded"}
+                          </p>
+                        </div>
                       </td>
 
                       <td className="px-4 py-4 text-slate-700">
