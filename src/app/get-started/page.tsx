@@ -49,7 +49,7 @@ export default async function GetStartedPage() {
                   <p className="mt-5 text-lg leading-8 text-slate-600">
                     DanceFlow is where studios grow and dancers connect. Start with
                     the path that fits how you want to use the platform — discovery,
-                    studio operations, built-in follow-up marketing, or event organizing.
+                    studio operations, AI-assisted follow-up, or event organizing.
                   </p>
 
                   <div className="mt-7 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left">
@@ -58,8 +58,8 @@ export default async function GetStartedPage() {
                     </p>
                     <p className="mt-2 text-sm leading-7 text-slate-600">
                       Dancers can use DanceFlow with a free discovery account.
-                      Studios and organizers continue into transparent pricing and
-                      trial options built for the business side of dance.
+                      Studios get a 30-day trial during the Founder launch offer.
+                      Organizers get a 14-day trial with transparent event pricing.
                     </p>
                   </div>
                 </div>
@@ -259,8 +259,8 @@ export default async function GetStartedPage() {
                     <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
                       The free discovery path is built for dancers and the public.
                       Studio and organizer paths continue into business pricing so users
-                      only see the tools, features, and costs that match how they plan
-                      to use DanceFlow.
+                      only see the tools, features, trial length, and costs that match
+                      how they plan to use DanceFlow.
                     </p>
                   </div>
 

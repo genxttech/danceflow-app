@@ -49,21 +49,32 @@ export default async function StudioPricingPage() {
               </h1>
 
               <p className="mt-4 text-lg leading-8 text-slate-600">
-                Choose a trial for your own DanceFlow workspace. Manage your
-                studio CRM, scheduling, packages, events, payments, and built-in
-                client follow-up marketing from one place.
+                Start with a 30-day trial and use DanceFlow to manage your
+                studio CRM, scheduling, packages, events, payments, reports,
+                AI help, syllabus progress, and built-in follow-up marketing
+                from one place.
               </p>
 
-              <div className="mt-8 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left">
-                <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
-                  Existing account friendly
-                </p>
-                <p className="mt-2 text-sm leading-7 text-violet-950">
-                  Already have an account because a studio linked you as an independent
-                  instructor? Log in when prompted and DanceFlow will continue this flow
-                  by creating a separate workspace for your own business. Your host
-                  studio portal access stays separate.
-                </p>
+              <div className="mt-8 grid gap-4 text-left sm:grid-cols-2">
+                <div className="rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4">
+                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
+                    Founder pricing
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-violet-950">
+                    Available for the first 25 studios. Founder pricing lasts
+                    for 12 months after your 30-day free trial.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4">
+                  <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-700">
+                    Existing account friendly
+                  </p>
+                  <p className="mt-2 text-sm leading-7 text-slate-600">
+                    Already linked to another studio? Log in when prompted and
+                    DanceFlow will create a separate workspace for your own business.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -93,17 +104,26 @@ export default async function StudioPricingPage() {
                       ) : null}
                     </div>
 
-                    <p className="mt-4 text-4xl font-semibold tracking-tight text-slate-950">
-                      {formatPlanMoney(plan.amountMonthlyCents)}
-                      <span className="text-base font-medium text-slate-500">/mo</span>
-                    </p>
+                    <div className="mt-4">
+                      {plan.regularAmountMonthlyCents ? (
+                        <p className="text-sm font-medium text-slate-500">
+                          Founder price · regularly {formatPlanMoney(plan.regularAmountMonthlyCents)}/mo
+                        </p>
+                      ) : null}
+
+                      <p className="mt-1 text-4xl font-semibold tracking-tight text-slate-950">
+                        {formatPlanMoney(plan.amountMonthlyCents)}
+                        <span className="text-base font-medium text-slate-500">/mo</span>
+                      </p>
+                    </div>
 
                     <p className="mt-3 text-sm leading-7 text-slate-600">
                       {plan.description}
                     </p>
 
-                    <div className="mt-4 rounded-2xl bg-violet-50 px-4 py-3 text-sm text-violet-900">
-                      Includes a {plan.trialDays}-day free trial.
+                    <div className="mt-4 rounded-2xl bg-violet-50 px-4 py-3 text-sm leading-6 text-violet-900">
+                      Includes a {plan.trialDays}-day free trial. Founder pricing
+                      applies for 12 months after the trial for eligible early studios.
                     </div>
 
                     <ul className="mt-6 space-y-2 text-sm leading-7 text-slate-600">
@@ -185,17 +205,17 @@ export default async function StudioPricingPage() {
                 <div className="mt-5 space-y-4 text-sm leading-7 text-slate-600">
                   <p>
                     <span className="font-semibold text-slate-900">Starter:</span>{" "}
-                    basic campaign drafts and general client emails.
+basic campaign drafts, general client emails, and core studio operations.
                   </p>
                   <p>
                     <span className="font-semibold text-slate-900">Growth:</span>{" "}
-                    targeted CRM audiences for inactive clients, no upcoming
+targeted CRM audiences, AI help, inactive client follow-up, no upcoming
                     lessons, and low package credits.
                   </p>
                   <p>
                     <span className="font-semibold text-slate-900">Pro:</span>{" "}
-                    event-based audiences, checked-in attendee campaigns,
-                    advanced reporting, exports, and future automations.
+event-based audiences, checked-in attendee campaigns, ticketing,
+                    QR check-in, advanced reporting, exports, and larger AI usage.
                   </p>
                 </div>
               </section>

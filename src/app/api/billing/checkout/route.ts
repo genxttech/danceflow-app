@@ -33,6 +33,70 @@ type CheckoutInput = {
   billingInterval: "month" | "year";
 };
 
+
+const FOUNDER_PRICING_ACTIVE =
+  process.env.NEXT_PUBLIC_FOUNDER_PRICING_ACTIVE !== "false" &&
+  process.env.FOUNDER_PRICING_ACTIVE !== "false";
+
+type PriceLookupResult = {
+  stripePriceId: string | null;
+  offerType: "founder" | "standard" | "database";
+};
+
+function getEnvPriceId(name: string) {
+  const value = process.env[name]?.trim();
+  return value || null;
+}
+
+function resolveCheckoutPriceId(params: {
+  planCode: string;
+  billingInterval: "month" | "year";
+  databaseMonthlyPriceId: string | null;
+  databaseYearlyPriceId: string | null;
+}): PriceLookupResult {
+  if (params.billingInterval === "year") {
+    return {
+      stripePriceId: params.databaseYearlyPriceId,
+      offerType: "database",
+    };
+  }
+
+  const normalizedPlanCode = params.planCode.toLowerCase();
+
+  const standardEnvByPlan: Record<string, string> = {
+    starter: "STRIPE_PRICE_STUDIO_STARTER_STANDARD",
+    growth: "STRIPE_PRICE_STUDIO_GROWTH_STANDARD",
+    pro: "STRIPE_PRICE_STUDIO_PRO_STANDARD",
+    organizer: "STRIPE_PRICE_ORGANIZER_STANDARD",
+  };
+
+  const founderEnvByPlan: Record<string, string> = {
+    starter: "STRIPE_PRICE_STUDIO_STARTER_FOUNDER",
+    growth: "STRIPE_PRICE_STUDIO_GROWTH_FOUNDER",
+    pro: "STRIPE_PRICE_STUDIO_PRO_FOUNDER",
+    organizer: "STRIPE_PRICE_ORGANIZER_FOUNDER",
+  };
+
+  const founderPriceId = FOUNDER_PRICING_ACTIVE
+    ? getEnvPriceId(founderEnvByPlan[normalizedPlanCode])
+    : null;
+
+  if (founderPriceId) {
+    return { stripePriceId: founderPriceId, offerType: "founder" };
+  }
+
+  const standardPriceId = getEnvPriceId(standardEnvByPlan[normalizedPlanCode]);
+
+  if (standardPriceId) {
+    return { stripePriceId: standardPriceId, offerType: "standard" };
+  }
+
+  return {
+    stripePriceId: params.databaseMonthlyPriceId,
+    offerType: "database",
+  };
+}
+
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -328,10 +392,12 @@ async function handleCheckout(request: NextRequest) {
       );
     }
 
-    const stripePriceId =
-      billingInterval === "year"
-        ? planRow.stripe_price_id_yearly
-        : planRow.stripe_price_id_monthly;
+    const { stripePriceId, offerType } = resolveCheckoutPriceId({
+      planCode,
+      billingInterval,
+      databaseMonthlyPriceId: planRow.stripe_price_id_monthly,
+      databaseYearlyPriceId: planRow.stripe_price_id_yearly,
+    });
 
     if (!stripePriceId) {
       return billingRedirect(
@@ -457,6 +523,7 @@ async function handleCheckout(request: NextRequest) {
       billingInterval,
       audience,
       entry: entryMode,
+      offerType,
     };
 
     const checkoutSession = await stripe.checkout.sessions.create({

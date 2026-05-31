@@ -32,7 +32,8 @@ export default async function OrganizerPricingPage() {
 
               <p className="mt-4 text-lg leading-8 text-slate-600">
                 Built for organizers who want public event pages, registrations,
-                ticketing, and check-in without hidden pricing.
+                ticketing, QR check-in, guest coach private lesson tools,
+                organizer contacts, campaigns, and reporting without hidden pricing.
               </p>
 
               <div className="mt-8 rounded-2xl border border-sky-200 bg-sky-50 px-5 py-4">
@@ -40,9 +41,10 @@ export default async function OrganizerPricingPage() {
                   Review pricing before creating your account
                 </p>
                 <p className="mt-2 text-sm leading-7 text-slate-600">
-                  You should be able to see organizer pricing first. When you
-                  click Start Trial, DanceFlow will move you into signup if you
-                  are not already signed in.
+                  Founder organizer pricing is available during launch and lasts
+                  for 12 months after your 14-day free trial. When you click
+                  Start Trial, DanceFlow will move you into signup if you are
+                  not already signed in.
                 </p>
               </div>
             </div>
@@ -68,8 +70,8 @@ export default async function OrganizerPricingPage() {
                       Transparent ticket-sale pricing
                     </p>
                     <p className="mt-2 text-sm leading-6">
-                      2.5% payment processing fee + 3.5% DanceFlow platform fee
-                      on ticket sales.
+                      3.5% DanceFlow platform fee on ticket sales. Standard
+                      payment processing fees also apply.
                     </p>
                   </div>
 
@@ -89,15 +91,22 @@ export default async function OrganizerPricingPage() {
                 </div>
 
                 <div className="rounded-[28px] bg-slate-950 px-7 py-8 text-white">
-                  <p className="text-4xl font-semibold tracking-tight">
+                  {organizerPlan.regularAmountMonthlyCents ? (
+                    <p className="text-sm font-medium text-slate-300">
+                      Founder price · regularly {formatPlanMoney(organizerPlan.regularAmountMonthlyCents)}/mo
+                    </p>
+                  ) : null}
+
+                  <p className="mt-1 text-4xl font-semibold tracking-tight">
                     {formatPlanMoney(organizerPlan.amountMonthlyCents)}
                     <span className="text-base font-medium text-slate-300">
                       /mo
                     </span>
                   </p>
 
-                  <p className="mt-3 text-sm text-slate-300">
-                    Includes a {organizerPlan.trialDays}-day free trial.
+                  <p className="mt-3 text-sm leading-6 text-slate-300">
+                    Includes a {organizerPlan.trialDays}-day free trial. Founder
+                    pricing applies for 12 months after the trial during launch.
                   </p>
 
                   <form action={startPaidPathAction} className="mt-6">
@@ -106,6 +115,7 @@ export default async function OrganizerPricingPage() {
                       name="planCode"
                       value={organizerPlan.code}
                     />
+                    <input type="hidden" name="intent" value="organizer" />
                     <button
                       type="submit"
                       className="w-full rounded-xl bg-sky-600 px-4 py-3 text-sm font-medium text-white hover:bg-sky-700"

@@ -23,24 +23,24 @@ const featureCards = [
     eyebrow: "For studios",
     title: "Keep the business side connected.",
     description:
-      "Studios can manage clients, schedules, packages, leads, payments, campaigns, public profiles, and event activity without stitching together disconnected tools.",
+      "Studios can manage clients, schedules, packages, leads, payments, reports, syllabus progress, AI helpers, campaigns, public profiles, and event activity without stitching together disconnected tools.",
     accent: "purple",
     bullets: [
-      "CRM, scheduling, packages, and payments",
+      "CRM, scheduling, packages, reports, and payments",
       "Public profiles connected to leads",
-      "Marketing campaigns and follow-up workflows",
+      "Marketing, AI helpers, and follow-up workflows",
     ],
   },
   {
     eyebrow: "For events",
     title: "Make registration and check-in easier.",
     description:
-      "Organizers and studios can publish events, sell tickets, offer early bird pricing, add guest coach private lesson slots, and check people in with ticket codes or QR codes.",
+      "Organizers and studios can publish events, sell tickets, offer early bird pricing, add guest coach private lesson slots, send confirmations, market to contacts, and check people in with ticket codes or QR codes.",
     accent: "orange",
     bullets: [
       "Event pages, tickets, and early bird pricing",
       "Guest coach private lesson options",
-      "Ticket codes, QR confirmations, and check-in",
+      "QR confirmations, campaigns, and check-in",
     ],
   },
 ];
@@ -57,7 +57,7 @@ const audienceCards = [
   {
     title: "Studios",
     description:
-      "Manage clients, schedules, packages, leads, payments, campaigns, public profiles, and event sales in one connected workspace.",
+      "Manage clients, schedules, packages, leads, payments, reports, syllabus progress, AI helpers, campaigns, public profiles, and event sales in one connected workspace.",
     href: "/get-started/studio",
     cta: "View Studio Plans",
     accent: "purple",
@@ -65,7 +65,7 @@ const audienceCards = [
   {
     title: "Organizers",
     description:
-      "Publish events, sell tickets, offer private lesson slots, send confirmations, and check in attendees with ticket codes or QR codes.",
+      "Publish events, sell tickets, offer private lesson slots, send confirmations, build organizer contacts, send campaigns, and check in attendees with ticket codes or QR codes.",
     href: "/get-started/organizer",
     cta: "For Organizers",
     accent: "orange",
@@ -236,7 +236,7 @@ export default async function HomePage() {
                       DanceFlow
                     </p>
                     <p className="mt-1 text-base text-slate-600">
-                      Find dance opportunities and keep dance businesses connected
+                      Find dance opportunities and keep dance businesses growing
                     </p>
                   </div>
                 </div>
@@ -246,7 +246,7 @@ export default async function HomePage() {
                 </h1>
 
                 <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">
-                  DanceFlow helps dancers discover studios and events, while giving studios and organizers the tools to manage schedules, registrations, tickets, payments, and follow-up in one connected place.
+                  DanceFlow helps dancers discover studios and events, while giving studios and organizers the tools to manage CRM, scheduling, registrations, tickets, payments, reports, marketing, AI-assisted follow-up, and student progress in one connected place.
                 </p>
 
                 <div className="mt-8 flex flex-wrap gap-3">
@@ -276,7 +276,7 @@ export default async function HomePage() {
                   {[
                     "Find studios and events nearby",
                     "Register and check in faster",
-                    "Studios keep follow-up connected",
+                    "Studios get a 30-day trial",
                   ].map((item) => (
                     <div
                       key={item}
@@ -327,13 +327,13 @@ export default async function HomePage() {
         <section className="mx-auto max-w-7xl px-6 py-14 lg:px-8">
           <div className="mx-auto max-w-3xl text-center">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-              One platform, two sides of dance
+              Dance discovery plus studio operations
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 sm:text-4xl">
-              Built for dancers and the people who run dance
+              Built for the full path from discovery to follow-up
             </h2>
             <p className="mt-4 text-lg leading-8 text-slate-600">
-              Dancers need a simple way to find where to dance. Studios and organizers need tools that turn interest into registrations, relationships, and smoother day-to-day operations.
+              Dancers need a simple way to find where to dance. Studios and organizers need tools that turn interest into registrations, relationships, better reporting, smarter follow-up, and smoother day-to-day operations.
             </p>
           </div>
 
@@ -385,7 +385,7 @@ export default async function HomePage() {
                   Dancers, studios, and organizers each get a clear experience.
                 </h2>
                 <p className="mt-4 text-base leading-7 text-slate-600">
-                  DanceFlow is public-facing for dancers and operational for the businesses and organizers that serve them.
+                  DanceFlow is public-facing for dancers and operational for the studios and organizers that serve them, with founder pricing available during launch.
                 </p>
               </div>
 
@@ -433,7 +433,7 @@ export default async function HomePage() {
                 From event discovery to check-in, keep the experience simple.
               </h2>
               <p className="mt-4 max-w-3xl text-sm leading-7 text-white/85 sm:text-base">
-                Dancers can discover events and register clearly. Studios and organizers can manage tickets, early bird pricing, guest coach private lesson slots, confirmations, QR codes, and check-in tools behind the scenes.
+                Dancers can discover events and register clearly. Studios and organizers can manage tickets, early bird pricing, guest coach private lesson slots, confirmations, QR codes, check-in tools, event contacts, campaigns, and reports behind the scenes.
               </p>
             </div>
 
@@ -442,7 +442,7 @@ export default async function HomePage() {
                 "Tabbed event pages with clear checkout",
                 "Early bird pricing when offered",
                 "Guest coach private lesson options",
-                "Ticket codes and QR check-in",
+                "Ticket codes, QR check-in, and reports",
               ].map((item) => (
                 <div
                   key={item}
@@ -463,10 +463,10 @@ export default async function HomePage() {
                   Ready to explore DanceFlow?
                 </p>
                 <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
-                  Find an event, explore studios, or start setting up your DanceFlow workspace.
+                  Find an event, explore studios, or start your DanceFlow workspace with launch pricing.
                 </h2>
                 <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-                  DanceFlow is live and continuing to grow around real ballroom, country, and social dance community workflows.
+                  Studios can start with a 30-day trial and founder pricing for the first 25 studios. Organizers can start with a 14-day trial and event tools built for registration, ticketing, contacts, and check-in.
                 </p>
               </div>
 
@@ -475,7 +475,7 @@ export default async function HomePage() {
                   href="/get-started/studio"
                   className="rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white hover:bg-slate-800"
                 >
-                  Studio Trial
+                  30-Day Studio Trial
                 </Link>
 
                 <Link

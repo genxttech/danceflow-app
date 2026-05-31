@@ -21,12 +21,18 @@ export type BillingPlan = {
   label: string;
   audience: PlanAudience;
   amountMonthlyCents: number;
+  regularAmountMonthlyCents?: number;
   description: string;
   trialDays: number;
   transparentFeeNote?: string;
+  founderOfferNote?: string;
   features: BillingFeature[];
   highlights: string[];
 };
+
+export const FOUNDER_STUDIO_SPOTS = 25;
+export const STUDIO_TRIAL_DAYS = 30;
+export const ORGANIZER_TRIAL_DAYS = 14;
 
 export const BILLING_PLANS: BillingPlan[] = [
   {
@@ -34,14 +40,20 @@ export const BILLING_PLANS: BillingPlan[] = [
     label: "Starter",
     audience: "studio",
     amountMonthlyCents: 4900,
-    description: "Core CRM and scheduling for a single studio.",
-    trialDays: 14,
+    regularAmountMonthlyCents: 5900,
+    description:
+      "Core CRM, scheduling, client portals, and simple studio operations for independent instructors and smaller studios.",
+    trialDays: STUDIO_TRIAL_DAYS,
+    founderOfferNote:
+      "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
     features: ["crm_basic", "schedule_basic"],
     highlights: [
-      "Client CRM",
-      "Lesson scheduling",
-      "Studio calendar",
-      "Basic operations",
+      "Client CRM and lead records",
+      "Lesson scheduling and studio calendar",
+      "Client portal access",
+      "Basic packages, payments, and reports",
+      "Basic email campaign tools",
+      "Syllabus tracking basics",
     ],
   },
   {
@@ -49,9 +61,12 @@ export const BILLING_PLANS: BillingPlan[] = [
     label: "Growth",
     audience: "studio",
     amountMonthlyCents: 7900,
+    regularAmountMonthlyCents: 9900,
     description:
-      "Adds stronger operations, packages, memberships, and customer payments.",
-    trialDays: 14,
+      "Growth tools for studios that want stronger retention, packages, memberships, reporting, marketing, and AI assistance.",
+    trialDays: STUDIO_TRIAL_DAYS,
+    founderOfferNote:
+      "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
     features: [
       "crm_basic",
       "schedule_basic",
@@ -61,10 +76,11 @@ export const BILLING_PLANS: BillingPlan[] = [
     ],
     highlights: [
       "Everything in Starter",
-      "Packages",
-      "Memberships",
-      "Customer payments",
-      "Stronger day-to-day operations",
+      "Packages, memberships, and customer payments",
+      "Targeted CRM campaign audiences",
+      "AI report insights and campaign drafting",
+      "AI follow-up suggestions",
+      "Instructor and client growth reporting",
     ],
   },
   {
@@ -72,9 +88,12 @@ export const BILLING_PLANS: BillingPlan[] = [
     label: "Pro",
     audience: "studio",
     amountMonthlyCents: 12900,
+    regularAmountMonthlyCents: 15900,
     description:
-      "Advanced studio operations plus public event and organizer capabilities.",
-    trialDays: 14,
+      "Advanced studio growth with event ticketing, QR check-in, guest coach tools, exports, stronger reports, and larger AI usage.",
+    trialDays: STUDIO_TRIAL_DAYS,
+    founderOfferNote:
+      "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
     features: [
       "crm_basic",
       "schedule_basic",
@@ -90,11 +109,11 @@ export const BILLING_PLANS: BillingPlan[] = [
     ],
     highlights: [
       "Everything in Growth",
-      "Organizer tools",
-      "Public events",
-      "Ticketing and check-in",
-      "Waitlist",
-      "Advanced reporting",
+      "Public events, ticketing, and QR check-in",
+      "Early bird ticket pricing",
+      "Guest coach private lesson slots",
+      "Advanced reports and CSV exports",
+      "Event audiences and larger AI allowance",
     ],
   },
   {
@@ -102,11 +121,14 @@ export const BILLING_PLANS: BillingPlan[] = [
     label: "Organizer Suite",
     audience: "organizer",
     amountMonthlyCents: 1200,
+    regularAmountMonthlyCents: 1900,
     description:
-      "All-access event suite for organizers running dance workshops, showcases, competitions, and special events.",
-    trialDays: 14,
+      "All-access event suite for organizers running dance workshops, showcases, competitions, festivals, and special events.",
+    trialDays: ORGANIZER_TRIAL_DAYS,
+    founderOfferNote:
+      "Founder organizer pricing is available during launch and lasts for 12 months after your free trial.",
     transparentFeeNote:
-      "Transparent pricing: $12/month plus a 3.5% DanceFlow platform fee per ticket sale. Standard payment processing fees also apply.",
+      "Transparent pricing: founder pricing is $12/month, regularly $19/month, plus a 3.5% DanceFlow platform fee per ticket sale. Standard payment processing fees also apply.",
     features: [
       "organizer_tools",
       "public_events",
@@ -118,12 +140,12 @@ export const BILLING_PLANS: BillingPlan[] = [
     highlights: [
       "Public event pages",
       "Ticketing and registrations",
-      "Check-in",
+      "Ticket codes and QR check-in",
       "Event schedule / agenda",
       "Guest coach private lesson tools",
       "Coach schedule links and calendar feeds",
-      "Organizer marketing and reporting as released",
-      "Transparent ticket-sale pricing",
+      "Organizer contacts and marketing campaigns",
+      "Organizer reporting as released",
     ],
   },
 ];
