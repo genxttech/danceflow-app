@@ -2,7 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
-import { enterStudioContextAction } from "@/app/platform/actions";
+import {
+  createPlatformAdminAction,
+  enterStudioContextAction,
+  setStudioWorkspaceActiveAction,
+} from "@/app/platform/actions";
 import { getBillingPlan } from "@/lib/billing/plans";
 
 type Params = Promise<{
@@ -14,6 +18,7 @@ type StudioRow = {
   name: string;
   created_at: string;
   subscription_status?: string | null;
+  active: boolean | null;
   last_workspace_access_at: string | null;
   last_workspace_access_user_id: string | null;
 };
@@ -45,6 +50,15 @@ type OrganizerRow = {
   name: string;
   slug: string;
   active: boolean;
+  created_at: string;
+};
+
+type PlatformAdminActionRow = {
+  id: string;
+  target_type: string;
+  target_id: string;
+  action_type: string;
+  note: string | null;
   created_at: string;
 };
 
@@ -157,6 +171,15 @@ function isOrganizerWorkspace(params: {
   );
 }
 
+function adminActionLabel(value: string) {
+  if (value === "reviewed") return "Reviewed";
+  if (value === "follow_up") return "Follow-up";
+  if (value === "suspended_access") return "Suspended access";
+  if (value === "restored_access") return "Restored access";
+  if (value === "resolved") return "Resolved";
+  return "Note";
+}
+
 export default async function PlatformStudioDetailPage({
   params,
 }: {
@@ -173,10 +196,11 @@ export default async function PlatformStudioDetailPage({
     { data: organizers, error: organizersError },
     { data: events, error: eventsError },
     { data: registrations, error: registrationsError },
+    { data: adminActions, error: adminActionsError },
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, created_at, subscription_status, last_workspace_access_at, last_workspace_access_user_id")
+      .select("id, name, created_at, subscription_status, active, last_workspace_access_at, last_workspace_access_user_id")
       .eq("id", id)
       .maybeSingle(),
 
@@ -216,6 +240,14 @@ export default async function PlatformStudioDetailPage({
     supabase
       .from("event_registrations")
       .select("id, event_id, payment_status, total_amount, created_at"),
+
+    supabase
+      .from("platform_admin_actions")
+      .select("id, target_type, target_id, action_type, note, created_at")
+      .eq("target_type", "workspace")
+      .eq("target_id", id)
+      .order("created_at", { ascending: false })
+      .limit(25),
   ]);
 
   if (studioError) {
@@ -242,11 +274,16 @@ export default async function PlatformStudioDetailPage({
     throw new Error(`Failed to load registrations: ${registrationsError.message}`);
   }
 
+  if (adminActionsError) {
+    throw new Error(`Failed to load admin actions: ${adminActionsError.message}`);
+  }
+
   const typedStudio = studio as StudioRow;
   const typedSubscription = (subscription ?? null) as SubscriptionRow | null;
   const typedOrganizers = (organizers ?? []) as OrganizerRow[];
   const typedEvents = (events ?? []) as EventRow[];
   const typedRegistrations = (registrations ?? []) as RegistrationRow[];
+  const typedAdminActions = (adminActions ?? []) as PlatformAdminActionRow[];
 
   const workspaceType = isOrganizerWorkspace({
     studioName: typedStudio.name,
@@ -541,6 +578,87 @@ export default async function PlatformStudioDetailPage({
           </div>
         </div>
       </div>
+
+      <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
+        <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Admin Controls</p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-950">Workspace review actions</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Add an internal note, mark the workspace reviewed, flag follow-up, or intentionally suspend/restore workspace access.
+          </p>
+
+          <form action={createPlatformAdminAction} className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <input type="hidden" name="targetType" value="workspace" />
+            <input type="hidden" name="targetId" value={typedStudio.id} />
+            <input type="hidden" name="returnTo" value={`/platform/studios/${typedStudio.id}`} />
+            <label className="text-sm font-semibold text-slate-800" htmlFor="workspace-admin-note">
+              Internal admin note
+            </label>
+            <textarea
+              id="workspace-admin-note"
+              name="note"
+              rows={3}
+              placeholder="Example: Owner replied and confirmed they are still evaluating during trial. Follow up next Friday."
+              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+            />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button name="actionType" value="reviewed" className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">
+                Mark Reviewed
+              </button>
+              <button name="actionType" value="follow_up" className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800">
+                Flag Follow-up
+              </button>
+              <button name="actionType" value="note" className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800">
+                Save Note
+              </button>
+            </div>
+          </form>
+
+          <form action={setStudioWorkspaceActiveAction} className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4">
+            <input type="hidden" name="studioId" value={typedStudio.id} />
+            <input type="hidden" name="active" value={typedStudio.active === false ? "true" : "false"} />
+            <input type="hidden" name="returnTo" value={`/platform/studios/${typedStudio.id}`} />
+            <label className="text-sm font-semibold text-rose-950" htmlFor="workspace-access-note">
+              {typedStudio.active === false ? "Restore workspace access" : "Suspend workspace access"}
+            </label>
+            <p className="mt-1 text-xs leading-5 text-rose-800">
+              Use this only when access should intentionally change. The action is logged in the admin history below.
+            </p>
+            <textarea
+              id="workspace-access-note"
+              name="note"
+              rows={2}
+              placeholder="Reason for access change"
+              className="mt-2 w-full rounded-xl border border-rose-200 px-3 py-2 text-sm outline-none transition focus:border-rose-300 focus:ring-2 focus:ring-rose-100"
+            />
+            <button type="submit" className="mt-3 rounded-xl bg-rose-700 px-3 py-2 text-xs font-semibold text-white">
+              {typedStudio.active === false ? "Restore Access" : "Suspend Access"}
+            </button>
+          </form>
+        </div>
+
+        <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Admin History</p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-950">Recent workspace notes</h2>
+          {typedAdminActions.length === 0 ? (
+            <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
+              No admin actions have been logged for this workspace yet.
+            </div>
+          ) : (
+            <div className="mt-5 space-y-3">
+              {typedAdminActions.map((action) => (
+                <div key={action.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-semibold text-slate-950">{adminActionLabel(action.action_type)}</p>
+                    <p className="text-xs text-slate-500">{formatDateTime(action.created_at)}</p>
+                  </div>
+                  {action.note ? <p className="mt-2 text-sm leading-6 text-slate-700">{action.note}</p> : null}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { createPlatformAdminAction } from "@/app/platform/actions";
 
 type StudioRow = {
   id: string;
@@ -10,6 +11,15 @@ type StudioRow = {
   subscription_status: string | null;
   stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
+};
+
+type PlatformAdminActionRow = {
+  id: string;
+  target_type: string;
+  target_id: string;
+  action_type: string;
+  note: string | null;
+  created_at: string;
 };
 
 type PlatformErrorLogRow = {
@@ -118,6 +128,23 @@ function hasPaidBillingFootprint(studio: StudioRow) {
   return Boolean(studio.stripe_subscription_id);
 }
 
+function getLatestActionForTarget(
+  actions: PlatformAdminActionRow[],
+  targetType: string,
+  targetId: string
+) {
+  return actions
+    .filter((action) => action.target_type === targetType && action.target_id === targetId)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+}
+
+function adminActionLabel(value: string) {
+  if (value === "reviewed") return "Reviewed";
+  if (value === "follow_up") return "Follow-up";
+  if (value === "resolved") return "Resolved";
+  return "Note";
+}
+
 function recommendedErrorAction(errorLog: PlatformErrorLogRow) {
   const source = errorLog.source.toLowerCase();
   const message = errorLog.message.toLowerCase();
@@ -206,6 +233,7 @@ export default async function PlatformAlertsPage() {
     { data: studios, error: studiosError },
     { data: platformErrorLogs, error: platformErrorLogsError },
     { data: packageDeductionErrors, error: packageDeductionErrorsError },
+    { data: adminActions, error: adminActionsError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -225,6 +253,13 @@ export default async function PlatformAlertsPage() {
       )
       .order("created_at", { ascending: false })
       .limit(125),
+
+    supabase
+      .from("platform_admin_actions")
+      .select("id, target_type, target_id, action_type, note, created_at")
+      .in("target_type", ["platform_error", "package_deduction_error"])
+      .order("created_at", { ascending: false })
+      .limit(250),
   ]);
 
   if (studiosError) {
@@ -239,10 +274,14 @@ export default async function PlatformAlertsPage() {
       `Failed to load package deduction errors: ${packageDeductionErrorsError.message}`
     );
   }
+  if (adminActionsError) {
+    throw new Error(`Failed to load platform admin actions: ${adminActionsError.message}`);
+  }
 
   const typedStudios = (studios ?? []) as StudioRow[];
   const typedPlatformErrorLogs = (platformErrorLogs ?? []) as PlatformErrorLogRow[];
   const typedPackageDeductionErrors = (packageDeductionErrors ?? []) as PackageDeductionErrorRow[];
+  const typedAdminActions = (adminActions ?? []) as PlatformAdminActionRow[];
 
   const billingRiskAccounts = typedStudios
     .map((studio) => {
@@ -546,6 +585,47 @@ export default async function PlatformAlertsPage() {
                     <p className="mt-2 text-sm leading-6 text-slate-700">{recommendedErrorAction(errorLog)}</p>
                   </div>
 
+                  {(() => {
+                    const latestAction = getLatestActionForTarget(
+                      typedAdminActions,
+                      "platform_error",
+                      errorLog.id
+                    );
+
+                    return latestAction ? (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                        <p className="font-semibold">
+                          Last admin action: {adminActionLabel(latestAction.action_type)} · {formatDateTime(latestAction.created_at)}
+                        </p>
+                        {latestAction.note ? <p className="mt-1 leading-6">{latestAction.note}</p> : null}
+                      </div>
+                    ) : null;
+                  })()}
+
+                  <form action={createPlatformAdminAction} className="rounded-xl border border-slate-200 bg-white p-4">
+                    <input type="hidden" name="targetType" value="platform_error" />
+                    <input type="hidden" name="targetId" value={errorLog.id} />
+                    <input type="hidden" name="returnTo" value="/platform/alerts" />
+                    <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500" htmlFor={`platform-error-note-${errorLog.id}`}>
+                      Admin review note
+                    </label>
+                    <textarea
+                      id={`platform-error-note-${errorLog.id}`}
+                      name="note"
+                      rows={2}
+                      placeholder="Example: Confirmed this was caused by a dev test. No production user impact."
+                      className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+                    />
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button name="actionType" value="reviewed" className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">
+                        Mark Reviewed
+                      </button>
+                      <button name="actionType" value="follow_up" className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800">
+                        Flag Follow-up
+                      </button>
+                    </div>
+                  </form>
+
                   <pre className="max-h-72 overflow-auto rounded-xl bg-white p-4 text-xs text-slate-700 ring-1 ring-slate-200">
                     {JSON.stringify(errorLog.details ?? {}, null, 2)}
                   </pre>
@@ -693,6 +773,7 @@ export default async function PlatformAlertsPage() {
     </div>
   );
 }
+
 
 
 

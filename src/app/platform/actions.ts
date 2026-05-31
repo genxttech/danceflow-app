@@ -171,3 +171,120 @@ export async function dismissPlatformBroadcastAlertAction(formData: FormData) {
     throw new Error(`Failed to dismiss broadcast alert: ${error.message}`);
   }
 }
+
+
+function safeReturnPath(value: FormDataEntryValue | null, fallback = "/platform") {
+  const raw = String(value ?? "").trim();
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return fallback;
+  return raw;
+}
+
+function normalizeAdminActionType(value: FormDataEntryValue | null) {
+  const normalized = String(value ?? "note").trim().toLowerCase();
+  if (
+    [
+      "reviewed",
+      "note",
+      "follow_up",
+      "resolved",
+      "suspended_access",
+      "restored_access",
+    ].includes(normalized)
+  ) {
+    return normalized;
+  }
+  return "note";
+}
+
+function normalizeAdminTargetType(value: FormDataEntryValue | null) {
+  const normalized = String(value ?? "workspace").trim().toLowerCase();
+  if (
+    [
+      "workspace",
+      "studio",
+      "organizer",
+      "billing_risk",
+      "platform_error",
+      "package_deduction_error",
+      "webhook",
+    ].includes(normalized)
+  ) {
+    return normalized;
+  }
+  return "workspace";
+}
+
+export async function createPlatformAdminAction(formData: FormData) {
+  await requirePlatformAdmin();
+
+  const targetType = normalizeAdminTargetType(formData.get("targetType"));
+  const targetId = String(formData.get("targetId") ?? "").trim();
+  const actionType = normalizeAdminActionType(formData.get("actionType"));
+  const note = String(formData.get("note") ?? "").trim();
+  const returnTo = safeReturnPath(formData.get("returnTo"));
+
+  if (!targetId) {
+    redirect(returnTo);
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { error } = await supabase.from("platform_admin_actions").insert({
+    target_type: targetType,
+    target_id: targetId,
+    action_type: actionType,
+    note: note || null,
+    created_by: user?.id ?? null,
+  });
+
+  if (error) {
+    throw new Error(`Failed to save platform admin action: ${error.message}`);
+  }
+
+  redirect(returnTo);
+}
+
+export async function setStudioWorkspaceActiveAction(formData: FormData) {
+  await requirePlatformAdmin();
+
+  const studioId = String(formData.get("studioId") ?? "").trim();
+  const active = String(formData.get("active") ?? "").trim() === "true";
+  const note = String(formData.get("note") ?? "").trim();
+  const returnTo = safeReturnPath(formData.get("returnTo"), studioId ? `/platform/studios/${studioId}` : "/platform/studios");
+
+  if (!studioId) {
+    redirect(returnTo);
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { error: updateError } = await supabase
+    .from("studios")
+    .update({ active })
+    .eq("id", studioId);
+
+  if (updateError) {
+    throw new Error(`Failed to update workspace access: ${updateError.message}`);
+  }
+
+  const { error: actionError } = await supabase.from("platform_admin_actions").insert({
+    target_type: "workspace",
+    target_id: studioId,
+    action_type: active ? "restored_access" : "suspended_access",
+    note: note || (active ? "Workspace access restored from platform admin." : "Workspace access suspended from platform admin."),
+    created_by: user?.id ?? null,
+  });
+
+  if (actionError) {
+    throw new Error(`Failed to save workspace access action: ${actionError.message}`);
+  }
+
+  redirect(returnTo);
+}
+

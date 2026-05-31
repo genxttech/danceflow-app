@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { createPlatformAdminAction } from "@/app/platform/actions";
 
 type SubscriptionPlan = {
   code: string | null;
@@ -49,6 +50,15 @@ type InvoiceRow = {
   status: string;
   period_start: string | null;
   period_end: string | null;
+  created_at: string;
+};
+
+type PlatformAdminActionRow = {
+  id: string;
+  target_type: string;
+  target_id: string;
+  action_type: string;
+  note: string | null;
   created_at: string;
 };
 
@@ -538,6 +548,25 @@ function CompactMetricCard({
   );
 }
 
+function getLatestActionForTarget(
+  actions: PlatformAdminActionRow[],
+  targetType: string,
+  targetId: string
+) {
+  return actions
+    .filter((action) => action.target_type === targetType && action.target_id === targetId)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0];
+}
+
+function adminActionLabel(value: string) {
+  if (value === "reviewed") return "Reviewed";
+  if (value === "follow_up") return "Follow-up";
+  if (value === "suspended_access") return "Suspended access";
+  if (value === "restored_access") return "Restored access";
+  if (value === "resolved") return "Resolved";
+  return "Note";
+}
+
 function StudioActionLinks({ studioId }: { studioId: string }) {
   return (
     <div className="flex flex-wrap gap-2">
@@ -566,6 +595,7 @@ export default async function PlatformBillingPage() {
     { data: subscriptions, error: subscriptionsError },
     { data: studios, error: studiosError },
     { data: invoices, error: invoicesError },
+    { data: adminActions, error: adminActionsError },
   ] = await Promise.all([
     supabase
       .from("studio_subscriptions")
@@ -623,6 +653,13 @@ export default async function PlatformBillingPage() {
       `)
       .order("created_at", { ascending: false })
       .limit(50),
+
+    supabase
+      .from("platform_admin_actions")
+      .select("id, target_type, target_id, action_type, note, created_at")
+      .in("target_type", ["billing_risk", "workspace"])
+      .order("created_at", { ascending: false })
+      .limit(250),
   ]);
 
   if (subscriptionsError) {
@@ -636,10 +673,14 @@ export default async function PlatformBillingPage() {
   if (invoicesError) {
     throw new Error(`Failed to load invoices: ${invoicesError.message}`);
   }
+  if (adminActionsError) {
+    throw new Error(`Failed to load platform admin actions: ${adminActionsError.message}`);
+  }
 
   const typedSubscriptions = (subscriptions ?? []) as SubscriptionRow[];
   const typedStudios = (studios ?? []) as StudioRow[];
   const typedInvoices = (invoices ?? []) as InvoiceRow[];
+  const typedAdminActions = (adminActions ?? []) as PlatformAdminActionRow[];
 
   const studioById = new Map(typedStudios.map((studio) => [studio.id, studio]));
   const subscriptionByStudioId = new Map<string, SubscriptionRow>();
@@ -908,6 +949,49 @@ export default async function PlatformBillingPage() {
                     <div className="mt-3 rounded-xl border border-white/80 bg-white/70 p-3 text-sm leading-6 text-slate-700">
                       <span className="font-semibold text-slate-950">Recommended action:</span> {risk.recommendedAction}
                     </div>
+
+                    {(() => {
+                      const latestAction = getLatestActionForTarget(
+                        typedAdminActions,
+                        "billing_risk",
+                        risk.key
+                      );
+
+                      return latestAction ? (
+                        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                          <p className="font-semibold">
+                            Last admin action: {adminActionLabel(latestAction.action_type)} · {formatDateTime(latestAction.created_at)}
+                          </p>
+                          {latestAction.note ? (
+                            <p className="mt-1 leading-6 text-emerald-800">{latestAction.note}</p>
+                          ) : null}
+                        </div>
+                      ) : null;
+                    })()}
+
+                    <form action={createPlatformAdminAction} className="mt-3 rounded-xl border border-white/80 bg-white/80 p-3">
+                      <input type="hidden" name="targetType" value="billing_risk" />
+                      <input type="hidden" name="targetId" value={risk.key} />
+                      <input type="hidden" name="returnTo" value="/platform/billing" />
+                      <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500" htmlFor={`billing-action-${risk.key}`}>
+                        Admin review note
+                      </label>
+                      <textarea
+                        id={`billing-action-${risk.key}`}
+                        name="note"
+                        rows={2}
+                        placeholder="Example: Confirmed Stripe subscription is canceled; access should stay disabled."
+                        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+                      />
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button name="actionType" value="reviewed" className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">
+                          Mark Reviewed
+                        </button>
+                        <button name="actionType" value="follow_up" className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800">
+                          Flag Follow-up
+                        </button>
+                      </div>
+                    </form>
 
                     <div className="mt-4 grid gap-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-4">
                       <p><span className="font-semibold text-slate-800">Plan:</span> {risk.planName}</p>
@@ -1261,6 +1345,10 @@ export default async function PlatformBillingPage() {
     </div>
   );
 }
+
+
+
+
 
 
 
