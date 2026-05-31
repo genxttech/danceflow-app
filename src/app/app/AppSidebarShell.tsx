@@ -119,6 +119,7 @@ function getIcon(icon: string) {
   if (icon === "leads") return UserRoundPlus;
   if (icon === "clients") return Users;
   if (icon === "organizer_contacts") return Users;
+  if (icon === "organizer_campaigns") return Megaphone;
   if (icon === "syllabus") return BookOpen;
   if (icon === "schedule") return CalendarDays;
   if (icon === "events") return CalendarDays;
@@ -242,6 +243,103 @@ function removeRedundantDiscoveryLinks(sections: NavSectionType[]) {
       items: section.items.filter((item) => !isRedundantDiscoveryChild(item)),
     }))
     .filter((section) => section.items.length > 0);
+}
+
+
+function injectOrganizerCampaignsLink(
+  sections: NavSectionType[],
+): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const hasOrganizerCampaigns = flatItems.some(
+    (item) => item.href === "/app/organizer-campaigns",
+  );
+
+  if (hasOrganizerCampaigns) {
+    return sections;
+  }
+
+  const hasOrganizerAccess = flatItems.some(
+    (item) =>
+      item.href === "/app/organizers" ||
+      item.href === "/app/organizer-contacts" ||
+      item.href.startsWith("/app/organizers/"),
+  );
+
+  if (!hasOrganizerAccess) {
+    return sections;
+  }
+
+  const organizerCampaignsItem: NavItem = {
+    label: "Organizer Campaigns",
+    href: "/app/organizer-campaigns",
+    icon: "organizer_campaigns",
+  };
+
+  const organizerSectionIndex = sections.findIndex((section) => {
+    const title = section.title.trim().toLowerCase();
+
+    return (
+      title === "organizers" ||
+      title === "events" ||
+      title === "marketing" ||
+      section.items.some(
+        (item) =>
+          item.href === "/app/organizers" ||
+          item.href === "/app/organizer-contacts",
+      )
+    );
+  });
+
+  if (organizerSectionIndex >= 0) {
+    return sections.map((section, index) => {
+      if (index !== organizerSectionIndex) {
+        return section;
+      }
+
+      const organizerContactsIndex = section.items.findIndex(
+        (item) => item.href === "/app/organizer-contacts",
+      );
+
+      if (organizerContactsIndex >= 0) {
+        return {
+          ...section,
+          items: [
+            ...section.items.slice(0, organizerContactsIndex + 1),
+            organizerCampaignsItem,
+            ...section.items.slice(organizerContactsIndex + 1),
+          ],
+        };
+      }
+
+      const organizersIndex = section.items.findIndex(
+        (item) => item.href === "/app/organizers",
+      );
+
+      if (organizersIndex >= 0) {
+        return {
+          ...section,
+          items: [
+            ...section.items.slice(0, organizersIndex + 1),
+            organizerCampaignsItem,
+            ...section.items.slice(organizersIndex + 1),
+          ],
+        };
+      }
+
+      return {
+        ...section,
+        items: [...section.items, organizerCampaignsItem],
+      };
+    });
+  }
+
+  return [
+    ...sections,
+    {
+      title: "Organizers",
+      items: [organizerCampaignsItem],
+    },
+  ];
 }
 
 function injectOrganizerContactsLink(
@@ -571,8 +669,11 @@ function normalizeSections(input: unknown): NavSectionType[] {
   const withOrganizerContactsLink = injectOrganizerContactsLink(
     withEventWorkflowLinks,
   );
+  const withOrganizerCampaignsLink = injectOrganizerCampaignsLink(
+    withOrganizerContactsLink,
+  );
 
-  return injectSyllabusLink(withOrganizerContactsLink);
+  return injectSyllabusLink(withOrganizerCampaignsLink);
 }
 
 function prettyRole(role: string) {
@@ -1068,4 +1169,6 @@ export default function AppSidebarShell({
     </div>
   );
 }
+
+
 
