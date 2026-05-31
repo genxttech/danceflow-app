@@ -11,6 +11,16 @@ type SelectedCoachSlotSummary = {
 };
 
 
+type EventDocumentRequirement = {
+  id: string;
+  template_id: string;
+  template_version_id: string | null;
+  title: string;
+  description: string | null;
+  body: string;
+  requires_signature: boolean;
+};
+
 type TicketTypeRow = {
   id: string;
   name: string;
@@ -22,21 +32,18 @@ type TicketTypeRow = {
   active: boolean;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
-  early_bird_enabled: boolean | null;
-  early_bird_price: number | null;
-  early_bird_ends_at: string | null;
   attendees_per_ticket: number | null;
 };
 
 type RegistrationFormProps = {
   eventSlug: string;
   ticketTypes: TicketTypeRow[];
-    eventTimezone?: string;
   currentUserEmail?: string;
   isSoldOut?: boolean;
   waitlistEnabled?: boolean;
   accountRequiredForRegistration?: boolean;
   isAuthenticated?: boolean;
+  requiredEventDocuments?: EventDocumentRequirement[];
 };
 
 function formatCurrency(value: number, currency: string) {
@@ -46,45 +53,10 @@ function formatCurrency(value: number, currency: string) {
   }).format(Number(value ?? 0));
 }
 
-function activeTicketPrice(ticket: TicketTypeRow) {
-  const regularPrice = Number(ticket.price ?? 0);
-  const earlyBirdPrice =
-    ticket.early_bird_price === null || ticket.early_bird_price === undefined
-      ? null
-      : Number(ticket.early_bird_price);
-  const earlyBirdEndsAt = ticket.early_bird_ends_at
-    ? new Date(ticket.early_bird_ends_at).getTime()
-    : null;
-
-  if (
-    ticket.early_bird_enabled &&
-    earlyBirdPrice !== null &&
-    Number.isFinite(earlyBirdPrice) &&
-    earlyBirdPrice >= 0 &&
-    earlyBirdEndsAt !== null &&
-    earlyBirdEndsAt >= Date.now()
-  ) {
-    return {
-      price: earlyBirdPrice,
-      isEarlyBird: true,
-      regularPrice,
-      endsAt: ticket.early_bird_ends_at,
-    };
-  }
-
-  return {
-    price: regularPrice,
-    isEarlyBird: false,
-    regularPrice,
-    endsAt: ticket.early_bird_ends_at,
-  };
-}
-
-function formatDateTime(value: string | null, timeZone = "America/New_York") {
+function formatDateTime(value: string | null) {
   if (!value) return "—";
 
   return new Intl.DateTimeFormat("en-US", {
-    timeZone,
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -106,11 +78,7 @@ function ticketKindLabel(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function ticketStatusMeta(
-  ticket: TicketTypeRow,
-  waitlistEnabled: boolean,
-  eventTimezone = "America/New_York",
-) {
+function ticketStatusMeta(ticket: TicketTypeRow, waitlistEnabled: boolean) {
   const now = Date.now();
 
   if (!ticket.active) {
@@ -129,7 +97,7 @@ function ticketStatusMeta(
       soldOut: false,
       label: "Not on sale yet",
       className: "bg-slate-100 text-slate-700",
-      helper: `Sales open ${formatDateTime(ticket.sale_starts_at, eventTimezone)}.`,
+      helper: `Sales open ${formatDateTime(ticket.sale_starts_at)}.`,
     };
   }
 
@@ -139,7 +107,7 @@ function ticketStatusMeta(
       soldOut: false,
       label: "Sales ended",
       className: "bg-slate-100 text-slate-700",
-      helper: `Sales ended ${formatDateTime(ticket.sale_ends_at, eventTimezone)}.`,
+      helper: `Sales ended ${formatDateTime(ticket.sale_ends_at)}.`,
     };
   }
 
@@ -177,20 +145,21 @@ function ticketStatusMeta(
 export default function RegistrationForm({
   eventSlug,
   ticketTypes,
-  eventTimezone = "America/New_York",
   currentUserEmail = "",
   isSoldOut = false,
   waitlistEnabled = false,
   accountRequiredForRegistration = false,
   isAuthenticated = true,
+  requiredEventDocuments = [],
 }: RegistrationFormProps) {
   const [selectedTicketTypeId, setSelectedTicketTypeId] = useState<string>("");
   const [quantity, setQuantity] = useState(1);
+  const [waiversAccepted, setWaiversAccepted] = useState(false);
 
   const ticketOptions = useMemo(() => {
     return ticketTypes.map((ticket) => ({
       ...ticket,
-      meta: ticketStatusMeta(ticket, waitlistEnabled, eventTimezone),
+      meta: ticketStatusMeta(ticket, waitlistEnabled),
     }));
   }, [ticketTypes, waitlistEnabled]);
 
@@ -248,12 +217,8 @@ export default function RegistrationForm({
     0,
   );
 
-  const selectedTicketPriceMeta = selectedTicket
-    ? activeTicketPrice(selectedTicket)
-    : null;
-
-  const selectedTicketTotal = selectedTicketPriceMeta
-    ? selectedTicketPriceMeta.price * Math.max(1, quantity)
+  const selectedTicketTotal = selectedTicket
+    ? Number(selectedTicket.price ?? 0) * Math.max(1, quantity)
     : 0;
 
   const estimatedTotal = selectedTicketTotal + selectedCoachSlotTotal;
@@ -347,7 +312,7 @@ export default function RegistrationForm({
 
             {ticketOptions.map((ticket) => (
               <option key={ticket.id} value={ticket.id} disabled={!ticket.meta.selectable}>
-                {ticket.name} — {formatCurrency(activeTicketPrice(ticket).price, ticket.currency)}
+                {ticket.name} — {formatCurrency(ticket.price, ticket.currency)}
                 {Number(ticket.attendees_per_ticket ?? 1) > 1
                   ? ` · admits ${Number(ticket.attendees_per_ticket ?? 1)}`
                   : ""}
@@ -407,13 +372,8 @@ export default function RegistrationForm({
 
                     <div className="text-right">
                       <p className="font-semibold text-slate-900">
-                        {formatCurrency(activeTicketPrice(ticket).price, ticket.currency)}
+                        {formatCurrency(ticket.price, ticket.currency)}
                       </p>
-                      {activeTicketPrice(ticket).isEarlyBird ? (
-                        <p className="text-xs text-orange-700">
-                          Early bird · regular {formatCurrency(ticket.price, ticket.currency)}
-                        </p>
-                      ) : null}
                       <p className="text-xs text-slate-500">
                         {ticket.capacity == null
                           ? "Unlimited"
@@ -430,8 +390,8 @@ export default function RegistrationForm({
 
                   <div className="mt-3 space-y-1 text-xs text-slate-500">
                     <p>{ticket.meta.helper}</p>
-                    <p>Sale starts: {formatDateTime(ticket.sale_starts_at, eventTimezone)}</p>
-<p>Sale ends: {formatDateTime(ticket.sale_ends_at, eventTimezone)}</p>
+                    <p>Sale starts: {formatDateTime(ticket.sale_starts_at)}</p>
+                    <p>Sale ends: {formatDateTime(ticket.sale_ends_at)}</p>
                   </div>
                 </button>
               );
@@ -472,6 +432,70 @@ export default function RegistrationForm({
           <input type="hidden" name="quantity" value="0" />
         )}
       </div>
+
+
+      {requiredEventDocuments.length ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+          <div className="flex flex-col gap-1">
+            <p className="text-sm font-semibold text-amber-950">
+              Required event documents
+            </p>
+            <p className="text-sm leading-6 text-amber-900">
+              Review and acknowledge these documents before checkout. Your typed name will be saved with the registration record.
+            </p>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {requiredEventDocuments.map((document) => (
+              <details
+                key={document.id}
+                className="rounded-2xl border border-amber-200 bg-white p-4"
+              >
+                <summary className="cursor-pointer list-none text-sm font-bold text-slate-900">
+                  {document.title}
+                  {document.description ? (
+                    <span className="mt-1 block text-sm font-normal leading-6 text-slate-600">
+                      {document.description}
+                    </span>
+                  ) : null}
+                </summary>
+                <div className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-700">
+                  {document.body}
+                </div>
+                <input type="hidden" name="documentRequirementIds" value={document.id} />
+              </details>
+            ))}
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="space-y-2 text-sm font-semibold text-slate-900">
+              Type your full name to sign
+              <input
+                name="documentSignatureName"
+                required
+                disabled={!allowSubmission}
+                className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 disabled:bg-slate-100"
+                placeholder="Full legal name"
+              />
+            </label>
+
+            <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-white p-3 text-sm text-slate-700">
+              <input
+                name="documentConsentAccepted"
+                type="checkbox"
+                required
+                checked={waiversAccepted}
+                disabled={!allowSubmission}
+                onChange={(event) => setWaiversAccepted(event.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                I have reviewed the required document(s), agree to sign electronically, and confirm that my typed name is my signature.
+              </span>
+            </label>
+          </div>
+        </div>
+      ) : null}
 
       <div className="rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex flex-col gap-1">
@@ -604,7 +628,6 @@ export default function RegistrationForm({
                 <p className="text-xs text-slate-500">
                   Quantity {Math.max(1, quantity)} · {totalAttendeeCount} total{" "}
                   {totalAttendeeCount === 1 ? "attendee" : "attendees"}
-                  {selectedTicketPriceMeta?.isEarlyBird ? " · early bird pricing" : ""}
                 </p>
               </div>
               <p className="font-semibold text-slate-900">
@@ -651,37 +674,9 @@ export default function RegistrationForm({
       >
         {buttonLabel}
       </button>
-
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-12px_30px_rgba(15,23,42,0.12)] backdrop-blur lg:hidden">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-              Event Cart
-            </p>
-            <p className="truncate text-sm font-bold text-slate-950">
-              {selectedTicket || selectedCoachSlots.length > 0
-                ? `${selectedTicket ? Math.max(1, quantity) : 0} ticket${selectedTicket && Math.max(1, quantity) === 1 ? "" : "s"} · ${selectedCoachSlots.length} lesson${selectedCoachSlots.length === 1 ? "" : "s"}`
-                : "No items selected"}
-            </p>
-          </div>
-          <button
-            type="submit"
-            disabled={!allowSubmission || (!selectedTicket && selectedCoachSlots.length === 0)}
-            className="shrink-0 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
-          >
-            {formatCurrency(estimatedTotal, selectedTicket?.currency || "USD")}
-          </button>
-        </div>
-      </div>
     </form>
   );
 }
-
-
-
-
-
-
 
 
 

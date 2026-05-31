@@ -100,6 +100,26 @@ type ClientOption = {
   email: string | null;
 };
 
+type EventDocumentRequirementRow = {
+  id: string;
+  template_id: string;
+  is_required: boolean;
+  active: boolean;
+  document_templates:
+    | { title: string | null }
+    | { title: string | null }[]
+    | null;
+};
+
+type DocumentSignatureRow = {
+  id: string;
+  event_registration_id: string | null;
+  template_id: string;
+  signer_name: string;
+  signer_email: string | null;
+  signed_at: string;
+};
+
 function isOrganizerWorkspaceName(value: string | null | undefined) {
   const normalized = (value ?? "").trim().toLowerCase();
 
@@ -116,7 +136,7 @@ function getOrganizer(
   value:
     | { name: string; slug: string }
     | { name: string; slug: string }[]
-    | null
+    | null,
 ) {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -125,18 +145,21 @@ function getClientName(
   value:
     | { id: string; first_name: string | null; last_name: string | null }
     | { id: string; first_name: string | null; last_name: string | null }[]
-    | null
+    | null,
 ) {
   const client = Array.isArray(value) ? value[0] : value;
   if (!client) return "Not linked";
-  return `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || "Linked client";
+  return (
+    `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() ||
+    "Linked client"
+  );
 }
 
 function getTicketTypeName(
   value:
     | { name: string; ticket_kind: string }
     | { name: string; ticket_kind: string }[]
-    | null
+    | null,
 ) {
   const ticket = Array.isArray(value) ? value[0] : value;
   return ticket?.name ?? "No ticket type";
@@ -146,45 +169,71 @@ function getTicketKind(
   value:
     | { name: string; ticket_kind: string }
     | { name: string; ticket_kind: string }[]
-    | null
+    | null,
 ) {
   const ticket = Array.isArray(value) ? value[0] : value;
   return ticket?.ticket_kind ?? "other";
 }
 
+function getRequirementTitle(
+  value: EventDocumentRequirementRow["document_templates"],
+) {
+  const template = Array.isArray(value) ? value[0] : value;
+  return template?.title ?? "Required document";
+}
+
 function kindLabel(value: string) {
   if (value === "general_admission") return "General Admission";
   if (value === "vip") return "VIP";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function statusBadgeClass(status: string) {
-  if (status === "registered") return "bg-green-50 text-green-700 ring-1 ring-green-200";
-  if (status === "confirmed") return "bg-green-50 text-green-700 ring-1 ring-green-200";
-  if (status === "pending") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-  if (status === "waitlisted") return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
-  if (status === "cancelled") return "bg-red-50 text-red-700 ring-1 ring-red-200";
-  if (status === "checked_in") return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
-  if (status === "attended") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
-  if (status === "no_show") return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
+  if (status === "registered")
+    return "bg-green-50 text-green-700 ring-1 ring-green-200";
+  if (status === "confirmed")
+    return "bg-green-50 text-green-700 ring-1 ring-green-200";
+  if (status === "pending")
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (status === "waitlisted")
+    return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
+  if (status === "cancelled")
+    return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  if (status === "checked_in")
+    return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
+  if (status === "attended")
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  if (status === "no_show")
+    return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function paymentBadgeClass(status: string | null) {
-  if (status === "paid") return "bg-green-50 text-green-700 ring-1 ring-green-200";
-  if (status === "pending") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-  if (status === "partial") return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
-  if (status === "refunded") return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  if (status === "paid")
+    return "bg-green-50 text-green-700 ring-1 ring-green-200";
+  if (status === "pending")
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (status === "partial")
+    return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
+  if (status === "refunded")
+    return "bg-red-50 text-red-700 ring-1 ring-red-200";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
-function isRegistrationActiveForCheckIn(registration: Pick<RegistrationRow, "status" | "payment_status">) {
-  const statusIsActive = ["confirmed", "registered", "checked_in", "attended"].includes(
-    registration.status ?? ""
-  );
+function isRegistrationActiveForCheckIn(
+  registration: Pick<RegistrationRow, "status" | "payment_status">,
+) {
+  const statusIsActive = [
+    "confirmed",
+    "registered",
+    "checked_in",
+    "attended",
+  ].includes(registration.status ?? "");
 
   const paymentIsBlocked = ["pending", "unpaid", "failed", "refunded"].includes(
-    registration.payment_status ?? ""
+    registration.payment_status ?? "",
   );
 
   return statusIsActive && !paymentIsBlocked;
@@ -360,7 +409,11 @@ export default async function EventRegistrationsPage({
   await requireEventWorkspaceFeature({
     eventId: id,
     feature: "organizer_tools",
-    allowedOrganizerRoles: ["organizer_owner", "organizer_admin", "organizer_staff"],
+    allowedOrganizerRoles: [
+      "organizer_owner",
+      "organizer_admin",
+      "organizer_staff",
+    ],
   });
   const search = await searchParams;
   const activeFilter = (search.filter ?? "all").trim().toLowerCase();
@@ -392,21 +445,24 @@ export default async function EventRegistrationsPage({
 
     supabase
       .from("events")
-      .select(`
+      .select(
+        `
         id,
         name,
         slug,
         status,
         visibility,
         organizers ( name, slug )
-      `)
+      `,
+      )
       .eq("id", id)
       .eq("studio_id", studioId)
       .single(),
 
     supabase
       .from("event_registrations")
-      .select(`
+      .select(
+        `
         id,
         client_id,
         ticket_type_id,
@@ -424,7 +480,8 @@ export default async function EventRegistrationsPage({
         created_at,
         clients ( id, first_name, last_name ),
         event_ticket_types ( name, ticket_kind )
-      `)
+      `,
+      )
       .eq("event_id", id)
       .order("created_at", { ascending: true }),
 
@@ -445,7 +502,9 @@ export default async function EventRegistrationsPage({
   }
 
   if (registrationsError) {
-    throw new Error(`Failed to load registrations: ${registrationsError.message}`);
+    throw new Error(
+      `Failed to load registrations: ${registrationsError.message}`,
+    );
   }
 
   if (clientsError) {
@@ -453,18 +512,21 @@ export default async function EventRegistrationsPage({
   }
 
   const registrationIds = ((registrationRows ?? []) as { id: string }[]).map(
-    (registration) => registration.id
+    (registration) => registration.id,
   );
 
   const [
     { data: attendeeRows, error: attendeesError },
     { data: attendanceRows, error: attendanceError },
     { data: paymentRows, error: paymentError },
+    { data: documentRequirementRows, error: documentRequirementsError },
+    { data: documentSignatureRows, error: documentSignaturesError },
   ] = registrationIds.length
     ? await Promise.all([
         supabase
           .from("event_registration_attendees")
-          .select(`
+          .select(
+            `
             id,
             registration_id,
             first_name,
@@ -476,25 +538,29 @@ export default async function EventRegistrationsPage({
             checked_in_at,
             ticket_code,
             ticket_issued_at
-          `)
+          `,
+          )
           .in("registration_id", registrationIds)
           .order("sort_order", { ascending: true }),
 
         supabase
           .from("attendance_records")
-          .select(`
+          .select(
+            `
             id,
             event_registration_id,
             client_id,
             status,
             checked_in_at
-          `)
+          `,
+          )
           .eq("studio_id", studioId)
           .in("event_registration_id", registrationIds),
 
         supabase
           .from("event_payments")
-          .select(`
+          .select(
+            `
             id,
             registration_id,
             amount,
@@ -504,25 +570,73 @@ export default async function EventRegistrationsPage({
             refund_amount,
             refunded_at,
             source
-          `)
+          `,
+          )
           .in("registration_id", registrationIds),
+
+        supabase
+          .from("event_document_requirements")
+          .select(
+            `
+            id,
+            template_id,
+            is_required,
+            active,
+            document_templates ( title )
+          `,
+          )
+          .eq("event_id", id)
+          .eq("active", true)
+          .eq("is_required", true),
+
+        supabase
+          .from("document_signatures")
+          .select(
+            `
+            id,
+            event_registration_id,
+            template_id,
+            signer_name,
+            signer_email,
+            signed_at
+          `,
+          )
+          .in("event_registration_id", registrationIds),
       ])
     : [
+        { data: [], error: null },
+        { data: [], error: null },
         { data: [], error: null },
         { data: [], error: null },
         { data: [], error: null },
       ];
 
   if (attendeesError) {
-    throw new Error(`Failed to load registration attendees: ${attendeesError.message}`);
+    throw new Error(
+      `Failed to load registration attendees: ${attendeesError.message}`,
+    );
   }
 
   if (attendanceError) {
-    throw new Error(`Failed to load attendance records: ${attendanceError.message}`);
+    throw new Error(
+      `Failed to load attendance records: ${attendanceError.message}`,
+    );
   }
 
   if (paymentError) {
     throw new Error(`Failed to load payments: ${paymentError.message}`);
+  }
+
+  if (documentRequirementsError) {
+    throw new Error(
+      `Failed to load event document requirements: ${documentRequirementsError.message}`,
+    );
+  }
+
+  if (documentSignaturesError) {
+    throw new Error(
+      `Failed to load event document signatures: ${documentSignaturesError.message}`,
+    );
   }
 
   const typedEvent = event as EventRow;
@@ -530,27 +644,30 @@ export default async function EventRegistrationsPage({
   const typedPaymentRows = (paymentRows ?? []) as PaymentRow[];
   const typedClients = (clients ?? []) as ClientOption[];
 
-  type AttendeeRow = NonNullable<RegistrationRow["event_registration_attendees"]>[number];
+  type AttendeeRow = NonNullable<
+    RegistrationRow["event_registration_attendees"]
+  >[number];
 
   const attendeesByRegistrationId = new Map<string, AttendeeRow[]>();
   for (const attendee of (attendeeRows ?? []) as AttendeeRow[]) {
-    const current = attendeesByRegistrationId.get(attendee.registration_id) ?? [];
+    const current =
+      attendeesByRegistrationId.get(attendee.registration_id) ?? [];
     current.push(attendee);
     attendeesByRegistrationId.set(attendee.registration_id, current);
   }
 
-  const typedRegistrations = ((registrationRows ?? []) as RegistrationRow[]).map(
-    (registration) => ({
-      ...registration,
-      event_registration_attendees:
-        attendeesByRegistrationId.get(registration.id) ?? [],
-    })
-  );
+  const typedRegistrations = (
+    (registrationRows ?? []) as RegistrationRow[]
+  ).map((registration) => ({
+    ...registration,
+    event_registration_attendees:
+      attendeesByRegistrationId.get(registration.id) ?? [],
+  }));
   const organizer = getOrganizer(typedEvent.organizers);
   const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
 
   const attendanceByRegistrationId = new Map(
-    typedAttendanceRows.map((row) => [row.event_registration_id, row])
+    typedAttendanceRows.map((row) => [row.event_registration_id, row]),
   );
 
   const paymentsByRegistrationId = new Map<string, PaymentRow[]>();
@@ -559,6 +676,37 @@ export default async function EventRegistrationsPage({
     current.push(payment);
     paymentsByRegistrationId.set(payment.registration_id, current);
   }
+
+  const requiredDocumentRows = (documentRequirementRows ??
+    []) as EventDocumentRequirementRow[];
+  const signaturesByRegistrationId = new Map<string, DocumentSignatureRow[]>();
+  for (const signature of (documentSignatureRows ??
+    []) as DocumentSignatureRow[]) {
+    if (!signature.event_registration_id) continue;
+    const current =
+      signaturesByRegistrationId.get(signature.event_registration_id) ?? [];
+    current.push(signature);
+    signaturesByRegistrationId.set(signature.event_registration_id, current);
+  }
+
+  const getDocumentStatus = (registrationId: string) => {
+    const signatures = signaturesByRegistrationId.get(registrationId) ?? [];
+    const signedTemplateIds = new Set(
+      signatures.map((signature) => signature.template_id),
+    );
+    const missingRequirements = requiredDocumentRows.filter(
+      (requirement) => !signedTemplateIds.has(requirement.template_id),
+    );
+
+    return {
+      signatures,
+      missingRequirements,
+      requiredCount: requiredDocumentRows.length,
+      signedCount: requiredDocumentRows.length - missingRequirements.length,
+      isComplete:
+        requiredDocumentRows.length === 0 || missingRequirements.length === 0,
+    };
+  };
 
   const getEffectiveStatus = (registration: RegistrationRow) => {
     const attendance = attendanceByRegistrationId.get(registration.id);
@@ -572,7 +720,8 @@ export default async function EventRegistrationsPage({
 
     if (activeFilter === "all") return true;
     if (activeFilter === "registered") return status === "registered";
-    if (activeFilter === "checked_in") return status === "checked_in" || status === "attended";
+    if (activeFilter === "checked_in")
+      return status === "checked_in" || status === "attended";
     if (activeFilter === "waitlisted") return status === "waitlisted";
     if (activeFilter === "cancelled") return status === "cancelled";
     if (activeFilter === "crm_linked") {
@@ -584,26 +733,31 @@ export default async function EventRegistrationsPage({
 
   const totalRegistrations = typedRegistrations.length;
   const confirmedCount = typedRegistrations.filter(
-    (registration) => getEffectiveStatus(registration) === "registered"
+    (registration) => getEffectiveStatus(registration) === "registered",
   ).length;
   const checkedInCount = typedRegistrations.filter((registration) => {
     const status = getEffectiveStatus(registration);
     return status === "checked_in" || status === "attended";
   }).length;
   const waitlistCount = typedRegistrations.filter(
-    (registration) => getEffectiveStatus(registration) === "waitlisted"
+    (registration) => getEffectiveStatus(registration) === "waitlisted",
   ).length;
   const paidCount = typedRegistrations.filter(
-    (registration) => registration.payment_status === "paid"
+    (registration) => registration.payment_status === "paid",
   ).length;
   const linkedCount = typedRegistrations.filter((registration) => {
     const attendance = attendanceByRegistrationId.get(registration.id);
     return Boolean(attendance?.client_id ?? registration.client_id);
   }).length;
+  const missingWaiverCount = requiredDocumentRows.length
+    ? typedRegistrations.filter(
+        (registration) => !getDocumentStatus(registration.id).isComplete,
+      ).length
+    : 0;
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
-            {banner ? (
+      {banner ? (
         <div
           className={`rounded-2xl border px-4 py-3 text-sm ${
             banner.kind === "success"
@@ -619,7 +773,9 @@ export default async function EventRegistrationsPage({
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                {organizerWorkspace ? "DanceFlow Organizer Registrations" : "DanceFlow Event Registrations"}
+                {organizerWorkspace
+                  ? "DanceFlow Organizer Registrations"
+                  : "DanceFlow Event Registrations"}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
                 Registrations
@@ -628,7 +784,8 @@ export default async function EventRegistrationsPage({
                 {typedEvent.name}
               </p>
               <p className="mt-2 text-sm text-white/75">
-                Host: {organizer?.name ?? workspace?.name ?? "DanceFlow host"} • /events/{typedEvent.slug}
+                Host: {organizer?.name ?? workspace?.name ?? "DanceFlow host"} •
+                /events/{typedEvent.slug}
               </p>
             </div>
 
@@ -663,37 +820,60 @@ export default async function EventRegistrationsPage({
               Event registration operations
             </h2>
             <p className="mt-2 text-sm leading-7 text-sky-900">
-              Manage payment status, CRM handoff, attendance progression, and event-day registration flow from one place.
+              Manage payment status, CRM handoff, attendance progression, and
+              event-day registration flow from one place.
             </p>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Registrations</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{totalRegistrations}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {totalRegistrations}
+          </p>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Confirmed</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{confirmedCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {confirmedCount}
+          </p>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Checked In</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{checkedInCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {checkedInCount}
+          </p>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Paid</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{paidCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {paidCount}
+          </p>
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Linked to CRM</p>
-          <p className="mt-2 text-3xl font-semibold text-slate-950">{linkedCount}</p>
-          <p className="mt-2 text-sm text-slate-500">{waitlistCount} waitlisted</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {linkedCount}
+          </p>
+          <p className="mt-2 text-sm text-slate-500">
+            {waitlistCount} waitlisted
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Missing Waivers</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {missingWaiverCount}
+          </p>
+          <p className="mt-2 text-sm text-slate-500">
+            {requiredDocumentRows.length} required
+          </p>
         </div>
       </div>
 
@@ -753,27 +933,44 @@ export default async function EventRegistrationsPage({
       <div className="space-y-4">
         {filteredRegistrations.length === 0 ? (
           <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
-            <p className="text-base font-medium text-slate-900">No registrations found</p>
+            <p className="text-base font-medium text-slate-900">
+              No registrations found
+            </p>
             <p className="mt-2 text-sm text-slate-500">
               Try a different filter or wait for new registrations to come in.
             </p>
           </div>
         ) : (
           filteredRegistrations.map((registration) => {
-            const attendance = attendanceByRegistrationId.get(registration.id) ?? null;
+            const attendance =
+              attendanceByRegistrationId.get(registration.id) ?? null;
             const effectiveStatus = getEffectiveStatus(registration);
-            const checkedInAt = attendance?.checked_in_at ?? registration.checked_in_at;
-            const linkedClientId = attendance?.client_id ?? registration.client_id;
-            const linkedPayments = paymentsByRegistrationId.get(registration.id) ?? [];
+            const checkedInAt =
+              attendance?.checked_in_at ?? registration.checked_in_at;
+            const linkedClientId =
+              attendance?.client_id ?? registration.client_id;
+            const linkedPayments =
+              paymentsByRegistrationId.get(registration.id) ?? [];
+            const documentStatus = getDocumentStatus(registration.id);
+            const latestSignature =
+              [...documentStatus.signatures].sort(
+                (left, right) =>
+                  new Date(right.signed_at).getTime() -
+                  new Date(left.signed_at).getTime(),
+              )[0] ?? null;
             const fullName =
               `${registration.attendee_first_name} ${registration.attendee_last_name}`.trim();
-            const amount =
-              Number(registration.total_amount ?? registration.total_price ?? 0);
-            const currency = registration.currency ?? "USD";
-            const attendeeRows = [...(registration.event_registration_attendees ?? [])].sort(
-              (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0)
+            const amount = Number(
+              registration.total_amount ?? registration.total_price ?? 0,
             );
-            const ticketCodesAreActive = isRegistrationActiveForCheckIn(registration);
+            const currency = registration.currency ?? "USD";
+            const attendeeRows = [
+              ...(registration.event_registration_attendees ?? []),
+            ].sort(
+              (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0),
+            );
+            const ticketCodesAreActive =
+              isRegistrationActiveForCheckIn(registration);
             const ticketCodeStatusText = ticketCodesAreActive
               ? "Active for check-in"
               : "Not active for check-in yet";
@@ -787,11 +984,13 @@ export default async function EventRegistrationsPage({
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-xl font-semibold text-slate-900">{fullName}</h3>
+                        <h3 className="text-xl font-semibold text-slate-900">
+                          {fullName}
+                        </h3>
 
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                            effectiveStatus
+                            effectiveStatus,
                           )}`}
                         >
                           {effectiveStatus}
@@ -799,7 +998,7 @@ export default async function EventRegistrationsPage({
 
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${paymentBadgeClass(
-                            registration.payment_status
+                            registration.payment_status,
                           )}`}
                         >
                           {registration.payment_status ?? "unknown"}
@@ -810,14 +1009,31 @@ export default async function EventRegistrationsPage({
                         </span>
 
                         <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                          {kindLabel(getTicketKind(registration.event_ticket_types))}
+                          {kindLabel(
+                            getTicketKind(registration.event_ticket_types),
+                          )}
                         </span>
+
+                        {requiredDocumentRows.length ? (
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                              documentStatus.isComplete
+                                ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                            }`}
+                          >
+                            Waiver{" "}
+                            {documentStatus.isComplete ? "signed" : "missing"}
+                          </span>
+                        ) : null}
                       </div>
 
                       <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">
                         <span>{registration.attendee_email}</span>
                         <span>{registration.attendee_phone || "No phone"}</span>
-                        <span>Registered {formatDateTime(registration.created_at)}</span>
+                        <span>
+                          Registered {formatDateTime(registration.created_at)}
+                        </span>
                       </div>
 
                       {attendeeRows.length > 0 ? (
@@ -827,7 +1043,9 @@ export default async function EventRegistrationsPage({
                         >
                           <summary className="cursor-pointer text-sm font-medium text-slate-700">
                             Ticket codes & QR codes
-                            {attendeeRows.length > 1 ? ` • ${attendeeRows.length} attendees` : ""}
+                            {attendeeRows.length > 1
+                              ? ` • ${attendeeRows.length} attendees`
+                              : ""}
                           </summary>
                           <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                             {attendeeRows.map((attendee, index) => {
@@ -849,9 +1067,15 @@ export default async function EventRegistrationsPage({
                                         {index + 1}. {attendeeName}
                                       </p>
                                       <p className="mt-1 text-xs text-slate-500">
-                                        {attendee.attendee_role === "buyer" ? "Buyer" : "Attendee"}
-                                        {attendee.email ? ` • ${attendee.email}` : ""}
-                                        {attendee.phone ? ` • ${attendee.phone}` : ""}
+                                        {attendee.attendee_role === "buyer"
+                                          ? "Buyer"
+                                          : "Attendee"}
+                                        {attendee.email
+                                          ? ` • ${attendee.email}`
+                                          : ""}
+                                        {attendee.phone
+                                          ? ` • ${attendee.phone}`
+                                          : ""}
                                       </p>
                                     </div>
                                   </div>
@@ -879,23 +1103,29 @@ export default async function EventRegistrationsPage({
                                         </summary>
                                         <div className="mt-3 flex flex-col items-center text-center">
                                           <img
-                                            src={ticketQrSrc(attendee.ticket_code)}
+                                            src={ticketQrSrc(
+                                              attendee.ticket_code,
+                                            )}
                                             alt={`QR code for ticket ${attendee.ticket_code}`}
                                             width={180}
                                             height={180}
                                             className="rounded-xl border border-slate-200 bg-white p-2"
                                           />
                                           <p className="mt-2 text-xs text-slate-500">
-                                            Scan this QR code or enter the ticket code at check-in.
+                                            Scan this QR code or enter the
+                                            ticket code at check-in.
                                           </p>
                                         </div>
                                       </details>
 
-                                      <p className="text-xs text-slate-500">{checkedInLabel}</p>
+                                      <p className="text-xs text-slate-500">
+                                        {checkedInLabel}
+                                      </p>
                                     </div>
                                   ) : (
                                     <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-700">
-                                      No ticket code has been issued for this attendee yet.
+                                      No ticket code has been issued for this
+                                      attendee yet.
                                     </p>
                                   )}
                                 </div>
@@ -918,7 +1148,9 @@ export default async function EventRegistrationsPage({
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                       <p className="text-sm text-slate-500">CRM Link</p>
                       <p className="mt-1 font-medium text-slate-900">
-                        {linkedClientId ? getClientName(registration.clients) : "Not linked"}
+                        {linkedClientId
+                          ? getClientName(registration.clients)
+                          : "Not linked"}
                       </p>
                     </div>
 
@@ -957,6 +1189,51 @@ export default async function EventRegistrationsPage({
                       </p>
                     </div>
 
+                    <div
+                      className={`rounded-xl border p-4 ${
+                        requiredDocumentRows.length === 0
+                          ? "border-slate-200 bg-slate-50"
+                          : documentStatus.isComplete
+                            ? "border-emerald-200 bg-emerald-50"
+                            : "border-amber-200 bg-amber-50"
+                      }`}
+                    >
+                      <p className="text-sm text-slate-600">
+                        Required Documents
+                      </p>
+                      {requiredDocumentRows.length === 0 ? (
+                        <p className="mt-1 font-medium text-slate-900">
+                          None required
+                        </p>
+                      ) : documentStatus.isComplete ? (
+                        <>
+                          <p className="mt-1 font-medium text-emerald-900">
+                            Signed
+                          </p>
+                          <p className="mt-2 text-xs text-emerald-800">
+                            {latestSignature
+                              ? `${latestSignature.signer_name} • ${formatDateTime(latestSignature.signed_at)}`
+                              : `${documentStatus.signedCount}/${documentStatus.requiredCount} complete`}
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="mt-1 font-medium text-amber-900">
+                            Missing waiver
+                          </p>
+                          <p className="mt-2 text-xs text-amber-800">
+                            {documentStatus.missingRequirements
+                              .map((requirement) =>
+                                getRequirementTitle(
+                                  requirement.document_templates,
+                                ),
+                              )
+                              .join(", ")}
+                          </p>
+                        </>
+                      )}
+                    </div>
+
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                       <p className="text-sm text-slate-500">Notes</p>
                       <p className="mt-1 font-medium text-slate-900">
@@ -967,11 +1244,24 @@ export default async function EventRegistrationsPage({
 
                   <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-sm font-medium text-slate-700">CRM Handoff</p>
+                      <p className="text-sm font-medium text-slate-700">
+                        CRM Handoff
+                      </p>
 
-                      <form action={upsertEventAttendanceAction} className="mt-3 space-y-3">
-                        <input type="hidden" name="eventId" value={typedEvent.id} />
-                        <input type="hidden" name="registrationId" value={registration.id} />
+                      <form
+                        action={upsertEventAttendanceAction}
+                        className="mt-3 space-y-3"
+                      >
+                        <input
+                          type="hidden"
+                          name="eventId"
+                          value={typedEvent.id}
+                        />
+                        <input
+                          type="hidden"
+                          name="registrationId"
+                          value={registration.id}
+                        />
 
                         <div>
                           <label className="mb-1 block text-sm font-medium text-slate-700">
@@ -1020,10 +1310,14 @@ export default async function EventRegistrationsPage({
                     </div>
 
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-sm font-medium text-slate-700">Payment Trail</p>
+                      <p className="text-sm font-medium text-slate-700">
+                        Payment Trail
+                      </p>
 
                       {linkedPayments.length === 0 ? (
-                        <p className="mt-3 text-sm text-slate-500">No payments logged yet.</p>
+                        <p className="mt-3 text-sm text-slate-500">
+                          No payments logged yet.
+                        </p>
                       ) : (
                         <div className="mt-3 space-y-3">
                           {linkedPayments.map((payment) => (
@@ -1034,16 +1328,20 @@ export default async function EventRegistrationsPage({
                               <div className="flex items-center justify-between gap-3">
                                 <div>
                                   <p className="font-medium text-slate-900">
-                                    {formatCurrency(payment.amount, payment.currency)}
+                                    {formatCurrency(
+                                      payment.amount,
+                                      payment.currency,
+                                    )}
                                   </p>
                                   <p className="text-xs text-slate-500">
-                                    {payment.payment_method} • {payment.source ?? "event"}
+                                    {payment.payment_method} •{" "}
+                                    {payment.source ?? "event"}
                                   </p>
                                 </div>
 
                                 <span
                                   className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${paymentBadgeClass(
-                                    payment.status
+                                    payment.status,
                                   )}`}
                                 >
                                   {payment.status}
@@ -1052,8 +1350,14 @@ export default async function EventRegistrationsPage({
 
                               {payment.refund_amount ? (
                                 <p className="mt-2 text-xs text-red-600">
-                                  Refunded {formatCurrency(payment.refund_amount, payment.currency)}
-                                  {payment.refunded_at ? ` • ${formatDateTime(payment.refunded_at)}` : ""}
+                                  Refunded{" "}
+                                  {formatCurrency(
+                                    payment.refund_amount,
+                                    payment.currency,
+                                  )}
+                                  {payment.refunded_at
+                                    ? ` • ${formatDateTime(payment.refunded_at)}`
+                                    : ""}
                                 </p>
                               ) : null}
                             </div>

@@ -121,6 +121,7 @@ function getIcon(icon: string) {
   if (icon === "organizer_contacts") return Users;
   if (icon === "organizer_campaigns") return Megaphone;
   if (icon === "syllabus") return BookOpen;
+  if (icon === "documents") return BookOpen;
   if (icon === "schedule") return CalendarDays;
   if (icon === "events") return CalendarDays;
   if (icon === "tickets") return Ticket;
@@ -614,6 +615,101 @@ function injectEventWorkflowLinks(
   return [eventSection, ...cleanedSections];
 }
 
+
+function injectDocumentsLink(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+
+  if (flatItems.some((item) => item.href === "/app/documents")) {
+    return sections;
+  }
+
+  const documentsItem: NavItem = {
+    label: "Documents",
+    href: "/app/documents",
+    icon: "documents",
+  };
+
+  const peopleSectionIndex = sections.findIndex((section) => {
+    const title = section.title.trim().toLowerCase();
+
+    return (
+      title === "people" ||
+      title === "clients" ||
+      title === "crm" ||
+      section.items.some(
+        (item) =>
+          item.href === "/app/clients" ||
+          item.href === "/app/syllabus" ||
+          item.href === "/app/leads" ||
+          item.href === "/app/instructors",
+      )
+    );
+  });
+
+  if (peopleSectionIndex >= 0) {
+    return sections.map((section, index) => {
+      if (index !== peopleSectionIndex) {
+        return section;
+      }
+
+      const syllabusIndex = section.items.findIndex(
+        (item) => item.href === "/app/syllabus",
+      );
+      const clientsIndex = section.items.findIndex(
+        (item) => item.href === "/app/clients",
+      );
+      const instructorsIndex = section.items.findIndex(
+        (item) => item.href === "/app/instructors",
+      );
+      const insertAfterIndex =
+        syllabusIndex >= 0
+          ? syllabusIndex
+          : clientsIndex >= 0
+            ? clientsIndex
+            : instructorsIndex;
+
+      if (insertAfterIndex >= 0) {
+        return {
+          ...section,
+          items: [
+            ...section.items.slice(0, insertAfterIndex + 1),
+            documentsItem,
+            ...section.items.slice(insertAfterIndex + 1),
+          ],
+        };
+      }
+
+      return {
+        ...section,
+        items: [...section.items, documentsItem],
+      };
+    });
+  }
+
+  const dashboardIndex = sections.findIndex((section) =>
+    section.items.some((item) => item.href === "/app"),
+  );
+
+  if (dashboardIndex >= 0) {
+    return [
+      ...sections.slice(0, dashboardIndex + 1),
+      {
+        title: "People",
+        items: [documentsItem],
+      },
+      ...sections.slice(dashboardIndex + 1),
+    ];
+  }
+
+  return [
+    {
+      title: "People",
+      items: [documentsItem],
+    },
+    ...sections,
+  ];
+}
+
 function normalizeSections(input: unknown): NavSectionType[] {
   if (!Array.isArray(input)) return [];
 
@@ -673,7 +769,9 @@ function normalizeSections(input: unknown): NavSectionType[] {
     withOrganizerContactsLink,
   );
 
-  return injectSyllabusLink(withOrganizerCampaignsLink);
+  const withSyllabusLink = injectSyllabusLink(withOrganizerCampaignsLink);
+
+  return injectDocumentsLink(withSyllabusLink);
 }
 
 function prettyRole(role: string) {
@@ -1169,6 +1267,4 @@ export default function AppSidebarShell({
     </div>
   );
 }
-
-
 

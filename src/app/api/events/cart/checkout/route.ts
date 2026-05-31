@@ -111,6 +111,29 @@ type CartEventRow = {
     | null;
 };
 
+type EventDocumentRequirementRow = {
+  id: string;
+  event_id: string;
+  template_id: string;
+  template_version_id: string | null;
+  studio_id: string | null;
+  organizer_id: string | null;
+  document_templates:
+    | {
+        id: string;
+        title: string;
+        body: string;
+        current_version: number | null;
+      }
+    | {
+        id: string;
+        title: string;
+        body: string;
+        current_version: number | null;
+      }[]
+    | null;
+};
+
 type TicketTypeRow = {
   id: string;
   event_id: string;
@@ -123,9 +146,6 @@ type TicketTypeRow = {
   active: boolean | null;
   sale_starts_at: string | null;
   sale_ends_at: string | null;
-  early_bird_enabled: boolean | null;
-  early_bird_price: number | null;
-  early_bird_ends_at: string | null;
   attendees_per_ticket: number | null;
 };
 
@@ -184,36 +204,6 @@ function validateTicketWindow(ticket: TicketTypeRow) {
   return null;
 }
 
-function getActiveTicketPrice(ticket: TicketTypeRow) {
-  const regularPrice = Number(ticket.price ?? 0);
-  const earlyBirdPrice =
-    ticket.early_bird_price == null ? null : Number(ticket.early_bird_price);
-  const earlyBirdEndsAt = ticket.early_bird_ends_at
-    ? new Date(ticket.early_bird_ends_at).getTime()
-    : null;
-
-  if (
-    ticket.early_bird_enabled &&
-    earlyBirdPrice != null &&
-    Number.isFinite(earlyBirdPrice) &&
-    earlyBirdPrice >= 0 &&
-    earlyBirdEndsAt != null &&
-    Number.isFinite(earlyBirdEndsAt) &&
-    earlyBirdEndsAt >= Date.now()
-  ) {
-    return Number(earlyBirdPrice.toFixed(2));
-  }
-
-  return Number((Number.isFinite(regularPrice) ? regularPrice : 0).toFixed(2));
-}
-
-function getTicketPriceLabel(ticket: TicketTypeRow) {
-  return getActiveTicketPrice(ticket) < Number(ticket.price ?? 0)
-    ? "early_bird"
-    : "regular";
-}
-
-
 export async function POST(request: NextRequest) {
   const supabase = getSupabaseAdmin();
   const stripe = getStripe();
@@ -230,6 +220,9 @@ export async function POST(request: NextRequest) {
   const ticketTypeId = getString(formData, "ticketTypeId");
   const quantity = getInt(formData, "quantity", ticketTypeId ? 1 : 0);
   const additionalAttendeeNames = getStringList(formData, "additionalAttendeeNames");
+  const submittedDocumentRequirementIds = getStringList(formData, "documentRequirementIds");
+  const documentSignatureName = getString(formData, "documentSignatureName");
+  const documentConsentAccepted = getString(formData, "documentConsentAccepted") === "on";
   const slotIds = Array.from(new Set(getStringList(formData, "slotIds").concat(getStringList(formData, "slotId"))));
 
   if (!eventSlug) {
@@ -286,6 +279,46 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=studio_payouts_not_ready"));
   }
 
+
+  const { data: documentRequirementRows, error: documentRequirementError } = await supabase
+    .from("event_document_requirements")
+    .select(
+      `
+      id,
+      event_id,
+      template_id,
+      template_version_id,
+      studio_id,
+      organizer_id,
+      document_templates:template_id (
+        id,
+        title,
+        body,
+        current_version
+      )
+    `,
+    )
+    .eq("event_id", event.id)
+    .eq("active", true)
+    .eq("is_required", true);
+
+  if (documentRequirementError) {
+    console.error("event waiver requirement lookup failed:", documentRequirementError);
+    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=waiver_lookup_failed"));
+  }
+
+  const requiredDocuments = (documentRequirementRows ?? []) as EventDocumentRequirementRow[];
+  const requiredDocumentIds = requiredDocuments.map((document) => document.id);
+
+  if (requiredDocuments.length > 0) {
+    const submittedIdSet = new Set(submittedDocumentRequirementIds);
+    const allSubmitted = requiredDocumentIds.every((id) => submittedIdSet.has(id));
+
+    if (!allSubmitted || !documentConsentAccepted || documentSignatureName.length < 2) {
+      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=waiver_required"));
+    }
+  }
+
   let ticketType: TicketTypeRow | null = null;
   let ticketTotal = 0;
   let ticketCurrency = "USD";
@@ -311,9 +344,6 @@ export async function POST(request: NextRequest) {
         active,
         sale_starts_at,
         sale_ends_at,
-        early_bird_enabled,
-        early_bird_price,
-        early_bird_ends_at,
         attendees_per_ticket
       `)
       .eq("id", ticketTypeId)
@@ -331,60 +361,28 @@ export async function POST(request: NextRequest) {
 
     ticketType = ticket;
     ticketCurrency = ticket.currency || "USD";
-    ticketTotal = Number((getActiveTicketPrice(ticket) * quantity).toFixed(2));
+    ticketTotal = Number((Number(ticket.price ?? 0) * quantity).toFixed(2));
 
-    // Failed/retried cart checkout attempts can leave an active registration row behind before Stripe is reached.
-    // The active-registration unique constraint is event + ticket + email. Before creating a fresh attempt:
-    // - block if the buyer already has a paid/confirmed registration
-    // - cancel stale unpaid attempts so the unique constraint does not stop checkout
-    const { data: existingRegistrations, error: existingRegistrationError } = await supabase
+    // Failed cart checkout attempts can leave a pending registration behind before Stripe is reached.
+    // The active-registration unique constraint is event + ticket + email, so cancel stale pending
+    // cart registrations before creating a fresh attempt for the same buyer.
+    const { error: staleRegistrationCleanupError } = await supabase
       .from("event_registrations")
-      .select("id,status,payment_status,order_id,cancelled_at")
+      .update({
+        status: "cancelled",
+        payment_status: "failed",
+        cancelled_at: new Date().toISOString(),
+      })
       .eq("event_id", event.id)
       .eq("ticket_type_id", ticket.id)
-      .ilike("attendee_email", buyerEmail)
-      .is("cancelled_at", null);
+      .eq("attendee_email", buyerEmail)
+      .eq("status", "pending")
+      .eq("payment_status", "pending")
+      .not("order_id", "is", null);
 
-    if (existingRegistrationError) {
-      console.error("event cart existing registration lookup failed:", existingRegistrationError);
-      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=registration_lookup_failed"));
-    }
-
-    const activeRegistrations = existingRegistrations ?? [];
-    const alreadyPaidRegistration = activeRegistrations.find((registration) => {
-      const status = String(registration.status ?? "").toLowerCase();
-      const paymentStatus = String(registration.payment_status ?? "").toLowerCase();
-
-      return (
-        status === "confirmed" ||
-        status === "checked_in" ||
-        paymentStatus === "paid" ||
-        paymentStatus === "succeeded"
-      );
-    });
-
-    if (alreadyPaidRegistration) {
-      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=already_registered"));
-    }
-
-    const staleRegistrationIds = activeRegistrations
-      .map((registration) => registration.id)
-      .filter(Boolean);
-
-    if (staleRegistrationIds.length > 0) {
-      const { error: staleRegistrationCleanupError } = await supabase
-        .from("event_registrations")
-        .update({
-          status: "cancelled",
-          payment_status: "failed",
-          cancelled_at: new Date().toISOString(),
-        })
-        .in("id", staleRegistrationIds);
-
-      if (staleRegistrationCleanupError) {
-        console.error("event cart stale registration cleanup failed:", staleRegistrationCleanupError);
-        return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=registration_cleanup_failed"));
-      }
+    if (staleRegistrationCleanupError) {
+      console.error("event cart stale registration cleanup failed:", staleRegistrationCleanupError);
+      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=registration_cleanup_failed"));
     }
 
     const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
@@ -465,7 +463,6 @@ export async function POST(request: NextRequest) {
       expires_at: expiresAt,
       metadata: {
         source: "event_cart_v1",
-        ticket_price_source: ticketType ? getTicketPriceLabel(ticketType) : null,
       },
     })
     .select("id")
@@ -480,7 +477,7 @@ export async function POST(request: NextRequest) {
     const orderItems = [];
 
     if (ticketType) {
-      const unitPrice = getActiveTicketPrice(ticketType);
+      const unitPrice = Number(ticketType.price ?? 0);
       const attendeeNames = [
         buyerName,
         ...additionalAttendeeNames.slice(
@@ -566,6 +563,66 @@ export async function POST(request: NextRequest) {
 
       if (attendeeError) {
         throw new Error(attendeeError.message);
+      }
+
+
+      if (requiredDocuments.length > 0) {
+        const signerIp =
+          request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+          request.headers.get("x-real-ip") ||
+          null;
+        const userAgent = request.headers.get("user-agent") || null;
+        const consentText =
+          "I have reviewed the required event document(s), agree to sign electronically, and confirm that my typed name is my signature.";
+
+        for (const requiredDocument of requiredDocuments) {
+          const template = Array.isArray(requiredDocument.document_templates)
+            ? requiredDocument.document_templates[0]
+            : requiredDocument.document_templates;
+
+          if (!template) continue;
+
+          const { data: assignment, error: assignmentError } = await supabase
+            .from("document_assignments")
+            .insert({
+              template_id: requiredDocument.template_id,
+              template_version_id: requiredDocument.template_version_id,
+              studio_id: event.studio_id,
+              organizer_id: event.organizer_id,
+              event_id: event.id,
+              event_registration_id: registration.id,
+              assigned_to_email: buyerEmail,
+              status: "signed",
+              signed_at: new Date().toISOString(),
+            })
+            .select("id")
+            .single();
+
+          if (assignmentError || !assignment) {
+            throw new Error(assignmentError?.message ?? "Could not save event waiver assignment.");
+          }
+
+          const { error: signatureError } = await supabase.from("document_signatures").insert({
+            assignment_id: assignment.id,
+            template_id: requiredDocument.template_id,
+            template_version_id: requiredDocument.template_version_id,
+            studio_id: event.studio_id,
+            organizer_id: event.organizer_id,
+            event_id: event.id,
+            event_registration_id: registration.id,
+            signer_name: documentSignatureName,
+            signer_email: buyerEmail,
+            signed_body: template.body,
+            signature_text: documentSignatureName,
+            consent_text: consentText,
+            ip_address: signerIp,
+            user_agent: userAgent,
+          });
+
+          if (signatureError) {
+            throw new Error(signatureError.message);
+          }
+        }
       }
 
       orderItems.push({
@@ -762,6 +819,4 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_checkout_failed"));
   }
 }
-
-
 

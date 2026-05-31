@@ -72,7 +72,6 @@ type RegistrationRow = {
     | null;
 };
 
-
 type EventRegistrationAttendeeRow = {
   id: string;
   registration_id: string;
@@ -87,7 +86,6 @@ type EventRegistrationAttendeeRow = {
   ticket_issued_at: string | null;
 };
 
-
 type EventSessionRow = {
   id: string;
   session_date: string;
@@ -95,6 +93,26 @@ type EventSessionRow = {
   end_time: string | null;
   session_label: string | null;
   status: string;
+};
+
+type EventDocumentRequirementRow = {
+  id: string;
+  template_id: string;
+  is_required: boolean;
+  active: boolean;
+  document_templates:
+    | { title: string | null }
+    | { title: string | null }[]
+    | null;
+};
+
+type DocumentSignatureRow = {
+  id: string;
+  event_registration_id: string | null;
+  template_id: string;
+  signer_name: string;
+  signer_email: string | null;
+  signed_at: string;
 };
 
 function isOrganizerWorkspaceName(value: string | null | undefined) {
@@ -136,6 +154,13 @@ function getTicketKind(
 ) {
   const ticket = Array.isArray(value) ? value[0] : value;
   return ticket?.ticket_kind ?? "other";
+}
+
+function getRequirementTitle(
+  value: EventDocumentRequirementRow["document_templates"],
+) {
+  const template = Array.isArray(value) ? value[0] : value;
+  return template?.title ?? "Required document";
 }
 
 function kindLabel(value: string) {
@@ -227,7 +252,8 @@ function getBanner(search: { success?: string; error?: string; q?: string }) {
   if (search.error === "ticket_not_confirmed") {
     return {
       kind: "error" as const,
-      message: "This ticket is not active yet. Confirm the registration before checking it in.",
+      message:
+        "This ticket is not active yet. Confirm the registration before checking it in.",
     };
   }
 
@@ -287,17 +313,25 @@ export default async function EventCheckInPage({
 
   const { id } = await params;
   const query = await searchParams;
-    const qRaw = query.q;
+  const qRaw = query.q;
   const statusRaw = query.status;
   const sessionIdRaw = query.sessionId;
 
   const q = Array.isArray(qRaw)
-    ? String(qRaw[0] ?? "").trim().toLowerCase()
-    : String(qRaw ?? "").trim().toLowerCase();
+    ? String(qRaw[0] ?? "")
+        .trim()
+        .toLowerCase()
+    : String(qRaw ?? "")
+        .trim()
+        .toLowerCase();
 
   const statusFilter = Array.isArray(statusRaw)
-    ? String(statusRaw[0] ?? "ready").trim().toLowerCase()
-    : String(statusRaw ?? "ready").trim().toLowerCase();
+    ? String(statusRaw[0] ?? "ready")
+        .trim()
+        .toLowerCase()
+    : String(statusRaw ?? "ready")
+        .trim()
+        .toLowerCase();
 
   const requestedSessionId = Array.isArray(sessionIdRaw)
     ? String(sessionIdRaw[0] ?? "").trim()
@@ -411,7 +445,9 @@ export default async function EventCheckInPage({
     RegistrationRow,
     "event_registration_attendees"
   >[];
-  const registrationIds = baseRegistrations.map((registration) => registration.id);
+  const registrationIds = baseRegistrations.map(
+    (registration) => registration.id,
+  );
 
   let attendeeRows: EventRegistrationAttendeeRow[] = [];
 
@@ -443,10 +479,69 @@ export default async function EventCheckInPage({
     attendeeRows = (attendees ?? []) as EventRegistrationAttendeeRow[];
   }
 
-  const attendeesByRegistrationId = new Map<string, EventRegistrationAttendeeRow[]>();
+  let documentRequirementRows: EventDocumentRequirementRow[] = [];
+  let documentSignatureRows: DocumentSignatureRow[] = [];
+
+  if (registrationIds.length > 0) {
+    const [
+      { data: requirements, error: documentRequirementsError },
+      { data: signatures, error: documentSignaturesError },
+    ] = await Promise.all([
+      supabase
+        .from("event_document_requirements")
+        .select(
+          `
+          id,
+          template_id,
+          is_required,
+          active,
+          document_templates ( title )
+        `,
+        )
+        .eq("event_id", id)
+        .eq("active", true)
+        .eq("is_required", true),
+
+      supabase
+        .from("document_signatures")
+        .select(
+          `
+          id,
+          event_registration_id,
+          template_id,
+          signer_name,
+          signer_email,
+          signed_at
+        `,
+        )
+        .in("event_registration_id", registrationIds),
+    ]);
+
+    if (documentRequirementsError) {
+      throw new Error(
+        `Failed to load event document requirements: ${documentRequirementsError.message}`,
+      );
+    }
+
+    if (documentSignaturesError) {
+      throw new Error(
+        `Failed to load event document signatures: ${documentSignaturesError.message}`,
+      );
+    }
+
+    documentRequirementRows = (requirements ??
+      []) as EventDocumentRequirementRow[];
+    documentSignatureRows = (signatures ?? []) as DocumentSignatureRow[];
+  }
+
+  const attendeesByRegistrationId = new Map<
+    string,
+    EventRegistrationAttendeeRow[]
+  >();
 
   for (const attendee of attendeeRows) {
-    const existing = attendeesByRegistrationId.get(attendee.registration_id) ?? [];
+    const existing =
+      attendeesByRegistrationId.get(attendee.registration_id) ?? [];
     existing.push(attendee);
     attendeesByRegistrationId.set(attendee.registration_id, existing);
   }
@@ -470,10 +565,39 @@ export default async function EventCheckInPage({
   const organizer = getOrganizer(typedEvent.organizers);
   const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
 
+  const signaturesByRegistrationId = new Map<string, DocumentSignatureRow[]>();
+  for (const signature of documentSignatureRows) {
+    if (!signature.event_registration_id) continue;
+    const current =
+      signaturesByRegistrationId.get(signature.event_registration_id) ?? [];
+    current.push(signature);
+    signaturesByRegistrationId.set(signature.event_registration_id, current);
+  }
+
+  const getDocumentStatus = (registrationId: string) => {
+    const signatures = signaturesByRegistrationId.get(registrationId) ?? [];
+    const signedTemplateIds = new Set(
+      signatures.map((signature) => signature.template_id),
+    );
+    const missingRequirements = documentRequirementRows.filter(
+      (requirement) => !signedTemplateIds.has(requirement.template_id),
+    );
+
+    return {
+      signatures,
+      missingRequirements,
+      requiredCount: documentRequirementRows.length,
+      signedCount: documentRequirementRows.length - missingRequirements.length,
+      isComplete:
+        documentRequirementRows.length === 0 ||
+        missingRequirements.length === 0,
+    };
+  };
+
   const getEffectiveStatus = (registration: RegistrationRow) => {
     const attendeeRows = registration.event_registration_attendees ?? [];
-    const hasCheckedInAttendee = attendeeRows.some(
-      (attendee) => Boolean(attendee.checked_in_at),
+    const hasCheckedInAttendee = attendeeRows.some((attendee) =>
+      Boolean(attendee.checked_in_at),
     );
 
     if (registration.status === "cancelled") return "cancelled";
@@ -525,11 +649,12 @@ export default async function EventCheckInPage({
         fullName.includes(q) ||
         registration.attendee_email.toLowerCase().includes(q) ||
         (registration.attendee_phone ?? "").toLowerCase().includes(q) ||
-        (registration.event_registration_attendees ?? []).some((attendee) =>
-          `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`
-            .toLowerCase()
-            .includes(q) ||
-          (attendee.ticket_code ?? "").toLowerCase().includes(q)
+        (registration.event_registration_attendees ?? []).some(
+          (attendee) =>
+            `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`
+              .toLowerCase()
+              .includes(q) ||
+            (attendee.ticket_code ?? "").toLowerCase().includes(q),
         )
       );
     });
@@ -544,6 +669,11 @@ export default async function EventCheckInPage({
   const cancelledCount = typedRegistrations.filter(
     (registration) => getEffectiveStatus(registration) === "cancelled",
   ).length;
+  const missingWaiverCount = documentRequirementRows.length
+    ? typedRegistrations.filter(
+        (registration) => !getDocumentStatus(registration.id).isComplete,
+      ).length
+    : 0;
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -672,7 +802,7 @@ export default async function EventCheckInPage({
         </section>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Ready to Check In</p>
           <p className="mt-2 text-3xl font-semibold text-slate-950">
@@ -693,6 +823,13 @@ export default async function EventCheckInPage({
             {cancelledCount}
           </p>
         </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-sm text-slate-500">Missing Waivers</p>
+          <p className="mt-2 text-3xl font-semibold text-slate-950">
+            {missingWaiverCount}
+          </p>
+        </div>
       </div>
 
       <form
@@ -701,7 +838,11 @@ export default async function EventCheckInPage({
       >
         <input type="hidden" name="eventId" value={typedEvent.id} />
         {isGroupClass && selectedSessionId ? (
-          <input type="hidden" name="eventSessionId" value={selectedSessionId} />
+          <input
+            type="hidden"
+            name="eventSessionId"
+            value={selectedSessionId}
+          />
         ) : null}
         <input
           type="hidden"
@@ -716,7 +857,10 @@ export default async function EventCheckInPage({
 
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
           <div className="min-w-0 flex-1">
-            <label htmlFor="ticketCode" className="mb-1 block text-sm font-medium text-slate-900">
+            <label
+              htmlFor="ticketCode"
+              className="mb-1 block text-sm font-medium text-slate-900"
+            >
               Check in by ticket code
             </label>
             <input
@@ -727,7 +871,8 @@ export default async function EventCheckInPage({
               autoComplete="off"
             />
             <p className="mt-2 text-xs text-slate-500">
-              Use this when a guest shows their ticket code or staff reads it from a confirmation.
+              Use this when a guest shows their ticket code or staff reads it
+              from a confirmation.
             </p>
             <div className="mt-3">
               <TicketCodeScanner inputId="ticketCode" />
@@ -812,14 +957,20 @@ export default async function EventCheckInPage({
           </div>
         ) : (
           filteredRegistrations.map((registration) => {
-            const attendeeRows = [...(registration.event_registration_attendees ?? [])].sort(
-              (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0)
+            const attendeeRows = [
+              ...(registration.event_registration_attendees ?? []),
+            ].sort(
+              (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0),
             );
             const firstCheckedInAttendee =
-              attendeeRows.find((attendee) => Boolean(attendee.checked_in_at)) ?? null;
+              attendeeRows.find((attendee) =>
+                Boolean(attendee.checked_in_at),
+              ) ?? null;
             const effectiveStatus = getEffectiveStatus(registration);
             const effectiveCheckedInAt =
-              registration.checked_in_at ?? firstCheckedInAttendee?.checked_in_at ?? null;
+              registration.checked_in_at ??
+              firstCheckedInAttendee?.checked_in_at ??
+              null;
 
             const fullName =
               `${registration.attendee_first_name} ${registration.attendee_last_name}`.trim();
@@ -830,6 +981,13 @@ export default async function EventCheckInPage({
             const canCheckIn =
               effectiveStatus === "registered" &&
               (!isGroupClass || Boolean(selectedSessionId));
+            const documentStatus = getDocumentStatus(registration.id);
+            const latestSignature =
+              [...documentStatus.signatures].sort(
+                (left, right) =>
+                  new Date(right.signed_at).getTime() -
+                  new Date(left.signed_at).getTime(),
+              )[0] ?? null;
             const returnTo = appendQueryParam(
               appendQueryParam(
                 buildCheckInHref({
@@ -872,6 +1030,19 @@ export default async function EventCheckInPage({
                       <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
                         {kindLabel(ticketKind)}
                       </span>
+
+                      {documentRequirementRows.length ? (
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                            documentStatus.isComplete
+                              ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                              : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                          }`}
+                        >
+                          Waiver{" "}
+                          {documentStatus.isComplete ? "signed" : "missing"}
+                        </span>
+                      ) : null}
                     </div>
 
                     {attendeeRows.length > 1 ? (
@@ -894,7 +1065,9 @@ export default async function EventCheckInPage({
                                   {index + 1}. {attendeeName}
                                 </p>
                                 <p className="mt-1 text-xs text-slate-500">
-                                  {attendee.attendee_role === "buyer" ? "Buyer" : "Attendee"}
+                                  {attendee.attendee_role === "buyer"
+                                    ? "Buyer"
+                                    : "Attendee"}
                                   {attendee.email ? ` • ${attendee.email}` : ""}
                                 </p>
                                 {attendee.ticket_code ? (
@@ -909,7 +1082,7 @@ export default async function EventCheckInPage({
                       </details>
                     ) : null}
 
-                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                         <p className="text-sm text-slate-500">Email</p>
                         <p className="mt-1 break-words font-medium text-slate-900">
@@ -937,6 +1110,51 @@ export default async function EventCheckInPage({
                           {formatDateTime(effectiveCheckedInAt)}
                         </p>
                       </div>
+
+                      <div
+                        className={`rounded-xl border p-4 ${
+                          documentRequirementRows.length === 0
+                            ? "border-slate-200 bg-slate-50"
+                            : documentStatus.isComplete
+                              ? "border-emerald-200 bg-emerald-50"
+                              : "border-amber-200 bg-amber-50"
+                        }`}
+                      >
+                        <p className="text-sm text-slate-600">
+                          Required Documents
+                        </p>
+                        {documentRequirementRows.length === 0 ? (
+                          <p className="mt-1 font-medium text-slate-900">
+                            None required
+                          </p>
+                        ) : documentStatus.isComplete ? (
+                          <>
+                            <p className="mt-1 font-medium text-emerald-900">
+                              Signed
+                            </p>
+                            <p className="mt-2 text-xs text-emerald-800">
+                              {latestSignature
+                                ? `${latestSignature.signer_name} • ${formatDateTime(latestSignature.signed_at)}`
+                                : `${documentStatus.signedCount}/${documentStatus.requiredCount} complete`}
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="mt-1 font-medium text-amber-900">
+                              Missing waiver
+                            </p>
+                            <p className="mt-2 text-xs text-amber-800">
+                              {documentStatus.missingRequirements
+                                .map((requirement) =>
+                                  getRequirementTitle(
+                                    requirement.document_templates,
+                                  ),
+                                )
+                                .join(", ")}
+                            </p>
+                          </>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -961,6 +1179,11 @@ export default async function EventCheckInPage({
                           />
                         ) : null}
                         <input type="hidden" name="returnTo" value={returnTo} />
+                        {!documentStatus.isComplete ? (
+                          <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800">
+                            Missing required waiver. Confirm before checking in.
+                          </div>
+                        ) : null}
                         <button
                           type="submit"
                           className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white hover:bg-slate-800"
@@ -998,4 +1221,3 @@ export default async function EventCheckInPage({
     </div>
   );
 }
-

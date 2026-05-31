@@ -11,7 +11,6 @@ import {
 import { completeLeadFollowUpAction } from "@/app/app/leads/activity-actions";
 import QuickActionPanel from "@/components/ui/QuickActionPanel";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
-import ClientSyllabusTab from "./ClientSyllabusTab";
 import QuickPaymentPanel from "./QuickPaymentPanel";
 import {
   linkPartnerAction,
@@ -232,6 +231,43 @@ type EventRegistrationRow = {
     | null;
 };
 
+type ClientDocumentAssignmentRow = {
+  id: string;
+  template_id: string;
+  status: string;
+  assigned_at: string | null;
+  due_at: string | null;
+  signed_at: string | null;
+  document_templates:
+    | {
+        title: string | null;
+        document_type: string | null;
+        requires_signature: boolean | null;
+        is_required: boolean | null;
+      }
+    | {
+        title: string | null;
+        document_type: string | null;
+        requires_signature: boolean | null;
+        is_required: boolean | null;
+      }[]
+    | null;
+};
+
+type AllClientDocumentTemplateRow = {
+  id: string;
+  title: string;
+  document_type: string | null;
+  requires_signature: boolean | null;
+  is_required: boolean | null;
+};
+
+type ClientDocumentSignatureRow = {
+  template_id: string;
+  signed_at: string | null;
+};
+
+
 type AttendanceRecordRow = {
   id: string;
   event_registration_id: string;
@@ -254,6 +290,7 @@ type ClientDetailTab =
   | "notes"
   | "portal"
   | "marketing"
+  | "documents"
   | "syllabus";
 
 const clientDetailTabs: { id: ClientDetailTab; label: string; description: string }[] = [
@@ -263,6 +300,7 @@ const clientDetailTabs: { id: ClientDetailTab; label: string; description: strin
   { id: "notes", label: "Notes & Activity", description: "Notes, lead activity, and follow-up history" },
   { id: "portal", label: "Portal", description: "Client portal access and login tools" },
   { id: "marketing", label: "Marketing", description: "Marketing preferences and campaign history" },
+  { id: "documents", label: "Documents", description: "Waivers, policies, and signatures" },
   { id: "syllabus", label: "Syllabus", description: "Future dance figure progress tracking" },
 ];
 
@@ -1008,6 +1046,41 @@ function getTicketValue(
   return Array.isArray(value) ? value[0] : value;
 }
 
+
+function getDocumentTemplateValue(
+  value:
+    | {
+        title: string | null;
+        document_type: string | null;
+        requires_signature: boolean | null;
+        is_required: boolean | null;
+      }
+    | {
+        title: string | null;
+        document_type: string | null;
+        requires_signature: boolean | null;
+        is_required: boolean | null;
+      }[]
+    | null,
+) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function documentStatusClass(status: string) {
+  if (status === "signed" || status === "completed") return "bg-green-50 text-green-700";
+  if (status === "declined") return "bg-red-50 text-red-700";
+  if (status === "expired") return "bg-slate-100 text-slate-600";
+  return "bg-amber-50 text-amber-700";
+}
+
+function documentStatusLabel(status: string) {
+  if (status === "signed") return "Signed";
+  if (status === "completed") return "Completed";
+  if (status === "declined") return "Declined";
+  if (status === "expired") return "Expired";
+  return "Pending";
+}
+
 function eventRegistrationStatusLabel(status: string) {
   if (status === "confirmed") return "Confirmed";
   if (status === "pending") return "Pending";
@@ -1068,8 +1141,9 @@ export default async function ClientDetailPage({
     { data: membershipPlans, error: membershipPlansError },
     { data: activeMembership, error: activeMembershipError },
     { data: eventRegistrations, error: eventRegistrationsError },
-    { data: syllabusTemplates, error: syllabusTemplatesError },
-    { data: syllabusAssignments, error: syllabusAssignmentsError },
+    { data: documentAssignments, error: documentAssignmentsError },
+    { data: allClientDocumentTemplates, error: allClientDocumentTemplatesError },
+    { data: documentSignatures, error: documentSignaturesError },
   ] = await Promise.all([
     supabase.from("studios").select("id, name, slug").eq("id", studioId).single(),
 
@@ -1291,66 +1365,41 @@ export default async function ClientDetailPage({
       .order("created_at", { ascending: false })
       .limit(12),
 
-    supabase
-      .from("syllabus_templates")
-      .select(`
-        id,
-        name,
-        dance_style,
-        level,
-        description,
-        active,
-        syllabus_template_items (
-          id,
-          title,
-          category,
-          description,
-          sort_order,
-          active
-        )
-      `)
-      .eq("studio_id", studioId)
-      .eq("active", true)
-      .order("name", { ascending: true }),
 
     supabase
-      .from("client_syllabus_assignments")
+      .from("document_assignments")
       .select(`
         id,
-        client_id,
-        syllabus_template_id,
+        template_id,
+        status,
         assigned_at,
-        visible_in_portal,
-        archived_at,
-        syllabus_templates (
-          id,
-          name,
-          dance_style,
-          level,
-          description,
-          active,
-          syllabus_template_items (
-            id,
-            title,
-            category,
-            description,
-            sort_order,
-            active
-          )
-        ),
-        client_syllabus_progress (
-          id,
-          template_item_id,
-          status,
-          notes,
-          show_notes_in_portal,
-          updated_at
+        due_at,
+        signed_at,
+        document_templates (
+          title,
+          document_type,
+          requires_signature,
+          is_required
         )
       `)
       .eq("studio_id", studioId)
       .eq("client_id", id)
-      .is("archived_at", null)
-      .order("assigned_at", { ascending: false }),
+      .order("assigned_at", { ascending: false })
+      .limit(20),
+
+    supabase
+      .from("document_templates")
+      .select("id, title, document_type, requires_signature, is_required")
+      .eq("studio_id", studioId)
+      .eq("is_active", true)
+      .eq("applies_to", "all_clients")
+      .order("title", { ascending: true }),
+
+    supabase
+      .from("document_signatures")
+      .select("template_id, signed_at")
+      .eq("studio_id", studioId)
+      .eq("client_id", id),
   ]);
 
   if (clientError || !client) {
@@ -1372,8 +1421,9 @@ export default async function ClientDetailPage({
   if (membershipPlansError) throw new Error(`Failed to load membership plans: ${membershipPlansError.message}`);
   if (activeMembershipError) throw new Error(`Failed to load active membership: ${activeMembershipError.message}`);
   if (eventRegistrationsError) throw new Error(`Failed to load event registrations: ${eventRegistrationsError.message}`);
-  if (syllabusTemplatesError) throw new Error(`Failed to load syllabus templates: ${syllabusTemplatesError.message}`);
-  if (syllabusAssignmentsError) throw new Error(`Failed to load client syllabus assignments: ${syllabusAssignmentsError.message}`);
+  if (documentAssignmentsError) throw new Error(`Failed to load document assignments: ${documentAssignmentsError.message}`);
+  if (allClientDocumentTemplatesError) throw new Error(`Failed to load document templates: ${allClientDocumentTemplatesError.message}`);
+  if (documentSignaturesError) throw new Error(`Failed to load document signatures: ${documentSignaturesError.message}`);
 
   const typedStudio = studio as StudioRecord;
   const typedClient = client as ClientRecord;
@@ -1395,6 +1445,9 @@ export default async function ClientDetailPage({
       }
     : null;
   const typedEventRegistrations = (eventRegistrations ?? []) as EventRegistrationRow[];
+  const typedDocumentAssignments = (documentAssignments ?? []) as ClientDocumentAssignmentRow[];
+  const typedAllClientDocumentTemplates = (allClientDocumentTemplates ?? []) as AllClientDocumentTemplateRow[];
+  const typedDocumentSignatures = (documentSignatures ?? []) as ClientDocumentSignatureRow[];
 
   const { data: linkedRelationship, error: linkedRelationshipError } = await supabase
     .from("client_relationships")
@@ -1563,6 +1616,47 @@ export default async function ClientDetailPage({
     const attendance = attendanceByRegistrationId.get(row.id);
     return attendance?.status === "attended";
   }).length;
+  const signedTemplateIds = new Set(
+    typedDocumentSignatures
+      .filter((row) => row.signed_at)
+      .map((row) => row.template_id),
+  );
+  const assignedTemplateIds = new Set(typedDocumentAssignments.map((row) => row.template_id));
+  const globalDocumentStatusRows = typedAllClientDocumentTemplates
+    .filter((template) => !assignedTemplateIds.has(template.id))
+    .map((template) => ({
+      id: template.id,
+      title: template.title,
+      documentType: template.document_type ?? "document",
+      requiresSignature: Boolean(template.requires_signature),
+      isRequired: Boolean(template.is_required),
+      status: signedTemplateIds.has(template.id) ? "signed" : "available",
+      assignedAt: null as string | null,
+      dueAt: null as string | null,
+      signedAt: typedDocumentSignatures.find((row) => row.template_id === template.id)?.signed_at ?? null,
+      source: "All clients",
+    }));
+  const assignedDocumentStatusRows = typedDocumentAssignments.map((assignment) => {
+    const template = getDocumentTemplateValue(assignment.document_templates);
+    return {
+      id: assignment.id,
+      title: template?.title ?? "Document",
+      documentType: template?.document_type ?? "document",
+      requiresSignature: Boolean(template?.requires_signature),
+      isRequired: Boolean(template?.is_required),
+      status: assignment.status,
+      assignedAt: assignment.assigned_at,
+      dueAt: assignment.due_at,
+      signedAt: assignment.signed_at,
+      source: "Assigned",
+    };
+  });
+  const documentStatusRows = [...assignedDocumentStatusRows, ...globalDocumentStatusRows];
+  const requiredDocumentCount = documentStatusRows.filter((row) => row.isRequired).length;
+  const pendingRequiredDocumentCount = documentStatusRows.filter(
+    (row) => row.isRequired && row.status !== "signed" && row.status !== "completed",
+  ).length;
+
 
   return (
     <div className="space-y-8">
@@ -1866,16 +1960,112 @@ export default async function ClientDetailPage({
           </div>
         </SectionCard>
       ) : null}
-      {activeTab === "syllabus" ? (
-        <ClientSyllabusTab
-          clientId={typedClient.id}
-          clientName={`${typedClient.first_name ?? ""} ${typedClient.last_name ?? ""}`.trim()}
-          canEdit={canEditClients(role)}
-          templates={(syllabusTemplates ?? []) as any}
-          assignments={(syllabusAssignments ?? []) as any}
-        />
+
+
+      {activeTab === "documents" ? (
+        <SectionCard
+          title="Client Documents"
+          subtitle="Track waivers, policies, agreements, and other documents connected to this client."
+          action={
+            <Link
+              href="/app/documents"
+              className="rounded-2xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+            >
+              Manage Templates
+            </Link>
+          }
+        >
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+              <p className="text-sm text-slate-500">Documents</p>
+              <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
+                {documentStatusRows.length}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+              <p className="text-sm text-slate-500">Required</p>
+              <p className="mt-2 text-2xl font-semibold text-[var(--brand-text)]">
+                {requiredDocumentCount}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+              <p className="text-sm text-slate-500">Needs Signature</p>
+              <p className={`mt-2 text-2xl font-semibold ${pendingRequiredDocumentCount > 0 ? "text-amber-700" : "text-green-700"}`}>
+                {pendingRequiredDocumentCount}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {documentStatusRows.length ? (
+              documentStatusRows.map((document) => (
+                <div
+                  key={`${document.source}-${document.id}`}
+                  className="rounded-2xl border border-[var(--brand-border)] bg-white p-4"
+                >
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-semibold text-[var(--brand-text)]">
+                          {document.title}
+                        </p>
+                        <span className="rounded-full bg-[var(--brand-soft-bg)] px-3 py-1 text-xs font-semibold text-[var(--brand-muted)]">
+                          {document.documentType.replaceAll("_", " ")}
+                        </span>
+                        {document.isRequired ? (
+                          <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                            Required
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-2 text-sm text-slate-500">
+                        {document.source}
+                        {document.dueAt ? ` · Due ${fmtShortDate(document.dueAt)}` : ""}
+                        {document.signedAt ? ` · Signed ${fmtShortDate(document.signedAt)}` : ""}
+                      </p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${documentStatusClass(document.status)}`}>
+                      {document.status === "available"
+                        ? document.requiresSignature
+                          ? "Ready to Sign"
+                          : "Available"
+                        : documentStatusLabel(document.status)}
+                    </span>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] p-6 text-center">
+                <p className="text-sm font-semibold text-[var(--brand-text)]">
+                  No documents assigned yet
+                </p>
+                <p className="mt-2 text-sm text-[var(--brand-muted)]">
+                  Assign a waiver, policy, or agreement from the Documents page.
+                </p>
+              </div>
+            )}
+          </div>
+        </SectionCard>
       ) : null}
 
+      {activeTab === "syllabus" ? (
+        <SectionCard
+          title="Syllabus"
+          subtitle="Future student progress tracking for dance figures, levels, and instructor notes."
+          action={
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
+              Placeholder
+            </span>
+          }
+        >
+          <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
+            <p className="font-medium text-[var(--brand-text)]">Dance figure syllabus tracking is coming soon.</p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Instructors will be able to assign or upload a dance figure syllabus to this student and check off figures as they are introduced, practiced, and completed.
+            </p>
+          </div>
+        </SectionCard>
+      ) : null}
 
       {activeTab === "overview" && typedClient.status === "lead" ? (
         <SectionCard

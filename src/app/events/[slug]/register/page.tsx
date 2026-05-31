@@ -50,6 +50,16 @@ type TicketTypeRow = {
   attendees_per_ticket: number | null;
 };
 
+type EventDocumentRequirement = {
+  id: string;
+  template_id: string;
+  template_version_id: string | null;
+  title: string;
+  description: string | null;
+  body: string;
+  requires_signature: boolean;
+};
+
 function getOrganizer(
   value:
     | { name: string; slug: string }
@@ -196,6 +206,66 @@ export default async function PublicEventRegisterPage({
   }
 
   const typedEvent = event as EventRow;
+
+  const { data: eventDocumentRequirements, error: eventDocumentRequirementsError } =
+    await supabase
+      .from("event_document_requirements")
+      .select(`
+        id,
+        template_id,
+        template_version_id,
+        is_required,
+        active,
+        document_templates:template_id (
+          id,
+          title,
+          description,
+          body,
+          requires_signature,
+          is_active
+        ),
+        document_template_versions:template_version_id (
+          id,
+          title,
+          description,
+          body,
+          requires_signature
+        )
+      `)
+      .eq("event_id", typedEvent.id)
+      .eq("active", true)
+      .eq("is_required", true);
+
+  if (eventDocumentRequirementsError) {
+    throw new Error(
+      `Failed to load required event documents: ${eventDocumentRequirementsError.message}`,
+    );
+  }
+
+  const requiredEventDocuments = (eventDocumentRequirements ?? [])
+    .map((requirement: any): EventDocumentRequirement | null => {
+      const template = Array.isArray(requirement.document_templates)
+        ? requirement.document_templates[0]
+        : requirement.document_templates;
+      const version = Array.isArray(requirement.document_template_versions)
+        ? requirement.document_template_versions[0]
+        : requirement.document_template_versions;
+
+      if (!template?.is_active) return null;
+
+      return {
+        id: requirement.id,
+        template_id: requirement.template_id,
+        template_version_id: requirement.template_version_id ?? null,
+        title: version?.title ?? template.title ?? "Required document",
+        description: version?.description ?? template.description ?? null,
+        body: version?.body ?? template.body ?? "",
+        requires_signature: Boolean(
+          version?.requires_signature ?? template.requires_signature ?? true,
+        ),
+      };
+    })
+    .filter((document): document is EventDocumentRequirement => Boolean(document));
   const organizer = getOrganizer(typedEvent.organizers);
 
   const allTicketTypes = (ticketTypes ?? []).map((ticket: any): TicketTypeRow => ({
@@ -373,6 +443,7 @@ export default async function PublicEventRegisterPage({
                 currentUserEmail={user?.email ?? ""}
                 isSoldOut={Boolean((typedEvent as any).is_sold_out)}
                 waitlistEnabled={Boolean((typedEvent as any).waitlist_enabled)}
+                requiredEventDocuments={requiredEventDocuments}
               />
             )}
           </div>

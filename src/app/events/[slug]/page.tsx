@@ -171,6 +171,28 @@ type GroupedCoachSlots = {
   slots: EventPrivateLessonSlotRow[];
 };
 
+type EventDocumentRequirementRow = {
+  id: string;
+  template_id: string;
+  template_version_id: string | null;
+  document_templates:
+    | {
+        id: string;
+        title: string;
+        description: string | null;
+        body: string;
+        requires_signature: boolean;
+      }
+    | {
+        id: string;
+        title: string;
+        description: string | null;
+        body: string;
+        requires_signature: boolean;
+      }[]
+    | null;
+};
+
 type TicketTypeRow = {
   id: string;
   event_id?: string | null;
@@ -583,11 +605,9 @@ function formatEventSchedule(event: EventRow) {
     .join(" · ");
 }
 
-function formatDateTime(value: string | null, timeZone = "America/New_York") {
+function formatDateTime(value: string | null) {
   if (!value) return "—";
-
   return new Intl.DateTimeFormat("en-US", {
-    timeZone,
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -1173,6 +1193,7 @@ export default async function PublicEventDetailPage({
     { data: eventLocations, error: eventLocationsError },
     { data: eventScheduleItems, error: eventScheduleItemsError },
     { data: privateLessonSlots, error: privateLessonSlotsError },
+    { data: eventDocumentRequirements, error: eventDocumentRequirementsError },
     favoriteResult,
   ] = await Promise.all([
     supabase
@@ -1286,6 +1307,27 @@ export default async function PublicEventDetailPage({
       .eq("payment_status", "unpaid")
       .order("starts_at", { ascending: true }),
 
+    supabase
+      .from("event_document_requirements")
+      .select(
+        `
+        id,
+        template_id,
+        template_version_id,
+        document_templates:template_id (
+          id,
+          title,
+          description,
+          body,
+          requires_signature
+        )
+      `,
+      )
+      .eq("event_id", typedEvent.id)
+      .eq("active", true)
+      .eq("is_required", true)
+      .order("created_at", { ascending: true }),
+
     user
       ? supabase
           .from("user_favorites")
@@ -1320,6 +1362,11 @@ export default async function PublicEventDetailPage({
       `Failed to load private lesson slots: ${privateLessonSlotsError.message}`,
     );
   }
+  if (eventDocumentRequirementsError) {
+    throw new Error(
+      `Failed to load required event documents: ${eventDocumentRequirementsError.message}`,
+    );
+  }
   if (favoriteResult?.error) {
     throw new Error(
       `Failed to load event favorite state: ${favoriteResult.error.message}`,
@@ -1341,6 +1388,29 @@ export default async function PublicEventDetailPage({
 
   const typedTags = (tags ?? []) as EventTagRow[];
   const allActiveTicketTypes = (ticketTypes ?? []) as TicketTypeRow[];
+  const requiredEventDocuments = (
+    (eventDocumentRequirements ?? []) as EventDocumentRequirementRow[]
+  )
+    .map((requirement) => {
+      const template = Array.isArray(requirement.document_templates)
+        ? requirement.document_templates[0]
+        : requirement.document_templates;
+
+      if (!template) return null;
+
+      return {
+        id: requirement.id,
+        template_id: requirement.template_id,
+        template_version_id: requirement.template_version_id,
+        title: template.title,
+        description: template.description,
+        body: template.body,
+        requires_signature: template.requires_signature,
+      };
+    })
+    .filter((document): document is NonNullable<typeof document> =>
+      Boolean(document),
+    );
   const typedActiveRegistrations = (activeRegistrations ??
     []) as TicketRegistrationCountRow[];
   const typedEventLocations = ((eventLocations ?? []) as EventLocationRow[])
@@ -2259,7 +2329,7 @@ export default async function PublicEventDetailPage({
                                 ) : null}
                                 {ticket.sale_ends_at ? (
                                   <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
-                                    Ends {formatDateTime(ticket.sale_ends_at, typedEvent.timezone)}
+                                    Ends {formatDateTime(ticket.sale_ends_at)}
                                   </span>
                                 ) : null}
                               </div>
@@ -2384,7 +2454,7 @@ export default async function PublicEventDetailPage({
                           Opens
                         </p>
                         <p className="mt-1 font-medium text-slate-900">
-                          {formatDateTime(typedEvent.registration_opens_at, typedEvent.timezone)}
+                          {formatDateTime(typedEvent.registration_opens_at)}
                         </p>
                       </div>
                       <div>
@@ -2392,7 +2462,7 @@ export default async function PublicEventDetailPage({
                           Closes
                         </p>
                         <p className="mt-1 font-medium text-slate-900">
-                          {formatDateTime(typedEvent.registration_closes_at, typedEvent.timezone)}
+                          {formatDateTime(typedEvent.registration_closes_at)}
                         </p>
                       </div>
                       <div>
@@ -2491,7 +2561,6 @@ export default async function PublicEventDetailPage({
                             <RegistrationForm
                               eventSlug={typedEvent.slug}
                               ticketTypes={visibleTicketTypes}
-                                eventTimezone={typedEvent.timezone}
                               currentUserEmail={user?.email ?? ""}
                               isSoldOut={eventSoldOut}
                               waitlistEnabled={typedEvent.waitlist_enabled}
@@ -2499,12 +2568,12 @@ export default async function PublicEventDetailPage({
                                 typedEvent.account_required_for_registration
                               }
                               isAuthenticated={!!user}
+                              requiredEventDocuments={requiredEventDocuments}
                             />
                           ) : (
                             <RegistrationForm
                               eventSlug={typedEvent.slug}
                               ticketTypes={allActiveTicketTypes}
-                                eventTimezone={typedEvent.timezone}
                               currentUserEmail={user?.email ?? ""}
                               isSoldOut={true}
                               waitlistEnabled={typedEvent.waitlist_enabled}
@@ -2512,6 +2581,7 @@ export default async function PublicEventDetailPage({
                                 typedEvent.account_required_for_registration
                               }
                               isAuthenticated={!!user}
+                              requiredEventDocuments={requiredEventDocuments}
                             />
                           )}
                         </div>
