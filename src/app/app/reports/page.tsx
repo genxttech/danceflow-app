@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { canViewReports } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 
 type SearchParams = Promise<{
   range?: string;
@@ -63,12 +64,64 @@ type EventRegistrationRevenueRow = {
   id: string;
   event_id: string | null;
   studio_id: string | null;
+  ticket_type_id?: string | null;
+  status?: string | null;
   quantity: number | null;
   payment_status: string | null;
   total_amount: number | null;
   total_price: number | null;
   currency: string | null;
+  checked_in_at?: string | null;
   created_at: string;
+  events:
+    | {
+        name: string | null;
+        event_type: string | null;
+        start_date: string | null;
+      }
+    | {
+        name: string | null;
+        event_type: string | null;
+        start_date: string | null;
+      }[]
+    | null;
+  event_ticket_types:
+    | { name: string | null; ticket_kind: string | null }
+    | { name: string | null; ticket_kind: string | null }[]
+    | null;
+};
+
+type EventAttendeeReportRow = {
+  id: string;
+  registration_id: string;
+  checked_in_at: string | null;
+};
+
+type EventSummary = {
+  eventId: string;
+  name: string;
+  type: string;
+  registrations: number;
+  tickets: number;
+  checkedIn: number;
+  noShows: number;
+  revenue: number;
+};
+
+type TicketSummary = {
+  key: string;
+  name: string;
+  kind: string;
+  registrations: number;
+  quantity: number;
+  revenue: number;
+};
+
+type CategorySummary = {
+  key: string;
+  label: string;
+  count: number;
+  total: number;
 };
 
 type ExpenseRow = {
@@ -97,7 +150,86 @@ type InstructorSummary = {
   scheduled: number;
   cancelled: number;
   noShows: number;
+  privateLessons: number;
+  groupClasses: number;
   minutes: number;
+  revenue: number;
+};
+
+type OrganizerAccessRow = {
+  organizer_id: string;
+  role: string | null;
+  active: boolean | null;
+};
+
+type OrganizerReportRow = {
+  id: string;
+  name: string;
+  slug: string | null;
+  active: boolean | null;
+};
+
+type OrganizerContactReportRow = {
+  id: string;
+  organizer_id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  total_registrations: number | null;
+  total_paid_registrations: number | null;
+  total_spend: number | null;
+  last_seen_at: string | null;
+  created_at: string;
+};
+
+type OrganizerContactRegistrationReportRow = {
+  id: string;
+  organizer_id: string;
+  organizer_contact_id: string | null;
+  event_id: string | null;
+  registration_id: string | null;
+  payment_status: string | null;
+  status: string | null;
+  total_amount: number | null;
+  currency: string | null;
+  registered_at: string | null;
+  checked_in_at: string | null;
+};
+
+type OrganizerEventReportRow = {
+  id: string;
+  organizer_id: string | null;
+  name: string | null;
+  start_date: string | null;
+};
+
+type OrganizerCampaignReportRow = {
+  id: string;
+  organizer_id: string;
+  name: string;
+  status: string;
+  audience_type: string | null;
+  sent_at: string | null;
+  created_at: string;
+};
+
+type OrganizerCampaignRecipientReportRow = {
+  id: string;
+  campaign_id: string;
+  organizer_id: string;
+  status: string | null;
+  created_at: string;
+};
+
+type OrganizerEventSummary = {
+  eventId: string;
+  organizerId: string;
+  organizerName: string;
+  eventName: string;
+  registrations: number;
+  paidRegistrations: number;
+  checkedIn: number;
+  noShows: number;
   revenue: number;
 };
 
@@ -164,6 +296,10 @@ function rangeLabel(range: string) {
   return "This Month";
 }
 
+function exportHref(path: string, range: string) {
+  return `${path}?range=${encodeURIComponent(range)}`;
+}
+
 function getClientName(
   value:
     | { first_name: string | null; last_name: string | null }
@@ -177,6 +313,32 @@ function getClientName(
     [client.first_name ?? "", client.last_name ?? ""].join(" ").trim() ||
     "Unknown Client"
   );
+}
+
+function getEventInfo(
+  value:
+    | {
+        name: string | null;
+        event_type: string | null;
+        start_date: string | null;
+      }
+    | {
+        name: string | null;
+        event_type: string | null;
+        start_date: string | null;
+      }[]
+    | null,
+) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function getTicketInfo(
+  value:
+    | { name: string | null; ticket_kind: string | null }
+    | { name: string | null; ticket_kind: string | null }[]
+    | null,
+) {
+  return Array.isArray(value) ? value[0] : value;
 }
 
 function isFloorRentalPayment(payment: PaymentRow) {
@@ -203,7 +365,8 @@ function expenseCategoryLabel(value: string | null | undefined) {
   if (value === "marketing") return "Marketing";
   if (value === "software") return "Software";
   if (value === "supplies") return "Supplies";
-  if (value === "costumes_retail_inventory") return "Costumes / Retail Inventory";
+  if (value === "costumes_retail_inventory")
+    return "Costumes / Retail Inventory";
   if (value === "event_expense") return "Event Expense";
   if (value === "travel") return "Travel";
   if (value === "meals") return "Meals";
@@ -242,6 +405,52 @@ function percentage(part: number, total: number) {
   return `${Math.round((part / total) * 100)}%`;
 }
 
+function organizerContactName(contact: OrganizerContactReportRow) {
+  const name = [contact.first_name, contact.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  return name || contact.email;
+}
+
+function campaignStatusLabel(status: string | null | undefined) {
+  if (!status) return "Draft";
+  return labelize(status);
+}
+
+function LockedReportCard({
+  eyebrow,
+  title,
+  description,
+  requiredPlan,
+}: {
+  eyebrow: string;
+  title: string;
+  description: string;
+  requiredPlan: "Growth" | "Pro";
+}) {
+  const requiredPlanCode = requiredPlan.toLowerCase();
+
+  return (
+    <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6 shadow-sm">
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+        {eyebrow}
+      </p>
+      <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+        {title}
+      </h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{description}</p>
+      <Link
+        href={`/app/settings/billing?reason=reports_upgrade&requiredPlan=${requiredPlanCode}`}
+        className="mt-5 inline-flex rounded-xl bg-[#7C2D92] px-4 py-2 text-sm font-semibold text-white hover:bg-[#5B197A]"
+      >
+        View Plans
+      </Link>
+    </div>
+  );
+}
+
 export default async function ReportsPage({
   searchParams,
 }: {
@@ -268,6 +477,12 @@ export default async function ReportsPage({
   const rangeStartDateOnly = rangeStartDate.toISOString().slice(0, 10);
   const todayDateOnly = new Date().toISOString().slice(0, 10);
   const nowIso = new Date().toISOString();
+
+  const workspaceCapabilities = await getCurrentWorkspaceCapabilitiesForUser();
+  const studioPlanCode = workspaceCapabilities?.planCode ?? null;
+  const canViewGrowthReports =
+    studioPlanCode === "growth" || studioPlanCode === "pro";
+  const canViewProReports = studioPlanCode === "pro";
 
   const [
     { data: payments, error: paymentsError },
@@ -323,7 +538,9 @@ export default async function ReportsPage({
 
     supabase
       .from("client_packages")
-      .select("id, active, created_at, name_snapshot, price_snapshot, sold_price")
+      .select(
+        "id, active, created_at, name_snapshot, price_snapshot, sold_price",
+      )
       .eq("studio_id", studioId)
       .gte("created_at", rangeStart)
       .order("created_at", { ascending: false })
@@ -342,7 +559,22 @@ export default async function ReportsPage({
     supabase
       .from("event_registrations")
       .select(
-        "id, event_id, studio_id, quantity, payment_status, total_amount, total_price, currency, created_at",
+        `
+          id,
+          event_id,
+          studio_id,
+          ticket_type_id,
+          status,
+          quantity,
+          payment_status,
+          total_amount,
+          total_price,
+          currency,
+          checked_in_at,
+          created_at,
+          events ( name, event_type, start_date ),
+          event_ticket_types ( name, ticket_kind )
+        `,
       )
       .eq("studio_id", studioId)
       .gte("created_at", rangeStart)
@@ -424,10 +656,176 @@ export default async function ReportsPage({
   const typedAppointments = (appointments ?? []) as AppointmentRow[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
   const typedMemberships = (memberships ?? []) as ClientMembershipRow[];
-  const typedEventRegistrations =
-    (eventRegistrations ?? []) as EventRegistrationRevenueRow[];
+  const typedEventRegistrations = (eventRegistrations ??
+    []) as EventRegistrationRevenueRow[];
+
+  const eventRegistrationIds = typedEventRegistrations.map((item) => item.id);
+
+  const { data: eventAttendees, error: eventAttendeesError } =
+    eventRegistrationIds.length > 0
+      ? await supabase
+          .from("event_registration_attendees")
+          .select("id, registration_id, checked_in_at")
+          .in("registration_id", eventRegistrationIds)
+      : { data: [], error: null };
+
+  if (eventAttendeesError) {
+    throw new Error(
+      `Failed to load event check-in report data: ${eventAttendeesError.message}`,
+    );
+  }
+
+  const userId = context.userId;
+
+  const { data: organizerAccessRows, error: organizerAccessError } = userId
+    ? await supabase
+        .from("organizer_users")
+        .select("organizer_id, role, active")
+        .eq("user_id", userId)
+        .eq("active", true)
+    : { data: [], error: null };
+
+  if (organizerAccessError) {
+    throw new Error(
+      `Failed to load organizer access: ${organizerAccessError.message}`,
+    );
+  }
+
+  const organizerAccess = (organizerAccessRows ?? []) as OrganizerAccessRow[];
+  const organizerAccessIds = Array.from(
+    new Set(
+      organizerAccess
+        .map((row) => row.organizer_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+
+  const { data: organizers, error: organizersError } =
+    organizerAccessIds.length > 0
+      ? await supabase
+          .from("organizers")
+          .select("id, name, slug, active")
+          .in("id", organizerAccessIds)
+          .order("name", { ascending: true })
+      : { data: [], error: null };
+
+  if (organizersError) {
+    throw new Error(
+      `Failed to load organizer report data: ${organizersError.message}`,
+    );
+  }
+
+  const typedOrganizers = (organizers ?? []) as OrganizerReportRow[];
+  const organizerIds = typedOrganizers.map((organizer) => organizer.id);
+  const hasOrganizerReportAccess = organizerIds.length > 0;
+
+  const [
+    { data: organizerContacts, error: organizerContactsError },
+    { data: organizerRegistrations, error: organizerRegistrationsError },
+    { data: organizerEvents, error: organizerEventsError },
+    { data: organizerCampaigns, error: organizerCampaignsError },
+  ] =
+    organizerIds.length > 0
+      ? await Promise.all([
+          supabase
+            .from("organizer_contacts")
+            .select(
+              "id, organizer_id, email, first_name, last_name, total_registrations, total_paid_registrations, total_spend, last_seen_at, created_at",
+            )
+            .in("organizer_id", organizerIds)
+            .gte("created_at", rangeStart)
+            .order("created_at", { ascending: false })
+            .limit(1000),
+          supabase
+            .from("organizer_contact_registrations")
+            .select(
+              "id, organizer_id, organizer_contact_id, event_id, registration_id, payment_status, status, total_amount, currency, registered_at, checked_in_at",
+            )
+            .in("organizer_id", organizerIds)
+            .gte("registered_at", rangeStart)
+            .order("registered_at", { ascending: false })
+            .limit(2000),
+          supabase
+            .from("events")
+            .select("id, organizer_id, name, start_date")
+            .in("organizer_id", organizerIds)
+            .order("start_date", { ascending: false })
+            .limit(300),
+          supabase
+            .from("organizer_marketing_campaigns")
+            .select(
+              "id, organizer_id, name, status, audience_type, sent_at, created_at",
+            )
+            .in("organizer_id", organizerIds)
+            .gte("created_at", rangeStart)
+            .order("created_at", { ascending: false })
+            .limit(500),
+        ])
+      : [
+          { data: [], error: null },
+          { data: [], error: null },
+          { data: [], error: null },
+          { data: [], error: null },
+        ];
+
+  if (organizerContactsError) {
+    throw new Error(
+      `Failed to load organizer contacts report data: ${organizerContactsError.message}`,
+    );
+  }
+  if (organizerRegistrationsError) {
+    throw new Error(
+      `Failed to load organizer registration report data: ${organizerRegistrationsError.message}`,
+    );
+  }
+  if (organizerEventsError) {
+    throw new Error(
+      `Failed to load organizer event report data: ${organizerEventsError.message}`,
+    );
+  }
+  if (organizerCampaignsError) {
+    throw new Error(
+      `Failed to load organizer campaign report data: ${organizerCampaignsError.message}`,
+    );
+  }
+
+  const typedOrganizerCampaigns = (organizerCampaigns ??
+    []) as OrganizerCampaignReportRow[];
+  const organizerCampaignIds = typedOrganizerCampaigns.map(
+    (campaign) => campaign.id,
+  );
+
+  const {
+    data: organizerCampaignRecipients,
+    error: organizerCampaignRecipientsError,
+  } =
+    organizerCampaignIds.length > 0
+      ? await supabase
+          .from("organizer_marketing_campaign_recipients")
+          .select("id, campaign_id, organizer_id, status, created_at")
+          .in("campaign_id", organizerCampaignIds)
+          .limit(5000)
+      : { data: [], error: null };
+
+  if (organizerCampaignRecipientsError) {
+    throw new Error(
+      `Failed to load organizer campaign recipient report data: ${organizerCampaignRecipientsError.message}`,
+    );
+  }
+
+  const typedEventAttendees = (eventAttendees ??
+    []) as EventAttendeeReportRow[];
   const typedExpenses = (expenses ?? []) as ExpenseRow[];
   const typedInstructors = (instructors ?? []) as InstructorRow[];
+
+  const typedOrganizerContacts = (organizerContacts ??
+    []) as OrganizerContactReportRow[];
+  const typedOrganizerRegistrations = (organizerRegistrations ??
+    []) as OrganizerContactRegistrationReportRow[];
+  const typedOrganizerEvents = (organizerEvents ??
+    []) as OrganizerEventReportRow[];
+  const typedOrganizerCampaignRecipients = (organizerCampaignRecipients ??
+    []) as OrganizerCampaignRecipientReportRow[];
 
   const paidPayments = typedPayments.filter((item) => item.status === "paid");
   const pendingPayments = typedPayments.filter(
@@ -458,7 +856,8 @@ export default async function ReportsPage({
       : 0;
 
   const paidEventRegistrations = typedEventRegistrations.filter(
-    (item) => item.payment_status === "paid" || item.payment_status === "partial",
+    (item) =>
+      item.payment_status === "paid" || item.payment_status === "partial",
   );
 
   const refundedEventRegistrations = typedEventRegistrations.filter(
@@ -475,6 +874,89 @@ export default async function ReportsPage({
     0,
   );
 
+  const checkedInAttendeeRegistrationIds = new Set(
+    typedEventAttendees
+      .filter((item) => item.checked_in_at)
+      .map((item) => item.registration_id),
+  );
+
+  const checkedInEventRegistrations = paidEventRegistrations.filter(
+    (item) =>
+      item.checked_in_at || checkedInAttendeeRegistrationIds.has(item.id),
+  );
+
+  const eventNoShowCount = Math.max(
+    paidEventRegistrations.length - checkedInEventRegistrations.length,
+    0,
+  );
+
+  const eventAttendanceRate = percentage(
+    checkedInEventRegistrations.length,
+    paidEventRegistrations.length,
+  );
+
+  const eventSummariesById = new Map<string, EventSummary>();
+  const ticketSummariesByKey = new Map<string, TicketSummary>();
+
+  for (const registration of paidEventRegistrations) {
+    const eventInfo = getEventInfo(registration.events);
+    const ticketInfo = getTicketInfo(registration.event_ticket_types);
+    const eventId = registration.event_id ?? "unknown";
+    const amount = Number(
+      registration.total_amount ?? registration.total_price ?? 0,
+    );
+    const quantity = Number(registration.quantity ?? 1);
+    const isCheckedIn =
+      Boolean(registration.checked_in_at) ||
+      checkedInAttendeeRegistrationIds.has(registration.id);
+
+    const eventSummary = eventSummariesById.get(eventId) ?? {
+      eventId,
+      name: eventInfo?.name?.trim() || "Unknown event",
+      type: eventInfo?.event_type || "event",
+      registrations: 0,
+      tickets: 0,
+      checkedIn: 0,
+      noShows: 0,
+      revenue: 0,
+    };
+
+    eventSummary.registrations += 1;
+    eventSummary.tickets += quantity;
+    eventSummary.revenue += amount;
+    if (isCheckedIn) {
+      eventSummary.checkedIn += 1;
+    } else {
+      eventSummary.noShows += 1;
+    }
+    eventSummariesById.set(eventId, eventSummary);
+
+    const ticketKey = `${registration.ticket_type_id ?? "unknown"}:${
+      ticketInfo?.name ?? "Unknown ticket"
+    }`;
+    const ticketSummary = ticketSummariesByKey.get(ticketKey) ?? {
+      key: ticketKey,
+      name: ticketInfo?.name?.trim() || "Unknown ticket",
+      kind: ticketInfo?.ticket_kind || "ticket",
+      registrations: 0,
+      quantity: 0,
+      revenue: 0,
+    };
+
+    ticketSummary.registrations += 1;
+    ticketSummary.quantity += quantity;
+    ticketSummary.revenue += amount;
+    ticketSummariesByKey.set(ticketKey, ticketSummary);
+  }
+
+  const topEventSummaries = Array.from(eventSummariesById.values())
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 6);
+
+  const topTicketSummaries = Array.from(ticketSummariesByKey.values())
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 6);
+
   const manualExpensesTotal = typedExpenses.reduce(
     (sum, item) => sum + Number(item.amount ?? 0),
     0,
@@ -484,7 +966,73 @@ export default async function ReportsPage({
     .filter((item) => item.category === "floor_fee")
     .reduce((sum, item) => sum + Number(item.amount ?? 0), 0);
 
-  const otherExpensesTotal = manualExpensesTotal - floorFeeExpenseTotal;
+  const otherExpensesTotal = Math.max(
+    0,
+    manualExpensesTotal - floorFeeExpenseTotal,
+  );
+
+  const expenseCategorySummaries = Array.from(
+    typedExpenses
+      .reduce((map, expense) => {
+        const key = expense.category ?? "uncategorized";
+        const existing = map.get(key) ?? {
+          key,
+          label: expenseCategoryLabel(key),
+          count: 0,
+          total: 0,
+        };
+
+        existing.count += 1;
+        existing.total += Number(expense.amount ?? 0);
+        map.set(key, existing);
+
+        return map;
+      }, new Map<string, CategorySummary>())
+      .values(),
+  ).sort((a, b) => b.total - a.total);
+
+  const revenueBreakdown: CategorySummary[] = [
+    {
+      key: "studio_payments",
+      label: "Studio payments",
+      count: nonFloorStudioPayments.length,
+      total: studioPaymentRevenueTotal,
+    },
+    {
+      key: "event_ticket_revenue",
+      label: "Event / ticket registrations",
+      count: paidEventRegistrations.length,
+      total: eventRevenueTotal,
+    },
+    {
+      key: "floor_rental_revenue",
+      label: "Floor rental revenue",
+      count: floorRentalPayments.length,
+      total: floorRentalRevenueTotal,
+    },
+  ].sort((a, b) => b.total - a.total);
+
+  const paymentTypeRevenueSummaries = Array.from(
+    nonFloorStudioPayments
+      .reduce((map, payment) => {
+        const key = payment.payment_type ?? "other";
+        const existing = map.get(key) ?? {
+          key,
+          label: labelize(key),
+          count: 0,
+          total: 0,
+        };
+
+        existing.count += 1;
+        existing.total += Number(payment.amount ?? 0);
+        map.set(key, existing);
+
+        return map;
+      }, new Map<string, CategorySummary>())
+      .values(),
+  )
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 6);
 
   const revenueTotal =
     studioPaymentRevenueTotal + eventRevenueTotal + floorRentalRevenueTotal;
@@ -550,8 +1098,7 @@ export default async function ReportsPage({
 
   for (const appointment of typedAppointments) {
     const typeKey = appointment.appointment_type ?? "other";
-    appointmentTypeCounts[typeKey] =
-      (appointmentTypeCounts[typeKey] ?? 0) + 1;
+    appointmentTypeCounts[typeKey] = (appointmentTypeCounts[typeKey] ?? 0) + 1;
   }
 
   for (const pkg of typedPackages) {
@@ -562,7 +1109,10 @@ export default async function ReportsPage({
   const topPaymentMethods = sortEntriesDesc(paymentMethodCounts).slice(0, 5);
   const topPaymentTypes = sortEntriesDesc(paymentTypeCounts).slice(0, 5);
   const topLeadSources = sortEntriesDesc(leadSourceCounts).slice(0, 5);
-  const topAppointmentTypes = sortEntriesDesc(appointmentTypeCounts).slice(0, 5);
+  const topAppointmentTypes = sortEntriesDesc(appointmentTypeCounts).slice(
+    0,
+    5,
+  );
   const topPackages = sortEntriesDesc(packageCounts).slice(0, 5);
 
   const conversionRate = percentage(
@@ -578,8 +1128,9 @@ export default async function ReportsPage({
   const instructorNameById = new Map(
     typedInstructors.map((instructor) => [
       instructor.id,
-      [instructor.first_name ?? "", instructor.last_name ?? ""].join(" ").trim() ||
-        "Unnamed Instructor",
+      [instructor.first_name ?? "", instructor.last_name ?? ""]
+        .join(" ")
+        .trim() || "Unnamed Instructor",
     ]),
   );
 
@@ -592,13 +1143,15 @@ export default async function ReportsPage({
       name:
         instructorId === "unassigned"
           ? "Unassigned"
-          : instructorNameById.get(instructorId) ??
-            `Instructor ${instructorId.slice(0, 8)}`,
+          : (instructorNameById.get(instructorId) ??
+            `Instructor ${instructorId.slice(0, 8)}`),
       totalAppointments: 0,
       attended: 0,
       scheduled: 0,
       cancelled: 0,
       noShows: 0,
+      privateLessons: 0,
+      groupClasses: 0,
       minutes: 0,
       revenue: 0,
     };
@@ -610,6 +1163,11 @@ export default async function ReportsPage({
     if (appointment.status === "scheduled") existing.scheduled += 1;
     if (appointment.status === "cancelled") existing.cancelled += 1;
     if (appointment.status === "no_show") existing.noShows += 1;
+
+    const appointmentType = (appointment.appointment_type ?? "").toLowerCase();
+    if (appointmentType.includes("private")) existing.privateLessons += 1;
+    if (appointmentType.includes("group")) existing.groupClasses += 1;
+
     if (appointment.payment_status === "paid") {
       existing.revenue += Number(appointment.price_amount ?? 0);
     }
@@ -631,6 +1189,129 @@ export default async function ReportsPage({
     0,
   );
 
+  const totalPrivateLessons = instructorSummaries.reduce(
+    (sum, item) => sum + item.privateLessons,
+    0,
+  );
+
+  const totalGroupClasses = instructorSummaries.reduce(
+    (sum, item) => sum + item.groupClasses,
+    0,
+  );
+
+  const instructorActivityAttendanceRate = percentage(
+    instructorSummaries.reduce((sum, item) => sum + item.attended, 0),
+    instructorSummaries.reduce(
+      (sum, item) => sum + item.attended + item.cancelled + item.noShows,
+      0,
+    ),
+  );
+
+  const totalAppointmentOutcomes =
+    attendedAppointments.length + cancelledAppointments.length + noShows.length;
+
+  const clientActivityTotal =
+    leadsOnly.length + convertedLeads.length + archivedLeads.length;
+
+  const organizerNameById = new Map(
+    typedOrganizers.map((organizer) => [organizer.id, organizer.name]),
+  );
+  const organizerEventById = new Map(
+    typedOrganizerEvents.map((event) => [event.id, event]),
+  );
+
+  const paidOrganizerRegistrations = typedOrganizerRegistrations.filter(
+    (registration) =>
+      registration.payment_status === "paid" ||
+      registration.payment_status === "partial",
+  );
+
+  const organizerRevenueTotal = paidOrganizerRegistrations.reduce(
+    (sum, registration) => sum + Number(registration.total_amount ?? 0),
+    0,
+  );
+
+  const organizerCheckedInRegistrations = paidOrganizerRegistrations.filter(
+    (registration) => Boolean(registration.checked_in_at),
+  );
+
+  const organizerNoShowCount = Math.max(
+    paidOrganizerRegistrations.length - organizerCheckedInRegistrations.length,
+    0,
+  );
+
+  const organizerAttendanceRate = percentage(
+    organizerCheckedInRegistrations.length,
+    paidOrganizerRegistrations.length,
+  );
+
+  const organizerEventSummariesById = new Map<string, OrganizerEventSummary>();
+
+  for (const registration of paidOrganizerRegistrations) {
+    const eventId = registration.event_id ?? "unknown";
+    const eventInfo = organizerEventById.get(eventId);
+    const organizerId = registration.organizer_id;
+    const existing = organizerEventSummariesById.get(eventId) ?? {
+      eventId,
+      organizerId,
+      organizerName: organizerNameById.get(organizerId) ?? "Organizer",
+      eventName: eventInfo?.name?.trim() || "Unknown event",
+      registrations: 0,
+      paidRegistrations: 0,
+      checkedIn: 0,
+      noShows: 0,
+      revenue: 0,
+    };
+
+    existing.registrations += 1;
+    existing.paidRegistrations += 1;
+    existing.revenue += Number(registration.total_amount ?? 0);
+
+    if (registration.checked_in_at) {
+      existing.checkedIn += 1;
+    } else {
+      existing.noShows += 1;
+    }
+
+    organizerEventSummariesById.set(eventId, existing);
+  }
+
+  const topOrganizerEventSummaries = Array.from(
+    organizerEventSummariesById.values(),
+  )
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 6);
+
+  const organizerCampaignsSent = typedOrganizerCampaigns.filter(
+    (campaign) => campaign.status === "sent" || campaign.sent_at,
+  );
+
+  const organizerCampaignRecipientsSent =
+    typedOrganizerCampaignRecipients.filter(
+      (recipient) => recipient.status === "sent",
+    );
+  const organizerCampaignRecipientsFailed =
+    typedOrganizerCampaignRecipients.filter(
+      (recipient) => recipient.status === "failed",
+    );
+  const organizerCampaignRecipientsSuppressed =
+    typedOrganizerCampaignRecipients.filter(
+      (recipient) =>
+        recipient.status === "suppressed" ||
+        recipient.status === "unsubscribed",
+    );
+
+  const recentOrganizerContacts = typedOrganizerContacts
+    .slice()
+    .sort(
+      (a, b) =>
+        new Date(b.last_seen_at ?? b.created_at).getTime() -
+        new Date(a.last_seen_at ?? a.created_at).getTime(),
+    )
+    .slice(0, 6);
+
+  const recentOrganizerCampaigns = typedOrganizerCampaigns.slice(0, 5);
+
   return (
     <div className="space-y-8">
       <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
@@ -644,7 +1325,8 @@ export default async function ReportsPage({
             </h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
               Track studio performance, client activity, revenue, expenses, and
-              package usage from one place for {rangeLabel(range).toLowerCase()}.
+              package usage from one place for {rangeLabel(range).toLowerCase()}
+              .
             </p>
           </div>
 
@@ -831,85 +1513,261 @@ export default async function ReportsPage({
           <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
             This report uses revenue, refunds, and manually recorded expenses
             currently available in DanceFlow. Floor fees paid to outside studios
-            are treated as expenses. Floor rental fees collected by a host studio
-            are treated as revenue.
+            are treated as expenses. Floor rental fees collected by a host
+            studio are treated as revenue.
           </div>
         </div>
 
-        <div className="rounded-3xl border border-[#E9D5FF] bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
-                Instructor Stats
-              </p>
-              <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-                Instructor Activity
-              </h2>
-              <p className="mt-1 text-sm leading-6 text-slate-600">
-                Review instructor appointment activity in the selected range.
-              </p>
+        {canViewGrowthReports ? (
+          <div className="rounded-3xl border border-[#E9D5FF] bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                  Instructor Stats
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Instructor Activity
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Review instructor appointment activity in the selected range.
+                </p>
+              </div>
+              <span className="inline-flex w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                {rangeLabel(range)}
+              </span>
             </div>
-            <span className="inline-flex w-fit rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
-              {rangeLabel(range)}
-            </span>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Instructors</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(instructorSummaries.length)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Teaching Hours</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(Math.round(totalInstructorMinutes / 60))}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Paid Lesson Revenue</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtCurrency(totalInstructorRevenue)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Attendance</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {instructorActivityAttendanceRate}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Private Lessons</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(totalPrivateLessons)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Group Classes</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(totalGroupClasses)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-3">
+              {instructorSummaries.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                  No instructor activity found for this range.
+                </div>
+              ) : (
+                instructorSummaries.slice(0, 5).map((instructor) => (
+                  <div
+                    key={instructor.instructorId}
+                    className="rounded-2xl bg-slate-50 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="font-semibold text-slate-950">
+                          {instructor.name}
+                        </p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {fmtNumber(instructor.attended)} attended ·{" "}
+                          {fmtNumber(instructor.scheduled)} scheduled ·{" "}
+                          {fmtNumber(instructor.noShows)} no-shows
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {fmtNumber(instructor.privateLessons)} private lessons
+                          · {fmtNumber(instructor.groupClasses)} group classes ·{" "}
+                          {fmtCurrency(instructor.revenue)} paid lesson revenue
+                        </p>
+                        <Link
+                          href="/app/schedule"
+                          className="mt-2 inline-flex text-xs font-semibold text-[#7C2D92] hover:text-[#5B197A]"
+                        >
+                          View schedule
+                        </Link>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-slate-950">
+                          {fmtNumber(instructor.totalAppointments)}
+                        </p>
+                        <p className="text-xs text-slate-500">appointments</p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Instructor Reports"
+            title="Unlock instructor activity"
+            description="Review instructor lesson volume, attendance, teaching hours, and paid lesson activity with Growth."
+            requiredPlan="Growth"
+          />
+        )}
+      </section>
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-3">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Instructors</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {fmtNumber(instructorSummaries.length)}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Teaching Hours</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {fmtNumber(Math.round(totalInstructorMinutes / 60))}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Paid Lesson Revenue</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {fmtCurrency(totalInstructorRevenue)}
-              </p>
-            </div>
-          </div>
+      <section className="grid gap-6 xl:grid-cols-3">
+        <div className="rounded-3xl border border-[#BBF7D0] bg-white p-6 shadow-sm xl:col-span-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+            Revenue Breakdown
+          </p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+            Where income came from
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            Separates studio payments, event revenue, and floor rental revenue
+            so the P&L is easier to review.
+          </p>
 
           <div className="mt-6 space-y-3">
-            {instructorSummaries.length === 0 ? (
+            {revenueBreakdown.map((item) => (
+              <div
+                key={item.key}
+                className="rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-semibold text-emerald-950">
+                      {item.label}
+                    </p>
+                    <p className="mt-1 text-xs text-emerald-900/70">
+                      {fmtNumber(item.count)} records
+                    </p>
+                  </div>
+                  <p className="text-sm font-semibold text-emerald-950">
+                    {fmtCurrency(item.total)}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-[#FECACA] bg-white p-6 shadow-sm xl:col-span-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-700">
+            Expense Breakdown
+          </p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+            Spending by category
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            Highlights the largest expense categories recorded in Expenses.
+          </p>
+
+          <div className="mt-6 space-y-3">
+            {expenseCategorySummaries.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                No instructor activity found for this range.
+                No expenses recorded for this range.
               </div>
             ) : (
-              instructorSummaries.slice(0, 5).map((instructor) => (
+              expenseCategorySummaries.slice(0, 6).map((item) => (
                 <div
-                  key={instructor.instructorId}
-                  className="rounded-2xl bg-slate-50 p-4"
+                  key={item.key}
+                  className="rounded-2xl border border-rose-100 bg-rose-50/70 p-4"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="font-semibold text-slate-950">
-                        {instructor.name}
+                      <p className="text-sm font-semibold text-rose-950">
+                        {item.label}
                       </p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {fmtNumber(instructor.attended)} attended ·{" "}
-                        {fmtNumber(instructor.scheduled)} scheduled ·{" "}
-                        {fmtNumber(instructor.noShows)} no-shows
+                      <p className="mt-1 text-xs text-rose-900/70">
+                        {fmtNumber(item.count)} records
                       </p>
                     </div>
-
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-slate-950">
-                        {fmtNumber(instructor.totalAppointments)}
-                      </p>
-                      <p className="text-xs text-slate-500">appointments</p>
-                    </div>
+                    <p className="text-sm font-semibold text-rose-950">
+                      {fmtCurrency(item.total)}
+                    </p>
                   </div>
                 </div>
               ))
             )}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-[#E9D5FF] bg-white p-6 shadow-sm xl:col-span-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+            P&L Health
+          </p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+            Financial snapshot
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            Quick view of margin after refunds and expenses for the selected
+            range.
+          </p>
+
+          <div className="mt-6 space-y-3">
+            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+              <span className="text-sm font-medium text-slate-700">
+                Gross income
+              </span>
+              <span className="text-sm font-semibold text-slate-950">
+                {fmtCurrency(revenueTotal)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+              <span className="text-sm font-medium text-slate-700">
+                Refunds
+              </span>
+              <span className="text-sm font-semibold text-slate-950">
+                -{fmtCurrency(refundedTotal)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
+              <span className="text-sm font-medium text-slate-700">
+                Expenses
+              </span>
+              <span className="text-sm font-semibold text-slate-950">
+                -{fmtCurrency(manualExpensesTotal)}
+              </span>
+            </div>
+            <div className="flex items-center justify-between rounded-2xl border border-[#D8B4FE] bg-[#FCF8FF] px-4 py-4">
+              <span className="text-sm font-semibold text-slate-950">
+                Estimated net
+              </span>
+              <span className="text-xl font-semibold text-[#5B197A]">
+                {fmtCurrency(estimatedNetIncome)}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+            This is a management estimate based on the records currently saved
+            in DanceFlow. It becomes more accurate as expenses and refunds are
+            recorded consistently.
           </div>
         </div>
       </section>
@@ -1023,9 +1881,38 @@ export default async function ReportsPage({
             </div>
           </div>
 
+          <div className="mt-6">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Studio Revenue by Payment Type
+            </h3>
+            <div className="mt-3 space-y-3">
+              {paymentTypeRevenueSummaries.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No paid studio payment revenue in this range.
+                </p>
+              ) : (
+                paymentTypeRevenueSummaries.map((item) => (
+                  <div
+                    key={item.key}
+                    className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                  >
+                    <span className="text-sm font-medium text-slate-700">
+                      {item.label}
+                    </span>
+                    <span className="text-sm font-semibold text-slate-950">
+                      {fmtCurrency(item.total)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
           <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Average Paid Studio Payment</p>
+              <p className="text-sm text-slate-500">
+                Average Paid Studio Payment
+              </p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {fmtCurrency(averagePaidPayment)}
               </p>
@@ -1218,38 +2105,87 @@ export default async function ReportsPage({
           </div>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-            P&L notes
-          </h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Floor fees are separated so independent instructors and studios can
-            understand them correctly.
-          </p>
-
-          <div className="mt-6 space-y-3 text-sm leading-6">
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
-              <p className="font-semibold">Host studio collecting floor rent</p>
-              <p className="mt-1">
-                Floor rental payments collected from instructors are counted as
-                revenue.
-              </p>
+        {canViewGrowthReports ? (
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                  Studio performance
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Quick view of client growth, attendance, and activity for the
+                  selected range.
+                </p>
+              </div>
+              <Link
+                href="/app/clients"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Open Clients
+              </Link>
             </div>
 
-            <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-900">
-              <p className="font-semibold">Instructor paying floor fees</p>
-              <p className="mt-1">
-                Floor fees paid to another studio are counted as expenses when
-                recorded in Expenses.
-              </p>
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Active Students</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(activeStudentsCount ?? 0)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">New Clients</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(convertedLeads.length)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">New Leads</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(leadsOnly.length)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Lead Conversion</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {conversionRate}
+                </p>
+              </div>
             </div>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-slate-700">
-              Future versions can add receipt attachments, deeper category
-              breakdowns, and exportable P&L statements.
+            <div className="mt-6 grid gap-4 sm:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Appointment Outcomes</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(totalAppointmentOutcomes)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Attendance Rate</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {attendanceRate}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Client Activity</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(clientActivityTotal)}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Studio Performance"
+            title="Unlock client and lead reporting"
+            description="Track client growth, lead conversion, attendance outcomes, and studio activity with Growth."
+            requiredPlan="Growth"
+          />
+        )}
       </section>
 
       <section className="grid gap-6 xl:grid-cols-2">
@@ -1319,123 +2255,469 @@ export default async function ReportsPage({
           </div>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-            Packages snapshot
-          </h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Package activity and top-selling package names.
-          </p>
+        {canViewGrowthReports ? (
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+              Packages snapshot
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Package activity and top-selling package names.
+            </p>
 
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Packages Sold</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {fmtNumber(typedPackages.length)}
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Packages Sold</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(typedPackages.length)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">
+                  Package Revenue Snapshot
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtCurrency(packageRevenueSnapshot)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Top Packages
+              </h3>
+              <div className="mt-3 space-y-3">
+                {topPackages.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    No package sales in this range.
+                  </p>
+                ) : (
+                  topPackages.map(([name, count]) => (
+                    <div
+                      key={name}
+                      className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                    >
+                      <span className="text-sm font-medium text-slate-700">
+                        {name}
+                      </span>
+                      <span className="text-sm font-semibold text-slate-950">
+                        {fmtNumber(count)}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Package Reports"
+            title="Unlock package reporting"
+            description="Review package sales and package revenue snapshots with Growth."
+            requiredPlan="Growth"
+          />
+        )}
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-2">
+        {canViewGrowthReports ? (
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+              Membership snapshot
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Membership activity recorded for the selected date range.
+            </p>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2">
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Memberships Started</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(typedMemberships.length)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">
+                  Membership Revenue Snapshot
+                </p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtCurrency(membershipRevenueSnapshot)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
+              Use this section to review membership starts and recorded
+              membership revenue for the selected range.
+            </div>
+          </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Membership Reports"
+            title="Unlock membership reporting"
+            description="Review membership starts and membership revenue snapshots with Growth."
+            requiredPlan="Growth"
+          />
+        )}
+
+        {canViewProReports ? (
+          <div className="rounded-3xl border border-[#FED7AA] bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#C2410C]">
+                  Event & Ticket Reports
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Event revenue and attendance
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  See ticket revenue, check-ins, no-shows, and top-performing
+                  events for {rangeLabel(range).toLowerCase()}.
+                </p>
+              </div>
+              <Link
+                href="/app/events"
+                className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-100"
+              >
+                Open Events
+              </Link>
+            </div>
+
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl bg-orange-50 p-4">
+                <p className="text-sm text-orange-900/70">Ticket Revenue</p>
+                <p className="mt-2 text-2xl font-semibold text-orange-950">
+                  {fmtCurrency(eventRevenueTotal)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Paid Registrations</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(paidEventRegistrations.length)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Checked In</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(checkedInEventRegistrations.length)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {eventAttendanceRate} attendance rate
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">No-Shows</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(eventNoShowCount)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  Top Events
+                </h3>
+                <div className="mt-3 space-y-3">
+                  {topEventSummaries.length === 0 ? (
+                    <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                      No paid event registrations in this range.
+                    </p>
+                  ) : (
+                    topEventSummaries.map((event) => (
+                      <div
+                        key={event.eventId}
+                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="font-semibold text-slate-950">
+                              {event.name}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {labelize(event.type)} ·{" "}
+                              {fmtNumber(event.tickets)} tickets ·{" "}
+                              {fmtNumber(event.checkedIn)} checked in
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold text-slate-950">
+                              {fmtCurrency(event.revenue)}
+                            </p>
+                            {event.eventId !== "unknown" ? (
+                              <Link
+                                href={`/app/events/${event.eventId}/registrations`}
+                                className="mt-2 inline-flex text-xs font-semibold text-[#7C2D92] hover:text-[#5B197A]"
+                              >
+                                View registrations
+                              </Link>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  Top Ticket Types
+                </h3>
+                <div className="mt-3 space-y-3">
+                  {topTicketSummaries.length === 0 ? (
+                    <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                      No ticket type revenue in this range.
+                    </p>
+                  ) : (
+                    topTicketSummaries.map((ticket) => (
+                      <div
+                        key={ticket.key}
+                        className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="font-semibold text-slate-950">
+                              {ticket.name}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {labelize(ticket.kind)} ·{" "}
+                              {fmtNumber(ticket.quantity)} sold
+                            </p>
+                          </div>
+                          <p className="text-sm font-semibold text-slate-950">
+                            {fmtCurrency(ticket.revenue)}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-orange-900">
+              Event reporting uses paid event registrations for revenue and
+              check-in records to estimate attendance and no-shows.
+            </div>
+          </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Event & Ticket Reports"
+            title="Unlock event reporting"
+            description="Track ticket revenue, check-ins, no-shows, and top-performing events with Pro."
+            requiredPlan="Pro"
+          />
+        )}
+      </section>
+
+      {hasOrganizerReportAccess ? (
+        <section className="rounded-3xl border border-[#C7D2FE] bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#4F46E5]">
+                Organizer Reports
+              </p>
+              <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                Organizer event and campaign performance
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Review organizer ticket revenue, contacts, attendance, and
+                campaign activity for {rangeLabel(range).toLowerCase()}.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/app/organizer-contacts"
+                className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+              >
+                Open Contacts
+              </Link>
+              <Link
+                href="/app/organizer-campaigns"
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Open Campaigns
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl bg-indigo-50 p-4">
+              <p className="text-sm text-indigo-900/70">Organizer Revenue</p>
+              <p className="mt-2 text-2xl font-semibold text-indigo-950">
+                {fmtCurrency(organizerRevenueTotal)}
               </p>
             </div>
 
             <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Package Revenue Snapshot</p>
+              <p className="text-sm text-slate-500">Organizer Contacts</p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {fmtCurrency(packageRevenueSnapshot)}
+                {fmtNumber(typedOrganizerContacts.length)}
               </p>
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Checked In</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(organizerCheckedInRegistrations.length)}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {organizerAttendanceRate} attendance rate
+              </p>
+            </div>
+
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-sm text-slate-500">Campaigns Sent</p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {fmtNumber(organizerCampaignsSent.length)}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {fmtNumber(organizerCampaignRecipientsSent.length)} emails sent
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-6 xl:grid-cols-3">
+            <div className="xl:col-span-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Top Organizer Events
+              </h3>
+              <div className="mt-3 space-y-3">
+                {topOrganizerEventSummaries.length === 0 ? (
+                  <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                    No organizer event registrations in this range.
+                  </p>
+                ) : (
+                  topOrganizerEventSummaries.map((event) => (
+                    <div
+                      key={event.eventId}
+                      className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-semibold text-slate-950">
+                            {event.eventName}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {event.organizerName} ·{" "}
+                            {fmtNumber(event.paidRegistrations)} paid
+                            registrations · {fmtNumber(event.checkedIn)} checked
+                            in · {fmtNumber(event.noShows)} no-shows
+                          </p>
+                        </div>
+                        <div className="text-left sm:text-right">
+                          <p className="text-sm font-semibold text-slate-950">
+                            {fmtCurrency(event.revenue)}
+                          </p>
+                          {event.eventId !== "unknown" ? (
+                            <Link
+                              href={`/app/events/${event.eventId}/registrations`}
+                              className="mt-2 inline-flex text-xs font-semibold text-[#4F46E5] hover:text-[#3730A3]"
+                            >
+                              View registrations
+                            </Link>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-950">
+                  Campaign Delivery
+                </p>
+                <div className="mt-4 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-lg font-semibold text-slate-950">
+                      {fmtNumber(organizerCampaignRecipientsSent.length)}
+                    </p>
+                    <p className="text-xs text-slate-500">Sent</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-lg font-semibold text-slate-950">
+                      {fmtNumber(organizerCampaignRecipientsFailed.length)}
+                    </p>
+                    <p className="text-xs text-slate-500">Failed</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-lg font-semibold text-slate-950">
+                      {fmtNumber(organizerCampaignRecipientsSuppressed.length)}
+                    </p>
+                    <p className="text-xs text-slate-500">Suppressed</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-950">
+                  Recent Contacts
+                </p>
+                <div className="mt-3 space-y-3">
+                  {recentOrganizerContacts.length === 0 ? (
+                    <p className="text-sm text-slate-500">
+                      No organizer contacts in this range.
+                    </p>
+                  ) : (
+                    recentOrganizerContacts.map((contact) => (
+                      <div key={contact.id} className="rounded-xl bg-white p-3">
+                        <p className="text-sm font-semibold text-slate-900">
+                          {organizerContactName(contact)}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {fmtNumber(
+                            Number(contact.total_paid_registrations ?? 0),
+                          )}{" "}
+                          paid registrations ·{" "}
+                          {fmtCurrency(Number(contact.total_spend ?? 0))}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
           <div className="mt-6">
             <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Top Packages
+              Recent Organizer Campaigns
             </h3>
-            <div className="mt-3 space-y-3">
-              {topPackages.length === 0 ? (
-                <p className="text-sm text-slate-500">
-                  No package sales in this range.
+            <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {recentOrganizerCampaigns.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500 md:col-span-2 xl:col-span-3">
+                  No organizer campaigns in this range.
                 </p>
               ) : (
-                topPackages.map(([name, count]) => (
-                  <div
-                    key={name}
-                    className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                recentOrganizerCampaigns.map((campaign) => (
+                  <Link
+                    key={campaign.id}
+                    href={`/app/organizer-campaigns/${campaign.id}`}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4 hover:bg-slate-100"
                   >
-                    <span className="text-sm font-medium text-slate-700">
-                      {name}
-                    </span>
-                    <span className="text-sm font-semibold text-slate-950">
-                      {fmtNumber(count)}
-                    </span>
-                  </div>
+                    <p className="font-semibold text-slate-950">
+                      {campaign.name}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {organizerNameById.get(campaign.organizer_id) ??
+                        "Organizer"}{" "}
+                      · {campaignStatusLabel(campaign.status)}
+                    </p>
+                  </Link>
                 ))
               )}
             </div>
           </div>
-        </div>
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-            Membership snapshot
-          </h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Membership activity recorded for the selected date range.
-          </p>
-
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Memberships Started</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {fmtNumber(typedMemberships.length)}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">
-                Membership Revenue Snapshot
-              </p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {fmtCurrency(membershipRevenueSnapshot)}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-            Use this section to review membership starts and recorded membership
-            revenue for the selected range.
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-            Event revenue snapshot
-          </h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Paid event and ticket registrations recorded for the selected date
-            range.
-          </p>
-
-          <div className="mt-6 grid gap-4 sm:grid-cols-2">
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Paid Event Registrations</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {fmtNumber(paidEventRegistrations.length)}
-              </p>
-            </div>
-
-            <div className="rounded-2xl bg-slate-50 p-4">
-              <p className="text-sm text-slate-500">Event/Ticket Revenue</p>
-              <p className="mt-2 text-2xl font-semibold text-slate-950">
-                {fmtCurrency(eventRevenueTotal)}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-            Event revenue is calculated from paid event registrations recorded
-            during the selected range.
-          </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
 
       <section className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -1488,7 +2770,8 @@ export default async function ReportsPage({
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
                     {labelize(payment.payment_type)} •{" "}
-                    {labelize(payment.source)} • {fmtDateTime(payment.created_at)}
+                    {labelize(payment.source)} •{" "}
+                    {fmtDateTime(payment.created_at)}
                   </p>
                 </div>
               ))
@@ -1496,54 +2779,86 @@ export default async function ReportsPage({
           </div>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-                Export data
-              </h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Download studio data for deeper analysis or bookkeeping.
-              </p>
+        {canViewProReports ? (
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-semibold tracking-tight text-slate-950">
+                  Export data
+                </h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Download studio data for deeper analysis, bookkeeping, and
+                  event reconciliation.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 grid gap-3">
+              <a
+                href={exportHref("/app/reports/export/clients", range)}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Export Clients CSV
+              </a>
+              <a
+                href={exportHref("/app/reports/export/appointments", range)}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Export Appointments CSV
+              </a>
+              <a
+                href={exportHref("/app/reports/export/payments", range)}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Export Payments CSV
+              </a>
+              <a
+                href={exportHref("/app/reports/export/expenses", range)}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Export Expenses CSV
+              </a>
+              <a
+                href={exportHref(
+                  "/app/reports/export/event-registrations",
+                  range,
+                )}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Export Event Registrations CSV
+              </a>
+              <a
+                href={exportHref(
+                  "/app/reports/export/instructor-activity",
+                  range,
+                )}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Export Instructor Activity CSV
+              </a>
+              <a
+                href={exportHref("/app/reports/export/balances", range)}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Export Balances CSV
+              </a>
+              <a
+                href={exportHref("/app/reports/export/ledger", range)}
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
+              >
+                Export Lesson Ledger CSV
+              </a>
             </div>
           </div>
-
-          <div className="mt-6 grid gap-3">
-            <a
-              href="/app/reports/export/clients"
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Export Clients CSV
-            </a>
-            <a
-              href="/app/reports/export/appointments"
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Export Appointments CSV
-            </a>
-            <a
-              href="/app/reports/export/payments"
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Export Payments CSV
-            </a>
-            <a
-              href="/app/reports/export/balances"
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Export Balances CSV
-            </a>
-            <a
-              href="/app/reports/export/ledger"
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
-            >
-              Export Lesson Ledger CSV
-            </a>
-          </div>
-        </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Exports"
+            title="Unlock report exports"
+            description="Download CSV exports for bookkeeping, reconciliation, and deeper analysis with Pro."
+            requiredPlan="Pro"
+          />
+        )}
       </section>
     </div>
   );
 }
-
-
