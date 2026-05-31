@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireStudioFeature } from "@/lib/billing/access";
 
 export type DocumentActionState = {
   error?: string;
@@ -113,6 +114,10 @@ async function resolveOwnerContext(formData: FormData) {
     getString(formData, "scope") === "organizer" ? "organizer" : "studio";
   const organizerId = getString(formData, "organizerId");
 
+  await requireStudioFeature(
+    requestedScope === "organizer" ? "event_waivers" : "documents",
+  );
+
   if (requestedScope === "organizer") {
     const organizers = await getOrganizerOptions({
       supabase,
@@ -152,7 +157,9 @@ export async function createDocumentTemplateAction(
   const owner = await resolveOwnerContext(formData);
 
   if ("error" in owner) {
-    redirect(`/app/documents?error=${encodeURIComponent(owner.error ?? "Unable to manage documents.")}`);
+    redirect(
+      `/app/documents?error=${encodeURIComponent(owner.error ?? "Unable to manage documents.")}`,
+    );
   }
 
   const title = cleanText(getString(formData, "title"), 160);
@@ -227,7 +234,9 @@ export async function updateDocumentTemplateAction(
   const owner = await resolveOwnerContext(formData);
 
   if ("error" in owner) {
-    redirect(`/app/documents?error=${encodeURIComponent(owner.error ?? "Unable to manage documents.")}`);
+    redirect(
+      `/app/documents?error=${encodeURIComponent(owner.error ?? "Unable to manage documents.")}`,
+    );
   }
 
   const templateId = getString(formData, "templateId");
@@ -304,7 +313,6 @@ export async function updateDocumentTemplateAction(
   redirect("/app/documents?success=updated");
 }
 
-
 export async function assignDocumentToClientAction(formData: FormData) {
   const owner = await resolveOwnerContext(formData);
 
@@ -327,7 +335,9 @@ export async function assignDocumentToClientAction(formData: FormData) {
   const dueDate = getString(formData, "dueDate");
 
   if (!templateId || !clientId) {
-    redirect("/app/documents?error=Choose a document and client before assigning.");
+    redirect(
+      "/app/documents?error=Choose a document and client before assigning.",
+    );
   }
 
   const { data: template, error: templateError } = await owner.supabase
@@ -369,11 +379,15 @@ export async function assignDocumentToClientAction(formData: FormData) {
     .maybeSingle();
 
   if (existingError) {
-    redirect(`/app/documents?error=${encodeURIComponent(existingError.message)}`);
+    redirect(
+      `/app/documents?error=${encodeURIComponent(existingError.message)}`,
+    );
   }
 
   if (existing) {
-    redirect("/app/documents?error=This client already has a pending assignment for that document.");
+    redirect(
+      "/app/documents?error=This client already has a pending assignment for that document.",
+    );
   }
 
   const dueAt = dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null;
@@ -398,8 +412,8 @@ export async function assignDocumentToClientAction(formData: FormData) {
   redirect("/app/documents?success=assigned");
 }
 
-
 export async function assignDocumentToEventAction(formData: FormData) {
+  await requireStudioFeature("event_waivers");
   const owner = await resolveOwnerContext(formData);
 
   if ("error" in owner) {
@@ -414,7 +428,9 @@ export async function assignDocumentToEventAction(formData: FormData) {
   const eventId = getString(formData, "eventId");
 
   if (!templateId || !eventId) {
-    redirect("/app/documents?error=Choose a document and event before attaching the waiver.");
+    redirect(
+      "/app/documents?error=Choose a document and event before attaching the waiver.",
+    );
   }
 
   const templateQuery = owner.supabase
@@ -429,7 +445,8 @@ export async function assignDocumentToEventAction(formData: FormData) {
     templateQuery.eq("studio_id", owner.studioId);
   }
 
-  const { data: template, error: templateError } = await templateQuery.maybeSingle();
+  const { data: template, error: templateError } =
+    await templateQuery.maybeSingle();
 
   if (templateError || !template) {
     redirect("/app/documents?error=Document template not found or inactive.");
@@ -469,7 +486,9 @@ export async function assignDocumentToEventAction(formData: FormData) {
     .maybeSingle();
 
   if (existingError) {
-    redirect(`/app/documents?error=${encodeURIComponent(existingError.message)}`);
+    redirect(
+      `/app/documents?error=${encodeURIComponent(existingError.message)}`,
+    );
   }
 
   if (existing) {
@@ -486,16 +505,18 @@ export async function assignDocumentToEventAction(formData: FormData) {
       redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
     }
   } else {
-    const { error } = await owner.supabase.from("event_document_requirements").insert({
-      event_id: eventId,
-      template_id: templateId,
-      template_version_id: version?.id ?? null,
-      studio_id: owner.studioId,
-      organizer_id: owner.scope === "organizer" ? owner.organizerId : null,
-      is_required: true,
-      active: true,
-      created_by: owner.userId,
-    });
+    const { error } = await owner.supabase
+      .from("event_document_requirements")
+      .insert({
+        event_id: eventId,
+        template_id: templateId,
+        template_version_id: version?.id ?? null,
+        studio_id: owner.studioId,
+        organizer_id: owner.scope === "organizer" ? owner.organizerId : null,
+        is_required: true,
+        active: true,
+        created_by: owner.userId,
+      });
 
     if (error) {
       redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
@@ -550,7 +571,9 @@ export async function toggleDocumentTemplateStatusAction(formData: FormData) {
   const owner = await resolveOwnerContext(formData);
 
   if ("error" in owner) {
-    redirect(`/app/documents?error=${encodeURIComponent(owner.error ?? "Unable to manage documents.")}`);
+    redirect(
+      `/app/documents?error=${encodeURIComponent(owner.error ?? "Unable to manage documents.")}`,
+    );
   }
 
   const templateId = getString(formData, "templateId");

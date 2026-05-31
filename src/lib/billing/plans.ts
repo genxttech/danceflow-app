@@ -9,7 +9,17 @@ export type BillingFeature =
   | "ticketing"
   | "check_in"
   | "waitlist"
-  | "advanced_reporting";
+  | "basic_reporting"
+  | "advanced_reporting"
+  | "report_exports"
+  | "marketing_campaigns"
+  | "marketing_event_audiences"
+  | "ai_assistant"
+  | "documents"
+  | "event_waivers"
+  | "organizer_contacts"
+  | "organizer_campaigns"
+  | "guest_coach_slots";
 
 export type PlanCode = "starter" | "growth" | "pro" | "organizer";
 export type StudioPlanCode = "starter" | "growth" | "pro";
@@ -46,7 +56,7 @@ export const BILLING_PLANS: BillingPlan[] = [
     trialDays: STUDIO_TRIAL_DAYS,
     founderOfferNote:
       "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
-    features: ["crm_basic", "schedule_basic"],
+    features: ["crm_basic", "schedule_basic", "basic_reporting"],
     highlights: [
       "Client CRM and lead records",
       "Lesson scheduling and studio calendar",
@@ -73,6 +83,11 @@ export const BILLING_PLANS: BillingPlan[] = [
       "packages",
       "memberships",
       "payments",
+      "basic_reporting",
+      "advanced_reporting",
+      "marketing_campaigns",
+      "ai_assistant",
+      "documents",
     ],
     highlights: [
       "Everything in Starter",
@@ -105,7 +120,15 @@ export const BILLING_PLANS: BillingPlan[] = [
       "ticketing",
       "check_in",
       "waitlist",
+      "basic_reporting",
       "advanced_reporting",
+      "report_exports",
+      "marketing_campaigns",
+      "marketing_event_audiences",
+      "ai_assistant",
+      "documents",
+      "event_waivers",
+      "guest_coach_slots",
     ],
     highlights: [
       "Everything in Growth",
@@ -135,7 +158,17 @@ export const BILLING_PLANS: BillingPlan[] = [
       "ticketing",
       "check_in",
       "waitlist",
+      "basic_reporting",
       "advanced_reporting",
+      "report_exports",
+      "marketing_campaigns",
+      "marketing_event_audiences",
+      "ai_assistant",
+      "documents",
+      "event_waivers",
+      "organizer_contacts",
+      "organizer_campaigns",
+      "guest_coach_slots",
     ],
     highlights: [
       "Public event pages",
@@ -151,13 +184,18 @@ export const BILLING_PLANS: BillingPlan[] = [
 ];
 
 export const PLAN_FEATURES: Record<StudioPlanCode, BillingFeature[]> = {
-  starter: ["crm_basic", "schedule_basic"],
+  starter: ["crm_basic", "schedule_basic", "basic_reporting"],
   growth: [
     "crm_basic",
     "schedule_basic",
     "packages",
     "memberships",
     "payments",
+    "basic_reporting",
+    "advanced_reporting",
+    "marketing_campaigns",
+    "ai_assistant",
+    "documents",
   ],
   pro: [
     "crm_basic",
@@ -170,18 +208,39 @@ export const PLAN_FEATURES: Record<StudioPlanCode, BillingFeature[]> = {
     "ticketing",
     "check_in",
     "waitlist",
+    "basic_reporting",
     "advanced_reporting",
+    "report_exports",
+    "marketing_campaigns",
+    "marketing_event_audiences",
+    "ai_assistant",
+    "documents",
+    "event_waivers",
+    "guest_coach_slots",
   ],
 };
 
-export const ORGANIZER_PLAN_FEATURES: Record<OrganizerPlanCode, BillingFeature[]> = {
+export const ORGANIZER_PLAN_FEATURES: Record<
+  OrganizerPlanCode,
+  BillingFeature[]
+> = {
   organizer: [
     "organizer_tools",
     "public_events",
     "ticketing",
     "check_in",
     "waitlist",
+    "basic_reporting",
     "advanced_reporting",
+    "report_exports",
+    "marketing_campaigns",
+    "marketing_event_audiences",
+    "ai_assistant",
+    "documents",
+    "event_waivers",
+    "organizer_contacts",
+    "organizer_campaigns",
+    "guest_coach_slots",
   ],
 };
 
@@ -196,7 +255,7 @@ export function getPlansByAudience(audience: PlanAudience) {
 
 export function planHasFeature(
   planCode: string | null | undefined,
-  feature: BillingFeature
+  feature: BillingFeature,
 ) {
   if (!planCode) return false;
 
@@ -213,7 +272,7 @@ export function planHasFeature(
 
 export function organizerPlanHasFeature(
   planCode: string | null | undefined,
-  feature: BillingFeature
+  feature: BillingFeature,
 ) {
   if (planCode !== "organizer") return false;
   return ORGANIZER_PLAN_FEATURES.organizer.includes(feature);
@@ -231,22 +290,42 @@ export function featureLabel(feature: BillingFeature) {
   if (feature === "check_in") return "Check-In";
   if (feature === "waitlist") return "Waitlist";
   if (feature === "advanced_reporting") return "Advanced Reporting";
+  if (feature === "basic_reporting") return "Basic Reporting";
+  if (feature === "report_exports") return "Report Exports";
+  if (feature === "marketing_campaigns") return "Marketing Campaigns";
+  if (feature === "marketing_event_audiences")
+    return "Event Marketing Audiences";
+  if (feature === "ai_assistant") return "AI Assistant";
+  if (feature === "documents") return "Documents & E-Signatures";
+  if (feature === "event_waivers") return "Event Waivers";
+  if (feature === "organizer_contacts") return "Organizer Contacts";
+  if (feature === "organizer_campaigns") return "Organizer Campaigns";
+  if (feature === "guest_coach_slots") return "Guest Coach Lesson Slots";
 
   const _exhaustiveCheck: never = feature;
   return _exhaustiveCheck;
 }
 
-export function requiredStudioPlanForFeature(feature: BillingFeature): StudioPlanCode {
+export function requiredStudioPlanForFeature(
+  feature: BillingFeature,
+): StudioPlanCode {
   if (feature === "crm_basic" || feature === "schedule_basic") return "starter";
+  if (feature === "basic_reporting") return "starter";
   if (feature === "packages") return "growth";
   if (feature === "memberships") return "growth";
   if (feature === "payments") return "growth";
+  if (feature === "advanced_reporting") return "growth";
+  if (feature === "marketing_campaigns") return "growth";
+  if (feature === "ai_assistant") return "growth";
+  if (feature === "documents") return "growth";
   return "pro";
 }
 
 export const requiredPlanForFeature = requiredStudioPlanForFeature;
 
-export function requiredOrganizerPlanForFeature(_feature: BillingFeature): OrganizerPlanCode {
+export function requiredOrganizerPlanForFeature(
+  _feature: BillingFeature,
+): OrganizerPlanCode {
   return "organizer";
 }
 

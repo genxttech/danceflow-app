@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireStudioFeature } from "@/lib/billing/access";
 import {
   generateMarketingCampaignRecipientsAction,
   sendMarketingCampaignAction,
@@ -120,7 +121,9 @@ function campaignErrorMessage(code?: string) {
 }
 
 function normalizeEmail(value: unknown) {
-  return String(value ?? "").trim().toLowerCase();
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function buildName(firstName: unknown, lastName: unknown) {
@@ -128,25 +131,32 @@ function buildName(firstName: unknown, lastName: unknown) {
 }
 
 function isSpecificEventAudience(audienceType: string) {
-  return audienceType === "specific_event_registrants" || audienceType === "specific_event_checked_in";
+  return (
+    audienceType === "specific_event_registrants" ||
+    audienceType === "specific_event_checked_in"
+  );
 }
 
 function cleanFooterPart(value: unknown) {
   return String(value ?? "").trim();
 }
 
-function hasMarketingFooterAddress(studio: StudioMarketingFooterRow | null | undefined) {
+function hasMarketingFooterAddress(
+  studio: StudioMarketingFooterRow | null | undefined,
+) {
   return Boolean(
     cleanFooterPart(studio?.name) &&
-      cleanFooterPart(studio?.address_line_1) &&
-      cleanFooterPart(studio?.city) &&
-      cleanFooterPart(studio?.state) &&
-      cleanFooterPart(studio?.postal_code) &&
-      cleanFooterPart(studio?.country),
+    cleanFooterPart(studio?.address_line_1) &&
+    cleanFooterPart(studio?.city) &&
+    cleanFooterPart(studio?.state) &&
+    cleanFooterPart(studio?.postal_code) &&
+    cleanFooterPart(studio?.country),
   );
 }
 
-function formatMarketingFooterAddress(studio: StudioMarketingFooterRow | null | undefined) {
+function formatMarketingFooterAddress(
+  studio: StudioMarketingFooterRow | null | undefined,
+) {
   const lineOne = cleanFooterPart(studio?.address_line_1);
   const lineTwo = cleanFooterPart(studio?.address_line_2);
   const cityStateZip = [
@@ -157,7 +167,9 @@ function formatMarketingFooterAddress(studio: StudioMarketingFooterRow | null | 
     .filter(Boolean)
     .join(", ");
 
-  return [lineOne, lineTwo, cityStateZip, cleanFooterPart(studio?.country)].filter(Boolean).join(" · ");
+  return [lineOne, lineTwo, cityStateZip, cleanFooterPart(studio?.country)]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 function countByStatus(recipients: RecipientRow[]) {
@@ -225,7 +237,9 @@ async function getUnsubscribedEmails(params: {
     return new Set<string>();
   }
 
-  return new Set((data ?? []).map((row) => normalizeEmail(row.email)).filter(Boolean));
+  return new Set(
+    (data ?? []).map((row) => normalizeEmail(row.email)).filter(Boolean),
+  );
 }
 
 async function getClientRecipients(params: {
@@ -238,24 +252,26 @@ async function getClientRecipients(params: {
   const baseClientSelect = "id, first_name, last_name, email, status";
 
   if (audienceType === "clients_no_upcoming_lesson") {
-    const [{ data: clients, error: clientsError }, { data: appointments, error: appointmentsError }] =
-      await Promise.all([
-        supabase
-          .from("clients")
-          .select(baseClientSelect)
-          .eq("studio_id", studioId)
-          .eq("status", "active")
-          .not("email", "is", null)
-          .limit(1500),
-        supabase
-          .from("appointments")
-          .select("client_id")
-          .eq("studio_id", studioId)
-          .eq("status", "scheduled")
-          .gte("starts_at", new Date().toISOString())
-          .not("client_id", "is", null)
-          .limit(10000),
-      ]);
+    const [
+      { data: clients, error: clientsError },
+      { data: appointments, error: appointmentsError },
+    ] = await Promise.all([
+      supabase
+        .from("clients")
+        .select(baseClientSelect)
+        .eq("studio_id", studioId)
+        .eq("status", "active")
+        .not("email", "is", null)
+        .limit(1500),
+      supabase
+        .from("appointments")
+        .select("client_id")
+        .eq("studio_id", studioId)
+        .eq("status", "scheduled")
+        .gte("starts_at", new Date().toISOString())
+        .not("client_id", "is", null)
+        .limit(10000),
+    ]);
 
     if (clientsError || appointmentsError) {
       console.error("Failed to load no-upcoming-lesson campaign audience", {
@@ -291,12 +307,19 @@ async function getClientRecipients(params: {
       .limit(10000);
 
     if (packagesError) {
-      console.error("Failed to load low-credit package audience", packagesError);
+      console.error(
+        "Failed to load low-credit package audience",
+        packagesError,
+      );
       return [];
     }
 
     const lowCreditClientIds = Array.from(
-      new Set((packages ?? []).map((pkg) => String(pkg.client_id ?? "")).filter(Boolean)),
+      new Set(
+        (packages ?? [])
+          .map((pkg) => String(pkg.client_id ?? ""))
+          .filter(Boolean),
+      ),
     );
 
     if (lowCreditClientIds.length === 0) {
@@ -435,19 +458,25 @@ async function getEventRecipients(params: {
 
     const { data: registrations, error: registrationsError } = await supabase
       .from("event_registrations")
-      .select("id, attendee_first_name, attendee_last_name, attendee_email, status, event_id")
+      .select(
+        "id, attendee_first_name, attendee_last_name, attendee_email, status, event_id",
+      )
       .eq("studio_id", studioId)
       .eq("event_id", audienceEventId)
       .not("attendee_email", "is", null)
       .limit(1500);
 
     if (registrationsError) {
-      console.error("Failed to load specific event campaign registrations", registrationsError);
+      console.error(
+        "Failed to load specific event campaign registrations",
+        registrationsError,
+      );
       return [];
     }
 
     const activeRegistrations = (registrations ?? []).filter(
-      (registration) => String(registration.status ?? "").toLowerCase() !== "cancelled",
+      (registration) =>
+        String(registration.status ?? "").toLowerCase() !== "cancelled",
     );
 
     const activeRegistrationIds = activeRegistrations
@@ -471,7 +500,10 @@ async function getEventRecipients(params: {
         .limit(1500);
 
       if (attendeesError) {
-        console.error("Failed to load specific event campaign attendees", attendeesError);
+        console.error(
+          "Failed to load specific event campaign attendees",
+          attendeesError,
+        );
         return [];
       }
 
@@ -543,9 +575,15 @@ async function getRecipientPreview(params: {
   audienceEventId?: string | null;
 }) {
   const { supabase, studioId, audienceType, audienceEventId } = params;
-  const unsubscribedEmails = await getUnsubscribedEmails({ supabase, studioId });
+  const unsubscribedEmails = await getUnsubscribedEmails({
+    supabase,
+    studioId,
+  });
 
-  if (audienceType === "event_attendees" || isSpecificEventAudience(audienceType)) {
+  if (
+    audienceType === "event_attendees" ||
+    isSpecificEventAudience(audienceType)
+  ) {
     return getEventRecipients({
       supabase,
       studioId,
@@ -559,7 +597,12 @@ async function getRecipientPreview(params: {
     return [];
   }
 
-  return getClientRecipients({ supabase, studioId, audienceType, unsubscribedEmails });
+  return getClientRecipients({
+    supabase,
+    studioId,
+    audienceType,
+    unsubscribedEmails,
+  });
 }
 
 export default async function MarketingCampaignDetailPage({
@@ -571,6 +614,7 @@ export default async function MarketingCampaignDetailPage({
 }) {
   const resolvedParams = await params;
   const resolvedSearchParams = await searchParams;
+  await requireStudioFeature("marketing_campaigns");
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
@@ -578,10 +622,16 @@ export default async function MarketingCampaignDetailPage({
   const { data: userResult } = await supabase.auth.getUser();
   const currentUserEmail = userResult.user?.email ?? "";
 
-  const [{ data: campaign, error }, { data: generatedRecipients }, { data: studioFooter }] = await Promise.all([
+  const [
+    { data: campaign, error },
+    { data: generatedRecipients },
+    { data: studioFooter },
+  ] = await Promise.all([
     supabase
       .from("marketing_campaigns")
-      .select("id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, audience_type, audience_event_id, status, created_at, sent_at")
+      .select(
+        "id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, audience_type, audience_event_id, status, created_at, sent_at",
+      )
       .eq("id", resolvedParams.id)
       .eq("studio_id", studioId)
       .maybeSingle<CampaignRow>(),
@@ -594,7 +644,9 @@ export default async function MarketingCampaignDetailPage({
       .limit(25),
     supabase
       .from("studios")
-      .select("name, email, address_line_1, address_line_2, city, state, postal_code, country")
+      .select(
+        "name, email, address_line_1, address_line_2, city, state, postal_code, country",
+      )
       .eq("id", studioId)
       .maybeSingle<StudioMarketingFooterRow>(),
   ]);
@@ -658,10 +710,17 @@ export default async function MarketingCampaignDetailPage({
     audienceEventId: campaign.audience_event_id,
   });
 
-  const includedRecipients = recipients.filter((recipient) => !recipient.unsubscribed);
-  const suppressedRecipients = recipients.filter((recipient) => recipient.unsubscribed);
+  const includedRecipients = recipients.filter(
+    (recipient) => !recipient.unsubscribed,
+  );
+  const suppressedRecipients = recipients.filter(
+    (recipient) => recipient.unsubscribed,
+  );
   const sampleRecipients = recipients.slice(0, 5);
-  const remainingRecipientCount = Math.max(recipients.length - sampleRecipients.length, 0);
+  const remainingRecipientCount = Math.max(
+    recipients.length - sampleRecipients.length,
+    0,
+  );
   const recipientRows = (generatedRecipients ?? []) as RecipientRow[];
   const recipientStatusCounts = {
     pending: pendingRecipientCount ?? 0,
@@ -704,17 +763,32 @@ export default async function MarketingCampaignDetailPage({
     {
       label: "Sent recipients",
       count: recipientStatusCounts.sent,
-      recipients: recipientRows.filter((recipient) => String(recipient.status ?? "").toLowerCase() === "sent").slice(0, 5),
+      recipients: recipientRows
+        .filter(
+          (recipient) =>
+            String(recipient.status ?? "").toLowerCase() === "sent",
+        )
+        .slice(0, 5),
     },
     {
       label: "Failed recipients",
       count: recipientStatusCounts.failed,
-      recipients: recipientRows.filter((recipient) => String(recipient.status ?? "").toLowerCase() === "failed").slice(0, 5),
+      recipients: recipientRows
+        .filter(
+          (recipient) =>
+            String(recipient.status ?? "").toLowerCase() === "failed",
+        )
+        .slice(0, 5),
     },
     {
       label: "Pending recipients",
       count: recipientStatusCounts.pending,
-      recipients: recipientRows.filter((recipient) => String(recipient.status ?? "pending").toLowerCase() === "pending").slice(0, 5),
+      recipients: recipientRows
+        .filter(
+          (recipient) =>
+            String(recipient.status ?? "pending").toLowerCase() === "pending",
+        )
+        .slice(0, 5),
     },
     {
       label: "Suppressed / skipped recipients",
@@ -735,7 +809,9 @@ export default async function MarketingCampaignDetailPage({
     recipientStatusCounts.pending > 0 &&
     campaign.status !== "sent" &&
     campaign.status !== "sending";
-  const campaignError = campaignErrorMessage(resolvedSearchParams.campaign_error);
+  const campaignError = campaignErrorMessage(
+    resolvedSearchParams.campaign_error,
+  );
 
   return (
     <main className="min-h-screen bg-[var(--brand-page-bg)] px-4 py-6 text-[var(--brand-text)] sm:px-6 lg:px-8">
@@ -748,13 +824,15 @@ export default async function MarketingCampaignDetailPage({
 
         {resolvedSearchParams.recipients_generated ? (
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
-            Send list prepared. Review the send readiness summary before sending.
+            Send list prepared. Review the send readiness summary before
+            sending.
           </div>
         ) : null}
 
         {resolvedSearchParams.campaign_sent ? (
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800 shadow-sm">
-            Campaign sending finished. Check the recipient status summary for any failed emails.
+            Campaign sending finished. Check the recipient status summary for
+            any failed emails.
           </div>
         ) : null}
 
@@ -775,7 +853,8 @@ export default async function MarketingCampaignDetailPage({
                   {campaign.name}
                 </h1>
                 <p className="mt-2 max-w-2xl text-sm leading-6 text-white/85 sm:text-base">
-                  Review the message, verify the audience, send a test, and send the campaign when ready.
+                  Review the message, verify the audience, send a test, and send
+                  the campaign when ready.
                 </p>
               </div>
 
@@ -790,29 +869,47 @@ export default async function MarketingCampaignDetailPage({
 
           <div className="grid gap-4 p-5 sm:p-6 lg:grid-cols-4">
             <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
-              <p className="text-sm font-semibold text-[var(--brand-muted)]">Status</p>
-              <span className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-bold ${campaignStatusClass(campaign.status)}`}>
+              <p className="text-sm font-semibold text-[var(--brand-muted)]">
+                Status
+              </p>
+              <span
+                className={`mt-2 inline-flex rounded-full border px-3 py-1 text-xs font-bold ${campaignStatusClass(campaign.status)}`}
+              >
                 {campaignStatusLabel(campaign.status)}
               </span>
             </div>
             <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
-              <p className="text-sm font-semibold text-[var(--brand-muted)]">Audience</p>
+              <p className="text-sm font-semibold text-[var(--brand-muted)]">
+                Audience
+              </p>
               <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">
-                {audienceLabels[campaign.audience_type] ?? campaign.audience_type}
+                {audienceLabels[campaign.audience_type] ??
+                  campaign.audience_type}
               </p>
               {selectedEvent ? (
                 <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">
-                  {selectedEvent.name}{selectedEvent.start_date ? ` · ${formatDate(selectedEvent.start_date)}` : ""}
+                  {selectedEvent.name}
+                  {selectedEvent.start_date
+                    ? ` · ${formatDate(selectedEvent.start_date)}`
+                    : ""}
                 </p>
               ) : null}
             </div>
             <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
-              <p className="text-sm font-semibold text-[var(--brand-muted)]">Ready to send</p>
-              <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">{includedRecipients.length}</p>
+              <p className="text-sm font-semibold text-[var(--brand-muted)]">
+                Ready to send
+              </p>
+              <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">
+                {includedRecipients.length}
+              </p>
             </div>
             <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
-              <p className="text-sm font-semibold text-[var(--brand-muted)]">Suppressed</p>
-              <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">{suppressedRecipients.length}</p>
+              <p className="text-sm font-semibold text-[var(--brand-muted)]">
+                Suppressed
+              </p>
+              <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">
+                {suppressedRecipients.length}
+              </p>
             </div>
           </div>
         </section>
@@ -821,74 +918,102 @@ export default async function MarketingCampaignDetailPage({
           <div className="flex flex-col gap-6">
             <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <h2 className="text-xl font-bold text-[var(--brand-text)]">Message preview</h2>
-                <p className="mt-1 text-sm text-[var(--brand-muted)]">Created {formatDate(campaign.created_at)} · Sent {formatDate(campaign.sent_at)}</p>
-              </div>
-              <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${campaignStatusClass(campaign.status)}`}>
-                {campaignStatusLabel(campaign.status)}
-              </span>
-            </div>
-
-            <div className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Subject</p>
-              <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">{campaign.subject}</p>
-              {campaign.preview_text ? (
-                <p className="mt-1 text-sm text-[var(--brand-muted)]">{campaign.preview_text}</p>
-              ) : null}
-            </div>
-
-            <div className="mt-4 whitespace-pre-wrap rounded-2xl border border-[var(--brand-border)] bg-white p-4 text-sm leading-6 text-[var(--brand-text)]">
-              {campaign.body_text}
-            </div>
-
-            {campaign.cta_label && campaign.cta_url ? (
-              <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-muted)]">CTA</p>
-                <a
-                  href={campaign.cta_url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-2 inline-flex items-center justify-center rounded-2xl bg-[#4D1F47] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#3D1839]"
+                <div>
+                  <h2 className="text-xl font-bold text-[var(--brand-text)]">
+                    Message preview
+                  </h2>
+                  <p className="mt-1 text-sm text-[var(--brand-muted)]">
+                    Created {formatDate(campaign.created_at)} · Sent{" "}
+                    {formatDate(campaign.sent_at)}
+                  </p>
+                </div>
+                <span
+                  className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${campaignStatusClass(campaign.status)}`}
                 >
-                  {campaign.cta_label}
-                </a>
+                  {campaignStatusLabel(campaign.status)}
+                </span>
               </div>
-            ) : null}
 
-            <div className="mt-5">
-              <CampaignAIAssistant
-                campaignContext="studio"
-                audienceLabel={audienceLabels[campaign.audience_type] ?? campaign.audience_type}
-                eventName={selectedEvent?.name ?? null}
-                currentSubject={campaign.subject}
-                currentPreviewText={campaign.preview_text}
-                currentBodyText={campaign.body_text}
-                ctaLabel={campaign.cta_label}
-                ctaUrl={campaign.cta_url}
-                compact
-              />
-            </div>
+              <div className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                  Subject
+                </p>
+                <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">
+                  {campaign.subject}
+                </p>
+                {campaign.preview_text ? (
+                  <p className="mt-1 text-sm text-[var(--brand-muted)]">
+                    {campaign.preview_text}
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="mt-4 whitespace-pre-wrap rounded-2xl border border-[var(--brand-border)] bg-white p-4 text-sm leading-6 text-[var(--brand-text)]">
+                {campaign.body_text}
+              </div>
+
+              {campaign.cta_label && campaign.cta_url ? (
+                <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                    CTA
+                  </p>
+                  <a
+                    href={campaign.cta_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex items-center justify-center rounded-2xl bg-[#4D1F47] px-4 py-2 text-sm font-bold text-white transition hover:bg-[#3D1839]"
+                  >
+                    {campaign.cta_label}
+                  </a>
+                </div>
+              ) : null}
+
+              <div className="mt-5">
+                <CampaignAIAssistant
+                  campaignContext="studio"
+                  audienceLabel={
+                    audienceLabels[campaign.audience_type] ??
+                    campaign.audience_type
+                  }
+                  eventName={selectedEvent?.name ?? null}
+                  currentSubject={campaign.subject}
+                  currentPreviewText={campaign.preview_text}
+                  currentBodyText={campaign.body_text}
+                  ctaLabel={campaign.cta_label}
+                  ctaUrl={campaign.cta_url}
+                  compact
+                />
+              </div>
             </section>
 
             <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <h2 className="text-xl font-bold text-[var(--brand-text)]">Campaign results</h2>
+                  <h2 className="text-xl font-bold text-[var(--brand-text)]">
+                    Campaign results
+                  </h2>
                   <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                    Track delivery status after the send list is prepared and the campaign is sent.
+                    Track delivery status after the send list is prepared and
+                    the campaign is sent.
                   </p>
                 </div>
-                <span className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${campaignStatusClass(campaign.status)}`}>
+                <span
+                  className={`inline-flex w-fit rounded-full border px-3 py-1 text-xs font-bold ${campaignStatusClass(campaign.status)}`}
+                >
                   {campaignStatusLabel(campaign.status)}
                 </span>
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {resultStatusCards.map((card) => (
-                  <div key={card.label} className={`rounded-2xl border p-3 text-center ${card.className}`}>
+                  <div
+                    key={card.label}
+                    className={`rounded-2xl border p-3 text-center ${card.className}`}
+                  >
                     <p className="text-xl font-bold">{card.value}</p>
-                    <p className="text-[11px] font-semibold uppercase tracking-wide">{card.label}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide">
+                      {card.label}
+                    </p>
                   </div>
                 ))}
               </div>
@@ -898,13 +1023,17 @@ export default async function MarketingCampaignDetailPage({
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
                     Prepared recipients
                   </p>
-                  <p className="mt-1 text-lg font-bold text-[var(--brand-text)]">{totalPreparedRecipients}</p>
+                  <p className="mt-1 text-lg font-bold text-[var(--brand-text)]">
+                    {totalPreparedRecipients}
+                  </p>
                 </div>
                 <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
                   <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
                     Sent date
                   </p>
-                  <p className="mt-1 text-lg font-bold text-[var(--brand-text)]">{formatDate(campaign.sent_at)}</p>
+                  <p className="mt-1 text-lg font-bold text-[var(--brand-text)]">
+                    {formatDate(campaign.sent_at)}
+                  </p>
                 </div>
               </div>
 
@@ -915,7 +1044,10 @@ export default async function MarketingCampaignDetailPage({
 
                 <div className="mt-4 space-y-3">
                   {recipientDetailGroups.map((group) => (
-                    <details key={group.label} className="rounded-2xl border border-[var(--brand-border)] bg-white p-3">
+                    <details
+                      key={group.label}
+                      className="rounded-2xl border border-[var(--brand-border)] bg-white p-3"
+                    >
                       <summary className="cursor-pointer text-sm font-bold text-[var(--brand-text)]">
                         {group.label} · {group.count}
                       </summary>
@@ -930,12 +1062,18 @@ export default async function MarketingCampaignDetailPage({
                               <p className="truncate text-sm font-semibold text-[var(--brand-text)]">
                                 {recipient.name || recipient.email}
                               </p>
-                              <p className="truncate text-xs text-[var(--brand-muted)]">{recipient.email}</p>
+                              <p className="truncate text-xs text-[var(--brand-muted)]">
+                                {recipient.email}
+                              </p>
                               {recipient.sent_at ? (
-                                <p className="mt-1 text-xs text-[var(--brand-muted)]">Sent {formatDate(recipient.sent_at)}</p>
+                                <p className="mt-1 text-xs text-[var(--brand-muted)]">
+                                  Sent {formatDate(recipient.sent_at)}
+                                </p>
                               ) : null}
                               {recipient.error_message ? (
-                                <p className="mt-1 text-xs text-red-700">{recipient.error_message}</p>
+                                <p className="mt-1 text-xs text-red-700">
+                                  {recipient.error_message}
+                                </p>
                               ) : null}
                             </div>
                           ))
@@ -947,7 +1085,8 @@ export default async function MarketingCampaignDetailPage({
 
                         {group.count > group.recipients.length ? (
                           <p className="text-xs text-[var(--brand-muted)]">
-                            Showing up to 5 sample recipients for this status to keep the page compact on mobile.
+                            Showing up to 5 sample recipients for this status to
+                            keep the page compact on mobile.
                           </p>
                         ) : null}
                       </div>
@@ -960,15 +1099,24 @@ export default async function MarketingCampaignDetailPage({
 
           <aside className="flex flex-col gap-6">
             <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
-              <h2 className="text-lg font-bold text-[var(--brand-text)]">Send test email</h2>
+              <h2 className="text-lg font-bold text-[var(--brand-text)]">
+                Send test email
+              </h2>
               <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                Send a test to yourself or another studio staff email before sending to the audience.
+                Send a test to yourself or another studio staff email before
+                sending to the audience.
               </p>
 
-              <form action={sendMarketingCampaignTestEmailAction} className="mt-4 space-y-4">
+              <form
+                action={sendMarketingCampaignTestEmailAction}
+                className="mt-4 space-y-4"
+              >
                 <input type="hidden" name="campaignId" value={campaign.id} />
                 <div>
-                  <label htmlFor="testEmail" className="text-sm font-semibold text-[var(--brand-text)]">
+                  <label
+                    htmlFor="testEmail"
+                    className="text-sm font-semibold text-[var(--brand-text)]"
+                  >
                     Test recipient
                   </label>
                   <input
@@ -990,23 +1138,38 @@ export default async function MarketingCampaignDetailPage({
             </section>
 
             <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
-              <h2 className="text-lg font-bold text-[var(--brand-text)]">Audience check</h2>
+              <h2 className="text-lg font-bold text-[var(--brand-text)]">
+                Audience check
+              </h2>
               <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                Review the audience summary without loading a long contact ledger. Suppressed contacts are excluded before sending.
+                Review the audience summary without loading a long contact
+                ledger. Suppressed contacts are excluded before sending.
               </p>
 
               <div className="mt-4 grid grid-cols-3 gap-2">
                 <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-3 text-center">
-                  <p className="text-lg font-bold text-[var(--brand-text)]">{recipients.length}</p>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Found</p>
+                  <p className="text-lg font-bold text-[var(--brand-text)]">
+                    {recipients.length}
+                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                    Found
+                  </p>
                 </div>
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-center">
-                  <p className="text-lg font-bold text-emerald-800">{includedRecipients.length}</p>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Ready</p>
+                  <p className="text-lg font-bold text-emerald-800">
+                    {includedRecipients.length}
+                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                    Ready
+                  </p>
                 </div>
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-center">
-                  <p className="text-lg font-bold text-amber-800">{suppressedRecipients.length}</p>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Suppressed</p>
+                  <p className="text-lg font-bold text-amber-800">
+                    {suppressedRecipients.length}
+                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                    Suppressed
+                  </p>
                 </div>
               </div>
 
@@ -1027,10 +1190,16 @@ export default async function MarketingCampaignDetailPage({
                             <p className="truncate text-sm font-semibold text-[var(--brand-text)]">
                               {recipient.name || recipient.email}
                             </p>
-                            <p className="truncate text-xs text-[var(--brand-muted)]">{recipient.email}</p>
-                            <p className="mt-1 text-xs text-[var(--brand-muted)]">{recipient.source}</p>
+                            <p className="truncate text-xs text-[var(--brand-muted)]">
+                              {recipient.email}
+                            </p>
+                            <p className="mt-1 text-xs text-[var(--brand-muted)]">
+                              {recipient.source}
+                            </p>
                           </div>
-                          <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${recipient.unsubscribed ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
+                          <span
+                            className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-bold ${recipient.unsubscribed ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}
+                          >
                             {recipient.unsubscribed ? "Suppressed" : "Ready"}
                           </span>
                         </div>
@@ -1044,7 +1213,9 @@ export default async function MarketingCampaignDetailPage({
 
                   {remainingRecipientCount > 0 ? (
                     <p className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-white px-3 py-2 text-xs text-[var(--brand-muted)]">
-                      Showing 5 sample recipients. {remainingRecipientCount} more are included in the audience summary but hidden to keep this page usable on mobile.
+                      Showing 5 sample recipients. {remainingRecipientCount}{" "}
+                      more are included in the audience summary but hidden to
+                      keep this page usable on mobile.
                     </p>
                   ) : null}
                 </div>
@@ -1052,38 +1223,66 @@ export default async function MarketingCampaignDetailPage({
             </section>
 
             <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
-              <h2 className="text-lg font-bold text-[var(--brand-text)]">Prepare send list</h2>
+              <h2 className="text-lg font-bold text-[var(--brand-text)]">
+                Prepare send list
+              </h2>
               <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                Lock in the current audience for this campaign. Unsubscribed contacts are kept out of the pending send queue.
+                Lock in the current audience for this campaign. Unsubscribed
+                contacts are kept out of the pending send queue.
               </p>
 
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-3 text-center">
-                  <p className="text-lg font-bold text-[var(--brand-text)]">{totalPreparedRecipients}</p>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Prepared</p>
+                  <p className="text-lg font-bold text-[var(--brand-text)]">
+                    {totalPreparedRecipients}
+                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                    Prepared
+                  </p>
                 </div>
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-3 text-center">
-                  <p className="text-lg font-bold text-emerald-800">{recipientStatusCounts.pending}</p>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">Pending</p>
+                  <p className="text-lg font-bold text-emerald-800">
+                    {recipientStatusCounts.pending}
+                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">
+                    Pending
+                  </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-center">
-                  <p className="text-lg font-bold text-slate-800">{recipientStatusCounts.sent}</p>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-700">Sent</p>
+                  <p className="text-lg font-bold text-slate-800">
+                    {recipientStatusCounts.sent}
+                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-700">
+                    Sent
+                  </p>
                 </div>
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-center">
-                  <p className="text-lg font-bold text-amber-800">{recipientStatusCounts.unsubscribed + recipientStatusCounts.skipped + recipientStatusCounts.failed}</p>
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">Other</p>
+                  <p className="text-lg font-bold text-amber-800">
+                    {recipientStatusCounts.unsubscribed +
+                      recipientStatusCounts.skipped +
+                      recipientStatusCounts.failed}
+                  </p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-700">
+                    Other
+                  </p>
                 </div>
               </div>
 
-              <form action={generateMarketingCampaignRecipientsAction} className="mt-4">
+              <form
+                action={generateMarketingCampaignRecipientsAction}
+                className="mt-4"
+              >
                 <input type="hidden" name="campaignId" value={campaign.id} />
                 <button
                   type="submit"
-                  disabled={campaign.status === "sent" || campaign.status === "sending"}
+                  disabled={
+                    campaign.status === "sent" || campaign.status === "sending"
+                  }
                   className="inline-flex w-full items-center justify-center rounded-2xl border border-[var(--brand-border)] bg-white px-5 py-3 text-sm font-bold text-[var(--brand-text)] shadow-sm transition hover:bg-[var(--brand-soft-bg)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {hasGeneratedRecipients ? "Refresh Send List" : "Prepare Send List"}
+                  {hasGeneratedRecipients
+                    ? "Refresh Send List"
+                    : "Prepare Send List"}
                 </button>
               </form>
 
@@ -1104,9 +1303,13 @@ export default async function MarketingCampaignDetailPage({
                             <p className="truncate text-sm font-semibold text-[var(--brand-text)]">
                               {recipient.name || recipient.email}
                             </p>
-                            <p className="truncate text-xs text-[var(--brand-muted)]">{recipient.email}</p>
+                            <p className="truncate text-xs text-[var(--brand-muted)]">
+                              {recipient.email}
+                            </p>
                             {recipient.error_message ? (
-                              <p className="mt-1 text-xs text-red-700">{recipient.error_message}</p>
+                              <p className="mt-1 text-xs text-red-700">
+                                {recipient.error_message}
+                              </p>
                             ) : null}
                           </div>
                           <span className="shrink-0 rounded-full bg-[var(--brand-soft-bg)] px-2.5 py-1 text-xs font-bold capitalize text-[var(--brand-muted)]">
@@ -1125,62 +1328,102 @@ export default async function MarketingCampaignDetailPage({
             </section>
 
             <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
-              <h2 className="text-lg font-bold text-[var(--brand-text)]">Send campaign</h2>
+              <h2 className="text-lg font-bold text-[var(--brand-text)]">
+                Send campaign
+              </h2>
               <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                Send only after the test email looks right. DanceFlow excludes unsubscribed contacts and includes an unsubscribe link in every live marketing email.
+                Send only after the test email looks right. DanceFlow excludes
+                unsubscribed contacts and includes an unsubscribe link in every
+                live marketing email.
               </p>
 
               <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Send summary</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                  Send summary
+                </p>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
                   <div className="rounded-xl bg-white p-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Campaign</p>
-                    <p className="mt-1 truncate font-bold text-[var(--brand-text)]">{campaign.name}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                      Campaign
+                    </p>
+                    <p className="mt-1 truncate font-bold text-[var(--brand-text)]">
+                      {campaign.name}
+                    </p>
                   </div>
                   <div className="rounded-xl bg-white p-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Audience</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                      Audience
+                    </p>
                     <p className="mt-1 truncate font-bold text-[var(--brand-text)]">
-                      {audienceLabels[campaign.audience_type] ?? campaign.audience_type}
+                      {audienceLabels[campaign.audience_type] ??
+                        campaign.audience_type}
                     </p>
                     {selectedEvent ? (
-                      <p className="mt-1 truncate text-xs text-[var(--brand-muted)]">{selectedEvent.name}</p>
+                      <p className="mt-1 truncate text-xs text-[var(--brand-muted)]">
+                        {selectedEvent.name}
+                      </p>
                     ) : null}
                   </div>
                   <div className="rounded-xl bg-white p-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Pending send</p>
-                    <p className="mt-1 font-bold text-[var(--brand-text)]">{recipientStatusCounts.pending}</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                      Pending send
+                    </p>
+                    <p className="mt-1 font-bold text-[var(--brand-text)]">
+                      {recipientStatusCounts.pending}
+                    </p>
                   </div>
                   <div className="rounded-xl bg-white p-3">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Suppressed/skipped</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                      Suppressed/skipped
+                    </p>
                     <p className="mt-1 font-bold text-[var(--brand-text)]">
-                      {recipientStatusCounts.unsubscribed + recipientStatusCounts.skipped}
+                      {recipientStatusCounts.unsubscribed +
+                        recipientStatusCounts.skipped}
                     </p>
                   </div>
                 </div>
                 <div className="mt-3 rounded-xl bg-white p-3">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">Subject</p>
-                  <p className="mt-1 text-sm font-bold text-[var(--brand-text)]">{campaign.subject}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--brand-muted)]">
+                    Subject
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-[var(--brand-text)]">
+                    {campaign.subject}
+                  </p>
                 </div>
-                <div className={`mt-3 rounded-xl border p-3 text-xs leading-5 ${hasMarketingFooter ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                <div
+                  className={`mt-3 rounded-xl border p-3 text-xs leading-5 ${hasMarketingFooter ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}
+                >
                   <p className="font-bold">Marketing email footer</p>
                   {hasMarketingFooter ? (
-                    <p className="mt-1">{studioFooter?.name} · {marketingFooterAddress}</p>
+                    <p className="mt-1">
+                      {studioFooter?.name} · {marketingFooterAddress}
+                    </p>
                   ) : (
-                    <p className="mt-1">Missing. Add the studio mailing address in Settings before live campaign sending.</p>
+                    <p className="mt-1">
+                      Missing. Add the studio mailing address in Settings before
+                      live campaign sending.
+                    </p>
                   )}
                 </div>
                 <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
                   <p className="font-bold">Marketing permission reminder</p>
                   <p className="mt-1">
-                    DanceFlow will suppress unsubscribed contacts, but each studio is responsible for sending campaigns only to contacts it is allowed to email.
+                    DanceFlow will suppress unsubscribed contacts, but each
+                    studio is responsible for sending campaigns only to contacts
+                    it is allowed to email.
                   </p>
                 </div>
               </div>
 
-              <form action={sendMarketingCampaignAction} className="mt-4 space-y-4">
+              <form
+                action={sendMarketingCampaignAction}
+                className="mt-4 space-y-4"
+              >
                 <input type="hidden" name="campaignId" value={campaign.id} />
 
-                <label className={`flex gap-3 rounded-2xl border p-4 text-sm leading-6 ${canSendCampaign ? "border-amber-200 bg-amber-50 text-amber-900" : "border-[var(--brand-border)] bg-[var(--brand-soft-bg)] text-[var(--brand-muted)]"}`}>
+                <label
+                  className={`flex gap-3 rounded-2xl border p-4 text-sm leading-6 ${canSendCampaign ? "border-amber-200 bg-amber-50 text-amber-900" : "border-[var(--brand-border)] bg-[var(--brand-soft-bg)] text-[var(--brand-muted)]"}`}
+                >
                   <input
                     type="checkbox"
                     name="confirmSend"
@@ -1190,7 +1433,11 @@ export default async function MarketingCampaignDetailPage({
                     className="mt-1 h-4 w-4 rounded border-amber-300"
                   />
                   <span>
-                    I confirm this campaign is being sent to contacts this studio is allowed to email, and I understand DanceFlow will include an unsubscribe link. This will send to {recipientStatusCounts.pending} pending recipient{recipientStatusCounts.pending === 1 ? "" : "s"}.
+                    I confirm this campaign is being sent to contacts this
+                    studio is allowed to email, and I understand DanceFlow will
+                    include an unsubscribe link. This will send to{" "}
+                    {recipientStatusCounts.pending} pending recipient
+                    {recipientStatusCounts.pending === 1 ? "" : "s"}.
                   </span>
                 </label>
 
@@ -1210,7 +1457,9 @@ export default async function MarketingCampaignDetailPage({
               </form>
 
               <p className="mt-3 text-xs leading-5 text-[var(--brand-muted)]">
-                This sends the prepared pending list now. Test the email, review the send summary, and confirm the studio has permission to email this audience before sending.
+                This sends the prepared pending list now. Test the email, review
+                the send summary, and confirm the studio has permission to email
+                this audience before sending.
               </p>
             </section>
           </aside>
@@ -1219,4 +1468,3 @@ export default async function MarketingCampaignDetailPage({
     </main>
   );
 }
-

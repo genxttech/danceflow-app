@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { planHasFeature } from "@/lib/billing/plans";
 import {
   EVENT_VISIBILITY_OPTIONS,
   TIMEZONE_OPTIONS,
@@ -347,13 +348,16 @@ function isProStudioWorkspace(params: {
   subscription: SubscriptionRow | null | undefined;
   subscriptionPlan: SubscriptionPlanRow | null | undefined;
 }) {
-  return (
-    getEffectiveBillingPlan(params.workspace, params.subscriptionPlan) ===
-      "pro" &&
-    isActiveOrTrialing(
-      getEffectiveSubscriptionStatus(params.workspace, params.subscription),
-    )
+  const planCode = getEffectiveBillingPlan(
+    params.workspace,
+    params.subscriptionPlan,
   );
+  const status = getEffectiveSubscriptionStatus(
+    params.workspace,
+    params.subscription,
+  );
+
+  return isActiveOrTrialing(status) && planHasFeature(planCode, "ticketing");
 }
 
 function isOrganizerWorkspaceName(value: string | null | undefined) {
@@ -645,7 +649,10 @@ function parseGuestCoaches(formData: FormData): GuestCoachPayload[] {
         ) ?? 0;
       const price =
         parseOptionalNumber(
-          getString(formData, `guestCoach_${coachIndex}_block_${blockIndex}_price`),
+          getString(
+            formData,
+            `guestCoach_${coachIndex}_block_${blockIndex}_price`,
+          ),
         ) ?? 0;
       const locationLabel = getString(
         formData,
@@ -689,7 +696,6 @@ function parseGuestCoaches(formData: FormData): GuestCoachPayload[] {
 
   return coaches;
 }
-
 
 function normalizeStyleKeysForSingleCategory(styleKeys: string[]) {
   const uniqueStyleKeys = Array.from(
@@ -1483,7 +1489,9 @@ function normalizeTimeForDateTime(time: string) {
 }
 
 function parseDateParts(value: string) {
-  const [year, month, day] = value.split("-").map((part) => Number.parseInt(part, 10));
+  const [year, month, day] = value
+    .split("-")
+    .map((part) => Number.parseInt(part, 10));
 
   if (!year || !month || !day) {
     return null;
@@ -1584,9 +1592,18 @@ function buildPrivateLessonSlotRows(params: {
   block: GuestCoachBlockPayload;
   timezone: string;
 }) {
-  const { eventId, coachId, blockId, studioId, organizerId, block, timezone } = params;
-  const firstStartIso = toSlotDateTimeIso(block.lessonDate, block.startTime, timezone);
-  const blockEndIso = toSlotDateTimeIso(block.lessonDate, block.endTime, timezone);
+  const { eventId, coachId, blockId, studioId, organizerId, block, timezone } =
+    params;
+  const firstStartIso = toSlotDateTimeIso(
+    block.lessonDate,
+    block.startTime,
+    timezone,
+  );
+  const blockEndIso = toSlotDateTimeIso(
+    block.lessonDate,
+    block.endTime,
+    timezone,
+  );
 
   if (!firstStartIso || !blockEndIso) {
     return [];
@@ -1596,7 +1613,10 @@ function buildPrivateLessonSlotRows(params: {
   const stepMinutes = block.durationMinutes + block.bufferMinutes;
   let slotStartIso = firstStartIso;
 
-  while (new Date(addMinutesIso(slotStartIso, block.durationMinutes)) <= new Date(blockEndIso)) {
+  while (
+    new Date(addMinutesIso(slotStartIso, block.durationMinutes)) <=
+    new Date(blockEndIso)
+  ) {
     const slotEndIso = addMinutesIso(slotStartIso, block.durationMinutes);
 
     rows.push({
@@ -1628,7 +1648,8 @@ async function replaceGuestCoachPrivateLessons(params: {
   guestCoaches: GuestCoachPayload[];
   timezone: string;
 }) {
-  const { supabase, eventId, studioId, organizerId, guestCoaches, timezone } = params;
+  const { supabase, eventId, studioId, organizerId, guestCoaches, timezone } =
+    params;
 
   const { error: deleteError } = await supabase
     .from("event_guest_coaches")
@@ -1637,7 +1658,9 @@ async function replaceGuestCoachPrivateLessons(params: {
     .eq("studio_id", studioId);
 
   if (deleteError) {
-    throw new Error(`Could not clear old guest coaches: ${deleteError.message}`);
+    throw new Error(
+      `Could not clear old guest coaches: ${deleteError.message}`,
+    );
   }
 
   for (const coach of guestCoaches) {
@@ -1708,12 +1731,13 @@ async function replaceGuestCoachPrivateLessons(params: {
         .insert(slotRows);
 
       if (slotsError) {
-        throw new Error(`Could not generate private lesson slots: ${slotsError.message}`);
+        throw new Error(
+          `Could not generate private lesson slots: ${slotsError.message}`,
+        );
       }
     }
   }
 }
-
 
 async function uploadEventCoverImage(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
@@ -1825,7 +1849,6 @@ function buildInsertUpdatePayload(params: {
   };
 }
 
-
 function getSafeReturnTo(formData: FormData, fallback: string) {
   const rawReturnTo = getString(formData, "returnTo");
   if (!rawReturnTo.startsWith("/app/")) {
@@ -1899,7 +1922,11 @@ export async function bookPrivateLessonSlotOfflineAction(formData: FormData) {
   const paymentStatus = getString(formData, "paymentStatus") || "paid";
 
   if (!buyerName) {
-    redirectWithSlotMessage(formData, fallback, "private_lesson_error=buyer_name_required");
+    redirectWithSlotMessage(
+      formData,
+      fallback,
+      "private_lesson_error=buyer_name_required",
+    );
   }
 
   const validPaymentStatuses = new Set(["paid", "unpaid", "partial", "waived"]);
@@ -1930,10 +1957,16 @@ export async function bookPrivateLessonSlotOfflineAction(formData: FormData) {
       .eq("status", "available");
 
     if (updateError) {
-      throw new Error(`Could not book private lesson slot: ${updateError.message}`);
+      throw new Error(
+        `Could not book private lesson slot: ${updateError.message}`,
+      );
     }
   } catch (error) {
-    redirectWithSlotMessage(formData, fallback, "private_lesson_error=book_failed");
+    redirectWithSlotMessage(
+      formData,
+      fallback,
+      "private_lesson_error=book_failed",
+    );
   }
 
   redirectWithSlotMessage(formData, fallback, "private_lesson_booked=1");
@@ -1966,10 +1999,16 @@ export async function holdPrivateLessonSlotAction(formData: FormData) {
       .eq("status", "available");
 
     if (updateError) {
-      throw new Error(`Could not block private lesson slot: ${updateError.message}`);
+      throw new Error(
+        `Could not block private lesson slot: ${updateError.message}`,
+      );
     }
   } catch (error) {
-    redirectWithSlotMessage(formData, fallback, "private_lesson_error=block_failed");
+    redirectWithSlotMessage(
+      formData,
+      fallback,
+      "private_lesson_error=block_failed",
+    );
   }
 
   redirectWithSlotMessage(formData, fallback, "private_lesson_blocked=1");
@@ -2004,15 +2043,20 @@ export async function releasePrivateLessonSlotAction(formData: FormData) {
       .in("status", ["held", "booked", "cancelled"]);
 
     if (updateError) {
-      throw new Error(`Could not release private lesson slot: ${updateError.message}`);
+      throw new Error(
+        `Could not release private lesson slot: ${updateError.message}`,
+      );
     }
   } catch (error) {
-    redirectWithSlotMessage(formData, fallback, "private_lesson_error=release_failed");
+    redirectWithSlotMessage(
+      formData,
+      fallback,
+      "private_lesson_error=release_failed",
+    );
   }
 
   redirectWithSlotMessage(formData, fallback, "private_lesson_released=1");
 }
-
 
 function createGuestCoachScheduleToken() {
   return crypto.randomUUID().replace(/-/g, "");
@@ -2053,7 +2097,9 @@ async function requireGuestCoachScheduleAccess(formData: FormData) {
   };
 }
 
-export async function regenerateGuestCoachScheduleTokenAction(formData: FormData) {
+export async function regenerateGuestCoachScheduleTokenAction(
+  formData: FormData,
+) {
   const fallback = `/app/events/${getString(formData, "eventId")}/private-lessons`;
 
   try {
@@ -2084,10 +2130,16 @@ export async function regenerateGuestCoachScheduleTokenAction(formData: FormData
     );
   }
 
-  redirectWithSlotMessage(formData, fallback, "coach_schedule_link_regenerated=1");
+  redirectWithSlotMessage(
+    formData,
+    fallback,
+    "coach_schedule_link_regenerated=1",
+  );
 }
 
-export async function setGuestCoachScheduleLinkEnabledAction(formData: FormData) {
+export async function setGuestCoachScheduleLinkEnabledAction(
+  formData: FormData,
+) {
   const fallback = `/app/events/${getString(formData, "eventId")}/private-lessons`;
   const enabled = getString(formData, "enabled") === "true";
 
@@ -2120,7 +2172,9 @@ export async function setGuestCoachScheduleLinkEnabledAction(formData: FormData)
   redirectWithSlotMessage(
     formData,
     fallback,
-    enabled ? "coach_schedule_link_enabled=1" : "coach_schedule_link_disabled=1",
+    enabled
+      ? "coach_schedule_link_enabled=1"
+      : "coach_schedule_link_disabled=1",
   );
 }
 
@@ -2291,7 +2345,12 @@ export async function updateEventAction(
   }
 
   try {
-    const { supabase, studioId, studioRole, error: studioError } = await getStudioContext();
+    const {
+      supabase,
+      studioId,
+      studioRole,
+      error: studioError,
+    } = await getStudioContext();
 
     if (studioError) {
       return { error: studioError };
@@ -2862,5 +2921,3 @@ export async function duplicateEventAction(formData: FormData) {
 
   redirect(redirectTo);
 }
-
-

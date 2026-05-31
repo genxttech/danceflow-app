@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireStudioFeature } from "@/lib/billing/access";
 
 const AUDIENCE_TYPES = new Set([
   "manual",
@@ -60,11 +61,20 @@ function normalizeUrl(url: string) {
 }
 
 function normalizeEmail(value: unknown) {
-  return String(value ?? "").trim().toLowerCase();
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function buildName(firstName: unknown, lastName: unknown) {
   return `${String(firstName ?? "").trim()} ${String(lastName ?? "").trim()}`.trim();
+}
+
+function isSpecificEventAudience(audienceType: string) {
+  return (
+    audienceType === "specific_event_registrants" ||
+    audienceType === "specific_event_checked_in"
+  );
 }
 
 function escapeHtml(value: string) {
@@ -81,12 +91,18 @@ function plainTextToHtml(value: string) {
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean)
-    .map((paragraph) => `<p style="margin:0 0 16px;line-height:1.6;">${paragraph.replaceAll("\n", "<br />")}</p>`)
+    .map(
+      (paragraph) =>
+        `<p style="margin:0 0 16px;line-height:1.6;">${paragraph.replaceAll("\n", "<br />")}</p>`,
+    )
     .join("\n");
 }
 
 function getSiteUrl() {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(/\/$/, "");
+  return (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(
+    /\/$/,
+    "",
+  );
 }
 
 function buildCampaignEmailHtml(params: CampaignEmailParams) {
@@ -107,9 +123,10 @@ function buildCampaignEmailHtml(params: CampaignEmailParams) {
   const bodyHtml = plainTextToHtml(bodyText);
   const safeFooter = escapeHtml(footerNote);
 
-  const cta = ctaLabel && ctaUrl
-    ? `<div style="margin:28px 0 8px;"><a href="${escapeHtml(ctaUrl)}" style="display:inline-block;border-radius:14px;background:#4D1F47;color:#ffffff;font-weight:700;text-decoration:none;padding:13px 18px;">${escapeHtml(ctaLabel)}</a></div>`
-    : "";
+  const cta =
+    ctaLabel && ctaUrl
+      ? `<div style="margin:28px 0 8px;"><a href="${escapeHtml(ctaUrl)}" style="display:inline-block;border-radius:14px;background:#4D1F47;color:#ffffff;font-weight:700;text-decoration:none;padding:13px 18px;">${escapeHtml(ctaLabel)}</a></div>`
+      : "";
 
   const unsubscribe = unsubscribeUrl
     ? `<div style="margin-top:10px;">You are receiving this because you shared your email with ${safeStudioName}. <a href="${escapeHtml(unsubscribeUrl)}" style="color:#4D1F47;text-decoration:underline;">Unsubscribe</a>.</div>`
@@ -155,9 +172,10 @@ function buildCampaignEmailHtml(params: CampaignEmailParams) {
 }
 
 function buildCampaignEmailText(params: CampaignEmailParams) {
-  const cta = params.ctaLabel && params.ctaUrl
-    ? `\n\n${params.ctaLabel}: ${params.ctaUrl}`
-    : "";
+  const cta =
+    params.ctaLabel && params.ctaUrl
+      ? `\n\n${params.ctaLabel}: ${params.ctaUrl}`
+      : "";
   const unsubscribe = params.unsubscribeUrl
     ? `\n\nUnsubscribe: ${params.unsubscribeUrl}`
     : "";
@@ -181,7 +199,9 @@ async function getUnsubscribedEmails(params: {
     return new Set<string>();
   }
 
-  return new Set((data ?? []).map((row) => normalizeEmail(row.email)).filter(Boolean));
+  return new Set(
+    (data ?? []).map((row) => normalizeEmail(row.email)).filter(Boolean),
+  );
 }
 
 async function getClientRecipients(params: {
@@ -293,7 +313,10 @@ async function getRecipientPreview(params: {
   audienceType: string;
 }) {
   const { supabase, studioId, audienceType } = params;
-  const unsubscribedEmails = await getUnsubscribedEmails({ supabase, studioId });
+  const unsubscribedEmails = await getUnsubscribedEmails({
+    supabase,
+    studioId,
+  });
 
   if (audienceType === "event_attendees") {
     return getEventRecipients({ supabase, studioId, unsubscribedEmails });
@@ -303,11 +326,27 @@ async function getRecipientPreview(params: {
     return [];
   }
 
-  return getClientRecipients({ supabase, studioId, audienceType, unsubscribedEmails });
+  return getClientRecipients({
+    supabase,
+    studioId,
+    audienceType,
+    unsubscribedEmails,
+  });
 }
 
 export async function createMarketingCampaignDraftAction(formData: FormData) {
   const fallback = "/app/marketing/campaigns";
+  const requestedAudienceType =
+    getString(formData, "audienceType") || "all_active_clients";
+
+  await requireStudioFeature("marketing_campaigns");
+
+  if (
+    requestedAudienceType === "event_attendees" ||
+    isSpecificEventAudience(requestedAudienceType)
+  ) {
+    await requireStudioFeature("marketing_event_audiences");
+  }
 
   try {
     const supabase = await createClient();
@@ -318,14 +357,16 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
       redirect("/login");
     }
 
-    const { data: userResult, error: userError } = await supabase.auth.getUser();
+    const { data: userResult, error: userError } =
+      await supabase.auth.getUser();
 
     if (userError || !userResult.user) {
       redirect("/login");
     }
 
     const name = getString(formData, "name");
-    const audienceType = getString(formData, "audienceType") || "all_active_clients";
+    const audienceType =
+      getString(formData, "audienceType") || "all_active_clients";
     const subject = getString(formData, "subject");
     const previewText = getString(formData, "previewText");
     const bodyText = getString(formData, "bodyText");
@@ -337,7 +378,9 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
     }
 
     if (!AUDIENCE_TYPES.has(audienceType)) {
-      redirect(appendQueryParam(fallback, "campaign_error", "invalid_audience"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "invalid_audience"),
+      );
     }
 
     if (!subject) {
@@ -376,6 +419,7 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
 }
 
 export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
+  await requireStudioFeature("marketing_campaigns");
   const campaignId = getString(formData, "campaignId");
   const fallback = campaignId
     ? `/app/marketing/campaigns/${campaignId}`
@@ -384,14 +428,18 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
   try {
     if (!process.env.RESEND_API_KEY) {
       console.error("RESEND_API_KEY is not configured");
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_resend_key"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "missing_resend_key"),
+      );
     }
 
     const fromEmail = process.env.MARKETING_FROM_EMAIL;
 
     if (!fromEmail) {
       console.error("MARKETING_FROM_EMAIL is not configured");
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_from_email"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "missing_from_email"),
+      );
     }
 
     const supabase = await createClient();
@@ -402,7 +450,8 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
       redirect("/login");
     }
 
-    const { data: userResult, error: userError } = await supabase.auth.getUser();
+    const { data: userResult, error: userError } =
+      await supabase.auth.getUser();
 
     if (userError || !userResult.user?.email) {
       redirect("/login");
@@ -410,15 +459,22 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
 
     const testEmail = getString(formData, "testEmail") || userResult.user.email;
 
-    const [{ data: campaign, error: campaignError }, { data: studio }] = await Promise.all([
-      supabase
-        .from("marketing_campaigns")
-        .select("id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, status")
-        .eq("id", campaignId)
-        .eq("studio_id", studioId)
-        .maybeSingle(),
-      supabase.from("studios").select("name").eq("id", studioId).maybeSingle(),
-    ]);
+    const [{ data: campaign, error: campaignError }, { data: studio }] =
+      await Promise.all([
+        supabase
+          .from("marketing_campaigns")
+          .select(
+            "id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, status",
+          )
+          .eq("id", campaignId)
+          .eq("studio_id", studioId)
+          .maybeSingle(),
+        supabase
+          .from("studios")
+          .select("name")
+          .eq("id", studioId)
+          .maybeSingle(),
+      ]);
 
     if (campaignError || !campaign) {
       console.error("marketing campaign test lookup failed", campaignError);
@@ -431,7 +487,8 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
 
     const studioName = String(studio?.name ?? "DanceFlow Studio");
     const resend = new Resend(process.env.RESEND_API_KEY);
-    const replyTo = process.env.MARKETING_REPLY_TO_EMAIL || userResult.user.email;
+    const replyTo =
+      process.env.MARKETING_REPLY_TO_EMAIL || userResult.user.email;
 
     const html = buildCampaignEmailHtml({
       studioName,
@@ -451,7 +508,8 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
       bodyText: campaign.body_text,
       ctaLabel: campaign.cta_label,
       ctaUrl: campaign.cta_url,
-      footerNote: "This is a DanceFlow test email. No campaign recipients were contacted.",
+      footerNote:
+        "This is a DanceFlow test email. No campaign recipients were contacted.",
     });
 
     const { error: sendError } = await resend.emails.send({
@@ -465,7 +523,9 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
 
     if (sendError) {
       console.error("send marketing campaign test failed", sendError);
-      redirect(appendQueryParam(fallback, "campaign_error", "test_send_failed"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "test_send_failed"),
+      );
     }
   } catch (error) {
     console.error("sendMarketingCampaignTestEmailAction failed", error);
@@ -475,7 +535,10 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
   redirect(appendQueryParam(fallback, "test_sent", "1"));
 }
 
-export async function generateMarketingCampaignRecipientsAction(formData: FormData) {
+export async function generateMarketingCampaignRecipientsAction(
+  formData: FormData,
+) {
+  await requireStudioFeature("marketing_campaigns");
   const campaignId = getString(formData, "campaignId");
   const fallback = campaignId
     ? `/app/marketing/campaigns/${campaignId}`
@@ -498,7 +561,10 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
       .maybeSingle();
 
     if (campaignError || !campaign) {
-      console.error("generate recipients campaign lookup failed", campaignError);
+      console.error(
+        "generate recipients campaign lookup failed",
+        campaignError,
+      );
       redirect(appendQueryParam(fallback, "campaign_error", "not_found"));
     }
 
@@ -520,7 +586,9 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
       name: recipient.name || null,
       status: recipient.unsubscribed ? "unsubscribed" : "pending",
       unsubscribe_token: randomUUID(),
-      error_message: recipient.unsubscribed ? "Suppressed by unsubscribe list" : null,
+      error_message: recipient.unsubscribed
+        ? "Suppressed by unsubscribe list"
+        : null,
     }));
 
     const { error: deleteError } = await supabase
@@ -531,7 +599,13 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
 
     if (deleteError) {
       console.error("delete existing campaign recipients failed", deleteError);
-      redirect(appendQueryParam(fallback, "campaign_error", "recipient_generate_failed"));
+      redirect(
+        appendQueryParam(
+          fallback,
+          "campaign_error",
+          "recipient_generate_failed",
+        ),
+      );
     }
 
     if (rows.length > 0) {
@@ -541,7 +615,13 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
 
       if (insertError) {
         console.error("insert campaign recipients failed", insertError);
-        redirect(appendQueryParam(fallback, "campaign_error", "recipient_generate_failed"));
+        redirect(
+          appendQueryParam(
+            fallback,
+            "campaign_error",
+            "recipient_generate_failed",
+          ),
+        );
       }
     }
 
@@ -552,13 +632,16 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
       .eq("studio_id", studioId);
   } catch (error) {
     console.error("generateMarketingCampaignRecipientsAction failed", error);
-    redirect(appendQueryParam(fallback, "campaign_error", "recipient_generate_failed"));
+    redirect(
+      appendQueryParam(fallback, "campaign_error", "recipient_generate_failed"),
+    );
   }
 
   redirect(appendQueryParam(fallback, "recipients_generated", "1"));
 }
 
 export async function sendMarketingCampaignAction(formData: FormData) {
+  await requireStudioFeature("marketing_campaigns");
   const campaignId = getString(formData, "campaignId");
   const fallback = campaignId
     ? `/app/marketing/campaigns/${campaignId}`
@@ -566,13 +649,17 @@ export async function sendMarketingCampaignAction(formData: FormData) {
 
   try {
     if (!process.env.RESEND_API_KEY) {
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_resend_key"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "missing_resend_key"),
+      );
     }
 
     const fromEmail = process.env.MARKETING_FROM_EMAIL;
 
     if (!fromEmail) {
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_from_email"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "missing_from_email"),
+      );
     }
 
     const supabase = await createClient();
@@ -583,21 +670,29 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       redirect("/login");
     }
 
-    const { data: userResult, error: userError } = await supabase.auth.getUser();
+    const { data: userResult, error: userError } =
+      await supabase.auth.getUser();
 
     if (userError || !userResult.user?.email) {
       redirect("/login");
     }
 
-    const [{ data: campaign, error: campaignError }, { data: studio }] = await Promise.all([
-      supabase
-        .from("marketing_campaigns")
-        .select("id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, status")
-        .eq("id", campaignId)
-        .eq("studio_id", studioId)
-        .maybeSingle(),
-      supabase.from("studios").select("name").eq("id", studioId).maybeSingle(),
-    ]);
+    const [{ data: campaign, error: campaignError }, { data: studio }] =
+      await Promise.all([
+        supabase
+          .from("marketing_campaigns")
+          .select(
+            "id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, status",
+          )
+          .eq("id", campaignId)
+          .eq("studio_id", studioId)
+          .maybeSingle(),
+        supabase
+          .from("studios")
+          .select("name")
+          .eq("id", studioId)
+          .maybeSingle(),
+      ]);
 
     if (campaignError || !campaign) {
       console.error("send campaign lookup failed", campaignError);
@@ -609,7 +704,9 @@ export async function sendMarketingCampaignAction(formData: FormData) {
     }
 
     if (campaign.status === "sent") {
-      redirect(appendQueryParam(fallback, "campaign_error", "campaign_already_sent"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "campaign_already_sent"),
+      );
     }
 
     if (campaign.status === "sending") {
@@ -617,7 +714,9 @@ export async function sendMarketingCampaignAction(formData: FormData) {
     }
 
     if (getString(formData, "confirmSend") !== "yes") {
-      redirect(appendQueryParam(fallback, "campaign_error", "send_not_confirmed"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "send_not_confirmed"),
+      );
     }
 
     const { data: pendingRecipients, error: recipientsError } = await supabase
@@ -634,7 +733,9 @@ export async function sendMarketingCampaignAction(formData: FormData) {
     }
 
     if (!pendingRecipients || pendingRecipients.length === 0) {
-      redirect(appendQueryParam(fallback, "campaign_error", "no_pending_recipients"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "no_pending_recipients"),
+      );
     }
 
     await supabase
@@ -644,7 +745,8 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       .eq("studio_id", studioId);
 
     const studioName = String(studio?.name ?? "DanceFlow Studio");
-    const replyTo = process.env.MARKETING_REPLY_TO_EMAIL || userResult.user.email;
+    const replyTo =
+      process.env.MARKETING_REPLY_TO_EMAIL || userResult.user.email;
     const resend = new Resend(process.env.RESEND_API_KEY);
 
     for (const recipient of pendingRecipients) {
@@ -674,7 +776,8 @@ export async function sendMarketingCampaignAction(formData: FormData) {
           replyTo,
         });
 
-        const messageId = typeof result.data?.id === "string" ? result.data.id : null;
+        const messageId =
+          typeof result.data?.id === "string" ? result.data.id : null;
 
         await supabase
           .from("marketing_campaign_recipients")
@@ -697,7 +800,8 @@ export async function sendMarketingCampaignAction(formData: FormData) {
           .from("marketing_campaign_recipients")
           .update({
             status: "failed",
-            error_message: error instanceof Error ? error.message : "Send failed",
+            error_message:
+              error instanceof Error ? error.message : "Send failed",
           })
           .eq("id", recipient.id)
           .eq("studio_id", studioId);
@@ -738,6 +842,3 @@ export async function sendMarketingCampaignAction(formData: FormData) {
 
   redirect(appendQueryParam(fallback, "campaign_sent", "1"));
 }
-
-
-

@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Resend } from "resend";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireStudioFeature } from "@/lib/billing/access";
 
 const AUDIENCE_TYPES = new Set([
   "manual",
@@ -75,7 +76,9 @@ function normalizeUrl(url: string) {
 }
 
 function normalizeEmail(value: unknown) {
-  return String(value ?? "").trim().toLowerCase();
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function buildName(firstName: unknown, lastName: unknown) {
@@ -83,7 +86,10 @@ function buildName(firstName: unknown, lastName: unknown) {
 }
 
 function isSpecificEventAudience(audienceType: string) {
-  return audienceType === "specific_event_registrants" || audienceType === "specific_event_checked_in";
+  return (
+    audienceType === "specific_event_registrants" ||
+    audienceType === "specific_event_checked_in"
+  );
 }
 
 function escapeHtml(value: string) {
@@ -100,30 +106,40 @@ function plainTextToHtml(value: string) {
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean)
-    .map((paragraph) => `<p style="margin:0 0 16px;line-height:1.6;">${paragraph.replaceAll("\n", "<br />")}</p>`)
+    .map(
+      (paragraph) =>
+        `<p style="margin:0 0 16px;line-height:1.6;">${paragraph.replaceAll("\n", "<br />")}</p>`,
+    )
     .join("\n");
 }
 
 function getSiteUrl() {
-  return (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(/\/$/, "");
+  return (process.env.NEXT_PUBLIC_SITE_URL || "https://idanceflow.com").replace(
+    /\/$/,
+    "",
+  );
 }
 
 function cleanFooterPart(value: unknown) {
   return String(value ?? "").trim();
 }
 
-function hasMarketingFooterAddress(studio: StudioMarketingFooterSettings | null | undefined) {
+function hasMarketingFooterAddress(
+  studio: StudioMarketingFooterSettings | null | undefined,
+) {
   return Boolean(
     cleanFooterPart(studio?.name) &&
-      cleanFooterPart(studio?.address_line_1) &&
-      cleanFooterPart(studio?.city) &&
-      cleanFooterPart(studio?.state) &&
-      cleanFooterPart(studio?.postal_code) &&
-      cleanFooterPart(studio?.country),
+    cleanFooterPart(studio?.address_line_1) &&
+    cleanFooterPart(studio?.city) &&
+    cleanFooterPart(studio?.state) &&
+    cleanFooterPart(studio?.postal_code) &&
+    cleanFooterPart(studio?.country),
   );
 }
 
-function buildStudioMarketingFooterNote(studio: StudioMarketingFooterSettings | null | undefined) {
+function buildStudioMarketingFooterNote(
+  studio: StudioMarketingFooterSettings | null | undefined,
+) {
   const studioName = cleanFooterPart(studio?.name) || "DanceFlow Studio";
   const addressParts = [
     cleanFooterPart(studio?.address_line_1),
@@ -145,8 +161,15 @@ function buildStudioMarketingFooterNote(studio: StudioMarketingFooterSettings | 
   return `${studioName} · ${addressParts.join(" · ")} · Sent with DanceFlow.`;
 }
 
-function getStudioReplyToEmail(studio: StudioMarketingFooterSettings | null | undefined, fallbackEmail: string) {
-  return process.env.MARKETING_REPLY_TO_EMAIL || cleanFooterPart(studio?.email) || fallbackEmail;
+function getStudioReplyToEmail(
+  studio: StudioMarketingFooterSettings | null | undefined,
+  fallbackEmail: string,
+) {
+  return (
+    process.env.MARKETING_REPLY_TO_EMAIL ||
+    cleanFooterPart(studio?.email) ||
+    fallbackEmail
+  );
 }
 
 function buildCampaignEmailHtml(params: CampaignEmailParams) {
@@ -167,9 +190,10 @@ function buildCampaignEmailHtml(params: CampaignEmailParams) {
   const bodyHtml = plainTextToHtml(bodyText);
   const safeFooter = escapeHtml(footerNote);
 
-  const cta = ctaLabel && ctaUrl
-    ? `<div style="margin:28px 0 8px;"><a href="${escapeHtml(ctaUrl)}" style="display:inline-block;border-radius:14px;background:#4D1F47;color:#ffffff;font-weight:700;text-decoration:none;padding:13px 18px;">${escapeHtml(ctaLabel)}</a></div>`
-    : "";
+  const cta =
+    ctaLabel && ctaUrl
+      ? `<div style="margin:28px 0 8px;"><a href="${escapeHtml(ctaUrl)}" style="display:inline-block;border-radius:14px;background:#4D1F47;color:#ffffff;font-weight:700;text-decoration:none;padding:13px 18px;">${escapeHtml(ctaLabel)}</a></div>`
+      : "";
 
   const unsubscribe = unsubscribeUrl
     ? `<div style="margin-top:10px;">You are receiving this because you shared your email with ${safeStudioName}. <a href="${escapeHtml(unsubscribeUrl)}" style="color:#4D1F47;text-decoration:underline;">Unsubscribe</a>.</div>`
@@ -215,9 +239,10 @@ function buildCampaignEmailHtml(params: CampaignEmailParams) {
 }
 
 function buildCampaignEmailText(params: CampaignEmailParams) {
-  const cta = params.ctaLabel && params.ctaUrl
-    ? `\n\n${params.ctaLabel}: ${params.ctaUrl}`
-    : "";
+  const cta =
+    params.ctaLabel && params.ctaUrl
+      ? `\n\n${params.ctaLabel}: ${params.ctaUrl}`
+      : "";
   const unsubscribe = params.unsubscribeUrl
     ? `\n\nUnsubscribe: ${params.unsubscribeUrl}`
     : "";
@@ -241,7 +266,9 @@ async function getUnsubscribedEmails(params: {
     return new Set<string>();
   }
 
-  return new Set((data ?? []).map((row) => normalizeEmail(row.email)).filter(Boolean));
+  return new Set(
+    (data ?? []).map((row) => normalizeEmail(row.email)).filter(Boolean),
+  );
 }
 
 async function getClientRecipients(params: {
@@ -255,24 +282,26 @@ async function getClientRecipients(params: {
   const baseClientSelect = "id, first_name, last_name, email, status";
 
   if (audienceType === "clients_no_upcoming_lesson") {
-    const [{ data: clients, error: clientsError }, { data: appointments, error: appointmentsError }] =
-      await Promise.all([
-        supabase
-          .from("clients")
-          .select(baseClientSelect)
-          .eq("studio_id", studioId)
-          .eq("status", "active")
-          .not("email", "is", null)
-          .limit(5000),
-        supabase
-          .from("appointments")
-          .select("client_id")
-          .eq("studio_id", studioId)
-          .eq("status", "scheduled")
-          .gte("starts_at", new Date().toISOString())
-          .not("client_id", "is", null)
-          .limit(10000),
-      ]);
+    const [
+      { data: clients, error: clientsError },
+      { data: appointments, error: appointmentsError },
+    ] = await Promise.all([
+      supabase
+        .from("clients")
+        .select(baseClientSelect)
+        .eq("studio_id", studioId)
+        .eq("status", "active")
+        .not("email", "is", null)
+        .limit(5000),
+      supabase
+        .from("appointments")
+        .select("client_id")
+        .eq("studio_id", studioId)
+        .eq("status", "scheduled")
+        .gte("starts_at", new Date().toISOString())
+        .not("client_id", "is", null)
+        .limit(10000),
+    ]);
 
     if (clientsError || appointmentsError) {
       console.error("Failed to load no-upcoming-lesson campaign audience", {
@@ -308,12 +337,19 @@ async function getClientRecipients(params: {
       .limit(10000);
 
     if (packagesError) {
-      console.error("Failed to load low-credit package audience", packagesError);
+      console.error(
+        "Failed to load low-credit package audience",
+        packagesError,
+      );
       return [];
     }
 
     const lowCreditClientIds = Array.from(
-      new Set((packages ?? []).map((pkg) => String(pkg.client_id ?? "")).filter(Boolean)),
+      new Set(
+        (packages ?? [])
+          .map((pkg) => String(pkg.client_id ?? ""))
+          .filter(Boolean),
+      ),
     );
 
     if (lowCreditClientIds.length === 0) {
@@ -455,19 +491,25 @@ async function getEventRecipients(params: {
 
     const { data: registrations, error: registrationsError } = await supabase
       .from("event_registrations")
-      .select("id, client_id, attendee_first_name, attendee_last_name, attendee_email, status, event_id")
+      .select(
+        "id, client_id, attendee_first_name, attendee_last_name, attendee_email, status, event_id",
+      )
       .eq("studio_id", studioId)
       .eq("event_id", audienceEventId)
       .not("attendee_email", "is", null)
       .limit(5000);
 
     if (registrationsError) {
-      console.error("Failed to load specific event campaign registrations", registrationsError);
+      console.error(
+        "Failed to load specific event campaign registrations",
+        registrationsError,
+      );
       return [];
     }
 
     const activeRegistrations = (registrations ?? []).filter(
-      (registration) => String(registration.status ?? "").toLowerCase() !== "cancelled",
+      (registration) =>
+        String(registration.status ?? "").toLowerCase() !== "cancelled",
     );
 
     const activeRegistrationIds = activeRegistrations
@@ -491,7 +533,10 @@ async function getEventRecipients(params: {
         .limit(5000);
 
       if (attendeesError) {
-        console.error("Failed to load specific event campaign attendees", attendeesError);
+        console.error(
+          "Failed to load specific event campaign attendees",
+          attendeesError,
+        );
         return [];
       }
 
@@ -531,7 +576,9 @@ async function getEventRecipients(params: {
 
   const { data, error } = await supabase
     .from("event_registrations")
-    .select("client_id, attendee_first_name, attendee_last_name, attendee_email, status")
+    .select(
+      "client_id, attendee_first_name, attendee_last_name, attendee_email, status",
+    )
     .eq("studio_id", studioId)
     .not("attendee_email", "is", null)
     .limit(5000);
@@ -565,9 +612,15 @@ async function getRecipientPreview(params: {
   audienceEventId?: string | null;
 }) {
   const { supabase, studioId, audienceType, audienceEventId } = params;
-  const unsubscribedEmails = await getUnsubscribedEmails({ supabase, studioId });
+  const unsubscribedEmails = await getUnsubscribedEmails({
+    supabase,
+    studioId,
+  });
 
-  if (audienceType === "event_attendees" || isSpecificEventAudience(audienceType)) {
+  if (
+    audienceType === "event_attendees" ||
+    isSpecificEventAudience(audienceType)
+  ) {
     return getEventRecipients({
       supabase,
       studioId,
@@ -581,11 +634,27 @@ async function getRecipientPreview(params: {
     return [];
   }
 
-  return getClientRecipients({ supabase, studioId, audienceType, unsubscribedEmails });
+  return getClientRecipients({
+    supabase,
+    studioId,
+    audienceType,
+    unsubscribedEmails,
+  });
 }
 
 export async function createMarketingCampaignDraftAction(formData: FormData) {
   const fallback = "/app/marketing/campaigns";
+  const requestedAudienceType =
+    getString(formData, "audienceType") || "all_active_clients";
+
+  await requireStudioFeature("marketing_campaigns");
+
+  if (
+    requestedAudienceType === "event_attendees" ||
+    isSpecificEventAudience(requestedAudienceType)
+  ) {
+    await requireStudioFeature("marketing_event_audiences");
+  }
 
   try {
     const supabase = await createClient();
@@ -596,14 +665,16 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
       redirect("/login");
     }
 
-    const { data: userResult, error: userError } = await supabase.auth.getUser();
+    const { data: userResult, error: userError } =
+      await supabase.auth.getUser();
 
     if (userError || !userResult.user) {
       redirect("/login");
     }
 
     const name = getString(formData, "name");
-    const audienceType = getString(formData, "audienceType") || "all_active_clients";
+    const audienceType =
+      getString(formData, "audienceType") || "all_active_clients";
     const audienceEventId = getString(formData, "audienceEventId");
     const subject = getString(formData, "subject");
     const previewText = getString(formData, "previewText");
@@ -616,7 +687,9 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
     }
 
     if (!AUDIENCE_TYPES.has(audienceType)) {
-      redirect(appendQueryParam(fallback, "campaign_error", "invalid_audience"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "invalid_audience"),
+      );
     }
 
     if (isSpecificEventAudience(audienceType) && !audienceEventId) {
@@ -648,7 +721,9 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
       studio_id: studioId,
       name,
       audience_type: audienceType,
-      audience_event_id: isSpecificEventAudience(audienceType) ? audienceEventId : null,
+      audience_event_id: isSpecificEventAudience(audienceType)
+        ? audienceEventId
+        : null,
       subject,
       preview_text: previewText || null,
       body_text: bodyText,
@@ -673,6 +748,7 @@ export async function createMarketingCampaignDraftAction(formData: FormData) {
 }
 
 export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
+  await requireStudioFeature("marketing_campaigns");
   const campaignId = getString(formData, "campaignId");
   const fallback = campaignId
     ? `/app/marketing/campaigns/${campaignId}`
@@ -681,14 +757,18 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
   try {
     if (!process.env.RESEND_API_KEY) {
       console.error("RESEND_API_KEY is not configured");
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_resend_key"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "missing_resend_key"),
+      );
     }
 
     const fromEmail = process.env.MARKETING_FROM_EMAIL;
 
     if (!fromEmail) {
       console.error("MARKETING_FROM_EMAIL is not configured");
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_from_email"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "missing_from_email"),
+      );
     }
 
     const supabase = await createClient();
@@ -699,7 +779,8 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
       redirect("/login");
     }
 
-    const { data: userResult, error: userError } = await supabase.auth.getUser();
+    const { data: userResult, error: userError } =
+      await supabase.auth.getUser();
 
     if (userError || !userResult.user?.email) {
       redirect("/login");
@@ -707,19 +788,24 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
 
     const testEmail = getString(formData, "testEmail") || userResult.user.email;
 
-    const [{ data: campaign, error: campaignError }, { data: studio }] = await Promise.all([
-      supabase
-        .from("marketing_campaigns")
-        .select("id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, status")
-        .eq("id", campaignId)
-        .eq("studio_id", studioId)
-        .maybeSingle(),
-      supabase
-        .from("studios")
-        .select("name, email, address_line_1, address_line_2, city, state, postal_code, country")
-        .eq("id", studioId)
-        .maybeSingle(),
-    ]);
+    const [{ data: campaign, error: campaignError }, { data: studio }] =
+      await Promise.all([
+        supabase
+          .from("marketing_campaigns")
+          .select(
+            "id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, status",
+          )
+          .eq("id", campaignId)
+          .eq("studio_id", studioId)
+          .maybeSingle(),
+        supabase
+          .from("studios")
+          .select(
+            "name, email, address_line_1, address_line_2, city, state, postal_code, country",
+          )
+          .eq("id", studioId)
+          .maybeSingle(),
+      ]);
 
     if (campaignError || !campaign) {
       console.error("marketing campaign test lookup failed", campaignError);
@@ -768,7 +854,9 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
 
     if (sendError) {
       console.error("send marketing campaign test failed", sendError);
-      redirect(appendQueryParam(fallback, "campaign_error", "test_send_failed"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "test_send_failed"),
+      );
     }
   } catch (error) {
     console.error("sendMarketingCampaignTestEmailAction failed", error);
@@ -778,7 +866,10 @@ export async function sendMarketingCampaignTestEmailAction(formData: FormData) {
   redirect(appendQueryParam(fallback, "test_sent", "1"));
 }
 
-export async function generateMarketingCampaignRecipientsAction(formData: FormData) {
+export async function generateMarketingCampaignRecipientsAction(
+  formData: FormData,
+) {
+  await requireStudioFeature("marketing_campaigns");
   const campaignId = getString(formData, "campaignId");
   const fallback = campaignId
     ? `/app/marketing/campaigns/${campaignId}`
@@ -801,7 +892,10 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
       .maybeSingle();
 
     if (campaignError || !campaign) {
-      console.error("generate recipients campaign lookup failed", campaignError);
+      console.error(
+        "generate recipients campaign lookup failed",
+        campaignError,
+      );
       redirect(appendQueryParam(fallback, "campaign_error", "not_found"));
     }
 
@@ -813,7 +907,10 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
       supabase,
       studioId,
       audienceType: String(campaign.audience_type ?? "manual"),
-      audienceEventId: typeof campaign.audience_event_id === "string" ? campaign.audience_event_id : null,
+      audienceEventId:
+        typeof campaign.audience_event_id === "string"
+          ? campaign.audience_event_id
+          : null,
     });
 
     const rows = recipients.map((recipient) => ({
@@ -824,7 +921,9 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
       name: recipient.name || null,
       status: recipient.unsubscribed ? "unsubscribed" : "pending",
       unsubscribe_token: randomUUID(),
-      error_message: recipient.unsubscribed ? "Suppressed by unsubscribe list" : null,
+      error_message: recipient.unsubscribed
+        ? "Suppressed by unsubscribe list"
+        : null,
     }));
 
     const { error: deleteError } = await supabase
@@ -835,7 +934,13 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
 
     if (deleteError) {
       console.error("delete existing campaign recipients failed", deleteError);
-      redirect(appendQueryParam(fallback, "campaign_error", "recipient_generate_failed"));
+      redirect(
+        appendQueryParam(
+          fallback,
+          "campaign_error",
+          "recipient_generate_failed",
+        ),
+      );
     }
 
     if (rows.length > 0) {
@@ -845,7 +950,13 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
 
       if (insertError) {
         console.error("insert campaign recipients failed", insertError);
-        redirect(appendQueryParam(fallback, "campaign_error", "recipient_generate_failed"));
+        redirect(
+          appendQueryParam(
+            fallback,
+            "campaign_error",
+            "recipient_generate_failed",
+          ),
+        );
       }
     }
 
@@ -856,13 +967,16 @@ export async function generateMarketingCampaignRecipientsAction(formData: FormDa
       .eq("studio_id", studioId);
   } catch (error) {
     console.error("generateMarketingCampaignRecipientsAction failed", error);
-    redirect(appendQueryParam(fallback, "campaign_error", "recipient_generate_failed"));
+    redirect(
+      appendQueryParam(fallback, "campaign_error", "recipient_generate_failed"),
+    );
   }
 
   redirect(appendQueryParam(fallback, "recipients_generated", "1"));
 }
 
 export async function sendMarketingCampaignAction(formData: FormData) {
+  await requireStudioFeature("marketing_campaigns");
   const campaignId = getString(formData, "campaignId");
   const fallback = campaignId
     ? `/app/marketing/campaigns/${campaignId}`
@@ -870,13 +984,17 @@ export async function sendMarketingCampaignAction(formData: FormData) {
 
   try {
     if (!process.env.RESEND_API_KEY) {
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_resend_key"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "missing_resend_key"),
+      );
     }
 
     const fromEmail = process.env.MARKETING_FROM_EMAIL;
 
     if (!fromEmail) {
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_from_email"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "missing_from_email"),
+      );
     }
 
     const supabase = await createClient();
@@ -887,25 +1005,31 @@ export async function sendMarketingCampaignAction(formData: FormData) {
       redirect("/login");
     }
 
-    const { data: userResult, error: userError } = await supabase.auth.getUser();
+    const { data: userResult, error: userError } =
+      await supabase.auth.getUser();
 
     if (userError || !userResult.user?.email) {
       redirect("/login");
     }
 
-    const [{ data: campaign, error: campaignError }, { data: studio }] = await Promise.all([
-      supabase
-        .from("marketing_campaigns")
-        .select("id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, status")
-        .eq("id", campaignId)
-        .eq("studio_id", studioId)
-        .maybeSingle(),
-      supabase
-        .from("studios")
-        .select("name, email, address_line_1, address_line_2, city, state, postal_code, country")
-        .eq("id", studioId)
-        .maybeSingle(),
-    ]);
+    const [{ data: campaign, error: campaignError }, { data: studio }] =
+      await Promise.all([
+        supabase
+          .from("marketing_campaigns")
+          .select(
+            "id, studio_id, name, subject, preview_text, body_text, cta_label, cta_url, status",
+          )
+          .eq("id", campaignId)
+          .eq("studio_id", studioId)
+          .maybeSingle(),
+        supabase
+          .from("studios")
+          .select(
+            "name, email, address_line_1, address_line_2, city, state, postal_code, country",
+          )
+          .eq("id", studioId)
+          .maybeSingle(),
+      ]);
 
     if (campaignError || !campaign) {
       console.error("send campaign lookup failed", campaignError);
@@ -917,7 +1041,9 @@ export async function sendMarketingCampaignAction(formData: FormData) {
     }
 
     if (campaign.status === "sent") {
-      redirect(appendQueryParam(fallback, "campaign_error", "campaign_already_sent"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "campaign_already_sent"),
+      );
     }
 
     if (campaign.status === "sending") {
@@ -925,11 +1051,19 @@ export async function sendMarketingCampaignAction(formData: FormData) {
     }
 
     if (getString(formData, "confirmSend") !== "yes") {
-      redirect(appendQueryParam(fallback, "campaign_error", "send_not_confirmed"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "send_not_confirmed"),
+      );
     }
 
     if (!hasMarketingFooterAddress(studio)) {
-      redirect(appendQueryParam(fallback, "campaign_error", "missing_marketing_footer"));
+      redirect(
+        appendQueryParam(
+          fallback,
+          "campaign_error",
+          "missing_marketing_footer",
+        ),
+      );
     }
 
     const { data: pendingRecipients, error: recipientsError } = await supabase
@@ -946,7 +1080,9 @@ export async function sendMarketingCampaignAction(formData: FormData) {
     }
 
     if (!pendingRecipients || pendingRecipients.length === 0) {
-      redirect(appendQueryParam(fallback, "campaign_error", "no_pending_recipients"));
+      redirect(
+        appendQueryParam(fallback, "campaign_error", "no_pending_recipients"),
+      );
     }
 
     await supabase
@@ -987,7 +1123,8 @@ export async function sendMarketingCampaignAction(formData: FormData) {
           replyTo,
         });
 
-        const messageId = typeof result.data?.id === "string" ? result.data.id : null;
+        const messageId =
+          typeof result.data?.id === "string" ? result.data.id : null;
 
         await supabase
           .from("marketing_campaign_recipients")
@@ -1010,7 +1147,8 @@ export async function sendMarketingCampaignAction(formData: FormData) {
           .from("marketing_campaign_recipients")
           .update({
             status: "failed",
-            error_message: error instanceof Error ? error.message : "Send failed",
+            error_message:
+              error instanceof Error ? error.message : "Send failed",
           })
           .eq("id", recipient.id)
           .eq("studio_id", studioId);
@@ -1051,10 +1189,3 @@ export async function sendMarketingCampaignAction(formData: FormData) {
 
   redirect(appendQueryParam(fallback, "campaign_sent", "1"));
 }
-
-
-
-
-
-
-

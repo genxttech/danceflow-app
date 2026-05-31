@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { planHasFeature } from "@/lib/billing/plans";
 import CopyCalendarFeedButton from "@/components/app/CopyCalendarFeedButton";
 import { duplicateEventAction } from "./actions";
 
@@ -80,7 +81,7 @@ function isOrganizerWorkspaceRole(role: string | null | undefined) {
 
 function canManageEvents(
   role: string | null | undefined,
-  isPlatformAdminRole: boolean
+  isPlatformAdminRole: boolean,
 ) {
   if (isPlatformAdminRole) return true;
 
@@ -94,7 +95,7 @@ function canManageEvents(
 
 function canManageOrganizerProfile(
   role: string | null | undefined,
-  isPlatformAdminRole: boolean
+  isPlatformAdminRole: boolean,
 ) {
   if (isPlatformAdminRole) return true;
   return role === "organizer_owner" || role === "organizer_admin";
@@ -102,7 +103,7 @@ function canManageOrganizerProfile(
 
 function canManageBilling(
   role: string | null | undefined,
-  isPlatformAdminRole: boolean
+  isPlatformAdminRole: boolean,
 ) {
   if (isPlatformAdminRole) return true;
   return role === "studio_owner" || role === "organizer_owner";
@@ -115,7 +116,7 @@ function isActiveOrTrialing(status: string | null | undefined) {
 
 function getEffectiveBillingPlan(
   workspace: WorkspaceRow | null | undefined,
-  subscriptionPlan: SubscriptionPlanRow | null | undefined
+  subscriptionPlan: SubscriptionPlanRow | null | undefined,
 ) {
   return (
     subscriptionPlan?.code?.trim().toLowerCase() ||
@@ -126,7 +127,7 @@ function getEffectiveBillingPlan(
 
 function getEffectiveSubscriptionStatus(
   workspace: WorkspaceRow | null | undefined,
-  subscription: SubscriptionRow | null | undefined
+  subscription: SubscriptionRow | null | undefined,
 ) {
   return (
     subscription?.status?.trim().toLowerCase() ||
@@ -140,13 +141,16 @@ function canUseStudioHostedEvents(params: {
   subscription: SubscriptionRow | null | undefined;
   subscriptionPlan: SubscriptionPlanRow | null | undefined;
 }) {
-  return (
-    getEffectiveBillingPlan(params.workspace, params.subscriptionPlan) ===
-      "pro" &&
-    isActiveOrTrialing(
-      getEffectiveSubscriptionStatus(params.workspace, params.subscription)
-    )
+  const planCode = getEffectiveBillingPlan(
+    params.workspace,
+    params.subscriptionPlan,
   );
+  const status = getEffectiveSubscriptionStatus(
+    params.workspace,
+    params.subscription,
+  );
+
+  return isActiveOrTrialing(status) && planHasFeature(planCode, "ticketing");
 }
 
 function statusBadgeClass(status: string) {
@@ -289,7 +293,7 @@ function seriesWeekCount(startDate: string, endDate: string | null) {
   }
 
   const days = Math.round(
-    (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)
+    (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
   );
 
   return Math.floor(days / 7) + 1;
@@ -329,7 +333,7 @@ function getOrganizer(
   value:
     | { id?: string; name: string; slug: string }
     | { id?: string; name: string; slug: string }[]
-    | null
+    | null,
 ) {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -448,7 +452,8 @@ export default async function EventsPage() {
 
     supabase
       .from("events")
-      .select(`
+      .select(
+        `
         id,
         organizer_id,
         name,
@@ -467,7 +472,8 @@ export default async function EventsPage() {
         beginner_friendly,
         public_directory_enabled,
         organizers ( id, name, slug )
-      `)
+      `,
+      )
       .eq("studio_id", studioId)
       .order("start_date", { ascending: true })
       .order("start_time", { ascending: true })
@@ -491,7 +497,7 @@ export default async function EventsPage() {
 
   if (subscriptionsError) {
     throw new Error(
-      `Failed to load subscription: ${subscriptionsError.message}`
+      `Failed to load subscription: ${subscriptionsError.message}`,
     );
   }
 
@@ -526,15 +532,15 @@ export default async function EventsPage() {
   const studioHostedEvents = !organizerWorkspace;
   const showCreateEvent = canManageEvents(
     context.studioRole,
-    context.isPlatformAdmin
+    context.isPlatformAdmin,
   );
   const showOrganizerProfile = canManageOrganizerProfile(
     context.studioRole,
-    context.isPlatformAdmin
+    context.isPlatformAdmin,
   );
   const showBilling = canManageBilling(
     context.studioRole,
-    context.isPlatformAdmin
+    context.isPlatformAdmin,
   );
 
   const typedEvents = (events ?? []) as EventRow[];
@@ -566,7 +572,8 @@ export default async function EventsPage() {
     ] = await Promise.all([
       supabase
         .from("event_registrations")
-        .select(`
+        .select(
+          `
           id,
           event_id,
           status,
@@ -574,12 +581,11 @@ export default async function EventsPage() {
           total_price,
           total_amount,
           currency
-        `)
+        `,
+        )
         .in("event_id", eventIds),
 
-      supabase
-        .from("attendance_records")
-        .select(`
+      supabase.from("attendance_records").select(`
           id,
           event_registration_id,
           status
@@ -588,13 +594,13 @@ export default async function EventsPage() {
 
     if (registrationsError) {
       throw new Error(
-        `Failed to load event reporting: ${registrationsError.message}`
+        `Failed to load event reporting: ${registrationsError.message}`,
       );
     }
 
     if (attendanceError) {
       throw new Error(
-        `Failed to load attendance reporting: ${attendanceError.message}`
+        `Failed to load attendance reporting: ${attendanceError.message}`,
       );
     }
 
@@ -603,7 +609,7 @@ export default async function EventsPage() {
   }
 
   const attendanceByRegistrationId = new Map(
-    typedAttendance.map((row) => [row.event_registration_id, row])
+    typedAttendance.map((row) => [row.event_registration_id, row]),
   );
 
   const registrationsByEventId = new Map<string, RegistrationSummaryRow[]>();
@@ -614,24 +620,24 @@ export default async function EventsPage() {
   }
 
   const groupClasses = typedEvents.filter(
-    (event) => event.event_type === "group_class"
+    (event) => event.event_type === "group_class",
   );
   const publishedCount = typedEvents.filter(
-    (event) => event.status === "published" || event.status === "open"
+    (event) => event.status === "published" || event.status === "open",
   ).length;
   const featuredCount = typedEvents.filter((event) => event.featured).length;
   const publicOfferingsCount = typedEvents.filter(
     (event) =>
       (event.status === "published" || event.status === "open") &&
-      event.visibility === "public"
+      event.visibility === "public",
   ).length;
   const publicGroupClassesCount = groupClasses.filter(
     (event) =>
       (event.status === "published" || event.status === "open") &&
-      event.visibility === "public"
+      event.visibility === "public",
   ).length;
   const publicDirectoryCount = typedEvents.filter(
-    (event) => event.public_directory_enabled
+    (event) => event.public_directory_enabled,
   ).length;
   const discoveryReadyCount = typedEvents.filter((event) => {
     const organizer = getOrganizer(event.organizers);
@@ -646,7 +652,9 @@ export default async function EventsPage() {
   const totalRegistrations = typedRegistrations.length;
   const totalCheckedIn = typedRegistrations.filter((row) => {
     const attendance = attendanceByRegistrationId.get(row.id);
-    return attendance?.status === "checked_in" || attendance?.status === "attended";
+    return (
+      attendance?.status === "checked_in" || attendance?.status === "attended"
+    );
   }).length;
   const totalGrossRevenue = typedRegistrations.reduce((sum, row) => {
     if (row.payment_status !== "paid" && row.payment_status !== "partial") {
@@ -964,10 +972,10 @@ export default async function EventsPage() {
 
               const totalRegistrationsForEvent = eventRegistrations.length;
               const paidCount = eventRegistrations.filter(
-                (row) => row.payment_status === "paid"
+                (row) => row.payment_status === "paid",
               ).length;
               const pendingPaymentCount = eventRegistrations.filter(
-                (row) => row.payment_status === "pending"
+                (row) => row.payment_status === "pending",
               ).length;
               const checkedInCount = eventRegistrations.filter((row) => {
                 const attendance = attendanceByRegistrationId.get(row.id);
@@ -997,7 +1005,7 @@ export default async function EventsPage() {
 
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                            event.status
+                            event.status,
                           )}`}
                         >
                           {event.status}
@@ -1005,7 +1013,7 @@ export default async function EventsPage() {
 
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${eventTypeBadgeClass(
-                            event.event_type
+                            event.event_type,
                           )}`}
                         >
                           {eventTypeLabel(event.event_type)}
@@ -1013,7 +1021,7 @@ export default async function EventsPage() {
 
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${visibilityBadgeClass(
-                            event.visibility
+                            event.visibility,
                           )}`}
                         >
                           {visibilityLabel(event.visibility)}

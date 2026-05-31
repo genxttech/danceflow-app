@@ -1,5 +1,7 @@
 "use server";
 
+import { studioHasFeature } from "@/lib/billing/access";
+
 export type LessonAIAssistantState = {
   ok: boolean;
   error?: string;
@@ -65,6 +67,15 @@ export async function generateLessonAssistantAction(
   _previousState: LessonAIAssistantState,
   formData: FormData,
 ): Promise<LessonAIAssistantState> {
+  const canUseAi = await studioHasFeature("ai_assistant");
+
+  if (!canUseAi) {
+    return {
+      ok: false,
+      error: "AI lesson help is available on Growth and Pro plans.",
+    };
+  }
+
   if (process.env.AI_FEATURES_ENABLED !== "true") {
     return {
       ok: false,

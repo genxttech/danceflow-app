@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireStudioFeature } from "@/lib/billing/access";
 import { createMarketingCampaignDraftAction } from "./actions";
 import CampaignAIAssistant from "./CampaignAIAssistant";
 
@@ -50,12 +51,14 @@ const audienceOptions = [
   {
     key: "inactive_clients",
     label: "Inactive clients",
-    description: "Clients marked inactive who may need a re-engagement message.",
+    description:
+      "Clients marked inactive who may need a re-engagement message.",
   },
   {
     key: "event_attendees",
     label: "All event registrants",
-    description: "People who registered for any event and have an email address.",
+    description:
+      "People who registered for any event and have an email address.",
   },
   {
     key: "specific_event_registrants",
@@ -70,12 +73,14 @@ const audienceOptions = [
   {
     key: "clients_no_upcoming_lesson",
     label: "Clients with no upcoming lesson",
-    description: "Active clients who do not currently have a future lesson scheduled.",
+    description:
+      "Active clients who do not currently have a future lesson scheduled.",
   },
   {
     key: "low_package_credits",
     label: "Clients with low package credits",
-    description: "Clients with an active package that has 2 or fewer credits remaining.",
+    description:
+      "Clients with an active package that has 2 or fewer credits remaining.",
   },
 ];
 
@@ -131,7 +136,8 @@ const campaignTemplates = [
   {
     key: "post-event-thank-you",
     label: "Post-Event Thank You",
-    description: "Follow up with attendees and guide them to the next opportunity.",
+    description:
+      "Follow up with attendees and guide them to the next opportunity.",
     audienceType: "specific_event_checked_in",
     name: "Post-event thank you",
     subject: "Thank you for joining us",
@@ -143,7 +149,8 @@ const campaignTemplates = [
   {
     key: "studio-announcement",
     label: "Studio Announcement",
-    description: "A flexible update for news, schedule changes, or general messages.",
+    description:
+      "A flexible update for news, schedule changes, or general messages.",
     audienceType: "all_active_clients",
     name: "Studio announcement",
     subject: "A quick update from the studio",
@@ -192,7 +199,10 @@ function campaignErrorMessage(code?: string) {
 }
 
 function isSpecificEventAudience(audienceType: string) {
-  return audienceType === "specific_event_registrants" || audienceType === "specific_event_checked_in";
+  return (
+    audienceType === "specific_event_registrants" ||
+    audienceType === "specific_event_checked_in"
+  );
 }
 
 async function getClientAudiencePreview(params: {
@@ -204,24 +214,26 @@ async function getClientAudiencePreview(params: {
   const baseClientSelect = "id, first_name, last_name, email, status";
 
   if (audienceType === "clients_no_upcoming_lesson") {
-    const [{ data: clients, error: clientsError }, { data: appointments, error: appointmentsError }] =
-      await Promise.all([
-        supabase
-          .from("clients")
-          .select(baseClientSelect)
-          .eq("studio_id", studioId)
-          .eq("status", "active")
-          .not("email", "is", null)
-          .limit(1000),
-        supabase
-          .from("appointments")
-          .select("client_id")
-          .eq("studio_id", studioId)
-          .eq("status", "scheduled")
-          .gte("starts_at", new Date().toISOString())
-          .not("client_id", "is", null)
-          .limit(5000),
-      ]);
+    const [
+      { data: clients, error: clientsError },
+      { data: appointments, error: appointmentsError },
+    ] = await Promise.all([
+      supabase
+        .from("clients")
+        .select(baseClientSelect)
+        .eq("studio_id", studioId)
+        .eq("status", "active")
+        .not("email", "is", null)
+        .limit(1000),
+      supabase
+        .from("appointments")
+        .select("client_id")
+        .eq("studio_id", studioId)
+        .eq("status", "scheduled")
+        .gte("starts_at", new Date().toISOString())
+        .not("client_id", "is", null)
+        .limit(5000),
+    ]);
 
     if (clientsError || appointmentsError) {
       console.error("No-upcoming-lesson audience preview failed", {
@@ -238,7 +250,9 @@ async function getClientAudiencePreview(params: {
     );
 
     return buildClientAudienceSummary(
-      (clients ?? []).filter((client) => !clientsWithUpcomingLessons.has(String(client.id))),
+      (clients ?? []).filter(
+        (client) => !clientsWithUpcomingLessons.has(String(client.id)),
+      ),
     );
   }
 
@@ -258,7 +272,11 @@ async function getClientAudiencePreview(params: {
     }
 
     const clientIds = Array.from(
-      new Set((packages ?? []).map((pkg) => String(pkg.client_id ?? "")).filter(Boolean)),
+      new Set(
+        (packages ?? [])
+          .map((pkg) => String(pkg.client_id ?? ""))
+          .filter(Boolean),
+      ),
     );
 
     if (clientIds.length === 0) {
@@ -321,7 +339,9 @@ function buildClientAudienceSummary(
   const sample: string[] = [];
 
   for (const row of clients) {
-    const email = String(row.email ?? "").trim().toLowerCase();
+    const email = String(row.email ?? "")
+      .trim()
+      .toLowerCase();
 
     if (!email || uniqueEmails.has(email)) {
       continue;
@@ -360,7 +380,9 @@ async function getEventAudiencePreview(params: {
   const sample: string[] = [];
 
   for (const row of data ?? []) {
-    const email = String(row.attendee_email ?? "").trim().toLowerCase();
+    const email = String(row.attendee_email ?? "")
+      .trim()
+      .toLowerCase();
 
     if (!email || uniqueEmails.has(email)) {
       continue;
@@ -432,6 +454,7 @@ export default async function MarketingCampaignsPage({
   searchParams: SearchParams;
 }) {
   const resolvedSearchParams = await searchParams;
+  await requireStudioFeature("marketing_campaigns");
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
@@ -440,7 +463,9 @@ export default async function MarketingCampaignsPage({
     getAudiencePreviews({ supabase, studioId }),
     supabase
       .from("marketing_campaigns")
-      .select("id, name, subject, preview_text, audience_type, audience_event_id, status, created_at, sent_at")
+      .select(
+        "id, name, subject, preview_text, audience_type, audience_event_id, status, created_at, sent_at",
+      )
       .eq("studio_id", studioId)
       .order("created_at", { ascending: false })
       .limit(8),
@@ -454,18 +479,24 @@ export default async function MarketingCampaignsPage({
 
   const campaigns = (campaignsResult.data ?? []) as CampaignRow[];
   const events = (eventsResult.data ?? []) as EventOption[];
-  const campaignError = campaignErrorMessage(resolvedSearchParams.campaign_error);
+  const campaignError = campaignErrorMessage(
+    resolvedSearchParams.campaign_error,
+  );
   const selectedTemplate =
-    campaignTemplates.find((template) => template.key === resolvedSearchParams.template) ?? null;
+    campaignTemplates.find(
+      (template) => template.key === resolvedSearchParams.template,
+    ) ?? null;
   const selectedTemplateAudienceIsAvailable = selectedTemplate
-    ? audiencePreviews.some((audience) => audience.key === selectedTemplate.audienceType)
+    ? audiencePreviews.some(
+        (audience) => audience.key === selectedTemplate.audienceType,
+      )
     : false;
   const defaultAudienceType = selectedTemplateAudienceIsAvailable
-    ? selectedTemplate?.audienceType ?? "all_active_clients"
+    ? (selectedTemplate?.audienceType ?? "all_active_clients")
     : "all_active_clients";
   const defaultAudienceLabel =
-    audiencePreviews.find((audience) => audience.key === defaultAudienceType)?.label ??
-    "Selected audience";
+    audiencePreviews.find((audience) => audience.key === defaultAudienceType)
+      ?.label ?? "Selected audience";
 
   return (
     <main className="min-h-screen bg-[var(--brand-page-bg)] px-4 py-6 text-[var(--brand-text)] sm:px-6 lg:px-8">
@@ -525,10 +556,15 @@ export default async function MarketingCampaignsPage({
                 Audience Preview
               </p>
               <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">
-                {audiencePreviews.reduce((sum, audience) => sum + audience.count, 0)} possible contacts
+                {audiencePreviews.reduce(
+                  (sum, audience) => sum + audience.count,
+                  0,
+                )}{" "}
+                possible contacts
               </p>
               <p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">
-                Counts are deduped within each audience and exclude blank emails.
+                Counts are deduped within each audience and exclude blank
+                emails.
               </p>
             </div>
 
@@ -553,8 +589,8 @@ export default async function MarketingCampaignsPage({
                 Create campaign draft
               </h2>
               <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                Start from a DanceFlow quick-start template or write your own message.
-                Everything stays inside the studio workflow.
+                Start from a DanceFlow quick-start template or write your own
+                message. Everything stays inside the studio workflow.
               </p>
             </div>
 
@@ -565,7 +601,8 @@ export default async function MarketingCampaignsPage({
                     Quick-start templates
                   </p>
                   <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">
-                    Choose a starting point, then edit the audience, event, subject, message, and call to action before saving.
+                    Choose a starting point, then edit the audience, event,
+                    subject, message, and call to action before saving.
                   </p>
                 </div>
 
@@ -600,16 +637,24 @@ export default async function MarketingCampaignsPage({
                 ))}
               </div>
 
-              {selectedTemplate && isSpecificEventAudience(defaultAudienceType) ? (
+              {selectedTemplate &&
+              isSpecificEventAudience(defaultAudienceType) ? (
                 <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
-                  This template uses a specific-event audience. Choose the matching event before saving the draft.
+                  This template uses a specific-event audience. Choose the
+                  matching event before saving the draft.
                 </p>
               ) : null}
             </div>
 
-            <form action={createMarketingCampaignDraftAction} className="mt-5 space-y-4">
+            <form
+              action={createMarketingCampaignDraftAction}
+              className="mt-5 space-y-4"
+            >
               <div>
-                <label htmlFor="name" className="text-sm font-semibold text-[var(--brand-text)]">
+                <label
+                  htmlFor="name"
+                  className="text-sm font-semibold text-[var(--brand-text)]"
+                >
                   Campaign name
                 </label>
                 <input
@@ -623,7 +668,10 @@ export default async function MarketingCampaignsPage({
               </div>
 
               <div>
-                <label htmlFor="audienceType" className="text-sm font-semibold text-[var(--brand-text)]">
+                <label
+                  htmlFor="audienceType"
+                  className="text-sm font-semibold text-[var(--brand-text)]"
+                >
                   Audience
                 </label>
                 <select
@@ -641,7 +689,10 @@ export default async function MarketingCampaignsPage({
               </div>
 
               <div>
-                <label htmlFor="audienceEventId" className="text-sm font-semibold text-[var(--brand-text)]">
+                <label
+                  htmlFor="audienceEventId"
+                  className="text-sm font-semibold text-[var(--brand-text)]"
+                >
                   Event
                 </label>
                 <select
@@ -653,17 +704,24 @@ export default async function MarketingCampaignsPage({
                   <option value="">No specific event selected</option>
                   {events.map((event) => (
                     <option key={event.id} value={event.id}>
-                      {event.name}{event.start_date ? ` · ${formatDate(event.start_date)}` : ""}
+                      {event.name}
+                      {event.start_date
+                        ? ` · ${formatDate(event.start_date)}`
+                        : ""}
                     </option>
                   ))}
                 </select>
                 <p className="mt-2 text-xs leading-5 text-[var(--brand-muted)]">
-                  Required only for Specific event registrants and Specific event checked-in attendees.
+                  Required only for Specific event registrants and Specific
+                  event checked-in attendees.
                 </p>
               </div>
 
               <div>
-                <label htmlFor="subject" className="text-sm font-semibold text-[var(--brand-text)]">
+                <label
+                  htmlFor="subject"
+                  className="text-sm font-semibold text-[var(--brand-text)]"
+                >
                   Subject line
                 </label>
                 <input
@@ -677,7 +735,10 @@ export default async function MarketingCampaignsPage({
               </div>
 
               <div>
-                <label htmlFor="previewText" className="text-sm font-semibold text-[var(--brand-text)]">
+                <label
+                  htmlFor="previewText"
+                  className="text-sm font-semibold text-[var(--brand-text)]"
+                >
                   Preview text
                 </label>
                 <input
@@ -690,7 +751,10 @@ export default async function MarketingCampaignsPage({
               </div>
 
               <div>
-                <label htmlFor="bodyText" className="text-sm font-semibold text-[var(--brand-text)]">
+                <label
+                  htmlFor="bodyText"
+                  className="text-sm font-semibold text-[var(--brand-text)]"
+                >
                   Message
                 </label>
                 <textarea
@@ -716,7 +780,10 @@ export default async function MarketingCampaignsPage({
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <label htmlFor="ctaLabel" className="text-sm font-semibold text-[var(--brand-text)]">
+                  <label
+                    htmlFor="ctaLabel"
+                    className="text-sm font-semibold text-[var(--brand-text)]"
+                  >
                     CTA button text
                   </label>
                   <input
@@ -729,7 +796,10 @@ export default async function MarketingCampaignsPage({
                 </div>
 
                 <div>
-                  <label htmlFor="ctaUrl" className="text-sm font-semibold text-[var(--brand-text)]">
+                  <label
+                    htmlFor="ctaUrl"
+                    className="text-sm font-semibold text-[var(--brand-text)]"
+                  >
                     CTA link
                   </label>
                   <input
@@ -756,8 +826,8 @@ export default async function MarketingCampaignsPage({
                 Audience preview
               </h2>
               <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
-                These preset audiences come from existing CRM, schedule, package,
-                and event data.
+                These preset audiences come from existing CRM, schedule,
+                package, and event data.
               </p>
 
               <div className="mt-4 space-y-3">
@@ -809,8 +879,8 @@ export default async function MarketingCampaignsPage({
                 Recent campaign drafts
               </h2>
               <p className="mt-1 text-sm text-[var(--brand-muted)]">
-                Drafts, test sends, send lists, and campaign sending are now part
-                of the native DanceFlow marketing workflow.
+                Drafts, test sends, send lists, and campaign sending are now
+                part of the native DanceFlow marketing workflow.
               </p>
             </div>
             <span className="inline-flex w-fit rounded-full border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] px-3 py-1 text-xs font-semibold text-[var(--brand-muted)]">

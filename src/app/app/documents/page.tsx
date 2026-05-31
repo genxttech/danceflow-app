@@ -2,6 +2,7 @@ import Link from "next/link";
 import { FileSignature, Plus, ShieldCheck, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireStudioFeature } from "@/lib/billing/access";
 import {
   assignDocumentToClientAction,
   assignDocumentToEventAction,
@@ -58,7 +59,10 @@ type EventRequirement = {
   event_id: string;
   template_id: string;
   active: boolean;
-  events: { id: string; name: string; slug: string | null } | { id: string; name: string; slug: string | null }[] | null;
+  events:
+    | { id: string; name: string; slug: string | null }
+    | { id: string; name: string; slug: string | null }[]
+    | null;
 };
 
 const documentTypes = [
@@ -93,8 +97,10 @@ function statusMessage(searchParams: SearchParams) {
   if (searchParams.success === "updated") return "Document template updated.";
   if (searchParams.success === "status_updated")
     return "Document status updated.";
-  if (searchParams.success === "assigned") return "Document assigned to client.";
-  if (searchParams.success === "event_attached") return "Event waiver attached.";
+  if (searchParams.success === "assigned")
+    return "Document assigned to client.";
+  if (searchParams.success === "event_attached")
+    return "Event waiver attached.";
   if (searchParams.success === "event_removed") return "Event waiver removed.";
   if (searchParams.error === "missing_title") return "Add a document title.";
   if (searchParams.error === "missing_body")
@@ -149,8 +155,6 @@ async function getOrganizerOptions(
     }));
 }
 
-
-
 async function getEventOptions(
   supabase: Awaited<ReturnType<typeof createClient>>,
   studioId: string,
@@ -184,7 +188,9 @@ async function getEventRequirements(
     .order("created_at", { ascending: false });
 
   if (organizerIds.length) {
-    query = query.or(`organizer_id.is.null,organizer_id.in.(${organizerIds.join(",")})`);
+    query = query.or(
+      `organizer_id.is.null,organizer_id.in.(${organizerIds.join(",")})`,
+    );
   } else {
     query = query.is("organizer_id", null);
   }
@@ -436,12 +442,16 @@ function TemplateCard({
                 Assign to a client
               </h4>
               <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">
-                Send this document to one client portal for review and signature.
+                Send this document to one client portal for review and
+                signature.
               </p>
             </div>
           </div>
 
-          <form action={assignDocumentToClientAction} className="mt-4 grid gap-3 lg:grid-cols-[1fr_180px_auto] lg:items-end">
+          <form
+            action={assignDocumentToClientAction}
+            className="mt-4 grid gap-3 lg:grid-cols-[1fr_180px_auto] lg:items-end"
+          >
             <input type="hidden" name="templateId" value={template.id} />
             <input type="hidden" name="scope" value="studio" />
 
@@ -484,7 +494,6 @@ function TemplateCard({
         </div>
       ) : null}
 
-
       {template.is_active ? (
         <div className="mt-5 rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
           <div className="flex items-start gap-3">
@@ -501,11 +510,18 @@ function TemplateCard({
             </div>
           </div>
 
-          <form action={assignDocumentToEventAction} className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end">
+          <form
+            action={assignDocumentToEventAction}
+            className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto] lg:items-end"
+          >
             <input type="hidden" name="templateId" value={template.id} />
             <input type="hidden" name="scope" value={template.scope} />
             {template.organizer_id ? (
-              <input type="hidden" name="organizerId" value={template.organizer_id} />
+              <input
+                type="hidden"
+                name="organizerId"
+                value={template.organizer_id}
+              />
             ) : null}
 
             <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)]">
@@ -552,10 +568,22 @@ function TemplateCard({
                       {event?.name ?? "Attached event"}
                     </span>
                     <form action={removeDocumentFromEventAction}>
-                      <input type="hidden" name="requirementId" value={requirement.id} />
-                      <input type="hidden" name="scope" value={template.scope} />
+                      <input
+                        type="hidden"
+                        name="requirementId"
+                        value={requirement.id}
+                      />
+                      <input
+                        type="hidden"
+                        name="scope"
+                        value={template.scope}
+                      />
                       {template.organizer_id ? (
-                        <input type="hidden" name="organizerId" value={template.organizer_id} />
+                        <input
+                          type="hidden"
+                          name="organizerId"
+                          value={template.organizer_id}
+                        />
                       ) : null}
                       <button
                         type="submit"
@@ -571,7 +599,6 @@ function TemplateCard({
           ) : null}
         </div>
       ) : null}
-
 
       <form
         action={updateDocumentTemplateAction}
@@ -681,6 +708,7 @@ export default async function DocumentsPage({
   searchParams?: Promise<SearchParams>;
 }) {
   const resolvedSearchParams = (await searchParams) ?? {};
+  await requireStudioFeature("documents");
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
   const studioId = context.studioId;
@@ -705,7 +733,11 @@ export default async function DocumentsPage({
   const { data: templates, error } = await templateQuery;
 
   const events = await getEventOptions(supabase, studioId, organizerIds);
-  const eventRequirements = await getEventRequirements(supabase, studioId, organizerIds);
+  const eventRequirements = await getEventRequirements(
+    supabase,
+    studioId,
+    organizerIds,
+  );
 
   const { data: clients, error: clientsError } = await supabase
     .from("clients")
@@ -740,7 +772,11 @@ export default async function DocumentsPage({
         <div
           className={`rounded-2xl border p-4 text-sm ${isError ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}
         >
-          {error ? error.message : clientsError ? clientsError.message : message}
+          {error
+            ? error.message
+            : clientsError
+              ? clientsError.message
+              : message}
         </div>
       ) : null}
 

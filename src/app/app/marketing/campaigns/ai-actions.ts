@@ -1,5 +1,7 @@
 "use server";
 
+import { studioHasFeature } from "@/lib/billing/access";
+
 export type CampaignAIAssistantState = {
   ok: boolean;
   error?: string;
@@ -71,6 +73,15 @@ export async function generateCampaignDraftAssistantAction(
   _previousState: CampaignAIAssistantState,
   formData: FormData,
 ): Promise<CampaignAIAssistantState> {
+  const canUseAi = await studioHasFeature("ai_assistant");
+
+  if (!canUseAi) {
+    return {
+      ok: false,
+      error: "AI campaign drafting is available on Growth and Pro plans.",
+    };
+  }
+
   if (process.env.AI_FEATURES_ENABLED !== "true") {
     return {
       ok: false,

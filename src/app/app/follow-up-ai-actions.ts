@@ -1,5 +1,7 @@
 "use server";
 
+import { studioHasFeature } from "@/lib/billing/access";
+
 export type FollowUpMessageState = {
   ok: boolean;
   error?: string;
@@ -42,6 +44,15 @@ export async function generateFollowUpMessageAction(
   _previousState: FollowUpMessageState,
   formData: FormData,
 ): Promise<FollowUpMessageState> {
+  const canUseAi = await studioHasFeature("ai_assistant");
+
+  if (!canUseAi) {
+    return {
+      ok: false,
+      error: "AI follow-up suggestions are available on Growth and Pro plans.",
+    };
+  }
+
   if (process.env.AI_FEATURES_ENABLED !== "true") {
     return {
       ok: false,
