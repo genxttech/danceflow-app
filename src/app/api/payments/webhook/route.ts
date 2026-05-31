@@ -759,6 +759,16 @@ type EventRegistrationCrmCaptureRow = {
   event_id: string;
   studio_id: string | null;
   client_id: string | null;
+  organizer_contact_id?: string | null;
+  order_id?: string | null;
+  ticket_type_id?: string | null;
+  status?: string | null;
+  payment_status?: string | null;
+  total_amount?: number | null;
+  total_price?: number | null;
+  currency?: string | null;
+  checked_in_at?: string | null;
+  created_at?: string | null;
   attendee_first_name: string;
   attendee_last_name: string;
   attendee_email: string;
@@ -953,6 +963,225 @@ async function safeCaptureStudioEventRegistrationLead(params: {
     }
   } catch (error) {
     console.error("event registration CRM capture failed:", error);
+  }
+}
+
+
+async function safeCaptureOrganizerEventRegistrationContact(params: {
+  supabase: SupabaseClient;
+  registrationId: string;
+}) {
+  try {
+    const { data: registration, error: registrationError } = await params.supabase
+      .from("event_registrations")
+      .select(
+        `
+        id,
+        event_id,
+        studio_id,
+        client_id,
+        organizer_contact_id,
+        order_id,
+        ticket_type_id,
+        status,
+        payment_status,
+        attendee_first_name,
+        attendee_last_name,
+        attendee_email,
+        attendee_phone,
+        total_amount,
+        total_price,
+        currency,
+        checked_in_at,
+        created_at,
+        events (
+          id,
+          name,
+          slug,
+          studio_id,
+          organizer_id
+        )
+      `
+      )
+      .eq("id", params.registrationId)
+      .maybeSingle();
+
+    if (registrationError || !registration) {
+      console.error(
+        "organizer contact capture lookup failed:",
+        registrationError?.message ?? "Registration not found"
+      );
+      return;
+    }
+
+    const typedRegistration = registration as EventRegistrationCrmCaptureRow;
+    const event = getSingleRelation(typedRegistration.events);
+    const organizerId = event?.organizer_id ?? null;
+    const email = normalizeEmail(typedRegistration.attendee_email);
+
+    if (!event || !organizerId || !email) {
+      return;
+    }
+
+    const firstName = (typedRegistration.attendee_first_name ?? "").trim() || null;
+    const lastName = (typedRegistration.attendee_last_name ?? "").trim() || null;
+    const phone = (typedRegistration.attendee_phone ?? "").trim() || null;
+    const nowIso = new Date().toISOString();
+    const amount = Number(
+      typedRegistration.total_amount ?? typedRegistration.total_price ?? 0
+    );
+    const currency = (typedRegistration.currency || "USD").toUpperCase();
+
+    const { data: existingContacts, error: existingContactError } = await params.supabase
+      .from("organizer_contacts")
+      .select("id, first_seen_at, first_name, last_name, phone")
+      .eq("organizer_id", organizerId)
+      .ilike("email", email)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (existingContactError) {
+      console.error("organizer contact lookup failed:", existingContactError.message);
+      return;
+    }
+
+    let contactId = existingContacts?.[0]?.id ?? null;
+
+    if (contactId) {
+      const existingContact = existingContacts?.[0];
+      const { error: contactUpdateError } = await params.supabase
+        .from("organizer_contacts")
+        .update({
+          first_name: existingContact?.first_name || firstName,
+          last_name: existingContact?.last_name || lastName,
+          phone: existingContact?.phone || phone,
+          last_seen_at: nowIso,
+          last_event_id: event.id,
+          last_registration_id: typedRegistration.id,
+          currency,
+          updated_at: nowIso,
+        })
+        .eq("id", contactId);
+
+      if (contactUpdateError) {
+        console.error("organizer contact update failed:", contactUpdateError.message);
+        return;
+      }
+    } else {
+      const { data: insertedContact, error: contactInsertError } = await params.supabase
+        .from("organizer_contacts")
+        .insert({
+          organizer_id: organizerId,
+          email,
+          first_name: firstName,
+          last_name: lastName,
+          phone,
+          source: "event_registration",
+          first_seen_at: nowIso,
+          last_seen_at: nowIso,
+          last_event_id: event.id,
+          last_registration_id: typedRegistration.id,
+          currency,
+          metadata: {
+            event_name: event.name,
+            event_slug: event.slug,
+          },
+        })
+        .select("id")
+        .single();
+
+      if (contactInsertError || !insertedContact) {
+        console.error(
+          "organizer contact insert failed:",
+          contactInsertError?.message ?? "Contact not created"
+        );
+        return;
+      }
+
+      contactId = insertedContact.id;
+    }
+
+    if (!contactId) {
+      return;
+    }
+
+    const { error: linkError } = await params.supabase
+      .from("organizer_contact_registrations")
+      .upsert(
+        {
+          organizer_contact_id: contactId,
+          organizer_id: organizerId,
+          event_id: typedRegistration.event_id,
+          registration_id: typedRegistration.id,
+          order_id: typedRegistration.order_id ?? null,
+          ticket_type_id: typedRegistration.ticket_type_id ?? null,
+          status: typedRegistration.status ?? null,
+          payment_status: typedRegistration.payment_status ?? null,
+          total_amount: amount,
+          currency,
+          checked_in_at: typedRegistration.checked_in_at ?? null,
+          registered_at: typedRegistration.created_at ?? nowIso,
+          updated_at: nowIso,
+        },
+        { onConflict: "registration_id" }
+      );
+
+    if (linkError) {
+      console.error("organizer contact registration link failed:", linkError.message);
+    }
+
+    const { error: registrationUpdateError } = await params.supabase
+      .from("event_registrations")
+      .update({ organizer_contact_id: contactId })
+      .eq("id", typedRegistration.id)
+      .is("organizer_contact_id", null);
+
+    if (registrationUpdateError) {
+      console.error(
+        "organizer contact registration update failed:",
+        registrationUpdateError.message
+      );
+    }
+
+    const { data: contactRollupRows, error: rollupError } = await params.supabase
+      .from("organizer_contact_registrations")
+      .select("payment_status, total_amount, currency")
+      .eq("organizer_contact_id", contactId);
+
+    if (rollupError) {
+      console.error("organizer contact rollup failed:", rollupError.message);
+      return;
+    }
+
+    const totalRegistrations = contactRollupRows?.length ?? 0;
+    const paidRows = (contactRollupRows ?? []).filter(
+      (row) => row.payment_status === "paid" || row.payment_status === "partial"
+    );
+    const totalPaidRegistrations = paidRows.length;
+    const totalSpend = paidRows.reduce(
+      (sum, row) => sum + Number(row.total_amount ?? 0),
+      0
+    );
+
+    const { error: rollupUpdateError } = await params.supabase
+      .from("organizer_contacts")
+      .update({
+        total_registrations: totalRegistrations,
+        total_paid_registrations: totalPaidRegistrations,
+        total_spend: totalSpend,
+        currency,
+        last_seen_at: nowIso,
+        last_event_id: event.id,
+        last_registration_id: typedRegistration.id,
+        updated_at: nowIso,
+      })
+      .eq("id", contactId);
+
+    if (rollupUpdateError) {
+      console.error("organizer contact rollup update failed:", rollupUpdateError.message);
+    }
+  } catch (error) {
+    console.error("organizer contact capture failed:", error);
   }
 }
 
@@ -1181,6 +1410,11 @@ async function handleEventRegistrationCheckoutCompleted(
     registrationId,
   });
 
+  await safeCaptureOrganizerEventRegistrationContact({
+    supabase,
+    registrationId,
+  });
+
   return true;
 }
 
@@ -1288,6 +1522,11 @@ async function handleEventCartOrderCheckoutCompleted(
     });
 
     await safeCaptureStudioEventRegistrationLead({
+      supabase,
+      registrationId: registration.id,
+    });
+
+    await safeCaptureOrganizerEventRegistrationContact({
       supabase,
       registrationId: registration.id,
     });
@@ -2229,4 +2468,6 @@ case "customer.subscription.deleted": {
     });
   }
 }
+
+
 

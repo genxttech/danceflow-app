@@ -43,6 +43,21 @@ type RegistrationRow = {
   created_at: string;
 };
 
+type OrganizerContactRow = {
+  id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  phone: string | null;
+  status: string;
+  total_registrations: number | null;
+  total_paid_registrations: number | null;
+  total_spend: number | null;
+  currency: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+};
+
 function formatDate(value: string | null) {
   if (!value) return "—";
   return new Intl.NumberFormat("en-US");
@@ -92,6 +107,7 @@ export default async function PlatformOrganizerDetailPage({
     { data: studios, error: studiosError },
     { data: events, error: eventsError },
     { data: registrations, error: registrationsError },
+    { data: organizerContacts, error: organizerContactsError },
   ] = await Promise.all([
     supabase
       .from("organizers")
@@ -112,6 +128,15 @@ export default async function PlatformOrganizerDetailPage({
     supabase
       .from("event_registrations")
       .select("id, event_id, payment_status, total_amount, created_at"),
+
+    supabase
+      .from("organizer_contacts")
+      .select(
+        "id, email, first_name, last_name, phone, status, total_registrations, total_paid_registrations, total_spend, currency, last_seen_at, created_at"
+      )
+      .eq("organizer_id", id)
+      .order("last_seen_at", { ascending: false })
+      .limit(10),
   ]);
 
   if (organizerError) {
@@ -134,10 +159,15 @@ export default async function PlatformOrganizerDetailPage({
     throw new Error(`Failed to load registrations: ${registrationsError.message}`);
   }
 
+  if (organizerContactsError) {
+    throw new Error(`Failed to load organizer contacts: ${organizerContactsError.message}`);
+  }
+
   const typedOrganizer = organizer as OrganizerRow;
   const typedStudios = (studios ?? []) as StudioRow[];
   const typedEvents = (events ?? []) as EventRow[];
   const typedRegistrations = (registrations ?? []) as RegistrationRow[];
+  const typedOrganizerContacts = (organizerContacts ?? []) as OrganizerContactRow[];
 
   const studio = typedStudios.find((item) => item.id === typedOrganizer.studio_id) ?? null;
   const organizerEventIds = new Set(typedEvents.map((event) => event.id));
@@ -163,6 +193,16 @@ export default async function PlatformOrganizerDetailPage({
     return sum + Number(registration.total_amount ?? 0);
   }, 0);
 
+  const contactCount = typedOrganizerContacts.length;
+  const contactRegistrations = typedOrganizerContacts.reduce(
+    (sum, contact) => sum + Number(contact.total_registrations ?? 0),
+    0
+  );
+  const contactAttributedRevenue = typedOrganizerContacts.reduce(
+    (sum, contact) => sum + Number(contact.total_spend ?? 0),
+    0
+  );
+
   const upcomingEvents = [...typedEvents]
     .filter((event) => new Date(`${event.start_date}T00:00:00`).getTime() >= Date.now() - 86400000)
     .sort(
@@ -186,7 +226,7 @@ export default async function PlatformOrganizerDetailPage({
         <p className="mt-2 text-xs text-slate-500">{typedOrganizer.slug}</p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-7">
         <div className="rounded-2xl border bg-white p-5">
           <p className="text-sm text-slate-500">Status</p>
           <p className="mt-2">
@@ -228,6 +268,12 @@ export default async function PlatformOrganizerDetailPage({
         <div className="rounded-2xl border bg-white p-5">
           <p className="text-sm text-slate-500">Revenue</p>
           <p className="mt-2 text-3xl font-semibold">{formatMoney(grossRevenue)}</p>
+        </div>
+
+        <div className="rounded-2xl border bg-white p-5">
+          <p className="text-sm text-slate-500">Contacts</p>
+          <p className="mt-2 text-3xl font-semibold">{contactCount}</p>
+          <p className="mt-1 text-sm text-slate-500">{contactRegistrations} registrations</p>
         </div>
       </div>
 
@@ -285,6 +331,69 @@ export default async function PlatformOrganizerDetailPage({
             </div>
           )}
         </div>
+      </div>
+
+      <div className="rounded-2xl border bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-900">Organizer Contacts</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Contacts captured from organizer-owned event registrations. These remain organizer-scoped and are not added to a studio CRM.
+            </p>
+          </div>
+          <div className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            Attributed revenue: <span className="font-semibold text-slate-900">{formatMoney(contactAttributedRevenue)}</span>
+          </div>
+        </div>
+
+        {typedOrganizerContacts.length === 0 ? (
+          <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
+            No organizer contacts have been captured yet. New paid organizer-owned event registrations will appear here.
+          </div>
+        ) : (
+          <div className="mt-5 overflow-hidden rounded-xl border">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">Contact</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">Status</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">Registrations</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">Revenue</th>
+                  <th className="px-4 py-3 text-left font-medium text-slate-600">Last Seen</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 bg-white">
+                {typedOrganizerContacts.map((contact) => {
+                  const displayName = [contact.first_name, contact.last_name]
+                    .filter(Boolean)
+                    .join(" ") || contact.email;
+
+                  return (
+                    <tr key={contact.id}>
+                      <td className="px-4 py-4 text-slate-900">
+                        <div>
+                          <p className="font-medium">{displayName}</p>
+                          <p className="mt-1 text-xs text-slate-500">{contact.email}</p>
+                          {contact.phone ? (
+                            <p className="mt-1 text-xs text-slate-500">{contact.phone}</p>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-slate-700">{contact.status}</td>
+                      <td className="px-4 py-4 text-slate-700">
+                        {Number(contact.total_registrations ?? 0)} total • {Number(contact.total_paid_registrations ?? 0)} paid
+                      </td>
+                      <td className="px-4 py-4 text-slate-700">
+                        {formatMoney(Number(contact.total_spend ?? 0), contact.currency || "USD")}
+                      </td>
+                      <td className="px-4 py-4 text-slate-700">{formatDateLabel(contact.last_seen_at)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <div className="rounded-2xl border bg-white p-6 shadow-sm">

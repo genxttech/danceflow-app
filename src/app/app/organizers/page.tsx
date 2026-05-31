@@ -25,6 +25,18 @@ type StudioBillingRow = {
   stripe_connected_account_id: string | null;
 };
 
+type OrganizerContactRow = {
+  id: string;
+  organizer_id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  total_registrations: number | null;
+  total_paid_registrations: number | null;
+  total_spend: number | null;
+  last_seen_at: string | null;
+};
+
 function activeBadgeClass(active: boolean) {
   return active
     ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
@@ -141,6 +153,26 @@ export default async function OrganizersPage() {
   }
 
   const typedOrganizers = (organizers ?? []) as OrganizerRow[];
+
+  const { data: organizerContacts, error: organizerContactsError } =
+    typedOrganizers.length > 0
+      ? await supabase
+          .from("organizer_contacts")
+          .select(
+            "id, organizer_id, email, first_name, last_name, total_registrations, total_paid_registrations, total_spend, last_seen_at"
+          )
+          .in(
+            "organizer_id",
+            typedOrganizers.map((organizer) => organizer.id)
+          )
+          .order("last_seen_at", { ascending: false })
+      : { data: [], error: null };
+
+  if (organizerContactsError) {
+    throw new Error(`Failed to load organizer contacts: ${organizerContactsError.message}`);
+  }
+
+  const typedOrganizerContacts = (organizerContacts ?? []) as OrganizerContactRow[];
   const activeCount = typedOrganizers.filter((item) => item.active).length;
   const hasOrganizer = typedOrganizers.length > 0;
   const primaryOrganizer = typedOrganizers[0] ?? null;
@@ -157,6 +189,21 @@ export default async function OrganizersPage() {
   const linkedOrganizerCount = typedOrganizers.filter(
     (organizer) => (organizerEventCounts.get(organizer.id) ?? 0) > 0
   ).length;
+
+  const organizerContactCounts = new Map<string, number>();
+  const organizerContactRevenue = new Map<string, number>();
+  for (const contact of typedOrganizerContacts) {
+    organizerContactCounts.set(
+      contact.organizer_id,
+      (organizerContactCounts.get(contact.organizer_id) ?? 0) + 1
+    );
+    organizerContactRevenue.set(
+      contact.organizer_id,
+      (organizerContactRevenue.get(contact.organizer_id) ?? 0) + Number(contact.total_spend ?? 0)
+    );
+  }
+
+  const totalOrganizerContacts = typedOrganizerContacts.length;
 
   const totalLinkedEvents = Array.from(organizerEventCounts.values()).reduce(
     (sum, count) => sum + count,
@@ -258,11 +305,12 @@ export default async function OrganizersPage() {
         </section>
       ) : null}
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Total Organizers" value={typedOrganizers.length} icon={Users} />
         <StatCard label="Active Organizers" value={activeCount} icon={Sparkles} />
         <StatCard label="Linked Organizers" value={linkedOrganizerCount} icon={Globe2} />
         <StatCard label="Linked Events" value={totalLinkedEvents} icon={CalendarDays} />
+        <StatCard label="Organizer Contacts" value={totalOrganizerContacts} icon={Users} />
       </div>
 
       <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
@@ -293,6 +341,8 @@ export default async function OrganizersPage() {
           <div className="divide-y divide-slate-200">
             {typedOrganizers.map((organizer) => {
               const linkedEventCount = organizerEventCounts.get(organizer.id) ?? 0;
+              const contactCount = organizerContactCounts.get(organizer.id) ?? 0;
+              const contactRevenue = organizerContactRevenue.get(organizer.id) ?? 0;
 
               return (
                 <div key={organizer.id} className="px-6 py-5">
@@ -320,6 +370,12 @@ export default async function OrganizersPage() {
                             No linked events
                           </span>
                         )}
+
+                        {contactCount > 0 ? (
+                          <span className="inline-flex rounded-full bg-sky-50 px-2.5 py-1 text-xs font-medium text-sky-700 ring-1 ring-sky-200">
+                            {contactCount} contact{contactCount === 1 ? "" : "s"}
+                          </span>
+                        ) : null}
                       </div>
 
                       <p className="mt-2 text-sm text-slate-500">
@@ -339,6 +395,7 @@ export default async function OrganizersPage() {
                             : "No location"}
                         </span>
                         <span>{organizer.contact_email || "No contact email"}</span>
+                        <span>Contact revenue: {new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(contactRevenue)}</span>
                       </div>
                     </div>
 
