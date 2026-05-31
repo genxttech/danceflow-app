@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { canViewReports } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
+import ReportInsightsCard from "./ReportInsightsCard";
 
 type SearchParams = Promise<{
   range?: string;
@@ -1312,6 +1313,95 @@ export default async function ReportsPage({
 
   const recentOrganizerCampaigns = typedOrganizerCampaigns.slice(0, 5);
 
+  const reportInsightsMetrics = {
+    range: rangeLabel(range),
+    plan: studioPlanCode ?? "starter",
+    revenue: {
+      total: revenueTotal,
+      studioPayments: studioPaymentRevenueTotal,
+      eventTickets: eventRevenueTotal,
+      floorRental: floorRentalRevenueTotal,
+      refunds: refundedTotal,
+      averageStudioPayment: averagePaidPayment,
+    },
+    expenses: {
+      total: manualExpensesTotal,
+      floorFees: floorFeeExpenseTotal,
+      other: otherExpensesTotal,
+      knownFees: knownFeesTotal,
+    },
+    profitAndLoss: {
+      estimatedNetIncome,
+    },
+    attendance: {
+      rate: attendanceRate,
+      attended: attendedAppointments.length,
+      cancelled: cancelledAppointments.length,
+      noShows: noShows.length,
+      scheduled: scheduledAppointments.length,
+    },
+    clientsAndLeads: {
+      activeStudents: activeStudentsCount ?? 0,
+      newLeadRecords: typedLeads.length,
+      leads: leadsOnly.length,
+      converted: convertedLeads.length,
+      archived: archivedLeads.length,
+      conversionRate,
+    },
+    events: {
+      paidRegistrations: paidEventRegistrations.length,
+      checkedIn: checkedInEventRegistrations.length,
+      noShows: eventNoShowCount,
+      attendanceRate: eventAttendanceRate,
+      topEvents: topEventSummaries.slice(0, 5).map((event) => ({
+        name: event.name,
+        revenue: event.revenue,
+        registrations: event.registrations,
+        checkedIn: event.checkedIn,
+        noShows: event.noShows,
+      })),
+      topTickets: topTicketSummaries.slice(0, 5).map((ticket) => ({
+        name: ticket.name,
+        revenue: ticket.revenue,
+        quantity: ticket.quantity,
+      })),
+    },
+    instructors: {
+      count: instructorSummaries.length,
+      totalLessons: instructorSummaries.reduce(
+        (sum, item) => sum + item.totalAppointments,
+        0,
+      ),
+      attendedLessons: instructorSummaries.reduce(
+        (sum, item) => sum + item.attended,
+        0,
+      ),
+      totalRevenue: totalInstructorRevenue,
+      attendanceRate: instructorActivityAttendanceRate,
+      topInstructors: instructorSummaries.slice(0, 5).map((instructor) => ({
+        name: instructor.name,
+        lessons: instructor.totalAppointments,
+        attended: instructor.attended,
+        noShows: instructor.noShows,
+        revenue: instructor.revenue,
+      })),
+    },
+    organizer: hasOrganizerReportAccess
+      ? {
+          revenue: organizerRevenueTotal,
+          paidRegistrations: paidOrganizerRegistrations.length,
+          checkedIn: organizerCheckedInRegistrations.length,
+          noShows: organizerNoShowCount,
+          attendanceRate: organizerAttendanceRate,
+          contacts: typedOrganizerContacts.length,
+          campaignsSent: organizerCampaignsSent.length,
+          campaignRecipientsSent: organizerCampaignRecipientsSent.length,
+          campaignRecipientsFailed: organizerCampaignRecipientsFailed.length,
+          campaignRecipientsSuppressed: organizerCampaignRecipientsSuppressed.length,
+        }
+      : null,
+  };
+
   return (
     <div className="space-y-8">
       <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
@@ -1397,6 +1487,11 @@ export default async function ReportsPage({
           </p>
         </div>
       </section>
+
+      <ReportInsightsCard
+        canUseAi={canViewGrowthReports || canViewProReports}
+        metrics={reportInsightsMetrics}
+      />
 
       <section className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-[#E9D5FF] bg-white p-6 shadow-sm">

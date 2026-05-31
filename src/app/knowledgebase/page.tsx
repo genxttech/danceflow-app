@@ -4,6 +4,7 @@ import {
   getKnowledgebaseCategories,
   getPublicKnowledgebaseArticles,
 } from "@/content/knowledgebase/articles";
+import KnowledgebaseAIAssistant from "./KnowledgebaseAIAssistant";
 import KnowledgebaseSearch from "./KnowledgebaseSearch";
 
 export default function KnowledgebasePage() {
@@ -80,7 +81,11 @@ export default function KnowledgebasePage() {
         </div>
       </section>
 
-      <KnowledgebaseSearch articles={articles} categories={categories} />
+      <KnowledgebaseSearch
+        articles={articles}
+        categories={categories}
+        assistantSlot={<KnowledgebaseAIAssistant />}
+      />
 
       <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
         <div className="flex items-start gap-3">

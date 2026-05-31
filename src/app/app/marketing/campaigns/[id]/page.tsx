@@ -7,6 +7,7 @@ import {
   sendMarketingCampaignAction,
   sendMarketingCampaignTestEmailAction,
 } from "../actions";
+import CampaignAIAssistant from "../CampaignAIAssistant";
 
 type Params = Promise<{
   id: string;
@@ -854,6 +855,20 @@ export default async function MarketingCampaignDetailPage({
                 </a>
               </div>
             ) : null}
+
+            <div className="mt-5">
+              <CampaignAIAssistant
+                campaignContext="studio"
+                audienceLabel={audienceLabels[campaign.audience_type] ?? campaign.audience_type}
+                eventName={selectedEvent?.name ?? null}
+                currentSubject={campaign.subject}
+                currentPreviewText={campaign.preview_text}
+                currentBodyText={campaign.body_text}
+                ctaLabel={campaign.cta_label}
+                ctaUrl={campaign.cta_url}
+                compact
+              />
+            </div>
             </section>
 
             <section className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">

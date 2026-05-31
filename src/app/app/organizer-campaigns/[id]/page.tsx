@@ -18,6 +18,7 @@ import {
   sendOrganizerCampaignTestEmailAction,
   updateOrganizerCampaignDraftAction,
 } from "./actions";
+import CampaignAIAssistant from "../../marketing/campaigns/CampaignAIAssistant";
 
 type Params = Promise<{
   id: string;
@@ -493,6 +494,7 @@ export default async function OrganizerCampaignDetailPage({
   const selectedAudience =
     audienceOptions.find((option) => option.key === campaign.audience_type) ??
     audienceOptions[0];
+  const selectedEvent = events.find((event) => event.id === campaign.audience_event_id) ?? null;
   const isLocked = campaign.status !== "draft";
   const allowedRecipientFilters = [
     "all",
@@ -745,6 +747,20 @@ export default async function OrganizerCampaignDetailPage({
                 required
               />
             </label>
+
+            {!isLocked ? (
+              <CampaignAIAssistant
+                campaignContext="organizer"
+                audienceLabel={selectedAudience.label}
+                eventName={selectedEvent?.name ?? null}
+                currentSubject={campaign.subject}
+                currentPreviewText={campaign.preview_text}
+                currentBodyText={campaign.body_text}
+                ctaLabel={campaign.cta_label}
+                ctaUrl={campaign.cta_url}
+                compact
+              />
+            ) : null}
 
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2 text-sm font-medium text-slate-700">

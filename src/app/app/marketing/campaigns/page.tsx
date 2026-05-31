@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createMarketingCampaignDraftAction } from "./actions";
+import CampaignAIAssistant from "./CampaignAIAssistant";
 
 type SearchParams = Promise<{
   campaign_saved?: string;
@@ -462,6 +463,9 @@ export default async function MarketingCampaignsPage({
   const defaultAudienceType = selectedTemplateAudienceIsAvailable
     ? selectedTemplate?.audienceType ?? "all_active_clients"
     : "all_active_clients";
+  const defaultAudienceLabel =
+    audiencePreviews.find((audience) => audience.key === defaultAudienceType)?.label ??
+    "Selected audience";
 
   return (
     <main className="min-h-screen bg-[var(--brand-page-bg)] px-4 py-6 text-[var(--brand-text)] sm:px-6 lg:px-8">
@@ -506,13 +510,13 @@ export default async function MarketingCampaignsPage({
           <div className="grid gap-4 p-5 sm:p-6 lg:grid-cols-3">
             <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-soft-bg)] p-4">
               <p className="text-sm font-semibold text-[var(--brand-muted)]">
-                V1 Focus
+                Campaign focus
               </p>
               <p className="mt-2 text-lg font-bold text-[var(--brand-text)]">
                 Native in-app emails
               </p>
               <p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">
-                Studio owners create campaign drafts without leaving DanceFlow.
+                Create campaign drafts without leaving DanceFlow.
               </p>
             </div>
 
@@ -699,6 +703,16 @@ export default async function MarketingCampaignsPage({
                   defaultValue={selectedTemplate?.bodyText ?? ""}
                 />
               </div>
+
+              <CampaignAIAssistant
+                campaignContext="studio"
+                audienceLabel={defaultAudienceLabel}
+                currentSubject={selectedTemplate?.subject ?? ""}
+                currentPreviewText={selectedTemplate?.previewText ?? ""}
+                currentBodyText={selectedTemplate?.bodyText ?? ""}
+                ctaLabel={selectedTemplate?.ctaLabel ?? ""}
+                compact
+              />
 
               <div className="grid gap-4 sm:grid-cols-2">
                 <div>

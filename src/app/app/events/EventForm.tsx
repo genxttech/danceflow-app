@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useMemo, useState } from "react";
 import { createEventAction, updateEventAction } from "./actions";
+import EventDescriptionAIAssistant from "./EventDescriptionAIAssistant";
 
 type OrganizerOption = {
   id: string;
@@ -629,7 +630,16 @@ export default function EventForm({
   const selectedDanceCategory =
     DANCE_CATEGORY_OPTIONS.find((option) => option.key === danceCategory) ??
     DANCE_CATEGORY_OPTIONS[0];
+  const selectedDanceStyleLabels = visibleDanceFocusOptions
+    .filter((option) => selectedStyleKeys.includes(option.key))
+    .map((option) => option.label);
   const [tags, setTags] = useState(initialValues?.tags ?? "");
+  const [shortDescription, setShortDescription] = useState(
+    initialValues?.shortDescription ?? "",
+  );
+  const [description, setDescription] = useState(
+    initialValues?.description ?? "",
+  );
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>(() =>
     shouldUseMultiLocationMode(initialValues) ? "multi" : "single",
   );
@@ -2480,7 +2490,8 @@ export default function EventForm({
                   id="shortDescription"
                   name="shortDescription"
                   rows={3}
-                  defaultValue={initialValues?.shortDescription ?? ""}
+                  value={shortDescription}
+                  onChange={(event) => setShortDescription(event.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                   placeholder={
                     isGroupClass
@@ -2501,7 +2512,8 @@ export default function EventForm({
                   id="description"
                   name="description"
                   rows={6}
-                  defaultValue={initialValues?.description ?? ""}
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                   placeholder={
                     isGroupClass
@@ -2510,6 +2522,23 @@ export default function EventForm({
                   }
                 />
               </div>
+
+              <EventDescriptionAIAssistant
+                eventName={name}
+                eventType={eventType}
+                danceCategory={selectedDanceCategory.label}
+                danceStyles={selectedDanceStyleLabels}
+                startDate={fallbackStartDate}
+                startTime={fallbackStartTime}
+                venueName={primaryLocation.venueName || initialValues?.venueName || ""}
+                city={primaryLocation.city || initialValues?.city || ""}
+                state={primaryLocation.state || initialValues?.state || ""}
+                beginnerFriendly={beginnerFriendly}
+                currentSummary={shortDescription}
+                currentDescription={description}
+                onUseSummary={setShortDescription}
+                onUseDescription={setDescription}
+              />
 
               <div>
                 <label
@@ -2892,11 +2921,4 @@ export default function EventForm({
     </form>
   );
 }
-
-
-
-
-
-
-
 

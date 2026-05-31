@@ -20,6 +20,9 @@ import { syncStudioNotifications } from "@/lib/notifications/sync";
 import { dismissPlatformBroadcastAlertAction } from "@/app/platform/actions";
 import { dismissWorkspaceOnboardingAction } from "@/app/app/onboarding-actions";
 import { OnboardingCompletionRecorder } from "@/app/app/OnboardingCompletionRecorder";
+import SuggestedFollowUpsCard, {
+  type SuggestedFollowUpItem,
+} from "./SuggestedFollowUpsCard";
 import {
   getAccessibleStudios,
   getCurrentStudioContext,
@@ -119,6 +122,54 @@ type PackageRow = {
   active: boolean | null;
 };
 
+type FollowUpClientRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  status: string | null;
+  referral_source: string | null;
+  created_at: string;
+};
+
+type FollowUpAppointmentRow = {
+  id: string;
+  client_id: string | null;
+  starts_at: string;
+};
+
+type FollowUpLeadActivityRow = {
+  id: string;
+  client_id: string | null;
+  follow_up_due_at: string | null;
+  completed_at: string | null;
+};
+
+type FollowUpPackageItemRow = {
+  quantity_remaining: number | string | null;
+  is_unlimited: boolean | null;
+};
+
+type FollowUpPackageRow = {
+  id: string;
+  client_id: string | null;
+  name_snapshot: string | null;
+  active: boolean | null;
+  client_package_items?: FollowUpPackageItemRow[] | null;
+};
+
+type FollowUpEventRegistrationRow = {
+  id: string;
+  event_id: string | null;
+  client_id: string | null;
+  attendee_first_name: string | null;
+  attendee_last_name: string | null;
+  attendee_email: string | null;
+  payment_status: string | null;
+  created_at: string;
+  events?: { name?: string | null } | { name?: string | null }[] | null;
+};
+
 type EventRow = {
   id: string;
   name: string;
@@ -202,7 +253,9 @@ function appointmentTypeLabel(value: string | null | undefined) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function fullName(row?: { first_name: string | null; last_name: string | null } | null) {
+function fullName(
+  row?: { first_name: string | null; last_name: string | null } | null,
+) {
   const name = [row?.first_name, row?.last_name]
     .map((part) => part?.trim())
     .filter(Boolean)
@@ -213,6 +266,33 @@ function fullName(row?: { first_name: string | null; last_name: string | null } 
 
 function compactList(parts: Array<string | null | undefined>) {
   return parts.filter(Boolean).join(" • ");
+}
+
+function followUpName(
+  row?: {
+    first_name: string | null;
+    last_name: string | null;
+    email?: string | null;
+  } | null,
+) {
+  const name = fullName(row ?? null);
+  return name || row?.email || "Contact";
+}
+
+function toNumericValue(value: number | string | null | undefined) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function getEventRelationName(
+  relation: FollowUpEventRegistrationRow["events"],
+) {
+  const eventRow = Array.isArray(relation) ? relation[0] : relation;
+  return eventRow?.name?.trim() || "event";
 }
 
 function fmtDateRange(startDate: string, endDate: string) {
@@ -243,13 +323,17 @@ function eventTypeLabel(value: string) {
   if (value === "showcase") return "Showcase";
   if (value === "festival") return "Festival";
   if (value === "special_event") return "Special Event";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function platformBroadcastAlertClass(type: string) {
-  if (type === "success") return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  if (type === "success")
+    return "border-emerald-200 bg-emerald-50 text-emerald-950";
   if (type === "warning") return "border-amber-200 bg-amber-50 text-amber-950";
-  if (type === "maintenance") return "border-violet-200 bg-violet-50 text-violet-950";
+  if (type === "maintenance")
+    return "border-violet-200 bg-violet-50 text-violet-950";
   if (type === "critical") return "border-rose-200 bg-rose-50 text-rose-950";
   return "border-sky-200 bg-sky-50 text-sky-950";
 }
@@ -270,15 +354,24 @@ function audienceMatchesWorkspace(params: {
   const audience = params.audience.trim().toLowerCase();
   const role = (params.studioRole ?? "").trim().toLowerCase();
 
-  if (audience === "all_users" || audience === "all_workspace_users") return true;
-  if (audience === "studio_owners") return role === "studio_owner" || role === "owner";
-  if (audience === "organizers") return params.organizerWorkspace || role.startsWith("organizer_");
-  if (audience === "instructors") return role.includes("instructor") || role === "studio_owner";
-  if (audience === "independent_instructors") return role.includes("independent_instructor");
+  if (audience === "all_users" || audience === "all_workspace_users")
+    return true;
+  if (audience === "studio_owners")
+    return role === "studio_owner" || role === "owner";
+  if (audience === "organizers")
+    return params.organizerWorkspace || role.startsWith("organizer_");
+  if (audience === "instructors")
+    return role.includes("instructor") || role === "studio_owner";
+  if (audience === "independent_instructors")
+    return role.includes("independent_instructor");
   return false;
 }
 
-function PlatformBroadcastAlerts({ alerts }: { alerts: PlatformBroadcastAlertRow[] }) {
+function PlatformBroadcastAlerts({
+  alerts,
+}: {
+  alerts: PlatformBroadcastAlertRow[];
+}) {
   if (alerts.length === 0) return null;
 
   return (
@@ -287,7 +380,7 @@ function PlatformBroadcastAlerts({ alerts }: { alerts: PlatformBroadcastAlertRow
         <div
           key={alert.id}
           className={`rounded-[28px] border p-5 shadow-sm ${platformBroadcastAlertClass(
-            alert.alert_type
+            alert.alert_type,
           )}`}
         >
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
@@ -296,7 +389,9 @@ function PlatformBroadcastAlerts({ alerts }: { alerts: PlatformBroadcastAlertRow
                 {platformBroadcastAlertLabel(alert.alert_type)}
               </p>
               <h2 className="mt-2 text-lg font-semibold">{alert.title}</h2>
-              <p className="mt-2 text-sm leading-6 opacity-90">{alert.message}</p>
+              <p className="mt-2 text-sm leading-6 opacity-90">
+                {alert.message}
+              </p>
               {alert.read_more_url ? (
                 <Link
                   href={alert.read_more_url}
@@ -308,7 +403,10 @@ function PlatformBroadcastAlerts({ alerts }: { alerts: PlatformBroadcastAlertRow
             </div>
 
             {alert.dismissible ? (
-              <form action={dismissPlatformBroadcastAlertAction} className="shrink-0">
+              <form
+                action={dismissPlatformBroadcastAlertAction}
+                className="shrink-0"
+              >
                 <input type="hidden" name="alertId" value={alert.id} />
                 <button
                   type="submit"
@@ -334,7 +432,8 @@ function WorkspaceOnboardingChecklist({
 }) {
   const completedCount = tasks.filter((task) => task.complete).length;
   const totalCount = tasks.length;
-  const percentComplete = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const percentComplete =
+    totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   if (totalCount === 0 || completedCount === totalCount) return null;
 
@@ -407,7 +506,9 @@ function WorkspaceOnboardingChecklist({
               </div>
 
               <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-slate-950">{task.title}</h3>
+                <h3 className="text-sm font-semibold text-slate-950">
+                  {task.title}
+                </h3>
                 <p className="mt-1 text-sm leading-5 text-slate-600">
                   {task.description}
                 </p>
@@ -431,7 +532,8 @@ function WorkspaceOnboardingChecklist({
         >
           <input type="hidden" name="checklistType" value={checklistType} />
           <p className="text-xs leading-5 text-slate-500">
-            This checklist updates automatically as workspace setup items are completed.
+            This checklist updates automatically as workspace setup items are
+            completed.
           </p>
           <button
             type="submit"
@@ -509,7 +611,10 @@ function getTrialDaysLeft(value: string | null) {
   return Math.ceil(diffMs / (1000 * 60 * 60 * 24));
 }
 
-function getTrialDisplay(status: string | null | undefined, trialEndsAt: string | null) {
+function getTrialDisplay(
+  status: string | null | undefined,
+  trialEndsAt: string | null,
+) {
   if (status !== "trialing") return null;
 
   const daysLeft = getTrialDaysLeft(trialEndsAt);
@@ -715,9 +820,11 @@ export default async function AppDashboardPage({
 
   let hostStudioPortalLinks: HostStudioPortalLink[] = [];
 
-  const { data: hostStudioPortalRows, error: hostStudioPortalError } = await supabase
-    .from("clients")
-    .select(`
+  const { data: hostStudioPortalRows, error: hostStudioPortalError } =
+    await supabase
+      .from("clients")
+      .select(
+        `
       id,
       studio_id,
       studios (
@@ -725,14 +832,15 @@ export default async function AppDashboardPage({
         name,
         slug
       )
-    `)
-    .eq("portal_user_id", user.id)
-    .eq("is_independent_instructor", true)
-    .neq("studio_id", studioId);
+    `,
+      )
+      .eq("portal_user_id", user.id)
+      .eq("is_independent_instructor", true)
+      .neq("studio_id", studioId);
 
   if (hostStudioPortalError) {
     throw new Error(
-      `Failed to load host studio portal links: ${hostStudioPortalError.message}`
+      `Failed to load host studio portal links: ${hostStudioPortalError.message}`,
     );
   }
 
@@ -770,12 +878,12 @@ export default async function AppDashboardPage({
     { data: subscription, error: subscriptionError },
   ] = await Promise.all([
     supabase
-  .from("studios")
-  .select(
-    "id, name, billing_plan, subscription_status, trial_ends_at, stripe_connected_account_id"
-  )
-  .eq("id", studioId)
-  .maybeSingle<WorkspaceRow>(),
+      .from("studios")
+      .select(
+        "id, name, billing_plan, subscription_status, trial_ends_at, stripe_connected_account_id",
+      )
+      .eq("id", studioId)
+      .maybeSingle<WorkspaceRow>(),
 
     supabase
       .from("notifications")
@@ -787,7 +895,7 @@ export default async function AppDashboardPage({
     supabase
       .from("studio_subscriptions")
       .select(
-        "id, subscription_plan_id, status, billing_interval, trial_ends_at, current_period_end, updated_at"
+        "id, subscription_plan_id, status, billing_interval, trial_ends_at, current_period_end, updated_at",
       )
       .eq("studio_id", studioId)
       .order("updated_at", { ascending: false })
@@ -800,11 +908,15 @@ export default async function AppDashboardPage({
   }
 
   if (notificationsError) {
-    throw new Error(`Failed to load dashboard notifications: ${notificationsError.message}`);
+    throw new Error(
+      `Failed to load dashboard notifications: ${notificationsError.message}`,
+    );
   }
 
   if (subscriptionError) {
-    throw new Error(`Failed to load current subscription: ${subscriptionError.message}`);
+    throw new Error(
+      `Failed to load current subscription: ${subscriptionError.message}`,
+    );
   }
 
   let currentPlan: SubscriptionPlanRow | null = null;
@@ -822,10 +934,11 @@ export default async function AppDashboardPage({
     currentPlan = planRow ?? null;
   }
 
-  const studioBillingPlan = workspace?.billing_plan?.trim().toLowerCase() ?? null;
+  const studioBillingPlan =
+    workspace?.billing_plan?.trim().toLowerCase() ?? null;
   const planCode = organizerWorkspace
     ? "organizer"
-    : (currentPlan?.code?.trim().toLowerCase() || studioBillingPlan || "starter");
+    : currentPlan?.code?.trim().toLowerCase() || studioBillingPlan || "starter";
   const planLabel = organizerWorkspace
     ? "Organizer"
     : currentPlan?.name || getPlanLabelFromCode(studioBillingPlan) || "Starter";
@@ -834,18 +947,18 @@ export default async function AppDashboardPage({
     subscription?.status ?? workspace?.subscription_status ?? null;
 
   const effectiveTrialEndsAt =
-  subscription?.trial_ends_at ??
-  workspace?.trial_ends_at ??
-  subscription?.current_period_end ??
-  null;
+    subscription?.trial_ends_at ??
+    workspace?.trial_ends_at ??
+    subscription?.current_period_end ??
+    null;
 
   const subscriptionTrialInfo = getTrialDisplay(
     effectiveSubscriptionStatus,
-    effectiveTrialEndsAt
+    effectiveTrialEndsAt,
   );
 
   const unreadCount = ((notifications ?? []) as NotificationRow[]).filter(
-    (item) => !item.read_at
+    (item) => !item.read_at,
   ).length;
   const payoutsReady = Boolean(workspace?.stripe_connected_account_id);
 
@@ -853,17 +966,22 @@ export default async function AppDashboardPage({
 
   const { data: platformAlertRows, error: platformAlertsError } = await supabase
     .from("platform_alerts")
-    .select("id, title, message, alert_type, audience, dismissible, read_more_url, read_more_label")
+    .select(
+      "id, title, message, alert_type, audience, dismissible, read_more_url, read_more_label",
+    )
     .eq("active", true)
     .or(`starts_at.is.null,starts_at.lte.${new Date().toISOString()}`)
     .or(`ends_at.is.null,ends_at.gte.${new Date().toISOString()}`)
     .order("created_at", { ascending: false });
 
   if (platformAlertsError) {
-    throw new Error(`Failed to load platform broadcasts: ${platformAlertsError.message}`);
+    throw new Error(
+      `Failed to load platform broadcasts: ${platformAlertsError.message}`,
+    );
   }
 
-  const typedPlatformAlerts = (platformAlertRows ?? []) as PlatformBroadcastAlertRow[];
+  const typedPlatformAlerts = (platformAlertRows ??
+    []) as PlatformBroadcastAlertRow[];
   const platformAlertIds = typedPlatformAlerts.map((alert) => alert.id);
   let dismissedPlatformAlertIds = new Set<string>();
 
@@ -875,18 +993,21 @@ export default async function AppDashboardPage({
       .in("alert_id", platformAlertIds);
 
     if (dismissalError) {
-      throw new Error(`Failed to load dismissed platform broadcasts: ${dismissalError.message}`);
+      throw new Error(
+        `Failed to load dismissed platform broadcasts: ${dismissalError.message}`,
+      );
     }
 
     dismissedPlatformAlertIds = new Set(
       (dismissalRows ?? [])
         .map((row) => (row as { alert_id?: string | null }).alert_id)
-        .filter((id): id is string => Boolean(id))
+        .filter((id): id is string => Boolean(id)),
     );
   }
 
   const visiblePlatformAlerts = typedPlatformAlerts.filter((alert) => {
-    if (alert.dismissible && dismissedPlatformAlertIds.has(alert.id)) return false;
+    if (alert.dismissible && dismissedPlatformAlertIds.has(alert.id))
+      return false;
     return audienceMatchesWorkspace({
       audience: alert.audience,
       studioRole: context.studioRole,
@@ -896,17 +1017,18 @@ export default async function AppDashboardPage({
 
   const checklistType = organizerWorkspace ? "organizer" : "studio";
 
-  const { data: onboardingPreference, error: onboardingPreferenceError } = await supabase
-    .from("workspace_onboarding_preferences")
-    .select("id, dismissed_at, completed_at")
-    .eq("studio_id", studioId)
-    .eq("user_id", user.id)
-    .eq("checklist_type", checklistType)
-    .maybeSingle<WorkspaceOnboardingPreferenceRow>();
+  const { data: onboardingPreference, error: onboardingPreferenceError } =
+    await supabase
+      .from("workspace_onboarding_preferences")
+      .select("id, dismissed_at, completed_at")
+      .eq("studio_id", studioId)
+      .eq("user_id", user.id)
+      .eq("checklist_type", checklistType)
+      .maybeSingle<WorkspaceOnboardingPreferenceRow>();
 
   if (onboardingPreferenceError) {
     throw new Error(
-      `Failed to load onboarding checklist preferences: ${onboardingPreferenceError.message}`
+      `Failed to load onboarding checklist preferences: ${onboardingPreferenceError.message}`,
     );
   }
 
@@ -921,7 +1043,7 @@ export default async function AppDashboardPage({
       supabase
         .from("events")
         .select(
-          "id, name, slug, event_type, start_date, end_date, visibility, status, featured, public_directory_enabled"
+          "id, name, slug, event_type, start_date, end_date, visibility, status, featured, public_directory_enabled",
         )
         .eq("studio_id", studioId)
         .order("start_date", { ascending: true })
@@ -940,13 +1062,19 @@ export default async function AppDashboardPage({
     ]);
 
     if (eventsError) {
-      throw new Error(`Failed to load dashboard events: ${eventsError.message}`);
+      throw new Error(
+        `Failed to load dashboard events: ${eventsError.message}`,
+      );
     }
     if (organizersError) {
-      throw new Error(`Failed to load dashboard organizers: ${organizersError.message}`);
+      throw new Error(
+        `Failed to load dashboard organizers: ${organizersError.message}`,
+      );
     }
     if (registrationsError) {
-      throw new Error(`Failed to load dashboard registrations: ${registrationsError.message}`);
+      throw new Error(
+        `Failed to load dashboard registrations: ${registrationsError.message}`,
+      );
     }
 
     const typedEvents = (events ?? []) as EventRow[];
@@ -963,32 +1091,38 @@ export default async function AppDashboardPage({
         .in("event_registration_id", registrationIds);
 
       if (attendanceError) {
-        throw new Error(`Failed to load dashboard attendance: ${attendanceError.message}`);
+        throw new Error(
+          `Failed to load dashboard attendance: ${attendanceError.message}`,
+        );
       }
 
       typedAttendance = (attendanceRows ?? []) as AttendanceRow[];
     }
 
     const publishedCount = typedEvents.filter(
-      (event) => event.status === "published" || event.status === "open"
+      (event) => event.status === "published" || event.status === "open",
     ).length;
     const discoveryReadyCount = typedEvents.filter(
       (event) =>
         event.public_directory_enabled &&
         event.visibility === "public" &&
-        (event.status === "published" || event.status === "open")
+        (event.status === "published" || event.status === "open"),
     ).length;
     const paidRegistrationsCount = typedRegistrations.filter(
-      (row) => row.payment_status === "paid" || row.payment_status === "partial"
+      (row) =>
+        row.payment_status === "paid" || row.payment_status === "partial",
     ).length;
-    const checkedInCount = typedAttendance.filter((row) => row.status === "attended").length;
+    const checkedInCount = typedAttendance.filter(
+      (row) => row.status === "attended",
+    ).length;
     const primaryOrganizer = typedOrganizers[0] ?? null;
 
     const organizerOnboardingTasks: WorkspaceOnboardingTask[] = [
       {
         key: "organizer-profile",
         title: "Create organizer profile",
-        description: "Confirm the organizer name and workspace details are ready.",
+        description:
+          "Confirm the organizer name and workspace details are ready.",
         href: "/app/settings",
         complete: Boolean(primaryOrganizer),
       },
@@ -1002,7 +1136,8 @@ export default async function AppDashboardPage({
       {
         key: "create-event",
         title: "Create your first event",
-        description: "Add an event, group class, workshop, competition, or showcase.",
+        description:
+          "Add an event, group class, workshop, competition, or showcase.",
         href: "/app/events/new",
         complete: typedEvents.length > 0,
       },
@@ -1016,38 +1151,42 @@ export default async function AppDashboardPage({
       {
         key: "discovery-ready",
         title: "Turn on public discovery",
-        description: "List at least one event in discovery so dancers can find it.",
+        description:
+          "List at least one event in discovery so dancers can find it.",
         href: "/app/events",
         complete: discoveryReadyCount > 0,
       },
       {
         key: "registration-test",
         title: "Confirm registration flow",
-        description: "Record at least one paid or partial registration to confirm the event flow.",
+        description:
+          "Record at least one paid or partial registration to confirm the event flow.",
         href: "/app/events/registrations",
         complete: paidRegistrationsCount > 0,
       },
     ];
 
     const organizerOnboardingComplete =
-  organizerOnboardingTasks.length > 0 &&
-  organizerOnboardingTasks.every((task) => task.complete);
+      organizerOnboardingTasks.length > 0 &&
+      organizerOnboardingTasks.every((task) => task.complete);
 
-const showOrganizerOnboarding =
-  !onboardingDismissed &&
-  !onboardingCompleted &&
-  !organizerOnboardingComplete &&
-  organizerOnboardingTasks.some((task) => !task.complete);
+    const showOrganizerOnboarding =
+      !onboardingDismissed &&
+      !onboardingCompleted &&
+      !organizerOnboardingComplete &&
+      organizerOnboardingTasks.some((task) => !task.complete);
 
-const recordOrganizerOnboardingCompletion =
-  !onboardingDismissed && !onboardingCompleted && organizerOnboardingComplete;
+    const recordOrganizerOnboardingCompletion =
+      !onboardingDismissed &&
+      !onboardingCompleted &&
+      organizerOnboardingComplete;
 
     return (
       <main className="space-y-8 p-6 md:p-8">
         <PlatformBroadcastAlerts alerts={visiblePlatformAlerts} />
         {recordOrganizerOnboardingCompletion ? (
-  <OnboardingCompletionRecorder checklistType="organizer" />
-) : null}
+          <OnboardingCompletionRecorder checklistType="organizer" />
+        ) : null}
 
         {showInviteAcceptedBanner ? (
           <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
@@ -1085,26 +1224,31 @@ const recordOrganizerOnboardingCompletion =
                 </h1>
 
                 <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                  Run your organizer operations from one place, including events,
-                  registrations, check-in, profile readiness, and recent alerts.
+                  Run your organizer operations from one place, including
+                  events, registrations, check-in, profile readiness, and recent
+                  alerts.
                 </p>
 
                 <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-white/80">
                   <span>
                     Current workspace:{" "}
                     <span className="font-medium text-white">
-                      {currentWorkspace?.studioName || workspace?.name || "Organizer Workspace"}
+                      {currentWorkspace?.studioName ||
+                        workspace?.name ||
+                        "Organizer Workspace"}
                     </span>
                   </span>
                   <span className="inline-flex rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium ring-1 ring-white/15">
                     {planLabel}
                   </span>
                   {subscriptionTrialInfo ? (
-  <span className="inline-flex flex-col rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/15">
-    <span>{subscriptionTrialInfo.label}</span>
-    <span className="mt-0.5 text-white/70">{subscriptionTrialInfo.detail}</span>
-  </span>
-) : null}
+                    <span className="inline-flex flex-col rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/15">
+                      <span>{subscriptionTrialInfo.label}</span>
+                      <span className="mt-0.5 text-white/70">
+                        {subscriptionTrialInfo.detail}
+                      </span>
+                    </span>
+                  ) : null}
                 </div>
               </div>
 
@@ -1127,11 +1271,31 @@ const recordOrganizerOnboardingCompletion =
 
           <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <StatCard label="Events" value={typedEvents.length} icon={CalendarDays} />
-              <StatCard label="Published / Open" value={publishedCount} icon={Ticket} />
-              <StatCard label="Discovery Ready" value={discoveryReadyCount} icon={Star} />
-              <StatCard label="Paid Registrations" value={paidRegistrationsCount} icon={ClipboardList} />
-              <StatCard label="Unread Notifications" value={unreadCount} icon={Bell} />
+              <StatCard
+                label="Events"
+                value={typedEvents.length}
+                icon={CalendarDays}
+              />
+              <StatCard
+                label="Published / Open"
+                value={publishedCount}
+                icon={Ticket}
+              />
+              <StatCard
+                label="Discovery Ready"
+                value={discoveryReadyCount}
+                icon={Star}
+              />
+              <StatCard
+                label="Paid Registrations"
+                value={paidRegistrationsCount}
+                icon={ClipboardList}
+              />
+              <StatCard
+                label="Unread Notifications"
+                value={unreadCount}
+                icon={Bell}
+              />
             </div>
           </div>
         </section>
@@ -1150,7 +1314,9 @@ const recordOrganizerOnboardingCompletion =
             }
           >
             {typedEvents.length === 0 ? (
-              <EmptyState>No events yet. Create your first event to begin publishing.</EmptyState>
+              <EmptyState>
+                No events yet. Create your first event to begin publishing.
+              </EmptyState>
             ) : (
               <div className="space-y-4">
                 {typedEvents.slice(0, 5).map((event) => (
@@ -1161,10 +1327,12 @@ const recordOrganizerOnboardingCompletion =
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-base font-semibold text-slate-900">{event.name}</h3>
+                          <h3 className="text-base font-semibold text-slate-900">
+                            {event.name}
+                          </h3>
                           <span
                             className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                              event.status
+                              event.status,
                             )}`}
                           >
                             {event.status}
@@ -1234,8 +1402,12 @@ const recordOrganizerOnboardingCompletion =
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <h3 className="text-lg font-semibold text-slate-900">{primaryOrganizer.name}</h3>
-                      <p className="mt-1 text-sm text-slate-500">/{primaryOrganizer.slug}</p>
+                      <h3 className="text-lg font-semibold text-slate-900">
+                        {primaryOrganizer.name}
+                      </h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        /{primaryOrganizer.slug}
+                      </p>
                     </div>
                     <span
                       className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -1249,7 +1421,10 @@ const recordOrganizerOnboardingCompletion =
                   </div>
                 </div>
               ) : (
-                <EmptyState>No organizer profile yet. Create one to publish events publicly.</EmptyState>
+                <EmptyState>
+                  No organizer profile yet. Create one to publish events
+                  publicly.
+                </EmptyState>
               )}
             </SectionCard>
 
@@ -1276,9 +1451,13 @@ const recordOrganizerOnboardingCompletion =
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <h3 className="text-sm font-semibold text-slate-900">{notification.title}</h3>
+                          <h3 className="text-sm font-semibold text-slate-900">
+                            {notification.title}
+                          </h3>
                           {notification.body ? (
-                            <p className="mt-1 text-sm text-slate-600">{notification.body}</p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {notification.body}
+                            </p>
                           ) : null}
                         </div>
                         {!notification.read_at ? (
@@ -1334,8 +1513,9 @@ const recordOrganizerOnboardingCompletion =
                   Connect payouts before taking paid registrations
                 </h2>
                 <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-700">
-                  Organizer workspaces need Stripe payouts connected before relying on paid ticket sales,
-                  registration revenue, or refunds.
+                  Organizer workspaces need Stripe payouts connected before
+                  relying on paid ticket sales, registration revenue, or
+                  refunds.
                 </p>
               </div>
               <Link
@@ -1360,39 +1540,60 @@ const recordOrganizerOnboardingCompletion =
     { data: packages, error: packagesError },
     { data: instructors, error: instructorsError },
   ] = await Promise.all([
-    supabase.from("clients").select("id, portal_user_id").eq("studio_id", studioId),
+    supabase
+      .from("clients")
+      .select("id, portal_user_id")
+      .eq("studio_id", studioId),
     supabase
       .from("appointments")
-      .select("id, title, appointment_type, client_id, instructor_id, room_id, starts_at, status")
+      .select(
+        "id, title, appointment_type, client_id, instructor_id, room_id, starts_at, status",
+      )
       .eq("studio_id", studioId)
       .gte("starts_at", new Date().toISOString())
       .order("starts_at", { ascending: true })
       .limit(8),
-    supabase.from("client_memberships").select("id, status").eq("studio_id", studioId),
+    supabase
+      .from("client_memberships")
+      .select("id, status")
+      .eq("studio_id", studioId),
     isGrowthOrHigher
-      ? supabase.from("client_packages").select("id, active").eq("studio_id", studioId)
+      ? supabase
+          .from("client_packages")
+          .select("id, active")
+          .eq("studio_id", studioId)
       : Promise.resolve({ data: [], error: null }),
     supabase.from("instructors").select("id").eq("studio_id", studioId),
   ]);
 
   if (clientsError) {
-    throw new Error(`Failed to load dashboard clients: ${clientsError.message}`);
+    throw new Error(
+      `Failed to load dashboard clients: ${clientsError.message}`,
+    );
   }
 
   if (appointmentsError) {
-    throw new Error(`Failed to load dashboard appointments: ${appointmentsError.message}`);
+    throw new Error(
+      `Failed to load dashboard appointments: ${appointmentsError.message}`,
+    );
   }
 
   if (membershipsError) {
-    throw new Error(`Failed to load dashboard memberships: ${membershipsError.message}`);
+    throw new Error(
+      `Failed to load dashboard memberships: ${membershipsError.message}`,
+    );
   }
 
   if (packagesError) {
-    throw new Error(`Failed to load dashboard packages: ${packagesError.message}`);
+    throw new Error(
+      `Failed to load dashboard packages: ${packagesError.message}`,
+    );
   }
 
   if (instructorsError) {
-    throw new Error(`Failed to load dashboard instructors: ${instructorsError.message}`);
+    throw new Error(
+      `Failed to load dashboard instructors: ${instructorsError.message}`,
+    );
   }
 
   const typedClients = (clients ?? []) as ClientRow[];
@@ -1401,123 +1602,421 @@ const recordOrganizerOnboardingCompletion =
   const typedPackages = (packages ?? []) as PackageRow[];
   const typedInstructors = (instructors ?? []) as InstructorRow[];
 
-  const clientIds = Array.from(
-    new Set(typedAppointments.map((item) => item.client_id).filter((id): id is string => Boolean(id)))
-  );
-  const instructorIds = Array.from(
-    new Set(typedAppointments.map((item) => item.instructor_id).filter((id): id is string => Boolean(id)))
-  );
-  const roomIds = Array.from(
-    new Set(typedAppointments.map((item) => item.room_id).filter((id): id is string => Boolean(id)))
-  );
+  const followUpNowIso = new Date().toISOString();
+  const followUpThirtyDaysAgoIso = new Date(
+    Date.now() - 30 * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
-  const [clientRowsResult, instructorRowsResult, roomRowsResult] = await Promise.all([
-    clientIds.length > 0
-      ? supabase.from("clients").select("id, first_name, last_name").in("id", clientIds)
-      : Promise.resolve({ data: [], error: null }),
-    instructorIds.length > 0
-      ? supabase.from("instructors").select("id, first_name, last_name").in("id", instructorIds)
-      : Promise.resolve({ data: [], error: null }),
-    roomIds.length > 0
-      ? supabase.from("rooms").select("id, name").in("id", roomIds)
-      : Promise.resolve({ data: [], error: null }),
+  const [
+    followUpClientsResult,
+    followUpAppointmentsResult,
+    followUpLeadActivitiesResult,
+    followUpPackagesResult,
+    followUpEventRegistrationsResult,
+  ] = await Promise.all([
+    supabase
+      .from("clients")
+      .select(
+        "id, first_name, last_name, email, status, referral_source, created_at",
+      )
+      .eq("studio_id", studioId)
+      .in("status", ["active", "lead", "contacted", "consultation_booked"])
+      .order("created_at", { ascending: false })
+      .limit(150),
+
+    supabase
+      .from("appointments")
+      .select("id, client_id, starts_at")
+      .eq("studio_id", studioId)
+      .not("client_id", "is", null)
+      .gte("starts_at", followUpNowIso)
+      .order("starts_at", { ascending: true })
+      .limit(300),
+
+    supabase
+      .from("lead_activities")
+      .select("id, client_id, follow_up_due_at, completed_at")
+      .eq("studio_id", studioId)
+      .not("follow_up_due_at", "is", null)
+      .is("completed_at", null)
+      .lte("follow_up_due_at", followUpNowIso)
+      .order("follow_up_due_at", { ascending: true })
+      .limit(75),
+
+    supabase
+      .from("client_packages")
+      .select(
+        `
+          id,
+          client_id,
+          name_snapshot,
+          active,
+          client_package_items (
+            quantity_remaining,
+            is_unlimited
+          )
+        `,
+      )
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .limit(150),
+
+    supabase
+      .from("event_registrations")
+      .select(
+        `
+          id,
+          event_id,
+          client_id,
+          attendee_first_name,
+          attendee_last_name,
+          attendee_email,
+          payment_status,
+          created_at,
+          events ( name )
+        `,
+      )
+      .eq("studio_id", studioId)
+      .not("client_id", "is", null)
+      .gte("created_at", followUpThirtyDaysAgoIso)
+      .order("created_at", { ascending: false })
+      .limit(75),
   ]);
 
+  if (followUpClientsResult.error) {
+    throw new Error(
+      `Failed to load follow-up clients: ${followUpClientsResult.error.message}`,
+    );
+  }
+
+  if (followUpAppointmentsResult.error) {
+    throw new Error(
+      `Failed to load follow-up appointments: ${followUpAppointmentsResult.error.message}`,
+    );
+  }
+
+  if (followUpLeadActivitiesResult.error) {
+    throw new Error(
+      `Failed to load follow-up reminders: ${followUpLeadActivitiesResult.error.message}`,
+    );
+  }
+
+  if (followUpPackagesResult.error) {
+    throw new Error(
+      `Failed to load follow-up packages: ${followUpPackagesResult.error.message}`,
+    );
+  }
+
+  if (followUpEventRegistrationsResult.error) {
+    throw new Error(
+      `Failed to load follow-up event registrations: ${followUpEventRegistrationsResult.error.message}`,
+    );
+  }
+
+  const followUpClients = (followUpClientsResult.data ??
+    []) as FollowUpClientRow[];
+  const followUpAppointments = (followUpAppointmentsResult.data ??
+    []) as FollowUpAppointmentRow[];
+  const followUpLeadActivities = (followUpLeadActivitiesResult.data ??
+    []) as FollowUpLeadActivityRow[];
+  const followUpPackages = (followUpPackagesResult.data ??
+    []) as FollowUpPackageRow[];
+  const followUpEventRegistrations = (followUpEventRegistrationsResult.data ??
+    []) as FollowUpEventRegistrationRow[];
+
+  const followUpClientMap = new Map(
+    followUpClients.map((client) => [client.id, client]),
+  );
+  const clientIdsWithUpcomingAppointments = new Set(
+    followUpAppointments
+      .map((appointment) => appointment.client_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+
+  const suggestedFollowUps: SuggestedFollowUpItem[] = [];
+  const suggestedFollowUpKeys = new Set<string>();
+
+  function addSuggestedFollowUp(item: SuggestedFollowUpItem) {
+    if (suggestedFollowUpKeys.has(item.id)) return;
+    suggestedFollowUpKeys.add(item.id);
+    suggestedFollowUps.push(item);
+  }
+
+  for (const activity of followUpLeadActivities) {
+    if (!activity.client_id) continue;
+    const client = followUpClientMap.get(activity.client_id);
+    if (!client) continue;
+
+    addSuggestedFollowUp({
+      id: `lead-follow-up-${activity.id}`,
+      personName: followUpName(client),
+      reason: "A lead follow-up is due or overdue.",
+      suggestedAction:
+        "Reach out, update the lead status, or schedule the next follow-up.",
+      context: compactList([
+        client.referral_source ? `Source: ${client.referral_source}` : null,
+        activity.follow_up_due_at
+          ? `Follow-up due: ${fmtDateTime(activity.follow_up_due_at)}`
+          : null,
+      ]),
+      href: `/app/leads?focus=${client.id}`,
+      priority: "high",
+      type: "lead",
+    });
+  }
+
+  for (const pkg of followUpPackages) {
+    if (!pkg.client_id) continue;
+    const finiteRemaining = (pkg.client_package_items ?? [])
+      .filter((item) => !item.is_unlimited)
+      .map((item) => toNumericValue(item.quantity_remaining))
+      .filter((value): value is number => value !== null);
+
+    if (finiteRemaining.length === 0) continue;
+
+    const lowestRemaining = Math.min(...finiteRemaining);
+    if (lowestRemaining > 2) continue;
+
+    const client = followUpClientMap.get(pkg.client_id);
+    if (!client) continue;
+
+    addSuggestedFollowUp({
+      id: `low-package-${pkg.id}`,
+      personName: followUpName(client),
+      reason: `${pkg.name_snapshot || "Package"} is running low with ${lowestRemaining} credit${lowestRemaining === 1 ? "" : "s"} remaining.`,
+      suggestedAction:
+        "Send a package renewal reminder before the client runs out of credits.",
+      context: compactList([
+        pkg.name_snapshot ? `Package: ${pkg.name_snapshot}` : null,
+        `Credits remaining: ${lowestRemaining}`,
+      ]),
+      href: `/app/clients/${pkg.client_id}`,
+      priority: lowestRemaining === 0 ? "high" : "medium",
+      type: "package",
+    });
+  }
+
+  for (const client of followUpClients) {
+    if (client.status !== "active") continue;
+    if (clientIdsWithUpcomingAppointments.has(client.id)) continue;
+
+    addSuggestedFollowUp({
+      id: `no-upcoming-${client.id}`,
+      personName: followUpName(client),
+      reason: "Active client has no upcoming appointment on the schedule.",
+      suggestedAction:
+        "Invite them to book their next lesson or check whether they need help scheduling.",
+      context: client.referral_source
+        ? `Source: ${client.referral_source}`
+        : undefined,
+      href: `/app/clients/${client.id}`,
+      priority: "medium",
+      type: "client",
+    });
+  }
+
+  for (const registration of followUpEventRegistrations) {
+    if (!registration.client_id) continue;
+    if (clientIdsWithUpcomingAppointments.has(registration.client_id)) continue;
+
+    const client = followUpClientMap.get(registration.client_id);
+    const personName =
+      followUpName(client) ||
+      [registration.attendee_first_name, registration.attendee_last_name]
+        .filter(Boolean)
+        .join(" ") ||
+      registration.attendee_email ||
+      "Event attendee";
+    const eventName = getEventRelationName(registration.events);
+
+    addSuggestedFollowUp({
+      id: `event-attendee-${registration.id}`,
+      personName,
+      reason: `Recent event attendee from ${eventName} has no upcoming appointment scheduled.`,
+      suggestedAction:
+        "Follow up after the event and invite them into the next class, lesson, or offer.",
+      context: compactList([
+        `Event: ${eventName}`,
+        registration.payment_status
+          ? `Payment: ${registration.payment_status}`
+          : null,
+      ]),
+      href: registration.client_id
+        ? `/app/clients/${registration.client_id}`
+        : "/app/events/registrations",
+      priority: "low",
+      type: "event_attendee",
+    });
+  }
+
+  const priorityRank: Record<SuggestedFollowUpItem["priority"], number> = {
+    high: 0,
+    medium: 1,
+    low: 2,
+  };
+
+  suggestedFollowUps.sort(
+    (a, b) => priorityRank[a.priority] - priorityRank[b.priority],
+  );
+
+  const clientIds = Array.from(
+    new Set(
+      typedAppointments
+        .map((item) => item.client_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  const instructorIds = Array.from(
+    new Set(
+      typedAppointments
+        .map((item) => item.instructor_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  const roomIds = Array.from(
+    new Set(
+      typedAppointments
+        .map((item) => item.room_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+
+  const [clientRowsResult, instructorRowsResult, roomRowsResult] =
+    await Promise.all([
+      clientIds.length > 0
+        ? supabase
+            .from("clients")
+            .select("id, first_name, last_name")
+            .in("id", clientIds)
+        : Promise.resolve({ data: [], error: null }),
+      instructorIds.length > 0
+        ? supabase
+            .from("instructors")
+            .select("id, first_name, last_name")
+            .in("id", instructorIds)
+        : Promise.resolve({ data: [], error: null }),
+      roomIds.length > 0
+        ? supabase.from("rooms").select("id, name").in("id", roomIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
   if (clientRowsResult.error) {
-    throw new Error(`Failed to load appointment clients: ${clientRowsResult.error.message}`);
+    throw new Error(
+      `Failed to load appointment clients: ${clientRowsResult.error.message}`,
+    );
   }
 
   if (instructorRowsResult.error) {
-    throw new Error(`Failed to load appointment instructors: ${instructorRowsResult.error.message}`);
+    throw new Error(
+      `Failed to load appointment instructors: ${instructorRowsResult.error.message}`,
+    );
   }
 
   if (roomRowsResult.error) {
-    throw new Error(`Failed to load appointment rooms: ${roomRowsResult.error.message}`);
+    throw new Error(
+      `Failed to load appointment rooms: ${roomRowsResult.error.message}`,
+    );
   }
 
   const clientMap = new Map(
-    ((clientRowsResult.data ?? []) as AppointmentClientRow[]).map((client) => [client.id, client])
+    ((clientRowsResult.data ?? []) as AppointmentClientRow[]).map((client) => [
+      client.id,
+      client,
+    ]),
   );
   const instructorMap = new Map(
-    ((instructorRowsResult.data ?? []) as AppointmentInstructorRow[]).map((instructor) => [
-      instructor.id,
-      instructor,
-    ])
+    ((instructorRowsResult.data ?? []) as AppointmentInstructorRow[]).map(
+      (instructor) => [instructor.id, instructor],
+    ),
   );
   const roomMap = new Map(
-    ((roomRowsResult.data ?? []) as AppointmentRoomRow[]).map((room) => [room.id, room])
+    ((roomRowsResult.data ?? []) as AppointmentRoomRow[]).map((room) => [
+      room.id,
+      room,
+    ]),
   );
 
-  const activeMembershipsCount = typedMemberships.filter((item) => item.status === "active").length;
-  const activePackagesCount = typedPackages.filter((item) => Boolean(item.active)).length;
+  const activeMembershipsCount = typedMemberships.filter(
+    (item) => item.status === "active",
+  ).length;
+  const activePackagesCount = typedPackages.filter((item) =>
+    Boolean(item.active),
+  ).length;
   const invitedPortalUsersCount = typedClients.filter((client) =>
-    Boolean(client.portal_user_id)
+    Boolean(client.portal_user_id),
   ).length;
 
   const studioOnboardingTasks: WorkspaceOnboardingTask[] = [
     {
       key: "settings",
       title: "Review studio settings",
-      description: "Confirm your studio profile, public details, and basic workspace settings.",
+      description:
+        "Confirm your studio profile, public details, and basic workspace settings.",
       href: "/app/settings",
       complete: Boolean(workspace?.name),
     },
     {
       key: "instructors",
       title: "Add instructors",
-      description: "Add at least one instructor so schedules and lessons can be assigned.",
+      description:
+        "Add at least one instructor so schedules and lessons can be assigned.",
       href: "/app/instructors",
       complete: typedInstructors.length > 0,
     },
     {
       key: "clients",
       title: "Add or import clients",
-      description: "Add your first student/client record or import your client list.",
+      description:
+        "Add your first student/client record or import your client list.",
       href: "/app/clients",
       complete: typedClients.length > 0,
     },
     {
       key: "packages",
       title: "Create or sell packages",
-      description: "Set up lesson package activity so balances and attendance can be tracked.",
+      description:
+        "Set up lesson package activity so balances and attendance can be tracked.",
       href: "/app/packages",
       complete: activePackagesCount > 0,
     },
     {
       key: "schedule",
       title: "Add your first schedule item",
-      description: "Create a lesson, class, or room activity so the calendar starts working for your team.",
+      description:
+        "Create a lesson, class, or room activity so the calendar starts working for your team.",
       href: "/app/schedule",
       complete: typedAppointments.length > 0,
     },
     {
       key: "payouts",
       title: "Connect billing and payouts",
-      description: "Enable billing and payouts before relying on paid packages, memberships, or events.",
+      description:
+        "Enable billing and payouts before relying on paid packages, memberships, or events.",
       href: "/app/settings/billing",
       complete: payoutsReady,
     },
     {
       key: "portal-invites",
       title: "Invite students to the portal",
-      description: "Send at least one portal invite so students can access their schedule and account details.",
+      description:
+        "Send at least one portal invite so students can access their schedule and account details.",
       href: "/app/clients",
       complete: invitedPortalUsersCount > 0,
     },
   ];
 
   const studioOnboardingComplete =
-  studioOnboardingTasks.length > 0 &&
-  studioOnboardingTasks.every((task) => task.complete);
+    studioOnboardingTasks.length > 0 &&
+    studioOnboardingTasks.every((task) => task.complete);
 
-const showStudioOnboarding =
-  !onboardingDismissed &&
-  !onboardingCompleted &&
-  !studioOnboardingComplete &&
-  studioOnboardingTasks.some((task) => !task.complete);
+  const showStudioOnboarding =
+    !onboardingDismissed &&
+    !onboardingCompleted &&
+    !studioOnboardingComplete &&
+    studioOnboardingTasks.some((task) => !task.complete);
 
-const recordStudioOnboardingCompletion =
-  !onboardingDismissed && !onboardingCompleted && studioOnboardingComplete;
+  const recordStudioOnboardingCompletion =
+    !onboardingDismissed && !onboardingCompleted && studioOnboardingComplete;
 
   const upcomingAppointments = typedAppointments.filter((item) => {
     const normalizedStatus = (item.status ?? "").trim().toLowerCase();
@@ -1530,8 +2029,8 @@ const recordStudioOnboardingCompletion =
     <main className="space-y-8 p-6 md:p-8">
       <PlatformBroadcastAlerts alerts={visiblePlatformAlerts} />
       {recordStudioOnboardingCompletion ? (
-  <OnboardingCompletionRecorder checklistType="studio" />
-) : null}
+        <OnboardingCompletionRecorder checklistType="studio" />
+      ) : null}
 
       {showInviteAcceptedBanner ? (
         <section className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
@@ -1565,8 +2064,9 @@ const recordStudioOnboardingCompletion =
             Host studio portals are available
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-            You have independent instructor portal access at another studio. Use these links to review
-            your floor-rental schedule, payments, and related host-studio activity.
+            You have independent instructor portal access at another studio. Use
+            these links to review your floor-rental schedule, payments, and
+            related host-studio activity.
           </p>
 
           <div className="mt-5 flex flex-wrap gap-3">
@@ -1596,20 +2096,22 @@ const recordStudioOnboardingCompletion =
               </h1>
 
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Keep your studio moving with quick access to scheduling, clients,
-                payments, notifications, and growth tools.
+                Keep your studio moving with quick access to scheduling,
+                clients, payments, notifications, and growth tools.
               </p>
 
               <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-white/80">
                 <span>
                   Current workspace:{" "}
                   <span className="font-medium text-white">
-                    {currentWorkspace?.studioName || workspace?.name || "Studio Workspace"}
+                    {currentWorkspace?.studioName ||
+                      workspace?.name ||
+                      "Studio Workspace"}
                   </span>
                 </span>
                 <span
                   className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${planBadgeClass(
-                    planCode
+                    planCode,
                   )}`}
                 >
                   {planBadge}
@@ -1617,7 +2119,9 @@ const recordStudioOnboardingCompletion =
                 {subscriptionTrialInfo ? (
                   <span className="inline-flex flex-col rounded-2xl bg-white/10 px-3 py-2 text-xs font-medium text-white ring-1 ring-white/15">
                     <span>{subscriptionTrialInfo.label}</span>
-                    <span className="mt-0.5 text-white/70">{subscriptionTrialInfo.detail}</span>
+                    <span className="mt-0.5 text-white/70">
+                      {subscriptionTrialInfo.detail}
+                    </span>
                   </span>
                 ) : null}
               </div>
@@ -1642,7 +2146,11 @@ const recordStudioOnboardingCompletion =
 
         <div className="border-t border-[#E9D5FF] bg-[#FCF8FF] px-6 py-5 md:px-8">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <StatCard label="Clients" value={typedClients.length} icon={Users} />
+            <StatCard
+              label="Clients"
+              value={typedClients.length}
+              icon={Users}
+            />
             <StatCard
               label="Upcoming"
               value={upcomingAppointments.length}
@@ -1692,6 +2200,11 @@ const recordStudioOnboardingCompletion =
         />
       </section>
 
+      <SuggestedFollowUpsCard
+        suggestions={suggestedFollowUps}
+        aiEnabled={process.env.AI_FEATURES_ENABLED === "true"}
+      />
+
       {!payoutsReady ? (
         <section className="rounded-[32px] border border-amber-200 bg-amber-50 p-6 shadow-sm">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -1703,8 +2216,9 @@ const recordStudioOnboardingCompletion =
                 Connect payouts before relying on paid sales
               </h2>
               <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-700">
-                Set up Stripe payouts so your studio can safely collect payments, sell packages,
-                manage memberships, and process event registrations.
+                Set up Stripe payouts so your studio can safely collect
+                payments, sell packages, manage memberships, and process event
+                registrations.
               </p>
             </div>
             <Link
@@ -1731,17 +2245,25 @@ const recordStudioOnboardingCompletion =
           }
         >
           {upcomingAppointments.length === 0 ? (
-            <EmptyState>No upcoming appointments yet. Create a lesson or class to get started.</EmptyState>
+            <EmptyState>
+              No upcoming appointments yet. Create a lesson or class to get
+              started.
+            </EmptyState>
           ) : (
             <div className="space-y-4">
               {upcomingAppointments.slice(0, 5).map((appointment) => {
-                const client = appointment.client_id ? clientMap.get(appointment.client_id) : null;
+                const client = appointment.client_id
+                  ? clientMap.get(appointment.client_id)
+                  : null;
                 const instructor = appointment.instructor_id
                   ? instructorMap.get(appointment.instructor_id)
                   : null;
-                const room = appointment.room_id ? roomMap.get(appointment.room_id) : null;
+                const room = appointment.room_id
+                  ? roomMap.get(appointment.room_id)
+                  : null;
                 const title =
-                  appointment.title?.trim() || appointmentTypeLabel(appointment.appointment_type);
+                  appointment.title?.trim() ||
+                  appointmentTypeLabel(appointment.appointment_type);
 
                 return (
                   <div
@@ -1751,7 +2273,9 @@ const recordStudioOnboardingCompletion =
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+                          <h3 className="text-base font-semibold text-slate-900">
+                            {title}
+                          </h3>
                           <span className="inline-flex rounded-full bg-[#F3E8FF] px-2.5 py-1 text-xs font-medium text-[#6B21A8] ring-1 ring-[#E9D5FF]">
                             {appointmentTypeLabel(appointment.appointment_type)}
                           </span>
@@ -1761,8 +2285,12 @@ const recordStudioOnboardingCompletion =
                         </p>
                         <p className="mt-1 text-sm text-slate-500">
                           {compactList([
-                            fullName(client) ? `Client: ${fullName(client)}` : null,
-                            fullName(instructor) ? `Instructor: ${fullName(instructor)}` : null,
+                            fullName(client)
+                              ? `Client: ${fullName(client)}`
+                              : null,
+                            fullName(instructor)
+                              ? `Instructor: ${fullName(instructor)}`
+                              : null,
                             room?.name ? `Room: ${room.name}` : null,
                           ]) || "No client, instructor, or room assigned yet."}
                         </p>
@@ -1807,9 +2335,13 @@ const recordStudioOnboardingCompletion =
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-900">{notification.title}</h3>
+                        <h3 className="text-sm font-semibold text-slate-900">
+                          {notification.title}
+                        </h3>
                         {notification.body ? (
-                          <p className="mt-1 text-sm text-slate-600">{notification.body}</p>
+                          <p className="mt-1 text-sm text-slate-600">
+                            {notification.body}
+                          </p>
                         ) : null}
                       </div>
                       {!notification.read_at ? (
@@ -1832,7 +2364,9 @@ const recordStudioOnboardingCompletion =
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm text-slate-500">Current Plan</p>
-                  <h3 className="mt-1 text-lg font-semibold text-slate-950">{planBadge}</h3>
+                  <h3 className="mt-1 text-lg font-semibold text-slate-950">
+                    {planBadge}
+                  </h3>
                   <p className="mt-2 text-sm leading-6 text-slate-600">
                     {planCode === "starter"
                       ? "Starter tools are active. Upgrade when you are ready for deeper reporting and automation."
@@ -1863,28 +2397,35 @@ const recordStudioOnboardingCompletion =
       <section className="grid gap-4 md:grid-cols-3">
         <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
           <Sparkles className="h-5 w-5 text-[#6B21A8]" />
-          <h3 className="mt-4 text-base font-semibold text-slate-950">Discovery to Leads</h3>
+          <h3 className="mt-4 text-base font-semibold text-slate-950">
+            Discovery to Leads
+          </h3>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Use public studio and event listings to help dancers find you and turn interest into clients.
+            Use public studio and event listings to help dancers find you and
+            turn interest into clients.
           </p>
         </div>
         <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
           <Globe2 className="h-5 w-5 text-[#6B21A8]" />
-          <h3 className="mt-4 text-base font-semibold text-slate-950">Public Presence</h3>
+          <h3 className="mt-4 text-base font-semibold text-slate-950">
+            Public Presence
+          </h3>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Keep studio details, event visibility, and profile information ready for public discovery.
+            Keep studio details, event visibility, and profile information ready
+            for public discovery.
           </p>
         </div>
         <div className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
           <CheckCircle2 className="h-5 w-5 text-[#6B21A8]" />
-          <h3 className="mt-4 text-base font-semibold text-slate-950">Daily Operations</h3>
+          <h3 className="mt-4 text-base font-semibold text-slate-950">
+            Daily Operations
+          </h3>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Manage scheduling, attendance, packages, payments, and alerts from one workflow-centered dashboard.
+            Manage scheduling, attendance, packages, payments, and alerts from
+            one workflow-centered dashboard.
           </p>
         </div>
       </section>
     </main>
   );
 }
-
-

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import SyllabusNotesAIAssistant from "./SyllabusNotesAIAssistant";
 import { useMemo, useState } from "react";
 import {
   assignSyllabusTemplateToClientAction,
@@ -480,6 +481,20 @@ export default function ClientSyllabusTab({
                                   </span>
                                 </div>
                               </summary>
+
+                              <div className="border-t border-slate-100 bg-white px-4 py-4">
+                                {canEdit ? (
+                                  <SyllabusNotesAIAssistant
+                                    clientName={clientName}
+                                    syllabusName={template.name}
+                                    danceStyle={template.dance_style}
+                                    figureTitle={item.title}
+                                    figureDescription={item.description}
+                                    progressStatus={currentStatus}
+                                    progressNotes={progress?.notes ?? ""}
+                                  />
+                                ) : null}
+                              </div>
 
                               <form
                                 action={updateClientSyllabusProgressAction}

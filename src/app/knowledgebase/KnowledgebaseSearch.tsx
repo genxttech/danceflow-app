@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import {
   BookOpen,
@@ -19,6 +20,7 @@ import type { KnowledgebaseArticle } from "@/content/knowledgebase/articles";
 type KnowledgebaseSearchProps = {
   articles: KnowledgebaseArticle[];
   categories: string[];
+  assistantSlot?: ReactNode;
 };
 
 const categoryIcons = {
@@ -58,6 +60,7 @@ function getSearchText(article: KnowledgebaseArticle) {
 export default function KnowledgebaseSearch({
   articles,
   categories,
+  assistantSlot,
 }: KnowledgebaseSearchProps) {
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("All");
@@ -141,6 +144,8 @@ export default function KnowledgebaseSearch({
             })}
           </div>
         </div>
+
+        {assistantSlot ? <div className="mt-6">{assistantSlot}</div> : null}
 
         {filteredArticles.length ? (
           <div className="mt-6 grid gap-4 md:grid-cols-2">

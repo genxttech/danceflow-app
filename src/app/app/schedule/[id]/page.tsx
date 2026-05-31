@@ -1,4 +1,5 @@
 import LessonRecapForm from "@/components/LessonRecapForm";
+import LessonRecapAIAssistant from "./LessonRecapAIAssistant";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -793,6 +794,15 @@ export default async function AppointmentDetailPage({
 
               {canEditLessonRecap ? (
                 <div className="mt-5 space-y-4">
+                  <LessonRecapAIAssistant
+                    clientName={clientName}
+                    appointmentType={appointmentTypeLabel(typedAppointment.appointment_type)}
+                    lessonTitle={typedAppointment.title}
+                    currentSummary={typedLessonRecap?.summary ?? ""}
+                    currentHomework={typedLessonRecap?.homework ?? ""}
+                    currentNextFocus={typedLessonRecap?.next_focus ?? ""}
+                  />
+
                   <LessonRecapForm
                     appointmentId={typedAppointment.id}
                     defaultSummary={typedLessonRecap?.summary ?? ""}

@@ -12,6 +12,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createOrganizerCampaignDraftAction } from "./actions";
+import CampaignAIAssistant from "../marketing/campaigns/CampaignAIAssistant";
 
 type SearchParams = Promise<{
   organizer?: string;
@@ -408,6 +409,7 @@ export default async function OrganizerCampaignsPage({
   const validSelectedEventId = typedEvents.some((event) => event.id === selectedEventId)
     ? selectedEventId
     : "";
+  const selectedEvent = typedEvents.find((event) => event.id === validSelectedEventId) ?? null;
 
   const preview = selectedOrganizerId
     ? await buildAudiencePreview({
@@ -478,7 +480,7 @@ export default async function OrganizerCampaignsPage({
         <StatCard label="Organizer" value={selectedOrganizer?.name ?? "None"} helper="Current campaign workspace" icon={Megaphone} />
         <StatCard label="Preview audience" value={eventAudienceNeedsEvent ? "Select event" : preview.count} helper={`${preview.suppressed} suppressed`} icon={Users} />
         <StatCard label="Drafts" value={draftCount} helper="Saved organizer drafts" icon={Mail} />
-        <StatCard label="Sent" value={sentCount} helper="Live send will be added later" icon={CheckCircle2} />
+        <StatCard label="Sent" value={sentCount} helper="Campaigns sent" icon={CheckCircle2} />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
@@ -487,7 +489,7 @@ export default async function OrganizerCampaignsPage({
             <div>
               <h2 className="text-xl font-semibold text-slate-950">Create organizer campaign draft</h2>
               <p className="mt-1 text-sm text-slate-500">
-                Draft only for V1. Use the preview to verify the audience before saving.
+                Use the preview to verify the audience before saving.
               </p>
             </div>
           </div>
