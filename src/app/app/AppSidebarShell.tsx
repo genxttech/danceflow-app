@@ -118,6 +118,7 @@ function getIcon(icon: string) {
   if (icon === "dashboard") return LayoutDashboard;
   if (icon === "leads") return UserRoundPlus;
   if (icon === "clients") return Users;
+  if (icon === "organizer_contacts") return Users;
   if (icon === "syllabus") return BookOpen;
   if (icon === "schedule") return CalendarDays;
   if (icon === "events") return CalendarDays;
@@ -241,6 +242,81 @@ function removeRedundantDiscoveryLinks(sections: NavSectionType[]) {
       items: section.items.filter((item) => !isRedundantDiscoveryChild(item)),
     }))
     .filter((section) => section.items.length > 0);
+}
+
+function injectOrganizerContactsLink(
+  sections: NavSectionType[],
+): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const hasOrganizerContacts = flatItems.some(
+    (item) => item.href === "/app/organizer-contacts",
+  );
+
+  if (hasOrganizerContacts) {
+    return sections;
+  }
+
+  const hasOrganizerAccess = flatItems.some(
+    (item) =>
+      item.href === "/app/organizers" ||
+      item.href.startsWith("/app/organizers/"),
+  );
+
+  if (!hasOrganizerAccess) {
+    return sections;
+  }
+
+  const organizerContactsItem: NavItem = {
+    label: "Organizer Contacts",
+    href: "/app/organizer-contacts",
+    icon: "organizer_contacts",
+  };
+
+  const organizerSectionIndex = sections.findIndex((section) => {
+    const title = section.title.trim().toLowerCase();
+
+    return (
+      title === "organizers" ||
+      title === "events" ||
+      section.items.some((item) => item.href === "/app/organizers")
+    );
+  });
+
+  if (organizerSectionIndex >= 0) {
+    return sections.map((section, index) => {
+      if (index !== organizerSectionIndex) {
+        return section;
+      }
+
+      const organizersIndex = section.items.findIndex(
+        (item) => item.href === "/app/organizers",
+      );
+
+      if (organizersIndex >= 0) {
+        return {
+          ...section,
+          items: [
+            ...section.items.slice(0, organizersIndex + 1),
+            organizerContactsItem,
+            ...section.items.slice(organizersIndex + 1),
+          ],
+        };
+      }
+
+      return {
+        ...section,
+        items: [...section.items, organizerContactsItem],
+      };
+    });
+  }
+
+  return [
+    ...sections,
+    {
+      title: "Organizers",
+      items: [organizerContactsItem],
+    },
+  ];
 }
 
 function injectSyllabusLink(sections: NavSectionType[]): NavSectionType[] {
@@ -492,8 +568,11 @@ function normalizeSections(input: unknown): NavSectionType[] {
   const withEventWorkflowLinks = injectEventWorkflowLinks(
     withoutDiscoveryDuplicates,
   );
+  const withOrganizerContactsLink = injectOrganizerContactsLink(
+    withEventWorkflowLinks,
+  );
 
-  return injectSyllabusLink(withEventWorkflowLinks);
+  return injectSyllabusLink(withOrganizerContactsLink);
 }
 
 function prettyRole(role: string) {
@@ -989,3 +1068,4 @@ export default function AppSidebarShell({
     </div>
   );
 }
+
