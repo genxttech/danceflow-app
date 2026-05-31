@@ -146,24 +146,29 @@ export async function createOrganizerCampaignDraftAction(formData: FormData) {
     }
   }
 
-  const { error } = await supabase.from("organizer_marketing_campaigns").insert({
-    organizer_id: organizerId,
-    name,
-    subject,
-    preview_text: previewText || null,
-    body_text: bodyText,
-    cta_label: ctaLabel || null,
-    cta_url: ctaUrl || null,
-    audience_type: audienceType,
-    audience_event_id: audienceEventId || null,
-    status: "draft",
-    created_by: user.id,
-  });
+  const { data: insertedCampaign, error } = await supabase
+    .from("organizer_marketing_campaigns")
+    .insert({
+      organizer_id: organizerId,
+      name,
+      subject,
+      preview_text: previewText || null,
+      body_text: bodyText,
+      cta_label: ctaLabel || null,
+      cta_url: ctaUrl || null,
+      audience_type: audienceType,
+      audience_event_id: audienceEventId || null,
+      status: "draft",
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
 
-  if (error) {
+  if (error || !insertedCampaign) {
     console.error("Failed to create organizer campaign draft", error);
     redirect(appendQuery(redirectTo, "campaign_error", "draft_save_failed"));
   }
 
-  redirect(appendQuery(redirectTo, "campaign_saved", "1"));
+  redirect(appendQuery(`/app/organizer-campaigns/${insertedCampaign.id}`, "campaign_saved", "1"));
 }
+

@@ -741,7 +741,9 @@ export default async function OrganizerCampaignsPage({
                   return (
                     <tr key={campaign.id}>
                       <td className="px-4 py-4">
-                        <p className="font-medium text-slate-950">{campaign.name}</p>
+                        <Link href={`/app/organizer-campaigns/${campaign.id}`} className="font-medium text-[var(--brand-primary)] hover:underline">
+                          {campaign.name}
+                        </Link>
                         <p className="mt-1 text-slate-500">{campaign.subject}</p>
                       </td>
                       <td className="px-4 py-4 text-slate-600">{audience?.label ?? campaign.audience_type}</td>
@@ -780,3 +782,4 @@ export default async function OrganizerCampaignsPage({
     </div>
   );
 }
+
