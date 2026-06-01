@@ -1,6 +1,7 @@
 "use server";
 
 import { studioHasFeature } from "@/lib/billing/access";
+import { getUsageAllowance, getUsageLimitMessage, recordUsageEvent } from "@/lib/usage/addons";
 
 export type FollowUpMessageState = {
   ok: boolean;
@@ -50,6 +51,15 @@ export async function generateFollowUpMessageAction(
     return {
       ok: false,
       error: "AI follow-up suggestions are available on Growth and Pro plans.",
+    };
+  }
+
+  const allowance = await getUsageAllowance({ featureKey: "ai_action" });
+
+  if (!allowance.allowed) {
+    return {
+      ok: false,
+      error: getUsageLimitMessage(allowance, "AI action"),
     };
   }
 
@@ -123,6 +133,12 @@ export async function generateFollowUpMessageAction(
       error: "AI follow-up help did not return a readable response.",
     };
   }
+
+  await recordUsageEvent({
+    featureKey: "ai_action",
+    source: "follow_up_ai_assistant",
+    metadata: { reason, suggestedAction, tone },
+  });
 
   return {
     ok: true,

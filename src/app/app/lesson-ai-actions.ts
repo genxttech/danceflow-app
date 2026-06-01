@@ -1,6 +1,7 @@
 "use server";
 
 import { studioHasFeature } from "@/lib/billing/access";
+import { getUsageAllowance, getUsageLimitMessage, recordUsageEvent } from "@/lib/usage/addons";
 
 export type LessonAIAssistantState = {
   ok: boolean;
@@ -73,6 +74,15 @@ export async function generateLessonAssistantAction(
     return {
       ok: false,
       error: "AI lesson help is available on Growth and Pro plans.",
+    };
+  }
+
+  const allowance = await getUsageAllowance({ featureKey: "ai_action" });
+
+  if (!allowance.allowed) {
+    return {
+      ok: false,
+      error: getUsageLimitMessage(allowance, "AI action"),
     };
   }
 
@@ -182,6 +192,12 @@ export async function generateLessonAssistantAction(
         nextFocus?: unknown;
       }
     | null;
+
+  await recordUsageEvent({
+    featureKey: "ai_action",
+    source: "lesson_ai_assistant",
+    metadata: { mode, task },
+  });
 
   if (!parsed) {
     return {

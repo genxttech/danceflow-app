@@ -1,6 +1,7 @@
 "use server";
 
 import { studioHasFeature } from "@/lib/billing/access";
+import { getUsageAllowance, getUsageLimitMessage, recordUsageEvent } from "@/lib/usage/addons";
 
 export type CampaignAIAssistantState = {
   ok: boolean;
@@ -79,6 +80,15 @@ export async function generateCampaignDraftAssistantAction(
     return {
       ok: false,
       error: "AI campaign drafting is available on Growth and Pro plans.",
+    };
+  }
+
+  const allowance = await getUsageAllowance({ featureKey: "ai_action" });
+
+  if (!allowance.allowed) {
+    return {
+      ok: false,
+      error: getUsageLimitMessage(allowance, "AI action"),
     };
   }
 
@@ -178,6 +188,12 @@ export async function generateCampaignDraftAssistantAction(
         bodyText?: unknown;
       }
     | null;
+
+  await recordUsageEvent({
+    featureKey: "ai_action",
+    source: "campaign_ai_assistant",
+    metadata: { audienceLabel, task, hasEventName: Boolean(eventName) },
+  });
 
   if (!parsed) {
     return {
