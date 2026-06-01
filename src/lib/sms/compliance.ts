@@ -144,3 +144,57 @@ export async function getSmsPermissionForOrganizerContact(
 
   return { data: (data as SmsPermissionRow | null) ?? null, error: null };
 }
+
+
+export type SmsMessageLogRow = {
+  id: string;
+  studio_id: string | null;
+  organizer_id: string | null;
+  client_id: string | null;
+  organizer_contact_id: string | null;
+  phone_e164: string;
+  direction: "outbound" | "inbound";
+  message_type: string;
+  body: string | null;
+  segment_count: number;
+  status: "draft" | "queued" | "sent" | "delivered" | "failed" | "suppressed" | "received";
+  provider: string | null;
+  provider_message_id: string | null;
+  provider_error_code: string | null;
+  provider_error_message: string | null;
+  related_table: string | null;
+  related_id: string | null;
+  sent_by: string | null;
+  sent_at: string | null;
+  delivered_at: string | null;
+  failed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export function smsSendStatusLabel(status: SmsMessageLogRow["status"] | string | null | undefined) {
+  const normalized = String(status ?? "").toLowerCase();
+
+  if (normalized === "delivered") return "Delivered";
+  if (normalized === "sent") return "Sent";
+  if (normalized === "failed") return "Failed";
+  if (normalized === "suppressed") return "Not sent";
+  if (normalized === "received") return "Received";
+
+  return "Queued";
+}
+
+export function getSmsOptOutFooter(studioName?: string | null) {
+  const sender = studioName?.trim() ? studioName.trim() : "your studio";
+  return `Reply STOP to opt out. Msg & data rates may apply.`;
+}
+
+export function appendSmsOptOutFooter(message: string, studioName?: string | null) {
+  const trimmed = message.trim();
+  const footer = getSmsOptOutFooter(studioName);
+
+  if (!trimmed) return footer;
+  if (trimmed.toLowerCase().includes("reply stop")) return trimmed;
+
+  return `${trimmed}\n\n${footer}`;
+}

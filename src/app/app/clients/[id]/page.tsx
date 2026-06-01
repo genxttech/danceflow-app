@@ -13,6 +13,7 @@ import QuickActionPanel from "@/components/ui/QuickActionPanel";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
 import QuickPaymentPanel from "./QuickPaymentPanel";
 import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
+import { ClientSendSmsCard } from "./ClientSendSmsCard";
 import {
   linkPartnerAction,
   linkPortalAccessAction,
@@ -2000,14 +2001,23 @@ export default async function ClientDetailPage({
             </div>
           </SectionCard>
 
-          <ClientSmsConsentCard
-            clientId={typedClient.id}
-            phone={typedClient.phone}
-            permission={typedSmsPermission}
-            canManage={canManageSmsConsent}
-            message={query.sms_consent === "updated" ? "SMS consent saved." : null}
-            error={query.sms_error ?? null}
-          />
+          <div className="space-y-6">
+            <ClientSmsConsentCard
+              clientId={typedClient.id}
+              phone={typedClient.phone}
+              permission={typedSmsPermission}
+              canManage={canManageSmsConsent}
+              message={query.sms_consent === "updated" ? "SMS consent saved." : null}
+              error={query.sms_error ?? null}
+            />
+
+            <ClientSendSmsCard
+              clientId={typedClient.id}
+              phone={typedClient.phone}
+              permission={typedSmsPermission}
+              canManage={canManageSmsConsent}
+            />
+          </div>
         </div>
       ) : null}
 
