@@ -19,6 +19,7 @@ import {
   type PlanAudience,
   type PlanCode,
 } from "@/lib/billing/plans";
+import { getUsageAllowance, type UsageAllowanceResult } from "@/lib/usage/addons";
 
 type StudioBillingRow = {
   id: string;
@@ -312,6 +313,93 @@ function InfoCard({
   );
 }
 
+function getUsagePercent(allowance: UsageAllowanceResult) {
+  if (allowance.totalAllowance <= 0) return 0;
+  return Math.min(100, Math.round((allowance.quantityUsed / allowance.totalAllowance) * 100));
+}
+
+function UsageAllowanceCard({
+  allowance,
+}: {
+  allowance: UsageAllowanceResult;
+}) {
+  const percentUsed = getUsagePercent(allowance);
+  const remaining = Math.max(0, allowance.totalAllowance - allowance.quantityUsed);
+  const hasIncludedUsage = allowance.totalAllowance > 0;
+
+  return (
+    <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+          <Sparkles className="h-5 w-5" />
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+            AI Usage
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+            Monthly AI actions
+          </h2>
+          <p className="mt-2 text-sm leading-7 text-slate-600">
+            Track how many included AI writing and insight actions this workspace has used this month.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        {hasIncludedUsage ? (
+          <>
+            <div className="flex items-end justify-between gap-4">
+              <div>
+                <p className="text-sm text-slate-500">Remaining this month</p>
+                <p className="mt-1 text-2xl font-semibold text-slate-950">
+                  {remaining.toLocaleString()}
+                </p>
+              </div>
+
+              <div className="text-right">
+                <p className="text-sm text-slate-500">Used</p>
+                <p className="mt-1 text-sm font-semibold text-slate-800">
+                  {allowance.quantityUsed.toLocaleString()} / {allowance.totalAllowance.toLocaleString()}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white ring-1 ring-slate-200">
+              <div
+                className="h-full rounded-full bg-[var(--brand-primary)]"
+                style={{ width: `${percentUsed}%` }}
+              />
+            </div>
+
+            <p className="mt-3 text-xs leading-5 text-slate-500">
+              Included: {allowance.includedAllowance.toLocaleString()}
+              {allowance.addonAllowance > 0
+                ? ` + ${allowance.addonAllowance.toLocaleString()} add-on credits`
+                : ""}
+              . Resets monthly.
+            </p>
+          </>
+        ) : (
+          <>
+            <p className="text-sm font-semibold text-slate-950">
+              AI actions are not included on this plan.
+            </p>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Upgrade to Growth or Pro to use AI help for follow-ups, campaigns, lesson notes, and insights.
+            </p>
+          </>
+        )}
+      </div>
+
+      <p className="mt-4 text-xs leading-5 text-slate-500">
+        Extra AI credit packs are planned next. This card currently shows included monthly usage and any manually added active entitlements.
+      </p>
+    </div>
+  );
+}
+
 function PlanCard({
   plan,
   selectedAudience,
@@ -573,6 +661,11 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
   const showPayoutsCard = !isTrialCompleteEntry || hasManagedSubscription;
 
   const visiblePlans = BILLING_PLANS.filter((plan) => plan.audience === selectedAudience);
+
+  const aiUsageAllowance = await getUsageAllowance({
+    featureKey: "ai_action",
+    quantity: 1,
+  });
 
   const connectReadinessBase: StudioConnectReadiness = {
     connectedAccountId: studio.stripe_connected_account_id ?? null,
@@ -840,6 +933,8 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
           </div>
 
           <div className="space-y-8">
+            <UsageAllowanceCard allowance={aiUsageAllowance} />
+
             {showPayoutsCard ? (
               <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
                 <div className="flex items-start gap-3">
