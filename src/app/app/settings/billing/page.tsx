@@ -20,6 +20,11 @@ import {
   type PlanCode,
 } from "@/lib/billing/plans";
 import { getUsageAllowance, type UsageAllowanceResult } from "@/lib/usage/addons";
+import {
+  getAiCreditPacks,
+  syncAiCreditPackEntitlementsForStudio,
+  type AiCreditPack,
+} from "@/lib/usage/ai-credit-packs";
 
 type StudioBillingRow = {
   id: string;
@@ -266,6 +271,22 @@ function getSuccessMessage(
     };
   }
 
+  if (success === "ai_pack_added") {
+    return {
+      title: "AI credits added",
+      body: "Your monthly AI allowance has been updated for this workspace.",
+      tone: "green",
+    };
+  }
+
+  if (success === "ai_pack_current") {
+    return {
+      title: "AI pack already active",
+      body: "That AI credit pack is already connected to this workspace.",
+      tone: "green",
+    };
+  }
+
   return null;
 }
 
@@ -280,6 +301,12 @@ function getErrorMessage(error?: string) {
     no_studio_context: "No active workspace was selected for billing.",
     missing_price_id: "The selected plan is missing a Stripe price ID.",
     connect_failed: "Stripe onboarding could not be started.",
+    ai_pack_not_found: "That AI credit pack could not be found.",
+    ai_pack_missing_price: "This AI credit pack is not ready for checkout yet.",
+    ai_pack_subscription_required: "Start or reactivate your subscription before adding AI credits.",
+    ai_pack_add_failed: "The AI credit pack could not be added.",
+    ai_pack_checkout_failed: "AI credit pack checkout could not be completed.",
+    billing_access_denied: "Only a workspace owner or admin can manage billing add-ons.",
   };
 
   return messages[error] ?? "Something went wrong while loading billing.";
@@ -320,8 +347,14 @@ function getUsagePercent(allowance: UsageAllowanceResult) {
 
 function UsageAllowanceCard({
   allowance,
+  packs = [],
+  canManageAddOns = false,
+  hasManagedSubscription = false,
 }: {
   allowance: UsageAllowanceResult;
+  packs?: AiCreditPack[];
+  canManageAddOns?: boolean;
+  hasManagedSubscription?: boolean;
 }) {
   const percentUsed = getUsagePercent(allowance);
   const remaining = Math.max(0, allowance.totalAllowance - allowance.quantityUsed);
@@ -393,9 +426,53 @@ function UsageAllowanceCard({
         )}
       </div>
 
-      <p className="mt-4 text-xs leading-5 text-slate-500">
-        Extra AI credit packs are planned next. This card currently shows included monthly usage and any manually added active entitlements.
-      </p>
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">Need more AI help?</p>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Add a monthly AI credit pack when your studio needs more follow-ups, campaign drafts, lesson notes, or insights.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {(packs ?? []).map((pack) => {
+            const canAddPack = canManageAddOns && hasManagedSubscription && Boolean(pack.stripePriceId);
+
+            return (
+              <div key={pack.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-950">{pack.label}</p>
+                <p className="mt-1 text-xl font-semibold text-slate-950">{pack.displayPrice}</p>
+                <p className="mt-1 text-xs font-medium text-slate-500">
+                  +{pack.quantityIncluded.toLocaleString()} AI actions/month
+                </p>
+                <p className="mt-3 text-xs leading-5 text-slate-600">{pack.description}</p>
+
+                <form action="/api/billing/addons/ai/checkout" method="post" className="mt-4">
+                  <input type="hidden" name="pack" value={pack.key} />
+                  <button
+                    type="submit"
+                    disabled={!canAddPack}
+                    className={[
+                      "w-full rounded-xl px-3 py-2 text-sm font-medium transition",
+                      canAddPack
+                        ? "bg-[var(--brand-primary)] text-white hover:opacity-90"
+                        : "cursor-not-allowed bg-slate-200 text-slate-500",
+                    ].join(" ")}
+                  >
+                    {hasManagedSubscription ? "Add pack" : "Start subscription first"}
+                  </button>
+                </form>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="mt-4 text-xs leading-5 text-slate-500">
+          Tip: AI credits reset monthly. Review AI-generated text before sending it to clients or leads.
+        </p>
+      </div>
     </div>
   );
 }
@@ -661,6 +738,20 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
   const showPayoutsCard = !isTrialCompleteEntry || hasManagedSubscription;
 
   const visiblePlans = BILLING_PLANS.filter((plan) => plan.audience === selectedAudience);
+
+  if (studio.stripe_subscription_id) {
+    try {
+      await syncAiCreditPackEntitlementsForStudio({
+        stripe,
+        studioId: studio.id,
+        stripeSubscriptionId: studio.stripe_subscription_id,
+      });
+    } catch (error) {
+      console.error("Failed to refresh AI credit pack usage", error);
+    }
+  }
+
+  const aiCreditPacks = getAiCreditPacks();
 
   const aiUsageAllowance = await getUsageAllowance({
     featureKey: "ai_action",
@@ -933,7 +1024,12 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
           </div>
 
           <div className="space-y-8">
-            <UsageAllowanceCard allowance={aiUsageAllowance} />
+            <UsageAllowanceCard
+  allowance={aiUsageAllowance}
+  packs={aiCreditPacks}
+  canManageAddOns={hasManagedSubscription}
+  hasManagedSubscription={hasManagedSubscription}
+/>
 
             {showPayoutsCard ? (
               <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
