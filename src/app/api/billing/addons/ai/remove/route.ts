@@ -4,16 +4,21 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import {
-  getAiCreditPack,
-  saveAiCreditPackEntitlementForStripeItem,
+  markAiCreditPackEntitlementCanceled,
   syncAiCreditPackEntitlementsForStudio,
 } from "@/lib/usage/ai-credit-packs";
 
 type StudioBillingRow = {
   id: string;
-  stripe_customer_id: string | null;
   stripe_subscription_id: string | null;
   subscription_status: string | null;
+};
+
+type EntitlementRow = {
+  id: string;
+  studio_id: string | null;
+  stripe_subscription_item_id: string | null;
+  status: string | null;
 };
 
 function buildAppUrl(request: NextRequest) {
@@ -24,9 +29,19 @@ function buildAppUrl(request: NextRequest) {
   );
 }
 
+function redirectToBilling(request: NextRequest, params: Record<string, string>) {
+  const url = new URL("/app/settings/billing", buildAppUrl(request));
+
+  Object.entries(params).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+
+  return NextResponse.redirect(url, { status: 303 });
+}
+
 function canManageBilling(role: string | null | undefined, isPlatformAdminRole: boolean) {
   if (isPlatformAdminRole) return true;
-  return role === "studio_owner" || role === "studio_admin";
+  return role === "studio_owner" || role === "studio_admin" || role === "organizer_owner";
 }
 
 function getSupabaseAdmin() {
@@ -42,37 +57,22 @@ function getSupabaseAdmin() {
   });
 }
 
-function redirectToBilling(request: NextRequest, params: Record<string, string>) {
-  const url = new URL("/app/settings/billing", buildAppUrl(request));
-
-  Object.entries(params).forEach(([key, value]) => {
-    url.searchParams.set(key, value);
-  });
-
-  return NextResponse.redirect(url, { status: 303 });
-}
-
-async function readPackKey(request: NextRequest) {
+async function readEntitlementId(request: NextRequest) {
   if (request.method === "GET") {
-    return request.nextUrl.searchParams.get("pack")?.trim() ?? "";
+    return request.nextUrl.searchParams.get("entitlement")?.trim() ?? "";
   }
 
   const formData = await request.formData();
-  const value = formData.get("pack");
+  const value = formData.get("entitlement");
   return typeof value === "string" ? value.trim() : "";
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const packKey = await readPackKey(request);
-    const pack = getAiCreditPack(packKey);
+    const entitlementId = await readEntitlementId(request);
 
-    if (!pack) {
+    if (!entitlementId) {
       return redirectToBilling(request, { error: "ai_pack_not_found" });
-    }
-
-    if (!pack.stripePriceId) {
-      return redirectToBilling(request, { error: "ai_pack_missing_price" });
     }
 
     const supabase = await createClient();
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
     const supabaseAdmin = getSupabaseAdmin();
     const { data: studio, error: studioError } = await supabaseAdmin
       .from("studios")
-      .select("id, stripe_customer_id, stripe_subscription_id, subscription_status")
+      .select("id, stripe_subscription_id, subscription_status")
       .eq("id", context.studioId)
       .single<StudioBillingRow>();
 
@@ -109,48 +109,48 @@ export async function POST(request: NextRequest) {
       return redirectToBilling(request, { error: "ai_pack_subscription_required" });
     }
 
-    const stripe = getStripe();
-    const subscription = await stripe.subscriptions.retrieve(studio.stripe_subscription_id, {
-      expand: ["items.data.price"],
-    });
+    const { data: entitlement, error: entitlementError } = await supabaseAdmin
+      .from("usage_addon_entitlements")
+      .select("id, studio_id, stripe_subscription_item_id, status")
+      .eq("id", entitlementId)
+      .eq("studio_id", studio.id)
+      .eq("feature_key", "ai_action")
+      .eq("source", "stripe_subscription_item")
+      .maybeSingle<EntitlementRow>();
 
-    const existingItem = subscription.items.data.find((item) => item.price?.id === pack.stripePriceId);
-
-    if (existingItem) {
-      await syncAiCreditPackEntitlementsForStudio({
-        stripe,
-        studioId: studio.id,
-        stripeSubscriptionId: studio.stripe_subscription_id,
-      });
-
-      return redirectToBilling(request, { success: "ai_pack_current" });
+    if (entitlementError || !entitlement?.stripe_subscription_item_id) {
+      return redirectToBilling(request, { error: "ai_pack_not_found" });
     }
 
-    // Add the AI pack as a separate subscription item. Do not update the full
-    // subscription item list, because that can disturb the base studio plan item.
-    const addedItem = await stripe.subscriptionItems.create({
-      subscription: studio.stripe_subscription_id,
-      price: pack.stripePriceId,
-      quantity: 1,
+    if (entitlement.status !== "active") {
+      return redirectToBilling(request, { success: "ai_pack_removed" });
+    }
+
+    const stripe = getStripe();
+    const subscriptionItem = await stripe.subscriptionItems.retrieve(entitlement.stripe_subscription_item_id);
+
+    if (subscriptionItem.subscription !== studio.stripe_subscription_id) {
+      return redirectToBilling(request, { error: "ai_pack_not_found" });
+    }
+
+    await stripe.subscriptionItems.del(entitlement.stripe_subscription_item_id, {
       proration_behavior: "none",
-      metadata: {
-        source: "ai_credit_pack",
-        aiCreditPack: pack.key,
-        studioId: studio.id,
-      },
     });
 
-    await saveAiCreditPackEntitlementForStripeItem({
+    await markAiCreditPackEntitlementCanceled({
+      stripeSubscriptionItemId: entitlement.stripe_subscription_item_id,
+    });
+
+    await syncAiCreditPackEntitlementsForStudio({
+      stripe,
       studioId: studio.id,
-      stripeSubscriptionItemId: addedItem.id,
-      pack,
-      quantity: addedItem.quantity,
+      stripeSubscriptionId: studio.stripe_subscription_id,
     });
 
-    return redirectToBilling(request, { success: "ai_pack_added" });
+    return redirectToBilling(request, { success: "ai_pack_removed" });
   } catch (error) {
-    console.error("AI credit pack checkout failed", error);
-    return redirectToBilling(request, { error: "ai_pack_checkout_failed" });
+    console.error("AI credit pack removal failed", error);
+    return redirectToBilling(request, { error: "ai_pack_remove_failed" });
   }
 }
 

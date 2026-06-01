@@ -21,8 +21,10 @@ import {
 } from "@/lib/billing/plans";
 import { getUsageAllowance, type UsageAllowanceResult } from "@/lib/usage/addons";
 import {
+  getActiveAiCreditPackEntitlementsForStudio,
   getAiCreditPacks,
   syncAiCreditPackEntitlementsForStudio,
+  type ActiveAiCreditPackEntitlement,
   type AiCreditPack,
 } from "@/lib/usage/ai-credit-packs";
 
@@ -348,11 +350,13 @@ function getUsagePercent(allowance: UsageAllowanceResult) {
 function UsageAllowanceCard({
   allowance,
   packs = [],
+  activePacks = [],
   canManageAddOns = false,
   hasManagedSubscription = false,
 }: {
   allowance: UsageAllowanceResult;
   packs?: AiCreditPack[];
+  activePacks?: ActiveAiCreditPackEntitlement[];
   canManageAddOns?: boolean;
   hasManagedSubscription?: boolean;
 }) {
@@ -425,6 +429,53 @@ function UsageAllowanceCard({
           </>
         )}
       </div>
+
+      {activePacks.length > 0 ? (
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-950">Active AI packs</p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Remove a pack when your studio no longer needs the extra monthly AI actions. Your plan’s included AI actions stay available.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {activePacks.map((pack) => (
+              <div
+                key={pack.id}
+                className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">
+                    {pack.label ?? "AI credit pack"}
+                  </p>
+                  <p className="mt-1 text-xs font-medium text-slate-500">
+                    +{pack.quantityIncluded.toLocaleString()} AI actions/month
+                  </p>
+                </div>
+
+                <form action="/api/billing/addons/ai/remove" method="post">
+                  <input type="hidden" name="entitlement" value={pack.id} />
+                  <button
+                    type="submit"
+                    disabled={!canManageAddOns || !hasManagedSubscription}
+                    className={[
+                      "rounded-xl px-3 py-2 text-sm font-medium transition",
+                      canManageAddOns && hasManagedSubscription
+                        ? "border border-red-200 bg-white text-red-700 hover:bg-red-50"
+                        : "cursor-not-allowed bg-slate-200 text-slate-500",
+                    ].join(" ")}
+                  >
+                    Remove pack
+                  </button>
+                </form>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -753,6 +804,8 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
 
   const aiCreditPacks = getAiCreditPacks();
 
+  const activeAiCreditPacks = await getActiveAiCreditPackEntitlementsForStudio(studio.id);
+
   const aiUsageAllowance = await getUsageAllowance({
     featureKey: "ai_action",
     quantity: 1,
@@ -1025,11 +1078,12 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
 
           <div className="space-y-8">
             <UsageAllowanceCard
-  allowance={aiUsageAllowance}
-  packs={aiCreditPacks}
-  canManageAddOns={hasManagedSubscription}
-  hasManagedSubscription={hasManagedSubscription}
-/>
+              allowance={aiUsageAllowance}
+              packs={aiCreditPacks}
+              activePacks={activeAiCreditPacks}
+              canManageAddOns={canAccessBilling}
+              hasManagedSubscription={hasManagedSubscription}
+            />
 
             {showPayoutsCard ? (
               <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
