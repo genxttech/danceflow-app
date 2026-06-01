@@ -12,6 +12,7 @@ import { completeLeadFollowUpAction } from "@/app/app/leads/activity-actions";
 import QuickActionPanel from "@/components/ui/QuickActionPanel";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
 import QuickPaymentPanel from "./QuickPaymentPanel";
+import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
 import {
   linkPartnerAction,
   linkPortalAccessAction,
@@ -268,6 +269,26 @@ type ClientDocumentSignatureRow = {
 };
 
 
+type SmsPermissionRow = {
+  id: string;
+  studio_id: string | null;
+  organizer_id: string | null;
+  client_id: string | null;
+  organizer_contact_id: string | null;
+  phone_e164: string;
+  consent_status: "unknown" | "opted_in" | "opted_out";
+  consent_source: string | null;
+  consent_note: string | null;
+  consent_at: string | null;
+  opted_out_at: string | null;
+  opted_out_source: string | null;
+  created_by: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+
 type AttendanceRecordRow = {
   id: string;
   event_registration_id: string;
@@ -281,6 +302,8 @@ type SearchParams = Promise<{
   success?: string;
   error?: string;
   tab?: string;
+  sms_consent?: string;
+  sms_error?: string;
 }>;
 
 type ClientDetailTab =
@@ -1144,6 +1167,7 @@ export default async function ClientDetailPage({
     { data: documentAssignments, error: documentAssignmentsError },
     { data: allClientDocumentTemplates, error: allClientDocumentTemplatesError },
     { data: documentSignatures, error: documentSignaturesError },
+    { data: smsPermission, error: smsPermissionError },
   ] = await Promise.all([
     supabase.from("studios").select("id, name, slug").eq("id", studioId).single(),
 
@@ -1400,6 +1424,15 @@ export default async function ClientDetailPage({
       .select("template_id, signed_at")
       .eq("studio_id", studioId)
       .eq("client_id", id),
+
+    supabase
+      .from("sms_contact_permissions")
+      .select("*")
+      .eq("studio_id", studioId)
+      .eq("client_id", id)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   if (clientError || !client) {
@@ -1424,6 +1457,7 @@ export default async function ClientDetailPage({
   if (documentAssignmentsError) throw new Error(`Failed to load document assignments: ${documentAssignmentsError.message}`);
   if (allClientDocumentTemplatesError) throw new Error(`Failed to load document templates: ${allClientDocumentTemplatesError.message}`);
   if (documentSignaturesError) throw new Error(`Failed to load document signatures: ${documentSignaturesError.message}`);
+  if (smsPermissionError) throw new Error(`Failed to load SMS consent: ${smsPermissionError.message}`);
 
   const typedStudio = studio as StudioRecord;
   const typedClient = client as ClientRecord;
@@ -1448,6 +1482,7 @@ export default async function ClientDetailPage({
   const typedDocumentAssignments = (documentAssignments ?? []) as ClientDocumentAssignmentRow[];
   const typedAllClientDocumentTemplates = (allClientDocumentTemplates ?? []) as AllClientDocumentTemplateRow[];
   const typedDocumentSignatures = (documentSignatures ?? []) as ClientDocumentSignatureRow[];
+  const typedSmsPermission = (smsPermission ?? null) as SmsPermissionRow | null;
 
   const { data: linkedRelationship, error: linkedRelationshipError } = await supabase
     .from("client_relationships")
@@ -1589,6 +1624,7 @@ export default async function ClientDetailPage({
   const isEventRegistrationLead = typedClient.referral_source === "event_registration";
   const isIndependentInstructor = !!typedClient.is_independent_instructor;
   const hasPortalLogin = !!typedClient.portal_user_id;
+  const canManageSmsConsent = ["studio_owner", "studio_admin", "front_desk"].includes(role);
   const linkedInstructorName = getLinkedInstructorName(
     typedInstructors,
     typedClient.linked_instructor_id
@@ -1943,22 +1979,36 @@ export default async function ClientDetailPage({
       </div>
 
       {activeTab === "marketing" ? (
-        <SectionCard
-          title="Marketing"
-          subtitle="Marketing preferences and client campaign history will live here as campaign tools expand."
-          action={
-            <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-dark)]">
-              Coming Soon
-            </span>
-          }
-        >
-          <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
-            <p className="font-medium text-[var(--brand-text)]">Marketing tools are coming to this profile.</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              This tab will show email subscription status, campaign history, follow-up activity, and client-specific marketing preferences.
-            </p>
-          </div>
-        </SectionCard>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
+          <SectionCard
+            title="Marketing"
+            subtitle="Keep client communication preferences connected to follow-up and campaign work."
+            action={
+              <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-dark)]">
+                Preferences
+              </span>
+            }
+          >
+            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
+              <p className="font-medium text-[var(--brand-text)]">Client communication</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Use this area to keep email and text preferences clear before sending reminders, follow-ups, or campaign messages.
+              </p>
+              <p className="mt-3 text-sm leading-6 text-slate-600">
+                Tip: When consent is unclear, contact the client by email or phone before sending a text message.
+              </p>
+            </div>
+          </SectionCard>
+
+          <ClientSmsConsentCard
+            clientId={typedClient.id}
+            phone={typedClient.phone}
+            permission={typedSmsPermission}
+            canManage={canManageSmsConsent}
+            message={query.sms_consent === "updated" ? "SMS consent saved." : null}
+            error={query.sms_error ?? null}
+          />
+        </div>
       ) : null}
 
 
@@ -2051,15 +2101,15 @@ export default async function ClientDetailPage({
       {activeTab === "syllabus" ? (
         <SectionCard
           title="Syllabus"
-          subtitle="Future student progress tracking for dance figures, levels, and instructor notes."
+          subtitle="Track dance figures, levels, and instructor notes as this student progresses."
           action={
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-              Placeholder
+              Progress tracking
             </span>
           }
         >
           <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
-            <p className="font-medium text-[var(--brand-text)]">Dance figure syllabus tracking is coming soon.</p>
+            <p className="font-medium text-[var(--brand-text)]">Syllabus tracking helps instructors keep student progress organized.</p>
             <p className="mt-2 text-sm leading-6 text-slate-600">
               Instructors will be able to assign or upload a dance figure syllabus to this student and check off figures as they are introduced, practiced, and completed.
             </p>
