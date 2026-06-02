@@ -14,218 +14,192 @@ function canSendClientSms(role: string | null | undefined) {
   );
 }
 
-function getMonthlyPeriod(now = new Date()) {
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-
-  return {
-    periodStart: start.toISOString().slice(0, 10),
-    periodEnd: end.toISOString().slice(0, 10),
-  };
-}
-
-async function recordSmsUsage(args: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
-  studioId: string;
-  messageLogId: string;
-  messageQuantity: number;
-  segmentQuantity: number;
-}) {
-  const { periodStart, periodEnd } = getMonthlyPeriod();
-
-  await args.supabase.rpc("record_usage_event", {
-    p_studio_id: args.studioId,
-    p_organizer_id: null,
-    p_workspace_type: "studio",
-    p_feature_key: "sms_message",
-    p_quantity: args.messageQuantity,
-    p_source: "client_manual_sms",
-    p_related_table: "sms_message_logs",
-    p_related_id: args.messageLogId,
-    p_metadata: {},
-    p_period_start: periodStart,
-    p_period_end: periodEnd,
-  });
-
-  await args.supabase.rpc("record_usage_event", {
-    p_studio_id: args.studioId,
-    p_organizer_id: null,
-    p_workspace_type: "studio",
-    p_feature_key: "sms_segment",
-    p_quantity: args.segmentQuantity,
-    p_source: "client_manual_sms",
-    p_related_table: "sms_message_logs",
-    p_related_id: args.messageLogId,
-    p_metadata: {},
-    p_period_start: periodStart,
-    p_period_end: periodEnd,
-  });
-}
-
 export async function POST(request: Request) {
-  const supabase = await createClient();
-  const context = await getCurrentStudioContext();
-  const studioId = context.studioId;
-  const studioRole = context.studioRole ?? "";
+  try {
+    const supabase = await createClient();
+    const context = await getCurrentStudioContext();
 
-  if (!canSendClientSms(studioRole)) {
-    return NextResponse.json(
-      { ok: false, error: "You do not have permission to send text messages." },
-      { status: 403 },
-    );
-  }
+    const studioId = context.studioId;
+    const studioRole = context.studioRole ?? "";
 
-  const payload = await request.json().catch(() => null) as
-    | { clientId?: string; body?: string }
-    | null;
+    if (!canSendClientSms(studioRole)) {
+      return NextResponse.json(
+        { ok: false, error: "You do not have permission to send text messages." },
+        { status: 403 },
+      );
+    }
 
-  const clientId = String(payload?.clientId ?? "").trim();
-  const requestedBody = String(payload?.body ?? "").trim();
+    const payload = (await request.json().catch(() => null)) as
+      | { clientId?: string; body?: string }
+      | null;
 
-  if (!clientId) {
-    return NextResponse.json({ ok: false, error: "Client not found." }, { status: 400 });
-  }
+    const clientId = String(payload?.clientId ?? "").trim();
+    const requestedBody = String(payload?.body ?? "").trim();
 
-  if (!requestedBody) {
-    return NextResponse.json({ ok: false, error: "Enter a message before sending a text." }, { status: 400 });
-  }
+    if (!clientId) {
+      return NextResponse.json({ ok: false, error: "Client not found." }, { status: 400 });
+    }
 
-  if (requestedBody.length > 1200) {
-    return NextResponse.json({ ok: false, error: "Text messages must be 1,200 characters or less." }, { status: 400 });
-  }
+    if (!requestedBody) {
+      return NextResponse.json(
+        { ok: false, error: "Enter a message before sending a text." },
+        { status: 400 },
+      );
+    }
 
-  const { data: studio, error: studioError } = await supabase
-    .from("studios")
-    .select("id, name")
-    .eq("id", studioId)
-    .single();
+    if (requestedBody.length > 1200) {
+      return NextResponse.json(
+        { ok: false, error: "Text messages must be 1,200 characters or less." },
+        { status: 400 },
+      );
+    }
 
-  if (studioError || !studio) {
-    return NextResponse.json({ ok: false, error: "Studio not found." }, { status: 404 });
-  }
+    const { data: studio, error: studioError } = await supabase
+      .from("studios")
+      .select("id, name")
+      .eq("id", studioId)
+      .single();
 
-  const { data: client, error: clientError } = await supabase
-    .from("clients")
-    .select("id, studio_id, phone")
-    .eq("id", clientId)
-    .eq("studio_id", studioId)
-    .single();
+    if (studioError || !studio) {
+      return NextResponse.json({ ok: false, error: "Studio not found." }, { status: 404 });
+    }
 
-  if (clientError || !client) {
-    return NextResponse.json({ ok: false, error: "Client not found." }, { status: 404 });
-  }
+    const { data: client, error: clientError } = await supabase
+      .from("clients")
+      .select("id, studio_id, phone")
+      .eq("id", clientId)
+      .eq("studio_id", studioId)
+      .single();
 
-  const phoneE164 = normalizeSmsPhone(client.phone ?? "");
+    if (clientError || !client) {
+      return NextResponse.json({ ok: false, error: "Client not found." }, { status: 404 });
+    }
 
-  if (!phoneE164) {
-    return NextResponse.json(
-      { ok: false, error: "Add a valid phone number before sending a text." },
-      { status: 400 },
-    );
-  }
+    const phoneE164 = normalizeSmsPhone(client.phone ?? "");
 
-  const { data: permission, error: permissionError } = await supabase
-    .from("sms_contact_permissions")
-    .select("*")
-    .eq("studio_id", studioId)
-    .eq("client_id", clientId)
-    .eq("phone_e164", phoneE164)
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    if (!phoneE164) {
+      return NextResponse.json(
+        { ok: false, error: "Add a valid phone number before sending a text." },
+        { status: 400 },
+      );
+    }
 
-  if (permissionError) {
-    return NextResponse.json(
-      { ok: false, error: "SMS consent could not be verified." },
-      { status: 500 },
-    );
-  }
+    const { data: permission, error: permissionError } = await supabase
+      .from("sms_contact_permissions")
+      .select("*")
+      .eq("studio_id", studioId)
+      .eq("client_id", clientId)
+      .eq("phone_e164", phoneE164)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-  if (!canSendSms(permission as any)) {
-    return NextResponse.json(
-      { ok: false, error: "This client must be opted in before you send a text." },
-      { status: 400 },
-    );
-  }
+    if (permissionError) {
+      console.error("SMS consent lookup failed", permissionError.message);
 
-  const finalBody = appendSmsOptOutFooter(requestedBody, studio.name);
-  const segmentCount = Math.max(1, estimateSmsSegments(finalBody));
+      return NextResponse.json(
+        { ok: false, error: "SMS consent could not be verified." },
+        { status: 500 },
+      );
+    }
 
-  const { data: logRow, error: logError } = await supabase
-    .from("sms_message_logs")
-    .insert({
-      studio_id: studioId,
-      client_id: clientId,
-      phone_e164: phoneE164,
-      direction: "outbound",
-      message_type: "manual",
+    if (!canSendSms(permission as any)) {
+      return NextResponse.json(
+        { ok: false, error: "This client must be opted in before you send a text." },
+        { status: 400 },
+      );
+    }
+
+    const finalBody = appendSmsOptOutFooter(requestedBody, studio.name);
+    const segmentCount = Math.max(1, estimateSmsSegments(finalBody));
+
+    const { data: logRow, error: logError } = await supabase
+      .from("sms_message_logs")
+      .insert({
+        studio_id: studioId,
+        client_id: clientId,
+        phone_e164: phoneE164,
+        direction: "outbound",
+        message_type: "manual",
+        body: finalBody,
+        segment_count: segmentCount,
+        status: "queued",
+        provider: "twilio",
+        related_table: "clients",
+        related_id: clientId,
+        sent_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
+
+    if (logError || !logRow) {
+      console.error("SMS log insert failed", logError?.message);
+
+      return NextResponse.json(
+        { ok: false, error: "The text could not be logged before sending." },
+        { status: 500 },
+      );
+    }
+
+    const callbackSecret = String(process.env.TWILIO_STATUS_CALLBACK_SECRET ?? "").trim();
+    const callbackUrl = callbackSecret
+      ? `${new URL(request.url).origin}/api/sms/twilio/status?secret=${encodeURIComponent(
+          callbackSecret,
+        )}`
+      : null;
+
+    const sendResult = await sendTwilioSms({
+      to: phoneE164,
       body: finalBody,
-      segment_count: segmentCount,
-      status: "queued",
-      provider: "twilio",
-      related_table: "clients",
-      related_id: clientId,
-      sent_at: new Date().toISOString(),
-    })
-    .select("id")
-    .single();
+      statusCallbackUrl: callbackUrl,
+    });
 
-  if (logError || !logRow) {
-    return NextResponse.json(
-      { ok: false, error: "The text could not be logged before sending." },
-      { status: 500 },
-    );
-  }
+    if (!sendResult.ok) {
+      await supabase
+        .from("sms_message_logs")
+        .update({
+          status: "failed",
+          provider_error_code: sendResult.errorCode ?? null,
+          provider_error_message: sendResult.error ?? "The text could not be sent.",
+          failed_at: new Date().toISOString(),
+        })
+        .eq("id", logRow.id)
+        .eq("studio_id", studioId);
 
-  const callbackSecret = process.env.TWILIO_STATUS_CALLBACK_SECRET ?? "";
-  const callbackUrl = callbackSecret
-    ? `${new URL(request.url).origin}/api/sms/twilio/status?secret=${encodeURIComponent(callbackSecret)}`
-    : null;
+      return NextResponse.json(
+        { ok: false, error: sendResult.error ?? "The text could not be sent." },
+        { status: 500 },
+      );
+    }
 
-  const sendResult = await sendTwilioSms({
-    to: phoneE164,
-    body: finalBody,
-    statusCallbackUrl: callbackUrl,
-  });
-
-  if (!sendResult.ok) {
-    await supabase
+    const { error: updateError } = await supabase
       .from("sms_message_logs")
       .update({
-        status: "failed",
-        provider_error_code: sendResult.errorCode ?? null,
-        provider_error_message: sendResult.error ?? "The text could not be sent.",
-        failed_at: new Date().toISOString(),
+        provider_message_id: sendResult.sid ?? null,
+        status: sendResult.status === "sent" ? "sent" : "queued",
       })
       .eq("id", logRow.id)
       .eq("studio_id", studioId);
 
+    if (updateError) {
+      console.error("SMS provider ID update failed", updateError.message);
+    }
+
+    return NextResponse.json({
+      ok: true,
+      message: "Text queued for sending.",
+      id: logRow.id,
+      providerMessageId: sendResult.sid ?? null,
+    });
+  } catch (error) {
+    console.error("Unhandled SMS send route error", error);
+
     return NextResponse.json(
-      { ok: false, error: sendResult.error ?? "The text could not be sent." },
+      {
+        ok: false,
+        error: "The text message could not be sent. Please try again.",
+      },
       { status: 500 },
     );
   }
-
-  await supabase
-    .from("sms_message_logs")
-    .update({
-      provider_message_id: sendResult.sid ?? null,
-      status: sendResult.status === "sent" ? "sent" : "queued",
-    })
-    .eq("id", logRow.id)
-    .eq("studio_id", studioId);
-
-  await recordSmsUsage({
-    supabase,
-    studioId,
-    messageLogId: logRow.id,
-    messageQuantity: 1,
-    segmentQuantity: segmentCount,
-  });
-
-  return NextResponse.json({
-    ok: true,
-    message: "Text queued for sending.",
-    id: logRow.id,
-  });
 }

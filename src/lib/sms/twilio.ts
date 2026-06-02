@@ -14,18 +14,37 @@ export type TwilioSendSmsResult = {
   errorCode?: string;
 };
 
+function cleanEnv(value: string | undefined) {
+  return String(value ?? "").trim();
+}
+
 function getTwilioConfig() {
+  const messagingServiceSid =
+    cleanEnv(process.env.TWILIO_MESSAGING_SERVICE_SID) ||
+    cleanEnv(process.env.TWILIO_MESSAGE_SERVICE_SID);
+
   return {
-    accountSid: process.env.TWILIO_ACCOUNT_SID ?? "",
-    authToken: process.env.TWILIO_AUTH_TOKEN ?? "",
-    messagingServiceSid: process.env.TWILIO_MESSAGING_SERVICE_SID ?? "",
+    accountSid: cleanEnv(process.env.TWILIO_ACCOUNT_SID),
+    authToken: cleanEnv(process.env.TWILIO_AUTH_TOKEN),
+    messagingServiceSid,
   };
 }
 
-export function isTwilioConfigured() {
+export function getTwilioMissingConfigKeys() {
   const config = getTwilioConfig();
+  const missing: string[] = [];
 
-  return Boolean(config.accountSid && config.authToken && config.messagingServiceSid);
+  if (!config.accountSid) missing.push("TWILIO_ACCOUNT_SID");
+  if (!config.authToken) missing.push("TWILIO_AUTH_TOKEN");
+  if (!config.messagingServiceSid) {
+  missing.push("TWILIO_MESSAGING_SERVICE_SID or TWILIO_MESSAGE_SERVICE_SID");
+}
+
+  return missing;
+}
+
+export function isTwilioConfigured() {
+  return getTwilioMissingConfigKeys().length === 0;
 }
 
 export function estimateSmsSegments(message: string) {
@@ -33,8 +52,6 @@ export function estimateSmsSegments(message: string) {
 
   if (!text) return 0;
 
-  // Conservative V1 estimate. Twilio/carriers may segment differently for
-  // non-GSM characters, emojis, links, or carrier-specific encoding.
   const hasUnicode = /[^\u0000-\u007f]/.test(text);
   const singleLimit = hasUnicode ? 70 : 160;
   const multipartLimit = hasUnicode ? 67 : 153;
@@ -46,14 +63,19 @@ export function estimateSmsSegments(message: string) {
 
 export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSendSmsResult> {
   const config = getTwilioConfig();
+  const missingConfigKeys = getTwilioMissingConfigKeys();
   const normalizedTo = normalizeSmsPhone(input.to);
 
   if (!normalizedTo) {
     return { ok: false, error: "Enter a valid phone number before sending a text." };
   }
 
-  if (!isTwilioConfigured()) {
-    return { ok: false, error: "Text messaging is not configured yet." };
+  if (missingConfigKeys.length > 0) {
+    return {
+      ok: false,
+      error: `Text messaging is not configured yet. Missing: ${missingConfigKeys.join(", ")}`,
+      errorCode: "twilio_config_missing",
+    };
   }
 
   const body = input.body.trim();
@@ -76,7 +98,9 @@ export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSe
     {
       method: "POST",
       headers: {
-        Authorization: `Basic ${Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64")}`,
+        Authorization: `Basic ${Buffer.from(`${config.accountSid}:${config.authToken}`).toString(
+          "base64",
+        )}`,
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: params.toString(),
@@ -84,7 +108,7 @@ export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSe
     },
   );
 
-  const payload = await response.json().catch(() => null) as
+  const payload = (await response.json().catch(() => null)) as
     | {
         sid?: string;
         status?: string;
