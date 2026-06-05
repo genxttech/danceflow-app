@@ -14,6 +14,7 @@ import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
 import QuickPaymentPanel from "./QuickPaymentPanel";
 import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
 import { ClientSendSmsCard } from "./ClientSendSmsCard";
+import { ClientSmsMessageHistoryCard } from "./ClientSmsMessageHistoryCard";
 import {
   linkPartnerAction,
   linkPortalAccessAction,
@@ -289,6 +290,34 @@ type SmsPermissionRow = {
   updated_at: string;
 };
 
+
+
+
+type SmsMessageLogRow = {
+  id: string;
+  studio_id: string | null;
+  organizer_id: string | null;
+  client_id: string | null;
+  organizer_contact_id: string | null;
+  phone_e164: string;
+  direction: "outbound" | "inbound";
+  message_type: string;
+  body: string | null;
+  segment_count: number;
+  status: "draft" | "queued" | "sent" | "delivered" | "failed" | "suppressed" | "received";
+  provider: string | null;
+  provider_message_id: string | null;
+  provider_error_code: string | null;
+  provider_error_message: string | null;
+  related_table: string | null;
+  related_id: string | null;
+  sent_by: string | null;
+  sent_at: string | null;
+  delivered_at: string | null;
+  failed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
 
 type AttendanceRecordRow = {
   id: string;
@@ -1169,6 +1198,7 @@ export default async function ClientDetailPage({
     { data: allClientDocumentTemplates, error: allClientDocumentTemplatesError },
     { data: documentSignatures, error: documentSignaturesError },
     { data: smsPermission, error: smsPermissionError },
+    { data: smsMessageLogs, error: smsMessageLogsError },
   ] = await Promise.all([
     supabase.from("studios").select("id, name, slug").eq("id", studioId).single(),
 
@@ -1434,6 +1464,14 @@ export default async function ClientDetailPage({
       .order("updated_at", { ascending: false })
       .limit(1)
       .maybeSingle(),
+
+    supabase
+      .from("sms_message_logs")
+      .select("*")
+      .eq("studio_id", studioId)
+      .eq("client_id", id)
+      .order("created_at", { ascending: false })
+      .limit(20),
   ]);
 
   if (clientError || !client) {
@@ -1459,6 +1497,7 @@ export default async function ClientDetailPage({
   if (allClientDocumentTemplatesError) throw new Error(`Failed to load document templates: ${allClientDocumentTemplatesError.message}`);
   if (documentSignaturesError) throw new Error(`Failed to load document signatures: ${documentSignaturesError.message}`);
   if (smsPermissionError) throw new Error(`Failed to load SMS consent: ${smsPermissionError.message}`);
+  if (smsMessageLogsError) throw new Error(`Failed to load SMS history: ${smsMessageLogsError.message}`);
 
   const typedStudio = studio as StudioRecord;
   const typedClient = client as ClientRecord;
@@ -1484,6 +1523,7 @@ export default async function ClientDetailPage({
   const typedAllClientDocumentTemplates = (allClientDocumentTemplates ?? []) as AllClientDocumentTemplateRow[];
   const typedDocumentSignatures = (documentSignatures ?? []) as ClientDocumentSignatureRow[];
   const typedSmsPermission = (smsPermission ?? null) as SmsPermissionRow | null;
+  const typedSmsMessageLogs = (smsMessageLogs ?? []) as SmsMessageLogRow[];
 
   const { data: linkedRelationship, error: linkedRelationshipError } = await supabase
     .from("client_relationships")
@@ -2017,6 +2057,8 @@ export default async function ClientDetailPage({
               permission={typedSmsPermission}
               canManage={canManageSmsConsent}
             />
+
+            <ClientSmsMessageHistoryCard messages={typedSmsMessageLogs} />
           </div>
         </div>
       ) : null}
