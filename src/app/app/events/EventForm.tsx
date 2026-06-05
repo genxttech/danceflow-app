@@ -936,7 +936,7 @@ export default function EventForm({
   }
 
   return (
-    <form action={formAction} className="space-y-5 md:space-y-6">
+    <form action={formAction} className="space-y-6">
       {mode === "edit" && initialValues?.id ? (
         <input type="hidden" name="id" value={initialValues.id} />
       ) : null}
@@ -981,7 +981,7 @@ export default function EventForm({
         <input key={styleKey} type="hidden" name="styleKeys" value={styleKey} />
       ))}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
+      <div className="rounded-[28px] border border-[var(--brand-border)] bg-white p-4 shadow-sm md:p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h2 className="text-2xl font-semibold tracking-tight text-slate-900 md:text-3xl">
@@ -995,8 +995,8 @@ export default function EventForm({
           </div>
 
           <div className="grid grid-cols-1 gap-3 lg:min-w-[280px]">
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              Fields marked with * are required.
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+              Tip: complete the required fields first, then return to public details, schedule items, and guest coach options.
             </div>
 
             <Link
@@ -1030,7 +1030,7 @@ export default function EventForm({
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
             <div className="mb-4">
               <h3 className="text-lg font-semibold text-slate-900 md:text-xl">
-                Core Setup
+                Core setup
               </h3>
               <p className="mt-1 text-sm text-slate-500">
                 Define the event identity, schedule, organizer, and location.

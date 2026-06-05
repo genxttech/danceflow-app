@@ -9,7 +9,7 @@ type Props = {
 export default function CopyInviteLinkButton({ email }: Props) {
   const [copied, setCopied] = useState(false);
 
-    const inviteLink = useMemo(() => {
+  const inviteLink = useMemo(() => {
     if (typeof window === "undefined") return "";
     const url = new URL("/invite", window.location.origin);
     url.searchParams.set("next", "/app");
@@ -31,7 +31,7 @@ export default function CopyInviteLinkButton({ email }: Props) {
     <button
       type="button"
       onClick={handleCopy}
-      className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
     >
       {copied ? "Copied Invite Link" : "Copy Invite Link"}
     </button>

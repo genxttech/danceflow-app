@@ -13,32 +13,59 @@ export default function NewInstructorPage() {
   );
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      <section className="rounded-[28px] border border-violet-100 bg-gradient-to-br from-violet-50 via-white to-amber-50 p-6 shadow-sm md:p-8">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-violet-700">
-              DanceFlow Staff
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
-              New Instructor
-            </h1>
-            <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
-              Add an instructor profile so they can appear on schedules,
-              lessons, and studio workflows.
-            </p>
-          </div>
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+                DanceFlow Staff
+              </p>
+              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+                New Instructor
+              </h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
+                Add a teacher profile that connects scheduling, public staff
+                profiles, calendar feeds, and studio operations.
+              </p>
+            </div>
 
-          <Link
-            href="/app/instructors"
-            className="inline-flex items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Back to Instructors
-          </Link>
+            <Link
+              href="/app/instructors"
+              className="inline-flex items-center justify-center rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[var(--brand-primary)] hover:bg-white/90"
+            >
+              Back to Instructors
+            </Link>
+          </div>
+        </div>
+
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
+          <div className="grid gap-4 md:grid-cols-3">
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+              <h2 className="text-lg font-semibold text-sky-950">Bookable</h2>
+              <p className="mt-2 text-sm leading-7 text-sky-900">
+                Add instructors who can be assigned to lessons, classes, and appointments.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+              <h2 className="text-lg font-semibold text-violet-950">Public Ready</h2>
+              <p className="mt-2 text-sm leading-7 text-violet-900">
+                Build optional public staff profiles for your studio listing.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+              <h2 className="text-lg font-semibold text-amber-950">Organized</h2>
+              <p className="mt-2 text-sm leading-7 text-amber-900">
+                Keep specialties and bios consistent for front desk and students.
+              </p>
+            </div>
+          </div>
         </div>
       </section>
 
-      <form action={formAction} className="space-y-4 rounded-2xl border bg-white p-6 shadow-sm">
+      <form action={formAction} className="mx-auto max-w-3xl space-y-5 rounded-[28px] border border-[var(--brand-border)] bg-white p-6 shadow-sm">
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label htmlFor="firstName" className="mb-1 block text-sm font-medium">
@@ -237,14 +264,14 @@ export default function NewInstructorPage() {
           <button
             type="submit"
             disabled={pending}
-            className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800 disabled:opacity-60"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
           >
             {pending ? "Saving..." : "Save Instructor"}
           </button>
 
           <Link
             href="/app/instructors"
-            className="rounded-xl border px-4 py-2 text-slate-700 hover:bg-slate-50"
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             Cancel
           </Link>

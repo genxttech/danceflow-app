@@ -801,7 +801,7 @@ export default async function EventRegistrationsPage({
                 href={`/app/events/${typedEvent.id}/check-in`}
                 className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
               >
-                Check-In Mode
+                Check-in mode
               </Link>
 
               <Link
@@ -821,7 +821,7 @@ export default async function EventRegistrationsPage({
             </h2>
             <p className="mt-2 text-sm leading-7 text-sky-900">
               Manage payment status, CRM handoff, attendance progression, and
-              event-day registration flow from one place.
+              event-day registration and check-in flow from one place.
             </p>
           </div>
         </div>

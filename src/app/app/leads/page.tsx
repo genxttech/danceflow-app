@@ -555,7 +555,7 @@ export default async function LeadsPage({
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                DanceFlow
+                DanceFlow CRM
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
                 Leads
@@ -1056,26 +1056,26 @@ export default async function LeadsPage({
         </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-4">
-          <div className="rounded-2xl border bg-slate-50 p-4">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm text-slate-500">Public Intro</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">{publicIntroLeads.length}</p>
           </div>
 
-          <div className="rounded-2xl border bg-slate-50 p-4">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm text-slate-500">Event Registration</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">
               {eventRegistrationLeads.length}
             </p>
           </div>
 
-          <div className="rounded-2xl border bg-slate-50 p-4">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm text-slate-500">Public Directory</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">
               {publicDirectoryLeads.length}
             </p>
           </div>
 
-          <div className="rounded-2xl border bg-slate-50 p-4">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm text-slate-500">Manual / Other</p>
             <p className="mt-2 text-2xl font-semibold text-slate-900">
               {manualLeads.length}

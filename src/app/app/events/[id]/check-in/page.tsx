@@ -695,11 +695,11 @@ export default async function EventCheckInPage({
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
                 {organizerWorkspace
-                  ? "DanceFlow Organizer Check-In"
-                  : "DanceFlow Event Check-In"}
+                  ? "DanceFlow Organizer Check-in"
+                  : "DanceFlow Event Check-in"}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Check-In Mode
+                Event check-in
               </h1>
               <p className="mt-3 text-sm leading-7 text-white/85 md:text-base">
                 {typedEvent.name}

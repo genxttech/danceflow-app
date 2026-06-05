@@ -83,8 +83,8 @@ export default async function PackagesPage() {
   const inactiveCount = packageTemplates.filter((pkg) => !pkg.active).length;
 
   return (
-    <div className="space-y-8">
-      <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-6 text-white shadow-sm md:p-8">
         <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
@@ -98,23 +98,23 @@ export default async function PackagesPage() {
       </section>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Total Templates</p>
-          <p className="mt-2 text-3xl font-semibold">{packageTemplates.length}</p>
+          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">{packageTemplates.length}</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Active</p>
-          <p className="mt-2 text-3xl font-semibold">{activeCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">{activeCount}</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Inactive</p>
-          <p className="mt-2 text-3xl font-semibold">{inactiveCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">{inactiveCount}</p>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border bg-white">
+      <div className="overflow-hidden rounded-[28px] border border-[var(--brand-border)] bg-white shadow-sm">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50">
             <tr className="text-left text-slate-600">
@@ -130,7 +130,7 @@ export default async function PackagesPage() {
             {packageTemplates.length === 0 ? (
               <tr>
                 <td colSpan={6} className="px-4 py-8 text-center text-slate-500">
-                  No package templates yet.
+                  No package templates yet. Create your first reusable package when you are ready to sell lesson or class credits.
                 </td>
               </tr>
             ) : (
@@ -157,20 +157,20 @@ export default async function PackagesPage() {
                     <div className="flex items-center gap-3">
                       <Link
                         href={`/app/packages/${pkg.id}`}
-                        className="text-slate-900 underline"
+                        className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
                       >
                         View
                       </Link>
                       <Link
                         href={`/app/packages/${pkg.id}/edit`}
-                        className="text-slate-900 underline"
+                        className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
                       >
                         Edit
                       </Link>
                       {pkg.active ? (
                         <form action={deactivatePackageTemplateAction}>
                           <input type="hidden" name="packageTemplateId" value={pkg.id} />
-                          <button type="submit" className="text-red-600 underline">
+                          <button type="submit" className="rounded-lg px-2 py-1 text-sm font-medium text-rose-600 hover:bg-rose-50">
                             Deactivate
                           </button>
                         </form>

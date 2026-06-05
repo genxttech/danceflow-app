@@ -83,8 +83,8 @@ export default async function ClientBalancesPage() {
   const inactiveCount = balances.filter((balance) => !balance.active).length;
 
   return (
-    <div className="space-y-8">
-      <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-6 text-white shadow-sm md:p-8">
         <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
@@ -98,30 +98,30 @@ export default async function ClientBalancesPage() {
       </section>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Client Packages</p>
-          <p className="mt-2 text-3xl font-semibold">{balances.length}</p>
+          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">{balances.length}</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Active</p>
-          <p className="mt-2 text-3xl font-semibold">{activeCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">{activeCount}</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Inactive</p>
-          <p className="mt-2 text-3xl font-semibold">{inactiveCount}</p>
+          <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">{inactiveCount}</p>
         </div>
       </div>
 
       <div className="space-y-4">
         {balances.length === 0 ? (
-          <div className="rounded-2xl border bg-white p-6 text-slate-500">
-            No client packages yet.
+          <div className="rounded-[28px] border border-[var(--brand-border)] bg-white p-6 text-slate-500 shadow-sm">
+            No client package balances yet. Sold packages will appear here with remaining credits and expiration details.
           </div>
         ) : (
           balances.map((balance) => (
-            <div key={balance.id} className="rounded-2xl border bg-white p-6">
+            <div key={balance.id} className="rounded-[28px] border border-[var(--brand-border)] bg-white p-6 shadow-sm">
               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
                   <h3 className="text-xl font-semibold">

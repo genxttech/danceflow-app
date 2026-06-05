@@ -50,7 +50,7 @@ export default function TicketCodeScanner({ inputId }: TicketCodeScannerProps) {
 
     async function startScanner() {
       setError("");
-      setStatus("Starting camera...");
+      setStatus("Starting camera…");
 
       const Detector = (window as WindowWithBarcodeDetector).BarcodeDetector;
 
@@ -185,20 +185,20 @@ export default function TicketCodeScanner({ inputId }: TicketCodeScannerProps) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-xl border border-[var(--brand-border)] px-3 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-soft)]"
+        className="inline-flex items-center justify-center rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-primary)] shadow-sm transition hover:bg-[var(--brand-primary-soft)]"
       >
-        Scan QR Code
+        Scan QR code
       </button>
 
       {open ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
-          <div className="w-full max-w-md rounded-3xl bg-white p-5 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md overflow-hidden rounded-[28px] border border-white/20 bg-white shadow-2xl">
+            <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] p-5 text-white"><div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold text-slate-950">
+                <h2 className="text-lg font-semibold text-white">
                   Scan ticket QR code
                 </h2>
-                <p className="mt-1 text-sm text-slate-500">
+                <p className="mt-1 text-sm leading-6 text-white/75">
                   The QR code will submit into the existing ticket-code check-in flow.
                 </p>
               </div>
@@ -206,13 +206,13 @@ export default function TicketCodeScanner({ inputId }: TicketCodeScannerProps) {
               <button
                 type="button"
                 onClick={closeScanner}
-                className="rounded-full border border-slate-200 px-3 py-1 text-sm text-slate-600 hover:bg-slate-50"
+                className="rounded-full border border-white/20 bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/15"
               >
                 Close
               </button>
-            </div>
+            </div></div>
 
-            <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-950">
+            <div className="m-5 overflow-hidden rounded-2xl border border-slate-200 bg-slate-950">
               <video
                 ref={videoRef}
                 muted
@@ -222,18 +222,18 @@ export default function TicketCodeScanner({ inputId }: TicketCodeScannerProps) {
             </div>
 
             {status ? (
-              <p className="mt-3 rounded-2xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              <p className="mx-5 mt-3 rounded-2xl bg-[var(--brand-primary-soft)] px-3 py-2 text-sm text-slate-700">
                 {status}
               </p>
             ) : null}
 
             {error ? (
-              <p className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <p className="mx-5 mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
                 {error}
               </p>
             ) : null}
 
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="m-5 mt-3 text-xs leading-5 text-slate-500">
               If scanning does not work on this device, type or paste the ticket code into the field instead.
             </p>
           </div>

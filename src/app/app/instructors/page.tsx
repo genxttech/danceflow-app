@@ -104,7 +104,7 @@ export default async function InstructorsPage() {
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                DanceFlow
+                DanceFlow Staff
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
                 Instructors
@@ -150,23 +150,23 @@ export default async function InstructorsPage() {
       </section>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Total Instructors</p>
           <p className="mt-2 text-3xl font-semibold">{typedInstructors.length}</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Active</p>
           <p className="mt-2 text-3xl font-semibold">{activeCount}</p>
         </div>
 
-        <div className="rounded-2xl border bg-white p-5">
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Inactive</p>
           <p className="mt-2 text-3xl font-semibold">{inactiveCount}</p>
         </div>
       </div>
 
-      <div className="overflow-hidden rounded-2xl border bg-white">
+      <div className="overflow-hidden rounded-[28px] border border-[var(--brand-border)] bg-white shadow-sm">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50">
             <tr className="text-left text-slate-600">

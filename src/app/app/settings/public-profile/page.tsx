@@ -118,7 +118,7 @@ export default async function PublicProfileSettingsPage({
   const effectiveSlug = studio.slug ?? buildDefaultSlug(effectivePublicName);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8">
+    <div className="mx-auto max-w-6xl space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_24%)] p-1">
       <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -444,7 +444,7 @@ export default async function PublicProfileSettingsPage({
           <div className="rounded-2xl border bg-white p-3 shadow-lg">
             <button
               type="submit"
-              className="inline-flex items-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white hover:bg-slate-800"
+              className="inline-flex items-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
             >
               Save public profile
             </button>

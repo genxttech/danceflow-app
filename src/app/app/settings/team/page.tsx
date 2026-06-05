@@ -124,7 +124,7 @@ function sectionCard(
   children: React.ReactNode
 ) {
   return (
-    <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+    <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
       <div>
         <h2 className="text-xl font-semibold text-slate-950">{title}</h2>
         <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
