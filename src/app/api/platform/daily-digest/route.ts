@@ -27,7 +27,6 @@ type StudioRow = {
   id: string;
   name: string;
   slug?: string | null;
-  public_enabled?: boolean | null;
   created_at?: string | null;
   last_workspace_access_at?: string | null;
   last_workspace_access_user_id?: string | null;
@@ -282,7 +281,7 @@ export async function GET(request: NextRequest) {
     supabase
       .from("studios")
       .select(
-  "id, name, slug, public_enabled, created_at, last_workspace_access_at, last_workspace_access_user_id"
+  "id, name, slug, created_at, last_workspace_access_at, last_workspace_access_user_id"
 ),
     supabase.from("studio_subscriptions").select(`
       id,
@@ -352,10 +351,7 @@ export async function GET(request: NextRequest) {
     return !hasActiveBillingAccess(subscription?.status);
   });
 
-  const activeBillingButHidden = typedStudios.filter((studio) => {
-    const subscription = subscriptionByStudioId.get(studio.id);
-    return hasActiveBillingAccess(subscription?.status) && studio.public_enabled === false;
-  });
+  const activeBillingButHidden: StudioRow[] = [];
 
   const todayStart = startOfToday();
   const monthStart = startOfMonth();
