@@ -27,7 +27,6 @@ type StudioRow = {
   id: string;
   name: string;
   slug?: string | null;
-  status?: string | null;
   public_enabled?: boolean | null;
   created_at?: string | null;
   last_workspace_access_at?: string | null;
@@ -68,7 +67,6 @@ type PlatformErrorRow = {
   severity: string | null;
   source: string | null;
   message: string | null;
-  route: string | null;
   created_at: string;
 };
 
@@ -284,8 +282,8 @@ export async function GET(request: NextRequest) {
     supabase
       .from("studios")
       .select(
-        "id, name, slug, status, public_enabled, created_at, last_workspace_access_at, last_workspace_access_user_id"
-      ),
+  "id, name, slug, public_enabled, created_at, last_workspace_access_at, last_workspace_access_user_id"
+),
     supabase.from("studio_subscriptions").select(`
       id,
       studio_id,
@@ -305,7 +303,7 @@ export async function GET(request: NextRequest) {
     supabase.from("studio_invoices").select("id, amount_paid, status, created_at"),
     supabase
       .from("platform_error_logs")
-      .select("id, severity, source, message, route, created_at")
+      .select("id, severity, source, message, created_at")
       .is("resolved_at", null)
       .order("created_at", { ascending: false })
       .limit(10),
@@ -515,7 +513,7 @@ export async function GET(request: NextRequest) {
 
   const errorItems = typedPlatformErrors.slice(0, 5).map((error) => {
     const severity = error.severity ? `${error.severity.toUpperCase()}: ` : "";
-    const source = error.source || error.route || "Unknown source";
+    const source = error.source || "Unknown source";
     return `${severity}${source} — ${error.message ?? "No message"}`;
   });
 
