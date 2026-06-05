@@ -52,9 +52,32 @@ export function normalizeSmsPhone(phone: string): string | null {
 }
 
 export function canSendSms(
-  permission: Pick<SmsPermissionRow, "consent_status"> | null | undefined,
+  permission:
+    | Pick<SmsPermissionRow, "consent_status" | "opted_out_at">
+    | { consent_status?: string | null; opted_out_at?: string | null }
+    | null
+    | undefined,
 ): boolean {
-  return permission?.consent_status === "opted_in";
+  if (!permission) return false;
+
+  return permission.consent_status === "opted_in" && !permission.opted_out_at;
+}
+
+export function appendSmsOptOutFooter(message: string, studioName?: string | null): string {
+  const body = String(message ?? "").trim();
+  const name = String(studioName ?? "").trim();
+
+  const lowerBody = body.toLowerCase();
+
+  if (lowerBody.includes("reply stop") || lowerBody.includes("stop to opt out")) {
+    return body;
+  }
+
+  const footer = name
+    ? `${name}: Reply STOP to opt out. Reply HELP for help.`
+    : "Reply STOP to opt out. Reply HELP for help.";
+
+  return `${body}\n\n${footer}`;
 }
 
 export function smsConsentLabel(status: SmsConsentStatus): string {
@@ -189,12 +212,4 @@ export function getSmsOptOutFooter(studioName?: string | null) {
   return `Reply STOP to opt out. Msg & data rates may apply.`;
 }
 
-export function appendSmsOptOutFooter(message: string, studioName?: string | null) {
-  const trimmed = message.trim();
-  const footer = getSmsOptOutFooter(studioName);
 
-  if (!trimmed) return footer;
-  if (trimmed.toLowerCase().includes("reply stop")) return trimmed;
-
-  return `${trimmed}\n\n${footer}`;
-}

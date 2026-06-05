@@ -15,6 +15,8 @@ import QuickPaymentPanel from "./QuickPaymentPanel";
 import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
 import { ClientSendSmsCard } from "./ClientSendSmsCard";
 import { ClientSmsMessageHistoryCard } from "./ClientSmsMessageHistoryCard";
+import ClientSyllabusTab from "./ClientSyllabusTab";
+import type { SmsMessageLogRow, SmsPermissionRow } from "@/lib/sms/compliance";
 import {
   linkPartnerAction,
   linkPortalAccessAction,
@@ -193,6 +195,45 @@ type ActiveMembership = {
   benefits: MembershipBenefit[];
 };
 
+
+type SyllabusTemplateItemRow = {
+  id: string;
+  title: string;
+  category: string | null;
+  description: string | null;
+  sort_order: number | null;
+  active: boolean | null;
+};
+
+type SyllabusTemplateRow = {
+  id: string;
+  name: string;
+  dance_style: string | null;
+  level: string | null;
+  description: string | null;
+  active: boolean | null;
+  syllabus_template_items: SyllabusTemplateItemRow[] | null;
+};
+
+type ClientSyllabusProgressRow = {
+  id: string;
+  template_item_id: string;
+  status: string;
+  notes: string | null;
+  show_notes_in_portal: boolean | null;
+  updated_at: string | null;
+};
+
+type ClientSyllabusAssignmentRow = {
+  id: string;
+  syllabus_template_id: string;
+  assigned_at: string | null;
+  visible_in_portal: boolean | null;
+  archived_at: string | null;
+  syllabus_templates: SyllabusTemplateRow | SyllabusTemplateRow[] | null;
+  client_syllabus_progress: ClientSyllabusProgressRow[] | null;
+};
+
 type EventRegistrationRow = {
   id: string;
   attendee_first_name: string;
@@ -271,54 +312,6 @@ type ClientDocumentSignatureRow = {
 };
 
 
-type SmsPermissionRow = {
-  id: string;
-  studio_id: string | null;
-  organizer_id: string | null;
-  client_id: string | null;
-  organizer_contact_id: string | null;
-  phone_e164: string;
-  consent_status: "unknown" | "opted_in" | "opted_out";
-  consent_source: string | null;
-  consent_note: string | null;
-  consent_at: string | null;
-  opted_out_at: string | null;
-  opted_out_source: string | null;
-  created_by: string | null;
-  updated_by: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
-
-
-
-type SmsMessageLogRow = {
-  id: string;
-  studio_id: string | null;
-  organizer_id: string | null;
-  client_id: string | null;
-  organizer_contact_id: string | null;
-  phone_e164: string;
-  direction: "outbound" | "inbound";
-  message_type: string;
-  body: string | null;
-  segment_count: number;
-  status: "draft" | "queued" | "sent" | "delivered" | "failed" | "suppressed" | "received";
-  provider: string | null;
-  provider_message_id: string | null;
-  provider_error_code: string | null;
-  provider_error_message: string | null;
-  related_table: string | null;
-  related_id: string | null;
-  sent_by: string | null;
-  sent_at: string | null;
-  delivered_at: string | null;
-  failed_at: string | null;
-  created_at: string;
-  updated_at: string;
-};
-
 type AttendanceRecordRow = {
   id: string;
   event_registration_id: string;
@@ -340,21 +333,21 @@ type ClientDetailTab =
   | "overview"
   | "schedule"
   | "billing"
-  | "notes"
-  | "portal"
   | "marketing"
   | "documents"
-  | "syllabus";
+  | "syllabus"
+  | "notes"
+  | "portal";
 
 const clientDetailTabs: { id: ClientDetailTab; label: string; description: string }[] = [
-  { id: "overview", label: "Overview", description: "Snapshot, lead status, and event history" },
-  { id: "schedule", label: "Schedule", description: "Upcoming and recent lessons" },
-  { id: "billing", label: "Packages & Billing", description: "Packages, payments, memberships, and ledger" },
-  { id: "notes", label: "Notes & Activity", description: "Notes, lead activity, and follow-up history" },
-  { id: "portal", label: "Portal", description: "Client portal access and login tools" },
-  { id: "marketing", label: "Marketing", description: "Marketing preferences and campaign history" },
-  { id: "documents", label: "Documents", description: "Waivers, policies, and signatures" },
-  { id: "syllabus", label: "Syllabus", description: "Future dance figure progress tracking" },
+  { id: "overview", label: "Overview", description: "Snapshot, lead status, event history, and next best actions" },
+  { id: "schedule", label: "Schedule", description: "Upcoming and recent lessons, classes, and rentals" },
+  { id: "billing", label: "Packages & Billing", description: "Packages, payments, memberships, credits, and ledger activity" },
+  { id: "marketing", label: "Marketing", description: "Follow-up, SMS consent, one-to-one texting, and message history" },
+  { id: "documents", label: "Documents", description: "Waivers, policies, agreements, and signature status" },
+  { id: "syllabus", label: "Syllabus", description: "Dance figure progress, instructor notes, and student focus areas" },
+  { id: "notes", label: "Notes / Activity", description: "Internal notes, lead activity, and completed follow-ups" },
+  { id: "portal", label: "Portal / Account", description: "Client portal access, linked account tools, and profile visibility" },
 ];
 
 function getClientDetailTab(value: string | undefined): ClientDetailTab {
@@ -1198,7 +1191,9 @@ export default async function ClientDetailPage({
     { data: allClientDocumentTemplates, error: allClientDocumentTemplatesError },
     { data: documentSignatures, error: documentSignaturesError },
     { data: smsPermission, error: smsPermissionError },
-    { data: smsMessageLogs, error: smsMessageLogsError },
+    { data: smsMessages, error: smsMessagesError },
+    { data: syllabusTemplates, error: syllabusTemplatesError },
+    { data: syllabusAssignments, error: syllabusAssignmentsError },
   ] = await Promise.all([
     supabase.from("studios").select("id, name, slug").eq("id", studioId).single(),
 
@@ -1471,7 +1466,65 @@ export default async function ClientDetailPage({
       .eq("studio_id", studioId)
       .eq("client_id", id)
       .order("created_at", { ascending: false })
-      .limit(20),
+      .limit(10),
+
+    supabase
+      .from("syllabus_templates")
+      .select(`
+        id,
+        name,
+        dance_style,
+        level,
+        description,
+        active,
+        syllabus_template_items (
+          id,
+          title,
+          category,
+          description,
+          sort_order,
+          active
+        )
+      `)
+      .eq("studio_id", studioId)
+      .order("name", { ascending: true }),
+
+    supabase
+      .from("client_syllabus_assignments")
+      .select(`
+        id,
+        syllabus_template_id,
+        assigned_at,
+        visible_in_portal,
+        archived_at,
+        syllabus_templates (
+          id,
+          name,
+          dance_style,
+          level,
+          description,
+          active,
+          syllabus_template_items (
+            id,
+            title,
+            category,
+            description,
+            sort_order,
+            active
+          )
+        ),
+        client_syllabus_progress (
+          id,
+          template_item_id,
+          status,
+          notes,
+          show_notes_in_portal,
+          updated_at
+        )
+      `)
+      .eq("studio_id", studioId)
+      .eq("client_id", id)
+      .order("assigned_at", { ascending: false }),
   ]);
 
   if (clientError || !client) {
@@ -1497,7 +1550,9 @@ export default async function ClientDetailPage({
   if (allClientDocumentTemplatesError) throw new Error(`Failed to load document templates: ${allClientDocumentTemplatesError.message}`);
   if (documentSignaturesError) throw new Error(`Failed to load document signatures: ${documentSignaturesError.message}`);
   if (smsPermissionError) throw new Error(`Failed to load SMS consent: ${smsPermissionError.message}`);
-  if (smsMessageLogsError) throw new Error(`Failed to load SMS history: ${smsMessageLogsError.message}`);
+  if (smsMessagesError) throw new Error(`Failed to load SMS message history: ${smsMessagesError.message}`);
+  if (syllabusTemplatesError) throw new Error(`Failed to load syllabus templates: ${syllabusTemplatesError.message}`);
+  if (syllabusAssignmentsError) throw new Error(`Failed to load client syllabus progress: ${syllabusAssignmentsError.message}`);
 
   const typedStudio = studio as StudioRecord;
   const typedClient = client as ClientRecord;
@@ -1522,8 +1577,10 @@ export default async function ClientDetailPage({
   const typedDocumentAssignments = (documentAssignments ?? []) as ClientDocumentAssignmentRow[];
   const typedAllClientDocumentTemplates = (allClientDocumentTemplates ?? []) as AllClientDocumentTemplateRow[];
   const typedDocumentSignatures = (documentSignatures ?? []) as ClientDocumentSignatureRow[];
-  const typedSmsPermission = (smsPermission ?? null) as SmsPermissionRow | null;
-  const typedSmsMessageLogs = (smsMessageLogs ?? []) as SmsMessageLogRow[];
+  const typedSmsPermission = (smsPermission as SmsPermissionRow | null) ?? null;
+  const typedSmsMessages = (smsMessages ?? []) as SmsMessageLogRow[];
+  const typedSyllabusTemplates = (syllabusTemplates ?? []) as SyllabusTemplateRow[];
+  const typedSyllabusAssignments = (syllabusAssignments ?? []) as ClientSyllabusAssignmentRow[];
 
   const { data: linkedRelationship, error: linkedRelationshipError } = await supabase
     .from("client_relationships")
@@ -1665,7 +1722,6 @@ export default async function ClientDetailPage({
   const isEventRegistrationLead = typedClient.referral_source === "event_registration";
   const isIndependentInstructor = !!typedClient.is_independent_instructor;
   const hasPortalLogin = !!typedClient.portal_user_id;
-  const canManageSmsConsent = ["studio_owner", "studio_admin", "front_desk"].includes(role);
   const linkedInstructorName = getLinkedInstructorName(
     typedInstructors,
     typedClient.linked_instructor_id
@@ -2020,45 +2076,44 @@ export default async function ClientDetailPage({
       </div>
 
       {activeTab === "marketing" ? (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
-          <SectionCard
-            title="Marketing"
-            subtitle="Keep client communication preferences connected to follow-up and campaign work."
-            action={
-              <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-dark)]">
-                Preferences
-              </span>
-            }
-          >
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
-              <p className="font-medium text-[var(--brand-text)]">Client communication</p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                Use this area to keep email and text preferences clear before sending reminders, follow-ups, or campaign messages.
-              </p>
-              <p className="mt-3 text-sm leading-6 text-slate-600">
-                Tip: When consent is unclear, contact the client by email or phone before sending a text message.
-              </p>
-            </div>
-          </SectionCard>
-
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
           <div className="space-y-6">
+            <SectionCard
+              title="Client Follow-Up"
+              subtitle="Keep follow-up notes and outreach context close to the client record."
+              action={
+                <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-dark)]">
+                  Relationship tools
+                </span>
+              }
+            >
+              <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+                <p className="font-medium text-[var(--brand-text)]">Use this tab for consent-based outreach.</p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  Review SMS permission, send one-to-one texts to opted-in clients, and keep recent communication history in view before the next follow-up.
+                </p>
+              </div>
+            </SectionCard>
+
             <ClientSmsConsentCard
               clientId={typedClient.id}
               phone={typedClient.phone}
               permission={typedSmsPermission}
-              canManage={canManageSmsConsent}
+              canManage={canEditClients(role)}
               message={query.sms_consent === "updated" ? "SMS consent saved." : null}
               error={query.sms_error ?? null}
             />
+          </div>
 
+          <div className="space-y-6">
             <ClientSendSmsCard
               clientId={typedClient.id}
               phone={typedClient.phone}
               permission={typedSmsPermission}
-              canManage={canManageSmsConsent}
+              canManage={canEditClients(role)}
             />
 
-            <ClientSmsMessageHistoryCard messages={typedSmsMessageLogs} />
+            <ClientSmsMessageHistoryCard messages={typedSmsMessages} />
           </div>
         </div>
       ) : null}
@@ -2151,22 +2206,13 @@ export default async function ClientDetailPage({
       ) : null}
 
       {activeTab === "syllabus" ? (
-        <SectionCard
-          title="Syllabus"
-          subtitle="Track dance figures, levels, and instructor notes as this student progresses."
-          action={
-            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-              Progress tracking
-            </span>
-          }
-        >
-          <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
-            <p className="font-medium text-[var(--brand-text)]">Syllabus tracking helps instructors keep student progress organized.</p>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Instructors will be able to assign or upload a dance figure syllabus to this student and check off figures as they are introduced, practiced, and completed.
-            </p>
-          </div>
-        </SectionCard>
+        <ClientSyllabusTab
+          clientId={typedClient.id}
+          clientName={`${typedClient.first_name} ${typedClient.last_name}`}
+          canEdit={canEditClients(role)}
+          templates={typedSyllabusTemplates}
+          assignments={typedSyllabusAssignments}
+        />
       ) : null}
 
       {activeTab === "overview" && typedClient.status === "lead" ? (
