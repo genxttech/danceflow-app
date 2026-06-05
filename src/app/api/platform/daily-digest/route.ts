@@ -78,6 +78,17 @@ type PackageDeductionErrorRow = {
   created_at: string;
 };
 
+type SmsMessageLogRow = {
+  id: string;
+  status: string | null;
+  direction: string | null;
+  provider: string | null;
+  provider_error_code: string | null;
+  provider_error_message: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
 const PLATFORM_TICKET_FEE_RATE = 0.035;
 const PAID_REGISTRATION_STATUSES = new Set(["paid", "completed", "succeeded"]);
 const PAID_INVOICE_STATUSES = new Set(["paid", "succeeded"]);
@@ -218,6 +229,24 @@ async function fetchEventPayments(supabase: SupabaseClient) {
   return { data: [] as EventPaymentRow[], error };
 }
 
+async function fetchSmsMessageLogs(supabase: SupabaseClient) {
+  const { data, error } = await supabase
+    .from("sms_message_logs")
+    .select(
+      "id, status, direction, provider, provider_error_code, provider_error_message, created_at, updated_at"
+    )
+    .order("created_at", { ascending: false })
+    .limit(250);
+
+  if (!error) {
+    return { data: (data ?? []) as SmsMessageLogRow[], error: null };
+  }
+
+  // SMS is still being rolled out and should not block the daily digest.
+  console.error("Daily digest SMS snapshot skipped:", error.message);
+  return { data: [] as SmsMessageLogRow[], error };
+}
+
 export async function GET(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   const requestSecret = request.headers.get("authorization")?.replace("Bearer ", "");
@@ -241,6 +270,7 @@ export async function GET(request: NextRequest) {
   const supabase = getSupabaseAdmin();
 
   const eventPaymentsResult = await fetchEventPayments(supabase);
+  const smsMessageLogsResult = await fetchSmsMessageLogs(supabase);
 
   const [
     { data: studios, error: studiosError },
@@ -312,6 +342,7 @@ export async function GET(request: NextRequest) {
   const typedEventPayments = eventPaymentsResult.data;
   const typedPlatformErrors = (platformErrors ?? []) as PlatformErrorRow[];
   const typedPackageErrors = (packageErrors ?? []) as PackageDeductionErrorRow[];
+  const typedSmsMessageLogs = smsMessageLogsResult.data;
 
   const subscriptionByStudioId = new Map(
     typedSubscriptions.map((subscription) => [subscription.studio_id, subscription])
@@ -393,6 +424,19 @@ export async function GET(request: NextRequest) {
     isOnOrAfter(studio.last_workspace_access_at, staleAccessCutoff)
   );
 
+  const smsMessagesFor = (start: Date) =>
+    typedSmsMessageLogs.filter((message) => isOnOrAfter(message.created_at, start));
+
+  const smsFailedFor = (start: Date) =>
+    smsMessagesFor(start).filter((message) =>
+      ["failed", "undelivered"].includes((message.status ?? "").toLowerCase())
+    );
+
+  const smsQueuedFor = (start: Date) =>
+    smsMessagesFor(start).filter((message) =>
+      ["queued", "accepted", "scheduled"].includes((message.status ?? "").toLowerCase())
+    );
+
   const metrics = [
     {
       label: "Ticket platform fee revenue",
@@ -436,6 +480,18 @@ export async function GET(request: NextRequest) {
       month: newOrganizersFor(monthStart).toLocaleString("en-US"),
       ytd: newOrganizersFor(yearStart).toLocaleString("en-US"),
     },
+    {
+      label: "SMS messages queued/sent",
+      today: smsMessagesFor(todayStart).length.toLocaleString("en-US"),
+      month: smsMessagesFor(monthStart).length.toLocaleString("en-US"),
+      ytd: smsMessagesFor(yearStart).length.toLocaleString("en-US"),
+    },
+    {
+      label: "SMS failed/undelivered",
+      today: smsFailedFor(todayStart).length.toLocaleString("en-US"),
+      month: smsFailedFor(monthStart).length.toLocaleString("en-US"),
+      ytd: smsFailedFor(yearStart).length.toLocaleString("en-US"),
+    },
   ];
 
   const unresolvedBackendErrors = typedPlatformErrors.length + typedPackageErrors.length;
@@ -443,6 +499,7 @@ export async function GET(request: NextRequest) {
   const alertsUrl = siteUrl ? `${siteUrl}/platform/alerts` : "/platform/alerts";
   const billingUrl = siteUrl ? `${siteUrl}/platform/billing` : "/platform/billing";
   const studiosUrl = siteUrl ? `${siteUrl}/platform/studios` : "/platform/studios";
+  const smsUrl = siteUrl ? `${siteUrl}/platform/sms` : "/platform/sms";
 
   const billingRiskItems = paidAccessWithoutActiveSubscription
     .slice(0, 8)
@@ -473,6 +530,19 @@ export async function GET(request: NextRequest) {
   const staleAccessItems = staleAccessStudios
     .slice(0, 5)
     .map((studio) => `${studio.name} — last access ${formatDate(studio.last_workspace_access_at)}`);
+
+  const recentSmsFailures = typedSmsMessageLogs
+    .filter((message) => ["failed", "undelivered"].includes((message.status ?? "").toLowerCase()))
+    .slice(0, 5)
+    .map((message) => {
+      const errorText = message.provider_error_message || message.provider_error_code || "No provider error message";
+      return `${formatDate(message.created_at)} — ${message.status ?? "failed"} — ${errorText}`;
+    });
+
+  const recentQueuedSms = typedSmsMessageLogs
+    .filter((message) => ["queued", "accepted", "scheduled"].includes((message.status ?? "").toLowerCase()))
+    .slice(0, 5)
+    .map((message) => `${formatDate(message.created_at)} — ${message.provider ?? "provider"} message still ${message.status ?? "queued"}`);
 
   const html = `
     <div style="font-family:Arial,sans-serif;background:#f8fafc;padding:24px;color:#0f172a;">
@@ -521,6 +591,14 @@ export async function GET(request: NextRequest) {
               ${packageErrorItems.length ? `<div style="margin-top:12px;"><p style="margin:0 0 6px;font-weight:700;color:#9a3412;">Package deduction issues</p>${simpleList(packageErrorItems, "")}</div>` : ""}
             </div>
 
+            <div style="border:1px solid #bfdbfe;background:#eff6ff;border-radius:18px;padding:16px;">
+              <h3 style="margin:0 0 10px;font-size:16px;color:#1d4ed8;">SMS delivery watch</h3>
+              <p style="margin:0 0 8px;color:#334155;"><strong>Recent failed/undelivered:</strong></p>
+              ${simpleList(recentSmsFailures, "No recent SMS delivery failures found.")}
+              <p style="margin:14px 0 8px;color:#334155;"><strong>Recent queued:</strong></p>
+              ${simpleList(recentQueuedSms, "No queued SMS messages found in the latest sample.")}
+            </div>
+
             <div style="border:1px solid #dbeafe;background:#eff6ff;border-radius:18px;padding:16px;">
               <h3 style="margin:0 0 10px;font-size:16px;color:#1d4ed8;">Workspace activity</h3>
               <p style="margin:0 0 8px;color:#334155;"><strong>Never accessed:</strong></p>
@@ -548,6 +626,7 @@ export async function GET(request: NextRequest) {
             ${actionButton(alertsUrl, "Review Alerts", "#f59e0b", "#111827")}
             ${actionButton(billingUrl, "Review Billing", "#e11d48")}
             ${actionButton(studiosUrl, "Review Studios", "#0f172a")}
+            ${actionButton(smsUrl, "Review SMS", "#7c3aed")}
           </div>
         </div>
       </div>
@@ -573,6 +652,9 @@ export async function GET(request: NextRequest) {
     neverAccessedStudios: neverAccessedStudios.length,
     staleAccessStudios: staleAccessStudios.length,
     recentlyActiveStudios: recentlyActiveStudios.length,
+    smsMessagesToday: smsMessagesFor(todayStart).length,
+    smsFailuresToday: smsFailedFor(todayStart).length,
+    smsQueuedToday: smsQueuedFor(todayStart).length,
   });
 }
 

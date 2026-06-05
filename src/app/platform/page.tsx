@@ -106,6 +106,14 @@ type PlatformErrorLogRow = {
   resolved_at: string | null;
 };
 
+type SmsMessageLogRow = {
+  id: string;
+  status: string | null;
+  direction: string | null;
+  provider_error_message: string | null;
+  created_at: string;
+};
+
 type PackageDeductionErrorRow = {
   id: string;
   appointment_id: string | null;
@@ -422,6 +430,7 @@ export default async function PlatformDashboardPage() {
     { data: eventPayments, error: eventPaymentsError },
     { data: platformErrorLogs },
     { data: packageDeductionErrors },
+    { data: smsMessageLogs, error: smsMessageLogsError },
     { data: platformBroadcastAlerts, error: platformBroadcastAlertsError },
   ] = await Promise.all([
     supabase
@@ -486,6 +495,12 @@ export default async function PlatformDashboardPage() {
       .limit(5),
 
     supabase
+      .from("sms_message_logs")
+      .select("id, status, direction, provider_error_message, created_at")
+      .order("created_at", { ascending: false })
+      .limit(500),
+
+    supabase
       .from("platform_alerts")
       .select("id, title, message, alert_type, audience, active, dismissible, starts_at, ends_at, read_more_url, read_more_label, created_at")
       .order("created_at", { ascending: false })
@@ -528,6 +543,10 @@ export default async function PlatformDashboardPage() {
     throw new Error(`Failed to load event payments: ${eventPaymentsError.message}`);
   }
 
+  if (smsMessageLogsError) {
+    throw new Error(`Failed to load SMS message logs: ${smsMessageLogsError.message}`);
+  }
+
   const typedStudios = (studios ?? []) as StudioRow[];
   const typedSubscriptions = (subscriptions ?? []) as SubscriptionRow[];
   const typedOrganizers = (organizers ?? []) as OrganizerRow[];
@@ -538,6 +557,7 @@ export default async function PlatformDashboardPage() {
   const typedEventPayments = (eventPayments ?? []) as EventPaymentRow[];
   const typedPlatformErrorLogs = (platformErrorLogs ?? []) as PlatformErrorLogRow[];
   const typedPackageDeductionErrors = (packageDeductionErrors ?? []) as PackageDeductionErrorRow[];
+  const typedSmsMessageLogs = (smsMessageLogs ?? []) as SmsMessageLogRow[];
   const typedPlatformBroadcastAlerts = (platformBroadcastAlerts ?? []) as PlatformBroadcastAlertRow[];
   const activePlatformBroadcastAlerts = typedPlatformBroadcastAlerts.filter((alert) => alert.active);
 
@@ -753,6 +773,13 @@ export default async function PlatformDashboardPage() {
     typedPackageDeductionErrors[0]?.error_message ??
     null;
 
+  const smsFailedMessages = typedSmsMessageLogs.filter((message) =>
+    ["failed", "undelivered", "suppressed"].includes((message.status ?? "").toLowerCase())
+  ).length;
+  const smsQueuedMessages = typedSmsMessageLogs.filter(
+    (message) => (message.status ?? "").toLowerCase() === "queued"
+  ).length;
+
   const todayStart = startOfToday();
   const monthStart = startOfMonth();
   const yearStart = startOfYear();
@@ -906,6 +933,14 @@ export default async function PlatformDashboardPage() {
       tone: "orange" as const,
     },
     {
+      label: "SMS delivery watch",
+      count: smsFailedMessages + smsQueuedMessages,
+      detail: "Queued or failed texts that may need Twilio, webhook, or carrier approval review.",
+      href: "/platform/sms",
+      action: "Open SMS status",
+      tone: smsFailedMessages > 0 ? "rose" as const : "sky" as const,
+    },
+    {
       label: "Active broadcasts",
       count: activePlatformBroadcastAlerts.length,
       detail: "Dashboard announcements currently visible to users.",
@@ -966,6 +1001,12 @@ export default async function PlatformDashboardPage() {
                 className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
               >
                 Billing Health
+              </Link>
+              <Link
+                href="/platform/sms"
+                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+              >
+                SMS Status
               </Link>
             </div>
           </div>
