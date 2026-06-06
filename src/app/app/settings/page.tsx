@@ -52,6 +52,12 @@ type StudioSettingsRow = {
   intro_booking_window_days: number | null;
   intro_default_instructor_id: string | null;
   intro_default_room_id: string | null;
+  booking_request_allowed_weekdays: number[] | null;
+  booking_request_start_time: string | null;
+  booking_request_end_time: string | null;
+  public_intro_bookable_instructor_ids: string[] | null;
+  portal_bookable_instructor_ids: string[] | null;
+  portal_bookable_lesson_types: string[] | null;
 };
 
 type StudioNotificationSettingsRow = {
@@ -161,7 +167,13 @@ export default async function SettingsPage() {
         intro_lesson_duration_minutes,
         intro_booking_window_days,
         intro_default_instructor_id,
-        intro_default_room_id
+        intro_default_room_id,
+        booking_request_allowed_weekdays,
+        booking_request_start_time,
+        booking_request_end_time,
+        public_intro_bookable_instructor_ids,
+        portal_bookable_instructor_ids,
+        portal_bookable_lesson_types
       `)
       .eq("studio_id", studioId)
       .single(),

@@ -43,6 +43,12 @@ type StudioSettingsRow = {
   intro_booking_window_days: number | null;
   intro_default_instructor_id: string | null;
   intro_default_room_id: string | null;
+  booking_request_allowed_weekdays: number[] | null;
+  booking_request_start_time: string | null;
+  booking_request_end_time: string | null;
+  public_intro_bookable_instructor_ids: string[] | null;
+  portal_bookable_instructor_ids: string[] | null;
+  portal_bookable_lesson_types: string[] | null;
 };
 
 type StudioNotificationSettingsRow = {
@@ -105,6 +111,38 @@ function ToggleRow({
   );
 }
 
+
+const BOOKING_WEEKDAYS = [
+  { value: "1", label: "Mon" },
+  { value: "2", label: "Tue" },
+  { value: "3", label: "Wed" },
+  { value: "4", label: "Thu" },
+  { value: "5", label: "Fri" },
+  { value: "6", label: "Sat" },
+  { value: "0", label: "Sun" },
+];
+
+const PORTAL_LESSON_TYPE_OPTIONS = [
+  { value: "private_lesson", label: "Private lessons" },
+  { value: "coaching", label: "Coachings" },
+  { value: "practice_party", label: "Practice parties" },
+  { value: "group_class", label: "Group classes" },
+];
+
+function getAllowedWeekdays(settings: StudioSettingsRow) {
+  return settings.booking_request_allowed_weekdays?.length
+    ? settings.booking_request_allowed_weekdays.map(String)
+    : ["1", "2", "3", "4", "5", "6"];
+}
+
+function getStringList(values: string[] | null | undefined) {
+  return Array.isArray(values) ? values : [];
+}
+
+function isSelected(values: string[], value: string) {
+  return values.includes(value);
+}
+
 function formatDateTime(value: string | null) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-US", {
@@ -152,6 +190,12 @@ export default function SettingsForm({
     );
 
   const canEdit = ["platform_admin", "studio_owner", "studio_admin"].includes(role);
+  const allowedWeekdays = getAllowedWeekdays(settings);
+  const publicIntroInstructorIds = getStringList(settings.public_intro_bookable_instructor_ids);
+  const portalInstructorIds = getStringList(settings.portal_bookable_instructor_ids);
+  const portalLessonTypes = getStringList(settings.portal_bookable_lesson_types).length
+    ? getStringList(settings.portal_bookable_lesson_types)
+    : ["private_lesson"];
 
   return (
     <div className="max-w-4xl">
@@ -638,6 +682,158 @@ export default function SettingsForm({
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">
+                    Request availability rules
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    These rules shape the request options shown to new dancers and portal students.
+                    Requests still require staff review in this version.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="bookingRequestStartTime"
+                    className="mb-1 block text-sm font-medium"
+                  >
+                    Earliest request time
+                  </label>
+                  <input
+                    id="bookingRequestStartTime"
+                    name="bookingRequestStartTime"
+                    type="time"
+                    defaultValue={(settings.booking_request_start_time ?? "09:00").slice(0, 5)}
+                    disabled={!canEdit}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="bookingRequestEndTime"
+                    className="mb-1 block text-sm font-medium"
+                  >
+                    Latest request time
+                  </label>
+                  <input
+                    id="bookingRequestEndTime"
+                    name="bookingRequestEndTime"
+                    type="time"
+                    defaultValue={(settings.booking_request_end_time ?? "21:00").slice(0, 5)}
+                    disabled={!canEdit}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+                  />
+                </div>
+
+                <fieldset className="md:col-span-2">
+                  <legend className="mb-2 block text-sm font-medium">
+                    Requestable days
+                  </legend>
+                  <div className="grid gap-2 sm:grid-cols-4 md:grid-cols-7">
+                    {BOOKING_WEEKDAYS.map((day) => (
+                      <label
+                        key={day.value}
+                        className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          name="bookingRequestAllowedWeekdays"
+                          value={day.value}
+                          defaultChecked={isSelected(allowedWeekdays, day.value)}
+                          disabled={!canEdit}
+                          className="rounded border-slate-300 text-slate-900"
+                        />
+                        {day.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <fieldset className="md:col-span-2">
+                  <legend className="mb-2 block text-sm font-medium">
+                    Public intro instructors
+                  </legend>
+                  <p className="mb-3 text-xs text-slate-500">
+                    Select the instructors who may receive public intro requests. If none are selected,
+                    DanceFlow uses the default intro instructor above.
+                  </p>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {instructors.map((instructor) => (
+                      <label
+                        key={instructor.id}
+                        className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          name="publicIntroBookableInstructorIds"
+                          value={instructor.id}
+                          defaultChecked={isSelected(publicIntroInstructorIds, instructor.id)}
+                          disabled={!canEdit}
+                          className="rounded border-slate-300 text-slate-900"
+                        />
+                        {instructor.first_name} {instructor.last_name}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <fieldset className="md:col-span-2">
+                  <legend className="mb-2 block text-sm font-medium">
+                    Portal request lesson types
+                  </legend>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {PORTAL_LESSON_TYPE_OPTIONS.map((option) => (
+                      <label
+                        key={option.value}
+                        className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          name="portalBookableLessonTypes"
+                          value={option.value}
+                          defaultChecked={isSelected(portalLessonTypes, option.value)}
+                          disabled={!canEdit}
+                          className="rounded border-slate-300 text-slate-900"
+                        />
+                        {option.label}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+
+                <fieldset className="md:col-span-2">
+                  <legend className="mb-2 block text-sm font-medium">
+                    Portal request instructors
+                  </legend>
+                  <p className="mb-3 text-xs text-slate-500">
+                    Optional. If no instructors are selected, students can request help and staff can assign the instructor.
+                  </p>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {instructors.map((instructor) => (
+                      <label
+                        key={instructor.id}
+                        className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          name="portalBookableInstructorIds"
+                          value={instructor.id}
+                          defaultChecked={isSelected(portalInstructorIds, instructor.id)}
+                          disabled={!canEdit}
+                          className="rounded border-slate-300 text-slate-900"
+                        />
+                        {instructor.first_name} {instructor.last_name}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              </div>
             </div>
           </div>
         </div>

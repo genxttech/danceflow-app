@@ -18,6 +18,26 @@ function getFirstString(formData: FormData, keys: string[]) {
   return "";
 }
 
+function getStringArray(formData: FormData, key: string) {
+  return formData
+    .getAll(key)
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean);
+}
+
+function normalizeTimeInput(value: string, fallback: string) {
+  if (/^\d{2}:\d{2}$/.test(value)) return value;
+  return fallback;
+}
+
+function parseWeekdays(values: string[]) {
+  const parsed = values
+    .map((value) => Number.parseInt(value, 10))
+    .filter((value) => Number.isInteger(value) && value >= 0 && value <= 6);
+
+  return parsed.length ? Array.from(new Set(parsed)).sort((a, b) => a - b) : [1, 2, 3, 4, 5, 6];
+}
+
 const STUDIO_PUBLIC_ASSETS_BUCKET = "studio-public-assets";
 
 const ALLOWED_IMAGE_TYPES = new Set([
@@ -157,6 +177,28 @@ export async function updateStudioSettingsAction(
     const introBookingWindowDaysRaw = getString(formData, "introBookingWindowDays");
     const introDefaultInstructorId = getString(formData, "introDefaultInstructorId");
     const introDefaultRoomId = getString(formData, "introDefaultRoomId");
+    const bookingRequestAllowedWeekdays = parseWeekdays(
+      getStringArray(formData, "bookingRequestAllowedWeekdays")
+    );
+    const bookingRequestStartTime = normalizeTimeInput(
+      getString(formData, "bookingRequestStartTime"),
+      "09:00"
+    );
+    const bookingRequestEndTime = normalizeTimeInput(
+      getString(formData, "bookingRequestEndTime"),
+      "21:00"
+    );
+    const publicIntroBookableInstructorIds = getStringArray(
+      formData,
+      "publicIntroBookableInstructorIds"
+    );
+    const portalBookableInstructorIds = getStringArray(
+      formData,
+      "portalBookableInstructorIds"
+    );
+    const portalBookableLessonTypes = getStringArray(formData, "portalBookableLessonTypes").filter(
+      (value) => ["private_lesson", "coaching", "practice_party", "group_class"].includes(value)
+    );
 
     if (!studioName) return { error: "Studio name is required." };
     if (!timezone) return { error: "Timezone is required." };
@@ -218,6 +260,10 @@ export async function updateStudioSettingsAction(
 
     if (!["request_only", "disabled"].includes(portalSelfSchedulingMode)) {
       return { error: "Portal scheduling mode must be request only or disabled." };
+    }
+
+    if (bookingRequestStartTime >= bookingRequestEndTime) {
+      return { error: "The request start time must be earlier than the end time." };
     }
 
     if (
@@ -476,6 +522,14 @@ export async function updateStudioSettingsAction(
         intro_booking_window_days: introBookingWindowDays,
         intro_default_instructor_id: introDefaultInstructorId || null,
         intro_default_room_id: introDefaultRoomId || null,
+        booking_request_allowed_weekdays: bookingRequestAllowedWeekdays,
+        booking_request_start_time: bookingRequestStartTime,
+        booking_request_end_time: bookingRequestEndTime,
+        public_intro_bookable_instructor_ids: publicIntroBookableInstructorIds,
+        portal_bookable_instructor_ids: portalBookableInstructorIds,
+        portal_bookable_lesson_types: portalBookableLessonTypes.length
+          ? portalBookableLessonTypes
+          : ["private_lesson"],
       })
       .eq("studio_id", studioId);
 

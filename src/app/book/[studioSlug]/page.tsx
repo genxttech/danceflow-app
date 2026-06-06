@@ -27,6 +27,10 @@ type StudioSettingsRow = {
   intro_booking_window_days: number | null;
   intro_default_instructor_id: string | null;
   intro_default_room_id: string | null;
+  booking_request_allowed_weekdays: number[] | null;
+  booking_request_start_time: string | null;
+  booking_request_end_time: string | null;
+  public_intro_bookable_instructor_ids: string[] | null;
 };
 
 type InstructorRow = {
@@ -63,6 +67,42 @@ const INTRO_SLOT_TEMPLATES: Record<number, string[]> = {
   5: ["13:00", "15:00", "18:00"],
   6: ["11:00", "13:00"],
 };
+
+function getAllowedWeekdays(settings: StudioSettingsRow) {
+  return settings.booking_request_allowed_weekdays?.length
+    ? settings.booking_request_allowed_weekdays
+    : [1, 2, 3, 4, 5, 6];
+}
+
+function timeWithinRequestWindow(time: string, settings: StudioSettingsRow) {
+  const start = (settings.booking_request_start_time ?? "09:00").slice(0, 5);
+  const end = (settings.booking_request_end_time ?? "21:00").slice(0, 5);
+
+  return time >= start && time < end;
+}
+
+function formatRequestWindow(settings: StudioSettingsRow) {
+  const start = (settings.booking_request_start_time ?? "09:00").slice(0, 5);
+  const end = (settings.booking_request_end_time ?? "21:00").slice(0, 5);
+  return `${start}–${end}`;
+}
+
+function getPublicIntroInstructorId(settings: StudioSettingsRow) {
+  const allowedIds = settings.public_intro_bookable_instructor_ids ?? [];
+
+  if (!allowedIds.length) {
+    return settings.intro_default_instructor_id;
+  }
+
+  if (
+    settings.intro_default_instructor_id &&
+    allowedIds.includes(settings.intro_default_instructor_id)
+  ) {
+    return settings.intro_default_instructor_id;
+  }
+
+  return allowedIds[0] ?? null;
+}
 
 function formatLongDate(value: string) {
   return new Date(value).toLocaleDateString([], {
@@ -181,7 +221,11 @@ export default async function PublicIntroBookingPage({
       intro_lesson_duration_minutes,
       intro_booking_window_days,
       intro_default_instructor_id,
-      intro_default_room_id
+      intro_default_room_id,
+      booking_request_allowed_weekdays,
+      booking_request_start_time,
+      booking_request_end_time,
+      public_intro_bookable_instructor_ids
     `)
     .eq("studio_id", studio.id)
     .single();
@@ -200,14 +244,17 @@ export default async function PublicIntroBookingPage({
   const bookingWindowDays = typedSettings.intro_booking_window_days ?? 7;
   const lessonDurationMinutes = typedSettings.intro_lesson_duration_minutes ?? 30;
   const bookingLeadTimeHours = typedSettings.booking_lead_time_hours ?? 0;
+  const allowedWeekdays = getAllowedWeekdays(typedSettings);
+
+  const introInstructorId = getPublicIntroInstructorId(typedSettings);
 
   const [{ data: instructor }, { data: room }] = await Promise.all([
-    typedSettings.intro_default_instructor_id
+    introInstructorId
       ? supabase
           .from("instructors")
           .select("id, first_name, last_name, active")
           .eq("studio_id", typedStudio.id)
-          .eq("id", typedSettings.intro_default_instructor_id)
+          .eq("id", introInstructorId)
           .single()
       : Promise.resolve({ data: null, error: null }),
     typedSettings.intro_default_room_id
@@ -257,7 +304,14 @@ export default async function PublicIntroBookingPage({
   for (let dayOffset = 0; dayOffset < bookingWindowDays; dayOffset++) {
     const dayDate = addDays(today, dayOffset);
     const dayOfWeek = dayDate.getDay();
-    const times = INTRO_SLOT_TEMPLATES[dayOfWeek] ?? [];
+
+    if (!allowedWeekdays.includes(dayOfWeek)) {
+      continue;
+    }
+
+    const times = (INTRO_SLOT_TEMPLATES[dayOfWeek] ?? []).filter((time) =>
+      timeWithinRequestWindow(time, typedSettings)
+    );
 
     for (const time of times) {
       const start = buildLocalDateTime(dayDate, time);
@@ -324,6 +378,10 @@ export default async function PublicIntroBookingPage({
                 <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-600">
                   <span className="rounded-full bg-slate-100 px-3 py-1">
                     {lessonDurationMinutes} minutes
+                  </span>
+
+                  <span className="rounded-full bg-slate-100 px-3 py-1">
+                    Request window: {formatRequestWindow(typedSettings)}
                   </span>
 
                   {typedInstructor?.active ? (

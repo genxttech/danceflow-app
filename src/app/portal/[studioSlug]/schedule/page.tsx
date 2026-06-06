@@ -17,14 +17,6 @@ type ClientRow = {
   linked_instructor_id: string | null;
 };
 
-type StudioSettingsRow = {
-  portal_self_scheduling_enabled: boolean | null;
-  portal_self_scheduling_mode: string | null;
-  portal_self_scheduling_window_days: number | null;
-  portal_self_scheduling_min_notice_hours: number | null;
-  portal_self_scheduling_cancellation_cutoff_hours: number | null;
-};
-
 type CalendarRow = {
   id: string;
   title: string | null;
@@ -64,6 +56,43 @@ type LessonRecapRow = {
   visible_to_client: boolean | null;
   updated_at: string;
 };
+
+
+type StudioSettingsRow = {
+  portal_self_scheduling_enabled: boolean | null;
+  portal_self_scheduling_mode: string | null;
+  portal_self_scheduling_window_days: number | null;
+  portal_self_scheduling_min_notice_hours: number | null;
+  portal_self_scheduling_cancellation_cutoff_hours: number | null;
+  booking_request_allowed_weekdays: number[] | null;
+  booking_request_start_time: string | null;
+  booking_request_end_time: string | null;
+  portal_bookable_lesson_types: string[] | null;
+};
+
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function formatWeekdayList(values: number[] | null | undefined) {
+  const days = values?.length ? values : [1, 2, 3, 4, 5, 6];
+
+  return days
+    .map((value) => WEEKDAY_LABELS[value] ?? "")
+    .filter(Boolean)
+    .join(", ");
+}
+
+function formatPortalLessonTypes(values: string[] | null | undefined) {
+  const labels: Record<string, string> = {
+    private_lesson: "Private lessons",
+    coaching: "Coachings",
+    practice_party: "Practice parties",
+    group_class: "Group classes",
+  };
+
+  const lessonTypes = values?.length ? values : ["private_lesson"];
+
+  return lessonTypes.map((value) => labels[value] ?? formatStatusLabel(value)).join(", ");
+}
 
 function getSingle<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null;
@@ -323,30 +352,6 @@ export default async function PortalSchedulePage({ params }: PageProps) {
     notFound();
   }
 
-  const { data: studioSettings, error: studioSettingsError } = await supabase
-    .from("studio_settings")
-    .select(`
-      portal_self_scheduling_enabled,
-      portal_self_scheduling_mode,
-      portal_self_scheduling_window_days,
-      portal_self_scheduling_min_notice_hours,
-      portal_self_scheduling_cancellation_cutoff_hours
-    `)
-    .eq("studio_id", studio.id)
-    .maybeSingle<StudioSettingsRow>();
-
-  if (studioSettingsError) {
-    throw new Error(`Failed to load scheduling settings: ${studioSettingsError.message}`);
-  }
-
-  const schedulingSettings: StudioSettingsRow = studioSettings ?? {
-    portal_self_scheduling_enabled: false,
-    portal_self_scheduling_mode: "disabled",
-    portal_self_scheduling_window_days: 14,
-    portal_self_scheduling_min_notice_hours: 24,
-    portal_self_scheduling_cancellation_cutoff_hours: 24,
-  };
-
   const { data: portalClient, error: portalClientError } = await supabase
     .from("clients")
     .select(`
@@ -364,6 +369,31 @@ export default async function PortalSchedulePage({ params }: PageProps) {
   if (portalClientError || !portalClient) {
     redirect(`/portal/${studioSlug}`);
   }
+
+  const { data: settings, error: settingsError } = await supabase
+    .from("studio_settings")
+    .select(`
+      portal_self_scheduling_enabled,
+      portal_self_scheduling_mode,
+      portal_self_scheduling_window_days,
+      portal_self_scheduling_min_notice_hours,
+      portal_self_scheduling_cancellation_cutoff_hours,
+      booking_request_allowed_weekdays,
+      booking_request_start_time,
+      booking_request_end_time,
+      portal_bookable_lesson_types
+    `)
+    .eq("studio_id", studio.id)
+    .maybeSingle();
+
+  if (settingsError) {
+    throw new Error(`Failed to load portal scheduling settings: ${settingsError.message}`);
+  }
+
+  const typedSettings = settings as StudioSettingsRow | null;
+  const portalRequestsEnabled =
+    typedSettings?.portal_self_scheduling_enabled === true &&
+    typedSettings?.portal_self_scheduling_mode !== "disabled";
 
   const isIndependentInstructor = portalClient.is_independent_instructor === true;
   const appointments = await loadAppointments({
@@ -487,49 +517,60 @@ export default async function PortalSchedulePage({ params }: PageProps) {
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-violet-600">
-              Scheduling requests
-            </p>
-            <h2 className="mt-2 text-lg font-semibold text-slate-900">
-              {schedulingSettings.portal_self_scheduling_enabled
-                ? "Student schedule requests are enabled"
-                : "Student self-scheduling is not enabled"}
-            </h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-              {schedulingSettings.portal_self_scheduling_enabled
-                ? `This studio accepts portal schedule requests up to ${
-                    schedulingSettings.portal_self_scheduling_window_days ?? 14
-                  } days ahead with at least ${
-                    schedulingSettings.portal_self_scheduling_min_notice_hours ?? 24
-                  } hours of notice. Staff approval is still required before schedule changes are confirmed.`
-                : "This studio is not accepting portal schedule requests right now. Contact the studio directly if you need to book, cancel, or reschedule a lesson."}
+            <h2 className="text-lg font-semibold text-slate-900">Schedule Requests</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {portalRequestsEnabled
+                ? "Your studio is accepting schedule requests from the portal. Staff will review requests before appointments are created."
+                : "Portal schedule requests are not enabled right now. Contact the studio if you need help changing your schedule."}
             </p>
           </div>
 
-          <Link
-            href={`/portal/${studioSlug}/profile`}
-            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          <span
+            className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
+              portalRequestsEnabled
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-slate-100 text-slate-600"
+            }`}
           >
-            Update Contact Info
-          </Link>
+            {portalRequestsEnabled ? "Requests enabled" : "Requests disabled"}
+          </span>
         </div>
 
-        {schedulingSettings.portal_self_scheduling_enabled ? (
-          <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {portalRequestsEnabled && typedSettings ? (
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-medium text-slate-900">Mode</p>
-              <p className="mt-1 text-sm text-slate-600">Request only</p>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-medium text-slate-900">Booking window</p>
-              <p className="mt-1 text-sm text-slate-600">
-                Next {schedulingSettings.portal_self_scheduling_window_days ?? 14} days
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Days
+              </p>
+              <p className="mt-2 text-sm font-medium text-slate-900">
+                {formatWeekdayList(typedSettings.booking_request_allowed_weekdays)}
               </p>
             </div>
+
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm font-medium text-slate-900">Cutoff</p>
-              <p className="mt-1 text-sm text-slate-600">
-                {schedulingSettings.portal_self_scheduling_cancellation_cutoff_hours ?? 24} hours
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Time window
+              </p>
+              <p className="mt-2 text-sm font-medium text-slate-900">
+                {(typedSettings.booking_request_start_time ?? "09:00").slice(0, 5)} – {(typedSettings.booking_request_end_time ?? "21:00").slice(0, 5)}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Notice
+              </p>
+              <p className="mt-2 text-sm font-medium text-slate-900">
+                {typedSettings.portal_self_scheduling_min_notice_hours ?? 24} hours minimum
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Lesson types
+              </p>
+              <p className="mt-2 text-sm font-medium text-slate-900">
+                {formatPortalLessonTypes(typedSettings.portal_bookable_lesson_types)}
               </p>
             </div>
           </div>

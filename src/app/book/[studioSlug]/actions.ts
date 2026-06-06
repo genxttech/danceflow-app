@@ -16,6 +16,10 @@ type StudioSettingsRow = {
   intro_booking_window_days: number | null;
   intro_default_instructor_id: string | null;
   intro_default_room_id: string | null;
+  booking_request_allowed_weekdays: number[] | null;
+  booking_request_start_time: string | null;
+  booking_request_end_time: string | null;
+  public_intro_bookable_instructor_ids: string[] | null;
 };
 
 type AppointmentRow = {
@@ -43,6 +47,36 @@ const INTRO_SLOT_TEMPLATES: Record<number, string[]> = {
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function getAllowedWeekdays(settings: StudioSettingsRow) {
+  return settings.booking_request_allowed_weekdays?.length
+    ? settings.booking_request_allowed_weekdays
+    : [1, 2, 3, 4, 5, 6];
+}
+
+function timeWithinRequestWindow(time: string, settings: StudioSettingsRow) {
+  const start = (settings.booking_request_start_time ?? "09:00").slice(0, 5);
+  const end = (settings.booking_request_end_time ?? "21:00").slice(0, 5);
+
+  return time >= start && time < end;
+}
+
+function getPublicIntroInstructorId(settings: StudioSettingsRow) {
+  const allowedIds = settings.public_intro_bookable_instructor_ids ?? [];
+
+  if (!allowedIds.length) {
+    return settings.intro_default_instructor_id;
+  }
+
+  if (
+    settings.intro_default_instructor_id &&
+    allowedIds.includes(settings.intro_default_instructor_id)
+  ) {
+    return settings.intro_default_instructor_id;
+  }
+
+  return allowedIds[0] ?? null;
 }
 
 function toLocalDateParts(date: Date) {
@@ -99,7 +133,11 @@ async function getStudioAndSettings(studioSlug: string) {
       intro_lesson_duration_minutes,
       intro_booking_window_days,
       intro_default_instructor_id,
-      intro_default_room_id
+      intro_default_room_id,
+      booking_request_allowed_weekdays,
+      booking_request_start_time,
+      booking_request_end_time,
+      public_intro_bookable_instructor_ids
     `)
     .eq("studio_id", studio.id)
     .single();
@@ -138,11 +176,10 @@ async function getAvailableSlots(studioSlug: string): Promise<SlotRow[]> {
     .lt("starts_at", rangeEnd)
     .neq("status", "cancelled");
 
-  if (settings.intro_default_instructor_id) {
-    appointmentsQuery = appointmentsQuery.eq(
-      "instructor_id",
-      settings.intro_default_instructor_id
-    );
+  const introInstructorId = getPublicIntroInstructorId(settings);
+
+  if (introInstructorId) {
+    appointmentsQuery = appointmentsQuery.eq("instructor_id", introInstructorId);
   }
 
   if (settings.intro_default_room_id) {
@@ -163,7 +200,14 @@ async function getAvailableSlots(studioSlug: string): Promise<SlotRow[]> {
   for (let dayOffset = 0; dayOffset < bookingWindowDays; dayOffset++) {
     const dayDate = addDays(today, dayOffset);
     const dayOfWeek = dayDate.getDay();
-    const times = INTRO_SLOT_TEMPLATES[dayOfWeek] ?? [];
+
+    if (!getAllowedWeekdays(settings).includes(dayOfWeek)) {
+      continue;
+    }
+
+    const times = (INTRO_SLOT_TEMPLATES[dayOfWeek] ?? []).filter((time) =>
+      timeWithinRequestWindow(time, settings)
+    );
 
     for (const time of times) {
       const start = buildLocalDateTime(dayDate, time);
@@ -316,7 +360,7 @@ export async function createPublicIntroBookingAction(
       .insert({
         studio_id: studio.id,
         client_id: clientId,
-        instructor_id: settings.intro_default_instructor_id || null,
+        instructor_id: getPublicIntroInstructorId(settings) || null,
         room_id: settings.intro_default_room_id || null,
         appointment_type: "intro_lesson",
         title: "Intro Lesson",
