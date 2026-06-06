@@ -368,6 +368,8 @@ async function queueAppointmentOutboundDelivery(params: {
     if (Number.isNaN(startsAt.getTime())) return;
     if (startsAt.getTime() < Date.now()) return;
 
+    const studioTimeZone = await getStudioTimeZone(supabase, studioId);
+
     const clientId =
       typeof appointment.client_id === "string" ? appointment.client_id : null;
     const partnerClientId =
@@ -459,6 +461,7 @@ async function queueAppointmentOutboundDelivery(params: {
       status: String(appointment.status),
       startsAt: String(appointment.starts_at),
       endsAt: String(appointment.ends_at),
+      studioTimeZone,
       notes: appointment.notes ?? null,
       clientFirstName: client?.first_name ?? null,
       clientLastName: client?.last_name ?? null,

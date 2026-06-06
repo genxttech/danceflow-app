@@ -121,37 +121,50 @@ export default function PrivacyPolicyPage() {
             </ul>
           </Section>
 
-          <Section title="4. SMS and Mobile Messaging Disclosures">
+          <Section title="4. SMS and Mobile Messaging Privacy">
             <p>
-              If you provide your mobile phone number through a booking form,
-              registration form, account form, inquiry form, or another platform
-              workflow, you may receive transactional SMS messages related to your
-              activity.
+              If you choose to receive SMS messages from a dance studio, event
+              organizer, or DanceFlow-powered workspace, we may process your mobile
+              phone number, SMS consent status, opt-in source, opt-in timestamp,
+              opt-out status, and message history so that messages can be sent and
+              compliance records can be maintained.
             </p>
-            <p>These messages may include:</p>
+            <p>
+              End users opt in before any SMS is sent. Consent may be collected by
+              the dance studio or event organizer during a direct client relationship,
+              such as scheduling a lesson, asking about classes, registering for an
+              event, buying a ticket, or requesting studio communication. Studio or
+              organizer staff must mark the contact as opted in inside DanceFlow
+              before SMS messages are sent from the platform.
+            </p>
+            <p>SMS messages may include:</p>
             <ul className="list-disc space-y-2 pl-6">
-              <li>Appointment confirmations</li>
-              <li>Appointment reminders</li>
+              <li>Appointment confirmations and reminders</li>
               <li>Intro lesson confirmations and reminders</li>
+              <li>Schedule updates and client follow-up</li>
               <li>Event registration confirmations and reminders</li>
+              <li>Ticket, check-in, and event update information</li>
               <li>Floor rental confirmations and reminders</li>
               <li>Important account or service notices</li>
             </ul>
             <p>
-              Message frequency varies based on your activity and relationship with a
-              studio using DanceFlow.
-            </p>
-            <p>
-              Message and data rates may apply depending on your wireless carrier and
-              plan.
+              SMS consent is optional and is not required to create an account,
+              register for an event, buy a ticket, or receive services. Message
+              frequency varies based on your activity and relationship with the
+              studio or organizer. Message and data rates may apply depending on your
+              wireless carrier and plan.
             </p>
             <p>
               You can opt out of SMS messages at any time by replying <strong>STOP</strong>.
               For help, reply <strong>HELP</strong>.
             </p>
             <p className="font-medium text-slate-900">
-              Mobile information will not be shared with third parties or affiliates
-              for marketing or promotional purposes.
+              Mobile information, including phone numbers and SMS consent records,
+              is not sold, rented, or shared with third parties or affiliates for
+              their marketing or promotional purposes. SMS opt-in data and consent
+              are used only to provide messaging services requested by the user,
+              studio, or organizer, and to operate, secure, and support the
+              DanceFlow platform.
             </p>
           </Section>
 

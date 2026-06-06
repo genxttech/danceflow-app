@@ -245,6 +245,27 @@ export default function TermsAndConditionsPage() {
               </p>
             </Section>
 
+            <Section title="SMS Communications">
+  <p>
+    DanceFlow may allow participating dance studios and event organizers to send
+    SMS messages to clients, students, leads, attendees, and registered
+    participants who have opted in to receive text messages. Messages may include
+    lesson reminders, schedule updates, event reminders, registration updates,
+    ticket or check-in information, client follow-up, and account or
+    service-related communication.
+  </p>
+  <p>
+    SMS consent is optional and is not required to create an account, register for
+    an event, buy a ticket, or receive services. Message frequency varies.
+    Message and data rates may apply. You can opt out at any time by replying
+    STOP, and you can reply HELP for help.
+  </p>
+  <p>
+    Mobile information and SMS consent are not shared with third parties or
+    affiliates for marketing or promotional purposes.
+  </p>
+</Section>
+
             <Section title="13. Disclaimers and limitation of liability">
               <p>
                 DanceFlow is provided as a software service. To the maximum extent

@@ -77,17 +77,30 @@ function escapeHtml(value: string) {
     .replace(/'/g, "&#039;");
 }
 
-function formatDateTime(value: string) {
+function safeTimeZone(value: unknown) {
+  const timeZone = asString(value) || "America/New_York";
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return "America/New_York";
+  }
+}
+
+function formatDateTime(value: string, timeZone = "America/New_York") {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
 
   return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     weekday: "short",
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    timeZoneName: "short",
   }).format(date);
 }
 
@@ -98,13 +111,16 @@ function renderAppointmentMessage(row: OutboundDeliveryRow): RenderedMessage | n
     asString(payload.appointmentLabel) || "Appointment";
   const startsAt = asString(payload.startsAt);
   const endsAt = asString(payload.endsAt);
+  const studioTimeZone = safeTimeZone(payload.studioTimeZone);
   const clientFirstName = asString(payload.clientFirstName);
   const instructorFirstName = asString(payload.instructorFirstName);
   const instructorLastName = asString(payload.instructorLastName);
   const roomName = asString(payload.roomName);
 
-  const whenText = startsAt ? formatDateTime(startsAt) : "your scheduled time";
-  const endText = endsAt ? formatDateTime(endsAt) : "";
+  const whenText = startsAt
+    ? formatDateTime(startsAt, studioTimeZone)
+    : "your scheduled time";
+  const endText = endsAt ? formatDateTime(endsAt, studioTimeZone) : "";
   const instructorText =
     instructorFirstName || instructorLastName
       ? [instructorFirstName, instructorLastName].filter(Boolean).join(" ")
