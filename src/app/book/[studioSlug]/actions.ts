@@ -280,7 +280,7 @@ export async function createPublicIntroBookingAction(
     const { supabase, studio, settings } = await getStudioAndSettings(studioSlug);
 
     if (!settings.public_intro_booking_enabled) {
-      return { error: "Intro lesson booking is not enabled for this studio." };
+      return { error: "Intro lesson requests are not enabled for this studio." };
     }
 
     const availableSlots = await getAvailableSlots(studioSlug);
@@ -288,7 +288,7 @@ export async function createPublicIntroBookingAction(
 
     if (!chosenSlot) {
       return {
-        error: "That intro lesson slot is no longer available. Please choose another time.",
+        error: "That intro lesson time is no longer available. Please choose another time.",
       };
     }
 
@@ -332,6 +332,21 @@ export async function createPublicIntroBookingAction(
       clientId = insertedClient.id;
     }
 
+    const { data: duplicatePendingRequest } = await supabase
+      .from("booking_requests")
+      .select("id")
+      .eq("studio_id", studio.id)
+      .eq("client_id", clientId)
+      .eq("appointment_type", "intro_lesson")
+      .eq("requested_starts_at", chosenSlot.start)
+      .eq("status", "pending")
+      .limit(1)
+      .maybeSingle();
+
+    if (duplicatePendingRequest?.id) {
+      redirect(`/book/${studioSlug}?success=intro_requested`);
+    }
+
     const { data: duplicateAppointment } = await supabase
       .from("appointments")
       .select("id")
@@ -344,39 +359,36 @@ export async function createPublicIntroBookingAction(
       .maybeSingle();
 
     if (duplicateAppointment?.id) {
-      redirect(`/book/${studioSlug}?success=intro_booked`);
+      redirect(`/book/${studioSlug}?success=intro_requested`);
     }
 
-    const appointmentNotes = [
-      "Booked from public intro lesson page.",
-      danceInterests ? `Dance interests: ${danceInterests}` : null,
-      notes ? `Notes: ${notes}` : null,
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const { data: insertedAppointment, error: appointmentError } = await supabase
-      .from("appointments")
+    const { data: insertedRequest, error: requestError } = await supabase
+      .from("booking_requests")
       .insert({
         studio_id: studio.id,
         client_id: clientId,
         instructor_id: getPublicIntroInstructorId(settings) || null,
         room_id: settings.intro_default_room_id || null,
+        source: "public_intro",
+        status: "pending",
         appointment_type: "intro_lesson",
-        title: "Intro Lesson",
-        notes: appointmentNotes || null,
-        starts_at: chosenSlot.start,
-        ends_at: chosenSlot.end,
-        status: "scheduled",
-        is_recurring: false,
+        title: "Intro Lesson Request",
+        requested_starts_at: chosenSlot.start,
+        requested_ends_at: chosenSlot.end,
+        customer_first_name: firstName,
+        customer_last_name: lastName,
+        customer_email: email,
+        customer_phone: phone || null,
+        dance_interests: danceInterests || null,
+        notes: notes || null,
       })
       .select("id")
       .single();
 
-    if (appointmentError || !insertedAppointment) {
+    if (requestError || !insertedRequest) {
       return {
-        error: `Could not create intro lesson appointment: ${
-          appointmentError?.message ?? "Unknown error."
+        error: `Could not create booking request: ${
+          requestError?.message ?? "Unknown error."
         }`,
       };
     }
@@ -384,8 +396,8 @@ export async function createPublicIntroBookingAction(
     const activityOwnerUserId = await findStudioOwnerOrAdminUserId(studio.id);
 
     const leadActivityNote = [
-      "Public intro lesson booked.",
-      `Slot: ${new Date(chosenSlot.start).toLocaleString()}`,
+      "Public intro lesson request submitted.",
+      `Requested slot: ${new Date(chosenSlot.start).toLocaleString()}.`,
       danceInterests ? `Dance interests: ${danceInterests}` : null,
       notes ? `Notes: ${notes}` : null,
     ]
@@ -403,28 +415,27 @@ export async function createPublicIntroBookingAction(
 
     if (leadActivityError) {
       return {
-        error: `Appointment was created, but lead activity logging failed: ${leadActivityError.message}`,
+        error: `Request was created, but lead activity logging failed: ${leadActivityError.message}`,
       };
     }
 
     const notificationBodyParts = [
-      `${firstName} ${lastName} booked an intro lesson.`,
-      `Scheduled for ${new Date(chosenSlot.start).toLocaleString()}.`,
+      `${firstName} ${lastName} requested an intro lesson.`,
+      `Requested for ${new Date(chosenSlot.start).toLocaleString()}.`,
       danceInterests ? `Interests: ${danceInterests}.` : null,
     ].filter(Boolean);
 
     const { error: notificationError } = await supabase.from("notifications").insert({
       studio_id: studio.id,
-      type: "public_intro_booking",
-      title: "New public intro booking",
+      type: "public_intro_booking_request",
+      title: "New intro lesson request",
       body: notificationBodyParts.join(" "),
       client_id: clientId,
-      appointment_id: insertedAppointment.id,
     });
 
     if (notificationError) {
       return {
-        error: `Booking was created, but notification logging failed: ${notificationError.message}`,
+        error: `Request was created, but notification logging failed: ${notificationError.message}`,
       };
     }
   } catch (error) {
@@ -433,5 +444,5 @@ export async function createPublicIntroBookingAction(
     };
   }
 
-  redirect(`/book/${getString(formData, "studioSlug")}?success=intro_booked`);
+  redirect(`/book/${getString(formData, "studioSlug")}?success=intro_requested`);
 }

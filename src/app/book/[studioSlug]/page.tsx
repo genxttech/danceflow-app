@@ -189,7 +189,7 @@ export default async function PublicIntroBookingPage({
   const query = await searchParams;
   const selectedSlotStart = query.slotStart ?? "";
   const success = query.success ?? "";
-  const isSuccess = success === "intro_booked";
+  const isSuccess = success === "intro_requested" || success === "intro_booked";
 
   const supabase = await createClient();
 
@@ -355,7 +355,7 @@ export default async function PublicIntroBookingPage({
     typedStudio.public_lead_description ||
     "Choose an available intro lesson time below and send your request.";
   const accentColor = typedStudio.public_primary_color || "#0f172a";
-  const ctaText = typedStudio.public_lead_cta_text || "Book Intro Lesson";
+  const ctaText = typedStudio.public_lead_cta_text || "Request Intro Lesson";
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-10">
@@ -419,13 +419,13 @@ export default async function PublicIntroBookingPage({
                     Your intro lesson request has been received.
                   </h2>
                   <p className="mt-3 text-green-800">
-                    The studio has received your selected intro lesson time and can follow up
+                    The studio has received your intro lesson request and can follow up
                     with confirmation or next steps.
                   </p>
 
                   {selectedSlot ? (
                     <div className="mt-6 rounded-2xl border border-green-200 bg-white p-5">
-                      <p className="text-sm text-slate-500">Reserved time</p>
+                      <p className="text-sm text-slate-500">Requested time</p>
                       <p className="mt-2 text-lg font-medium text-slate-900">
                         {formatSelectedSlot(selectedSlot.start)}
                       </p>
@@ -466,7 +466,7 @@ export default async function PublicIntroBookingPage({
                 <div className="mt-6 space-y-6">
                   {groupedSlots.length === 0 ? (
                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-slate-600">
-                      No intro lesson slots are currently available in the active booking window.
+                      No intro lesson request times are currently available in the active booking window.
                     </div>
                   ) : (
                     groupedSlots.map((group) => (
@@ -502,7 +502,7 @@ export default async function PublicIntroBookingPage({
                                     isSelected ? "text-slate-200" : "text-slate-500"
                                   }`}
                                 >
-                                  {isSelected ? "Selected slot" : "Choose this time"}
+                                  {isSelected ? "Selected request time" : "Request this time"}
                                 </p>
                               </Link>
                             );
