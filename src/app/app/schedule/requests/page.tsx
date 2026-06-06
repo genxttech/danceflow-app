@@ -159,26 +159,25 @@ export default async function ScheduleRequestsPage({
     .eq("studio_id", studioId)
     .order("requested_starts_at", { ascending: true });
 
-  const { data: statusRows, error: statusCountError } = await supabase
-    .from("booking_requests")
-    .select("status")
-    .eq("studio_id", studioId);
-
   if (selectedStatus !== "all") {
     requestsQuery = requestsQuery.eq("status", selectedStatus);
   }
 
   const { data: requests, error } = await requestsQuery;
   const typedRequests = (requests ?? []) as BookingRequestRow[];
-  const typedStatusRows = (statusRows ?? []) as { status: string | null }[];
 
-  const countSource = statusCountError
-    ? typedRequests.map((request) => ({ status: request.status }))
-    : typedStatusRows;
+  const { data: statusRows } = await supabase
+    .from("booking_requests")
+    .select("status")
+    .eq("studio_id", studioId);
 
-  const pendingCount = countSource.filter((request) => request.status === "pending").length;
-  const approvedCount = countSource.filter((request) => request.status === "approved").length;
-  const declinedCount = countSource.filter((request) => request.status === "declined").length;
+  const allStatuses = ((statusRows ?? []) as { status: string | null }[]).map(
+    (row) => row.status ?? "",
+  );
+
+  const pendingCount = allStatuses.filter((status) => status === "pending").length;
+  const approvedCount = allStatuses.filter((status) => status === "approved").length;
+  const declinedCount = allStatuses.filter((status) => status === "declined").length;
 
   return (
     <main className="min-h-screen bg-[var(--brand-page-bg)] px-4 py-8 text-[var(--brand-foreground)] sm:px-6 lg:px-8">

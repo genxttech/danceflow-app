@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createPortalScheduleRequestAction } from "./actions";
 
 type PageProps = {
   params: Promise<{
     studioSlug: string;
+  }>;
+  searchParams: Promise<{
+    success?: string;
+    error?: string;
   }>;
 };
 
@@ -57,7 +62,6 @@ type LessonRecapRow = {
   updated_at: string;
 };
 
-
 type StudioSettingsRow = {
   portal_self_scheduling_enabled: boolean | null;
   portal_self_scheduling_mode: string | null;
@@ -68,9 +72,46 @@ type StudioSettingsRow = {
   booking_request_start_time: string | null;
   booking_request_end_time: string | null;
   portal_bookable_lesson_types: string[] | null;
+  portal_bookable_instructor_ids: string[] | null;
+};
+
+type InstructorOptionRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+};
+
+type BookingRequestRow = {
+  id: string;
+  status: string;
+  source: string;
+  appointment_type: string;
+  title: string | null;
+  requested_starts_at: string;
+  requested_ends_at: string;
+  staff_note: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+  appointment_id: string | null;
+  instructors:
+    | {
+        first_name: string | null;
+        last_name: string | null;
+      }
+    | {
+        first_name: string | null;
+        last_name: string | null;
+      }[]
+    | null;
 };
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function getAllowedWeekdays(settings: StudioSettingsRow | null) {
+  return settings?.booking_request_allowed_weekdays?.length
+    ? settings.booking_request_allowed_weekdays
+    : [1, 2, 3, 4, 5, 6];
+}
 
 function formatWeekdayList(values: number[] | null | undefined) {
   const days = values?.length ? values : [1, 2, 3, 4, 5, 6];
@@ -82,16 +123,44 @@ function formatWeekdayList(values: number[] | null | undefined) {
 }
 
 function formatPortalLessonTypes(values: string[] | null | undefined) {
-  const labels: Record<string, string> = {
-    private_lesson: "Private lessons",
-    coaching: "Coachings",
-    practice_party: "Practice parties",
-    group_class: "Group classes",
-  };
-
   const lessonTypes = values?.length ? values : ["private_lesson"];
+  return lessonTypes.map((value) => typeLabel(value)).join(", ");
+}
 
-  return lessonTypes.map((value) => labels[value] ?? formatStatusLabel(value)).join(", ");
+function requestStatusLabel(status: string) {
+  if (status === "pending") return "Pending review";
+  if (status === "approved") return "Approved";
+  if (status === "declined") return "Declined";
+  return formatStatusLabel(status);
+}
+
+function requestStatusBadgeClass(status: string) {
+  if (status === "pending") return "border-amber-200 bg-amber-50 text-amber-800";
+  if (status === "approved") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (status === "declined") return "border-rose-200 bg-rose-50 text-rose-800";
+  return "border-slate-200 bg-slate-50 text-slate-700";
+}
+
+function getInstructorOptionName(instructor: InstructorOptionRow) {
+  return `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim() || "Instructor";
+}
+
+function getRequestInstructorName(
+  value:
+    | { first_name: string | null; last_name: string | null }
+    | { first_name: string | null; last_name: string | null }[]
+    | null
+    | undefined
+) {
+  const instructor = getSingle(value);
+  if (!instructor) return "Any available instructor";
+  return `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim() || "Instructor";
+}
+
+function getDefaultRequestDate() {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return tomorrow.toISOString().slice(0, 10);
 }
 
 function getSingle<T>(value: T | T[] | null | undefined): T | null {
@@ -330,8 +399,9 @@ async function loadAppointments(params: {
   );
 }
 
-export default async function PortalSchedulePage({ params }: PageProps) {
+export default async function PortalSchedulePage({ params, searchParams }: PageProps) {
   const { studioSlug } = await params;
+  const query = await searchParams;
   const supabase = await createClient();
 
   const {
@@ -370,7 +440,7 @@ export default async function PortalSchedulePage({ params }: PageProps) {
     redirect(`/portal/${studioSlug}`);
   }
 
-  const { data: settings, error: settingsError } = await supabase
+  const { data: settingsData } = await supabase
     .from("studio_settings")
     .select(`
       portal_self_scheduling_enabled,
@@ -381,19 +451,59 @@ export default async function PortalSchedulePage({ params }: PageProps) {
       booking_request_allowed_weekdays,
       booking_request_start_time,
       booking_request_end_time,
-      portal_bookable_lesson_types
+      portal_bookable_lesson_types,
+      portal_bookable_instructor_ids
     `)
     .eq("studio_id", studio.id)
-    .maybeSingle();
+    .maybeSingle<StudioSettingsRow>();
 
-  if (settingsError) {
-    throw new Error(`Failed to load portal scheduling settings: ${settingsError.message}`);
+  const settings = settingsData ?? null;
+  const portalSchedulingEnabled =
+    settings?.portal_self_scheduling_enabled === true &&
+    (settings.portal_self_scheduling_mode ?? "request_only") !== "disabled";
+
+  const allowedLessonTypes = settings?.portal_bookable_lesson_types?.length
+    ? settings.portal_bookable_lesson_types
+    : ["private_lesson"];
+
+  let instructorsQuery = supabase
+    .from("instructors")
+    .select("id, first_name, last_name")
+    .eq("studio_id", studio.id)
+    .order("first_name", { ascending: true });
+
+  const allowedInstructorIds = settings?.portal_bookable_instructor_ids ?? [];
+
+  if (allowedInstructorIds.length) {
+    instructorsQuery = instructorsQuery.in("id", allowedInstructorIds);
   }
 
-  const typedSettings = settings as StudioSettingsRow | null;
-  const portalRequestsEnabled =
-    typedSettings?.portal_self_scheduling_enabled === true &&
-    typedSettings?.portal_self_scheduling_mode !== "disabled";
+  const { data: instructorOptions } = await instructorsQuery;
+  const requestInstructors = (instructorOptions ?? []) as InstructorOptionRow[];
+
+  const { data: portalRequests } = await supabase
+    .from("booking_requests")
+    .select(`
+      id,
+      status,
+      source,
+      appointment_type,
+      title,
+      requested_starts_at,
+      requested_ends_at,
+      staff_note,
+      created_at,
+      reviewed_at,
+      appointment_id,
+      instructors(first_name, last_name)
+    `)
+    .eq("studio_id", studio.id)
+    .eq("client_id", portalClient.id)
+    .eq("source", "portal_schedule")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  const typedPortalRequests = (portalRequests ?? []) as BookingRequestRow[];
 
   const isIndependentInstructor = portalClient.is_independent_instructor === true;
   const appointments = await loadAppointments({
@@ -443,6 +553,26 @@ export default async function PortalSchedulePage({ params }: PageProps) {
   ).length;
 
   const studioLabel = studio.public_name?.trim() || studio.name;
+  const requestWindowDays = settings?.portal_self_scheduling_window_days ?? 14;
+  const minNoticeHours = settings?.portal_self_scheduling_min_notice_hours ?? 24;
+  const cancellationCutoffHours =
+    settings?.portal_self_scheduling_cancellation_cutoff_hours ?? 24;
+  const requestStartTime = (settings?.booking_request_start_time ?? "09:00").slice(0, 5);
+  const requestEndTime = (settings?.booking_request_end_time ?? "21:00").slice(0, 5);
+  const allowedWeekdays = getAllowedWeekdays(settings);
+  const banner =
+    query.success === "schedule_request_submitted"
+      ? {
+          kind: "success" as const,
+          message: "Your schedule request was sent to the studio for review.",
+        }
+      : query.error
+        ? {
+            kind: "error" as const,
+            message: decodeURIComponent(query.error),
+          }
+        : null;
+
 
   return (
     <div className="space-y-6">
@@ -514,67 +644,201 @@ export default async function PortalSchedulePage({ params }: PageProps) {
         </div>
       </section>
 
+
+      {banner ? (
+        <section
+          className={`rounded-3xl border p-5 shadow-sm ${
+            banner.kind === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-rose-200 bg-rose-50 text-rose-800"
+          }`}
+        >
+          <p className="text-sm font-semibold">
+            {banner.message}
+          </p>
+        </section>
+      ) : null}
+
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Schedule Requests</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              {portalRequestsEnabled
-                ? "Your studio is accepting schedule requests from the portal. Staff will review requests before appointments are created."
-                : "Portal schedule requests are not enabled right now. Contact the studio if you need help changing your schedule."}
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-primary)]">
+              Schedule Requests
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-900">
+              Request a lesson time
+            </h2>
+            <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+              Send a preferred lesson time to the studio. Staff will review the request and confirm it before it becomes an appointment.
             </p>
           </div>
-
-          <span
-            className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-              portalRequestsEnabled
-                ? "bg-emerald-50 text-emerald-700"
-                : "bg-slate-100 text-slate-600"
-            }`}
-          >
-            {portalRequestsEnabled ? "Requests enabled" : "Requests disabled"}
-          </span>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            <p className="font-semibold text-slate-900">
+              {portalSchedulingEnabled ? "Requests are enabled" : "Requests are not enabled"}
+            </p>
+            <p className="mt-1">
+              {portalSchedulingEnabled
+                ? `${formatWeekdayList(allowedWeekdays)} · ${requestStartTime}–${requestEndTime} · ${minNoticeHours}h notice`
+                : "Contact the studio directly to request schedule changes."}
+            </p>
+          </div>
         </div>
 
-        {portalRequestsEnabled && typedSettings ? (
-          <div className="mt-5 grid gap-3 md:grid-cols-4">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Days
-              </p>
-              <p className="mt-2 text-sm font-medium text-slate-900">
-                {formatWeekdayList(typedSettings.booking_request_allowed_weekdays)}
-              </p>
-            </div>
+        {portalSchedulingEnabled ? (
+          <form action={createPortalScheduleRequestAction} className="mt-6 grid gap-4 lg:grid-cols-2">
+            <input type="hidden" name="studioSlug" value={studioSlug} />
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Time window
-              </p>
-              <p className="mt-2 text-sm font-medium text-slate-900">
-                {(typedSettings.booking_request_start_time ?? "09:00").slice(0, 5)} – {(typedSettings.booking_request_end_time ?? "21:00").slice(0, 5)}
-              </p>
-            </div>
+            <label className="block text-sm font-medium text-slate-700">
+              Lesson type
+              <select
+                name="appointmentType"
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                defaultValue={allowedLessonTypes[0] ?? "private_lesson"}
+              >
+                {allowedLessonTypes.map((lessonType) => (
+                  <option key={lessonType} value={lessonType}>
+                    {typeLabel(lessonType)}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Notice
-              </p>
-              <p className="mt-2 text-sm font-medium text-slate-900">
-                {typedSettings.portal_self_scheduling_min_notice_hours ?? 24} hours minimum
-              </p>
-            </div>
+            <label className="block text-sm font-medium text-slate-700">
+              Preferred instructor
+              <select
+                name="instructorId"
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                defaultValue=""
+              >
+                <option value="">Any available instructor</option>
+                {requestInstructors.map((instructor) => (
+                  <option key={instructor.id} value={instructor.id}>
+                    {getInstructorOptionName(instructor)}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Lesson types
-              </p>
-              <p className="mt-2 text-sm font-medium text-slate-900">
-                {formatPortalLessonTypes(typedSettings.portal_bookable_lesson_types)}
-              </p>
+            <label className="block text-sm font-medium text-slate-700">
+              Preferred date
+              <input
+                type="date"
+                name="requestedDate"
+                required
+                min={getDefaultRequestDate()}
+                defaultValue={getDefaultRequestDate()}
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+
+            <label className="block text-sm font-medium text-slate-700">
+              Preferred time
+              <input
+                type="time"
+                name="requestedTime"
+                required
+                min={requestStartTime}
+                max={requestEndTime}
+                defaultValue={requestStartTime}
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+
+            <label className="block text-sm font-medium text-slate-700">
+              Preferred length
+              <select
+                name="durationMinutes"
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                defaultValue="45"
+              >
+                <option value="30">30 minutes</option>
+                <option value="45">45 minutes</option>
+                <option value="60">60 minutes</option>
+                <option value="90">90 minutes</option>
+              </select>
+            </label>
+
+            <label className="block text-sm font-medium text-slate-700 lg:col-span-2">
+              Notes for the studio
+              <textarea
+                name="notes"
+                rows={3}
+                placeholder="Share any preferred focus, scheduling notes, or alternate times."
+                className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+            </label>
+
+            <div className="lg:col-span-2">
+              <button
+                type="submit"
+                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
+              >
+                Send schedule request
+              </button>
             </div>
-          </div>
+          </form>
         ) : null}
+
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-900">Request rules</p>
+          <div className="mt-3 grid gap-3 text-sm text-slate-600 md:grid-cols-2 lg:grid-cols-4">
+            <p><span className="font-medium text-slate-900">Bookable:</span> {formatPortalLessonTypes(allowedLessonTypes)}</p>
+            <p><span className="font-medium text-slate-900">Days:</span> {formatWeekdayList(allowedWeekdays)}</p>
+            <p><span className="font-medium text-slate-900">Window:</span> {requestWindowDays} days ahead</p>
+            <p><span className="font-medium text-slate-900">Changes:</span> {cancellationCutoffHours}h cutoff</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">My schedule requests</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Track requests you have sent to the studio for review.
+          </p>
+        </div>
+
+        {typedPortalRequests.length === 0 ? (
+          <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
+            <p className="text-sm font-medium text-slate-600">No schedule requests yet.</p>
+          </div>
+        ) : (
+          <div className="mt-5 space-y-3">
+            {typedPortalRequests.map((request) => (
+              <article key={request.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="flex flex-wrap gap-2">
+                      <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${requestStatusBadgeClass(request.status)}`}>
+                        {requestStatusLabel(request.status)}
+                      </span>
+                      <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700">
+                        {typeLabel(request.appointment_type)}
+                      </span>
+                    </div>
+                    <h3 className="mt-3 text-base font-semibold text-slate-950">
+                      {request.title || typeLabel(request.appointment_type)}
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-600">
+                      {formatTimeRange(request.requested_starts_at, request.requested_ends_at)}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Instructor: {getRequestInstructorName(request.instructors)}
+                    </p>
+                    {request.staff_note ? (
+                      <p className="mt-3 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                        Studio note: {request.staff_note}
+                      </p>
+                    ) : null}
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Sent {formatDateTime(request.created_at)}
+                  </p>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">
