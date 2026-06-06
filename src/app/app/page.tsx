@@ -145,6 +145,21 @@ type FollowUpLeadActivityRow = {
   completed_at: string | null;
 };
 
+type FollowUpBookingRequestRow = {
+  id: string;
+  client_id: string | null;
+  status: string | null;
+  source: string | null;
+  appointment_type: string | null;
+  title: string | null;
+  requested_starts_at: string | null;
+  requested_ends_at: string | null;
+  customer_first_name: string | null;
+  customer_last_name: string | null;
+  customer_email: string | null;
+  created_at: string;
+};
+
 type FollowUpPackageItemRow = {
   quantity_remaining: number | string | null;
   is_unlimited: boolean | null;
@@ -1613,6 +1628,7 @@ export default async function AppDashboardPage({
     followUpLeadActivitiesResult,
     followUpPackagesResult,
     followUpEventRegistrationsResult,
+    followUpBookingRequestsResult,
   ] = await Promise.all([
     supabase
       .from("clients")
@@ -1681,6 +1697,16 @@ export default async function AppDashboardPage({
       .gte("created_at", followUpThirtyDaysAgoIso)
       .order("created_at", { ascending: false })
       .limit(75),
+
+    supabase
+      .from("booking_requests")
+      .select(
+        "id, client_id, status, source, appointment_type, title, requested_starts_at, requested_ends_at, customer_first_name, customer_last_name, customer_email, created_at",
+      )
+      .eq("studio_id", studioId)
+      .in("status", ["pending", "approved"])
+      .order("created_at", { ascending: false })
+      .limit(75),
   ]);
 
   if (followUpClientsResult.error) {
@@ -1713,6 +1739,12 @@ export default async function AppDashboardPage({
     );
   }
 
+  if (followUpBookingRequestsResult.error) {
+    throw new Error(
+      `Failed to load booking request follow-ups: ${followUpBookingRequestsResult.error.message}`,
+    );
+  }
+
   const followUpClients = (followUpClientsResult.data ??
     []) as FollowUpClientRow[];
   const followUpAppointments = (followUpAppointmentsResult.data ??
@@ -1723,6 +1755,8 @@ export default async function AppDashboardPage({
     []) as FollowUpPackageRow[];
   const followUpEventRegistrations = (followUpEventRegistrationsResult.data ??
     []) as FollowUpEventRegistrationRow[];
+  const followUpBookingRequests = (followUpBookingRequestsResult.data ??
+    []) as FollowUpBookingRequestRow[];
 
   const followUpClientMap = new Map(
     followUpClients.map((client) => [client.id, client]),
@@ -1730,6 +1764,18 @@ export default async function AppDashboardPage({
   const clientIdsWithUpcomingAppointments = new Set(
     followUpAppointments
       .map((appointment) => appointment.client_id)
+      .filter((id): id is string => Boolean(id)),
+  );
+
+  const pendingBookingRequests = followUpBookingRequests.filter(
+    (request) => (request.status ?? "").toLowerCase() === "pending",
+  );
+  const activeBookingRequestClientIds = new Set(
+    followUpBookingRequests
+      .filter((request) =>
+        ["pending", "approved"].includes((request.status ?? "").toLowerCase()),
+      )
+      .map((request) => request.client_id)
       .filter((id): id is string => Boolean(id)),
   );
 
@@ -1742,10 +1788,43 @@ export default async function AppDashboardPage({
     suggestedFollowUps.push(item);
   }
 
+  for (const request of pendingBookingRequests) {
+    const client = request.client_id ? followUpClientMap.get(request.client_id) : null;
+    const customerName =
+      followUpName(client) ||
+      [request.customer_first_name, request.customer_last_name]
+        .map((part) => part?.trim())
+        .filter(Boolean)
+        .join(" ") ||
+      request.customer_email ||
+      "Booking request";
+
+    addSuggestedFollowUp({
+      id: `booking-request-${request.id}`,
+      personName: customerName,
+      reason: "A public intro lesson request is waiting for staff review.",
+      suggestedAction:
+        "Review the request, then approve it into the schedule or decline it with a note.",
+      context: compactList([
+        request.requested_starts_at
+          ? `Requested: ${fmtDateTime(request.requested_starts_at)}`
+          : null,
+        request.appointment_type
+          ? `Type: ${appointmentTypeLabel(request.appointment_type)}`
+          : null,
+        request.customer_email ? `Email: ${request.customer_email}` : null,
+      ]),
+      href: "/app/schedule/requests?status=pending",
+      priority: "high",
+      type: "booking_request",
+    });
+  }
+
   for (const activity of followUpLeadActivities) {
     if (!activity.client_id) continue;
     const client = followUpClientMap.get(activity.client_id);
     if (!client) continue;
+    if (activeBookingRequestClientIds.has(client.id)) continue;
 
     addSuggestedFollowUp({
       id: `lead-follow-up-${activity.id}`,
@@ -1799,6 +1878,7 @@ export default async function AppDashboardPage({
   for (const client of followUpClients) {
     if (client.status !== "active") continue;
     if (clientIdsWithUpcomingAppointments.has(client.id)) continue;
+    if (activeBookingRequestClientIds.has(client.id)) continue;
 
     addSuggestedFollowUp({
       id: `no-upcoming-${client.id}`,
@@ -1818,6 +1898,7 @@ export default async function AppDashboardPage({
   for (const registration of followUpEventRegistrations) {
     if (!registration.client_id) continue;
     if (clientIdsWithUpcomingAppointments.has(registration.client_id)) continue;
+    if (activeBookingRequestClientIds.has(registration.client_id)) continue;
 
     const client = followUpClientMap.get(registration.client_id);
     const personName =

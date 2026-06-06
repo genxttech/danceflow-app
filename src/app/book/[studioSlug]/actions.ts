@@ -251,6 +251,130 @@ async function findStudioOwnerOrAdminUserId(studioId: string) {
   return data?.user_id ?? null;
 }
 
+
+async function getStudioNotificationEmail(studioId: string) {
+  const supabase = createAdminClient();
+
+  const { data: roleRows } = await supabase
+    .from("user_studio_roles")
+    .select("user_id")
+    .eq("studio_id", studioId)
+    .eq("active", true)
+    .in("role", ["studio_owner", "studio_admin"])
+    .limit(5);
+
+  for (const row of roleRows ?? []) {
+    const userId = (row as { user_id?: string | null }).user_id;
+    if (!userId) continue;
+
+    const { data, error } = await supabase.auth.admin.getUserById(userId);
+
+    if (!error && data?.user?.email) {
+      return data.user.email;
+    }
+  }
+
+  return null;
+}
+
+function formatBookingRequestDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+async function queueBookingRequestEmails(params: {
+  studioId: string;
+  studioName: string;
+  bookingRequestId: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string | null;
+  requestedStartsAt: string;
+  danceInterests: string | null;
+  notes: string | null;
+}) {
+  const supabase = createAdminClient();
+  const requestedTime = formatBookingRequestDateTime(params.requestedStartsAt);
+  const firstName = params.customerName.split(" ")[0] || "there";
+  const requestsUrl = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/$/, "")}/app/schedule/requests`;
+
+  const clientBodyText = [
+    `Hi ${firstName},`,
+    "",
+    `${params.studioName} received your intro lesson request for ${requestedTime}.`,
+    "",
+    "The studio will review the request and follow up with next steps. Your appointment is not confirmed until the studio approves it.",
+    "",
+    "Thanks,",
+    params.studioName,
+  ].join("\n");
+
+  const staffBodyText = [
+    `New intro lesson request for ${params.studioName}`,
+    "",
+    `Client: ${params.customerName}`,
+    `Email: ${params.customerEmail}`,
+    params.customerPhone ? `Phone: ${params.customerPhone}` : null,
+    `Requested time: ${requestedTime}`,
+    params.danceInterests ? `Dance interests: ${params.danceInterests}` : null,
+    params.notes ? `Notes: ${params.notes}` : null,
+    "",
+    `Review request: ${requestsUrl}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const clientInsert = await supabase.from("outbound_deliveries").insert({
+    studio_id: params.studioId,
+    channel: "email",
+    template_key: "booking_request_received_client",
+    recipient_email: params.customerEmail,
+    subject: `${params.studioName} received your lesson request`,
+    body_text: clientBodyText,
+    body_html: null,
+    related_table: "booking_requests",
+    related_id: params.bookingRequestId,
+    dedupe_key: `booking-request-received-client:${params.bookingRequestId}`,
+    status: "queued",
+    updated_at: new Date().toISOString(),
+  });
+
+  if (clientInsert.error && clientInsert.error.code !== "23505") {
+    console.error("Failed to queue booking request client email", clientInsert.error.message);
+  }
+
+  const staffEmail = await getStudioNotificationEmail(params.studioId);
+
+  if (!staffEmail) {
+    return;
+  }
+
+  const staffInsert = await supabase.from("outbound_deliveries").insert({
+    studio_id: params.studioId,
+    channel: "email",
+    template_key: "booking_request_staff_alert",
+    recipient_email: staffEmail,
+    subject: `New intro lesson request: ${params.customerName}`,
+    body_text: staffBodyText,
+    body_html: null,
+    related_table: "booking_requests",
+    related_id: params.bookingRequestId,
+    dedupe_key: `booking-request-staff-alert:${params.bookingRequestId}`,
+    status: "queued",
+    updated_at: new Date().toISOString(),
+  });
+
+  if (staffInsert.error && staffInsert.error.code !== "23505") {
+    console.error("Failed to queue booking request staff email", staffInsert.error.message);
+  }
+}
+
 export async function createPublicIntroBookingAction(
   prevState: { error: string },
   formData: FormData
@@ -288,7 +412,7 @@ export async function createPublicIntroBookingAction(
 
     if (!chosenSlot) {
       return {
-        error: "That intro lesson time is no longer available. Please choose another time.",
+        error: "That intro lesson request time is no longer available. Please choose another time.",
       };
     }
 
@@ -332,18 +456,18 @@ export async function createPublicIntroBookingAction(
       clientId = insertedClient.id;
     }
 
-    const { data: duplicatePendingRequest } = await supabase
+    const { data: duplicateRequest } = await supabase
       .from("booking_requests")
       .select("id")
       .eq("studio_id", studio.id)
       .eq("client_id", clientId)
       .eq("appointment_type", "intro_lesson")
       .eq("requested_starts_at", chosenSlot.start)
-      .eq("status", "pending")
+      .in("status", ["pending", "approved"])
       .limit(1)
       .maybeSingle();
 
-    if (duplicatePendingRequest?.id) {
+    if (duplicateRequest?.id) {
       redirect(`/book/${studioSlug}?success=intro_requested`);
     }
 
@@ -362,7 +486,7 @@ export async function createPublicIntroBookingAction(
       redirect(`/book/${studioSlug}?success=intro_requested`);
     }
 
-    const { data: insertedRequest, error: requestError } = await supabase
+    const { data: bookingRequest, error: bookingRequestError } = await supabase
       .from("booking_requests")
       .insert({
         studio_id: studio.id,
@@ -385,10 +509,10 @@ export async function createPublicIntroBookingAction(
       .select("id")
       .single();
 
-    if (requestError || !insertedRequest) {
+    if (bookingRequestError || !bookingRequest) {
       return {
-        error: `Could not create booking request: ${
-          requestError?.message ?? "Unknown error."
+        error: `Could not create intro lesson request: ${
+          bookingRequestError?.message ?? "Unknown error."
         }`,
       };
     }
@@ -396,8 +520,8 @@ export async function createPublicIntroBookingAction(
     const activityOwnerUserId = await findStudioOwnerOrAdminUserId(studio.id);
 
     const leadActivityNote = [
-      "Public intro lesson request submitted.",
-      `Requested slot: ${new Date(chosenSlot.start).toLocaleString()}.`,
+      "Public intro lesson requested.",
+      `Requested slot: ${new Date(chosenSlot.start).toLocaleString()}`,
       danceInterests ? `Dance interests: ${danceInterests}` : null,
       notes ? `Notes: ${notes}` : null,
     ]
@@ -419,25 +543,37 @@ export async function createPublicIntroBookingAction(
       };
     }
 
+    const customerName = [firstName, lastName].filter(Boolean).join(" ");
+
     const notificationBodyParts = [
-      `${firstName} ${lastName} requested an intro lesson.`,
+      `${customerName} requested an intro lesson.`,
       `Requested for ${new Date(chosenSlot.start).toLocaleString()}.`,
       danceInterests ? `Interests: ${danceInterests}.` : null,
     ].filter(Boolean);
 
     const { error: notificationError } = await supabase.from("notifications").insert({
       studio_id: studio.id,
-      type: "public_intro_booking_request",
-      title: "New intro lesson request",
+      type: "public_intro_booking",
+      title: "New public intro request",
       body: notificationBodyParts.join(" "),
       client_id: clientId,
     });
 
     if (notificationError) {
-      return {
-        error: `Request was created, but notification logging failed: ${notificationError.message}`,
-      };
+      console.error("Failed to create booking request notification", notificationError.message);
     }
+
+    await queueBookingRequestEmails({
+      studioId: studio.id,
+      studioName: studio.name,
+      bookingRequestId: bookingRequest.id,
+      customerName,
+      customerEmail: email,
+      customerPhone: phone || null,
+      requestedStartsAt: chosenSlot.start,
+      danceInterests: danceInterests || null,
+      notes: notes || null,
+    });
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",

@@ -16,7 +16,7 @@ export type SuggestedFollowUpItem = {
   context?: string;
   href: string;
   priority: "high" | "medium" | "low";
-  type: "client" | "lead" | "event_attendee" | "package";
+  type: "client" | "lead" | "event_attendee" | "package" | "booking_request";
 };
 
 type SuggestedFollowUpsCardProps = {
@@ -38,6 +38,7 @@ function priorityClass(priority: SuggestedFollowUpItem["priority"]) {
 
 function typeLabel(type: SuggestedFollowUpItem["type"]) {
   if (type === "event_attendee") return "Event attendee";
+  if (type === "booking_request") return "Booking request";
   if (type === "package") return "Package";
   return type.charAt(0).toUpperCase() + type.slice(1);
 }

@@ -41,6 +41,99 @@ function getConflictErrorMessage(conflict: unknown) {
   return "Scheduling conflict detected.";
 }
 
+
+function formatBookingRequestDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+async function queueBookingDecisionEmail(params: {
+  supabase: Awaited<ReturnType<typeof requireAppointmentCreateAccess>>["supabase"];
+  studioId: string;
+  bookingRequestId: string;
+  clientId: string;
+  status: "approved" | "declined";
+  requestedStartsAt: string;
+  staffNote: string | null;
+  appointmentId?: string | null;
+}) {
+  const { data: client } = await params.supabase
+    .from("clients")
+    .select("first_name, last_name, email")
+    .eq("id", params.clientId)
+    .eq("studio_id", params.studioId)
+    .maybeSingle();
+
+  const recipientEmail = (client as { email?: string | null } | null)?.email?.trim();
+  if (!recipientEmail) return;
+
+  const firstName =
+    (client as { first_name?: string | null } | null)?.first_name?.trim() || "there";
+
+  const { data: studio } = await params.supabase
+    .from("studios")
+    .select("name")
+    .eq("id", params.studioId)
+    .maybeSingle();
+
+  const studioName = (studio as { name?: string | null } | null)?.name ?? "The studio";
+  const requestedTime = formatBookingRequestDateTime(params.requestedStartsAt);
+
+  const isApproved = params.status === "approved";
+  const subject = isApproved
+    ? `${studioName} approved your lesson request`
+    : `${studioName} update about your lesson request`;
+
+  const bodyText = isApproved
+    ? [
+        `Hi ${firstName},`,
+        "",
+        `${studioName} approved your lesson request for ${requestedTime}.`,
+        "",
+        "Your appointment has been added to the studio schedule.",
+        params.staffNote ? `Studio note: ${params.staffNote}` : null,
+        "",
+        "Thanks,",
+        studioName,
+      ].filter(Boolean).join("\n")
+    : [
+        `Hi ${firstName},`,
+        "",
+        `${studioName} reviewed your lesson request for ${requestedTime}, but it was not approved for that time.`,
+        params.staffNote ? `Studio note: ${params.staffNote}` : "Please contact the studio if you would like to request another time.",
+        "",
+        "Thanks,",
+        studioName,
+      ].filter(Boolean).join("\n");
+
+  const { error } = await params.supabase.from("outbound_deliveries").insert({
+    studio_id: params.studioId,
+    channel: "email",
+    template_key: isApproved
+      ? "booking_request_approved_client"
+      : "booking_request_declined_client",
+    recipient_email: recipientEmail,
+    subject,
+    body_text: bodyText,
+    body_html: null,
+    related_table: "booking_requests",
+    related_id: params.bookingRequestId,
+    dedupe_key: `booking-request-${params.status}:${params.bookingRequestId}`,
+    status: "queued",
+    updated_at: new Date().toISOString(),
+  });
+
+  if (error && error.code !== "23505") {
+    console.error(`Failed to queue booking request ${params.status} email`, error.message);
+  }
+}
+
 type BookingRequestRow = {
   id: string;
   studio_id: string;
@@ -178,6 +271,17 @@ export async function approveBookingRequestAction(formData: FormData) {
     appointment_id: appointment.id,
   });
 
+  await queueBookingDecisionEmail({
+    supabase,
+    studioId,
+    bookingRequestId: typedRequest.id,
+    clientId: typedRequest.client_id,
+    status: "approved",
+    requestedStartsAt: typedRequest.requested_starts_at,
+    staffNote: staffNote || null,
+    appointmentId: appointment.id,
+  });
+
   revalidatePath("/app/schedule/requests");
   revalidatePath("/app/schedule");
   revalidatePath("/app");
@@ -197,7 +301,7 @@ export async function declineBookingRequestAction(formData: FormData) {
 
   const { data: request, error: requestError } = await supabase
     .from("booking_requests")
-    .select("id, studio_id, status")
+    .select("id, studio_id, status, client_id, requested_starts_at")
     .eq("id", requestId)
     .eq("studio_id", studioId)
     .maybeSingle();
@@ -227,6 +331,32 @@ export async function declineBookingRequestAction(formData: FormData) {
       `/app/schedule/requests?error=${encodeURIComponent(updateError.message)}`,
     );
   }
+
+  const typedRequest = request as {
+    id: string;
+    client_id: string | null;
+    requested_starts_at: string | null;
+  };
+
+  if (typedRequest.client_id && typedRequest.requested_starts_at) {
+    await queueBookingDecisionEmail({
+      supabase,
+      studioId,
+      bookingRequestId: typedRequest.id,
+      clientId: typedRequest.client_id,
+      status: "declined",
+      requestedStartsAt: typedRequest.requested_starts_at,
+      staffNote: staffNote || null,
+    });
+  }
+
+  await supabase.from("notifications").insert({
+    studio_id: studioId,
+    type: "booking_request_declined",
+    title: "Booking request declined",
+    body: "A booking request was declined.",
+    client_id: typedRequest.client_id,
+  });
 
   revalidatePath("/app/schedule/requests");
   revalidatePath("/app/schedule");

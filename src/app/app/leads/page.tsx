@@ -27,6 +27,22 @@ type LeadRow = {
   portal_user_id: string | null;
 };
 
+type BookingRequestRow = {
+  id: string;
+  client_id: string | null;
+  source: string | null;
+  status: string | null;
+  requested_starts_at: string | null;
+  updated_at: string | null;
+  created_at: string | null;
+};
+
+type BookingRequestState = {
+  hasPending: boolean;
+  hasApproved: boolean;
+  pendingRequestId?: string;
+};
+
 type FollowUpClient =
   | {
       first_name: string;
@@ -305,7 +321,10 @@ function getLeadPriority(lead: LeadRow) {
   return 5;
 }
 
-function getRecommendedActionLabel(lead: LeadRow) {
+function getRecommendedActionLabel(lead: LeadRow, bookingRequestState?: BookingRequestState) {
+  if (bookingRequestState?.hasPending) return "Review booking request";
+  if (bookingRequestState?.hasApproved) return "Open lead";
+
   if (lead.referral_source === "public_intro_booking") return "Book intro";
   if (lead.referral_source === "event_registration") return "Convert after attendance";
   if (
@@ -317,8 +336,12 @@ function getRecommendedActionLabel(lead: LeadRow) {
   return "Open lead";
 }
 
-function getRecommendedActionHref(lead: LeadRow) {
-  if (lead.referral_source === "public_intro_booking") {
+function getRecommendedActionHref(lead: LeadRow, bookingRequestState?: BookingRequestState) {
+  if (bookingRequestState?.hasPending) {
+    return "/app/schedule/requests?status=pending";
+  }
+
+  if (lead.referral_source === "public_intro_booking" && !bookingRequestState?.hasApproved) {
     return `/app/schedule/new?clientId=${lead.id}`;
   }
 
@@ -357,6 +380,7 @@ export default async function LeadsPage({
     { data: overdueFollowUps, error: overdueError },
     { data: dueTodayFollowUps, error: dueTodayError },
     { data: completedFollowUps, error: completedError },
+    { data: bookingRequests, error: bookingRequestsError },
   ] = await Promise.all([
     supabase
       .from("clients")
@@ -449,6 +473,14 @@ export default async function LeadsPage({
       .not("completed_at", "is", null)
       .order("completed_at", { ascending: false })
       .limit(50),
+
+    supabase
+      .from("booking_requests")
+      .select("id, client_id, source, status, requested_starts_at, updated_at, created_at")
+      .eq("studio_id", studioId)
+      .in("status", ["pending", "approved"])
+      .order("updated_at", { ascending: false })
+      .limit(500),
   ]);
 
   if (leadsError) {
@@ -466,6 +498,33 @@ export default async function LeadsPage({
   if (completedError) {
     throw new Error(`Failed to load completed follow-ups: ${completedError.message}`);
   }
+
+  if (bookingRequestsError) {
+    throw new Error(`Failed to load booking requests: ${bookingRequestsError.message}`);
+  }
+
+  const bookingRequestStateByClientId = new Map<string, BookingRequestState>();
+
+  ((bookingRequests ?? []) as BookingRequestRow[]).forEach((request) => {
+    if (!request.client_id) return;
+
+    const state =
+      bookingRequestStateByClientId.get(request.client_id) ?? {
+        hasPending: false,
+        hasApproved: false,
+      };
+
+    if (request.status === "pending") {
+      state.hasPending = true;
+      state.pendingRequestId = request.id;
+    }
+
+    if (request.status === "approved") {
+      state.hasApproved = true;
+    }
+
+    bookingRequestStateByClientId.set(request.client_id, state);
+  });
 
   const allLeads = ((leads ?? []) as LeadRow[]).filter((lead) => {
     const isActivatedIndependentInstructor =
@@ -513,7 +572,16 @@ export default async function LeadsPage({
   const newLast7DaysCount = allLeads.filter((lead) => lead.created_at >= sevenDaysAgo).length;
 
   const sortedLeadQueue = [...allLeads].sort((a, b) => {
-    const priorityDiff = getLeadPriority(a) - getLeadPriority(b);
+    const getQueuePriority = (lead: LeadRow) => {
+      const bookingState = bookingRequestStateByClientId.get(lead.id);
+
+      if (bookingState?.hasPending) return 0;
+      if (bookingState?.hasApproved && lead.referral_source === "public_intro_booking") return 4;
+
+      return getLeadPriority(lead);
+    };
+
+    const priorityDiff = getQueuePriority(a) - getQueuePriority(b);
     if (priorityDiff !== 0) return priorityDiff;
 
     return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -790,17 +858,17 @@ export default async function LeadsPage({
 
                       <div className="mt-3">
                         <span className="rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-inset ring-slate-200">
-                          Recommended: {getRecommendedActionLabel(lead)}
+                          Recommended: {getRecommendedActionLabel(lead, bookingRequestStateByClientId.get(lead.id))}
                         </span>
                       </div>
                     </div>
 
                     <div className="flex flex-wrap gap-2 lg:justify-end">
                       <Link
-                        href={getRecommendedActionHref(lead)}
+                        href={getRecommendedActionHref(lead, bookingRequestStateByClientId.get(lead.id))}
                         className="inline-flex items-center rounded-xl bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
                       >
-                        {getRecommendedActionLabel(lead)}
+                        {getRecommendedActionLabel(lead, bookingRequestStateByClientId.get(lead.id))}
                       </Link>
 
                       <Link
@@ -1010,17 +1078,17 @@ export default async function LeadsPage({
 
                       <td className="px-4 py-4">
                         <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700">
-                          {getRecommendedActionLabel(lead)}
+                          {getRecommendedActionLabel(lead, bookingRequestStateByClientId.get(lead.id))}
                         </span>
                       </td>
 
                       <td className="px-4 py-4">
                         <div className="flex flex-wrap gap-3">
                           <Link
-                            href={getRecommendedActionHref(lead)}
+                            href={getRecommendedActionHref(lead, bookingRequestStateByClientId.get(lead.id))}
                             className="font-medium text-slate-900 underline"
                           >
-                            {getRecommendedActionLabel(lead)}
+                            {getRecommendedActionLabel(lead, bookingRequestStateByClientId.get(lead.id))}
                           </Link>
 
                           <Link
