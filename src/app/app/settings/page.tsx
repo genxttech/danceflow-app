@@ -43,6 +43,11 @@ type StudioSettingsRow = {
   block_depleted_package_booking: boolean | null;
   warn_low_package_balance: boolean | null;
   public_intro_booking_enabled: boolean | null;
+  portal_self_scheduling_enabled: boolean | null;
+  portal_self_scheduling_mode: string | null;
+  portal_self_scheduling_window_days: number | null;
+  portal_self_scheduling_min_notice_hours: number | null;
+  portal_self_scheduling_cancellation_cutoff_hours: number | null;
   intro_lesson_duration_minutes: number | null;
   intro_booking_window_days: number | null;
   intro_default_instructor_id: string | null;
@@ -148,6 +153,11 @@ export default async function SettingsPage() {
         block_depleted_package_booking,
         warn_low_package_balance,
         public_intro_booking_enabled,
+        portal_self_scheduling_enabled,
+        portal_self_scheduling_mode,
+        portal_self_scheduling_window_days,
+        portal_self_scheduling_min_notice_hours,
+        portal_self_scheduling_cancellation_cutoff_hours,
         intro_lesson_duration_minutes,
         intro_booking_window_days,
         intro_default_instructor_id,
@@ -297,7 +307,7 @@ export default async function SettingsPage() {
         <div className="grid gap-4 p-5 md:grid-cols-3">
           <div className="rounded-2xl border bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-900">Studio profile</p>
-            <p className="mt-1 text-sm text-slate-600">Keep public branding, booking options, and contact details current.</p>
+            <p className="mt-1 text-sm text-slate-600">Keep public branding, booking options, self-scheduling controls, and contact details current.</p>
           </div>
           <div className="rounded-2xl border bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-900">Policies and reminders</p>

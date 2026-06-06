@@ -145,6 +145,14 @@ export async function updateStudioSettingsAction(
     const publicLeadCtaText = getString(formData, "publicLeadCtaText");
 
     const publicIntroBookingEnabled = getString(formData, "publicIntroBookingEnabled");
+    const portalSelfSchedulingEnabled = getString(formData, "portalSelfSchedulingEnabled");
+    const portalSelfSchedulingMode = getString(formData, "portalSelfSchedulingMode") || "request_only";
+    const portalSelfSchedulingWindowDaysRaw = getString(formData, "portalSelfSchedulingWindowDays");
+    const portalSelfSchedulingMinNoticeHoursRaw = getString(formData, "portalSelfSchedulingMinNoticeHours");
+    const portalSelfSchedulingCancellationCutoffHoursRaw = getString(
+      formData,
+      "portalSelfSchedulingCancellationCutoffHours"
+    );
     const introLessonDurationMinutesRaw = getString(formData, "introLessonDurationMinutes");
     const introBookingWindowDaysRaw = getString(formData, "introBookingWindowDays");
     const introDefaultInstructorId = getString(formData, "introDefaultInstructorId");
@@ -158,6 +166,18 @@ export async function updateStudioSettingsAction(
     const bookingLeadTimeHours = Number.parseInt(bookingLeadTimeHoursRaw, 10);
     const introLessonDurationMinutes = Number.parseInt(introLessonDurationMinutesRaw, 10);
     const introBookingWindowDays = Number.parseInt(introBookingWindowDaysRaw, 10);
+    const portalSelfSchedulingWindowDays = Number.parseInt(
+      portalSelfSchedulingWindowDaysRaw || "14",
+      10
+    );
+    const portalSelfSchedulingMinNoticeHours = Number.parseInt(
+      portalSelfSchedulingMinNoticeHoursRaw || bookingLeadTimeHoursRaw || "24",
+      10
+    );
+    const portalSelfSchedulingCancellationCutoffHours = Number.parseInt(
+      portalSelfSchedulingCancellationCutoffHoursRaw || cancellationWindowHoursRaw || "24",
+      10
+    );
 
     if (Number.isNaN(cancellationWindowHours) || cancellationWindowHours < 0) {
       return { error: "Cancellation window hours must be 0 or greater." };
@@ -173,6 +193,31 @@ export async function updateStudioSettingsAction(
 
     if (Number.isNaN(introBookingWindowDays) || introBookingWindowDays < 1) {
       return { error: "Intro booking window must be at least 1 day." };
+    }
+
+    if (
+      Number.isNaN(portalSelfSchedulingWindowDays) ||
+      portalSelfSchedulingWindowDays < 1
+    ) {
+      return { error: "Portal scheduling window must be at least 1 day." };
+    }
+
+    if (
+      Number.isNaN(portalSelfSchedulingMinNoticeHours) ||
+      portalSelfSchedulingMinNoticeHours < 0
+    ) {
+      return { error: "Portal minimum notice must be 0 hours or greater." };
+    }
+
+    if (
+      Number.isNaN(portalSelfSchedulingCancellationCutoffHours) ||
+      portalSelfSchedulingCancellationCutoffHours < 0
+    ) {
+      return { error: "Portal cancellation cutoff must be 0 hours or greater." };
+    }
+
+    if (!["request_only", "disabled"].includes(portalSelfSchedulingMode)) {
+      return { error: "Portal scheduling mode must be request only or disabled." };
     }
 
     if (
@@ -192,6 +237,14 @@ export async function updateStudioSettingsAction(
       publicIntroBookingEnabled !== "false"
     ) {
       return { error: "Intro booking setting must be enabled or disabled." };
+    }
+
+    if (
+      portalSelfSchedulingEnabled &&
+      portalSelfSchedulingEnabled !== "true" &&
+      portalSelfSchedulingEnabled !== "false"
+    ) {
+      return { error: "Portal scheduling setting must be enabled or disabled." };
     }
 
 
@@ -411,6 +464,14 @@ export async function updateStudioSettingsAction(
         block_depleted_package_booking: blockDepletedPackageBooking === "true",
         warn_low_package_balance: warnLowPackageBalance === "true",
         public_intro_booking_enabled: publicIntroBookingEnabled === "true",
+        portal_self_scheduling_enabled: portalSelfSchedulingEnabled === "true",
+        portal_self_scheduling_mode: portalSelfSchedulingEnabled === "true"
+          ? portalSelfSchedulingMode
+          : "disabled",
+        portal_self_scheduling_window_days: portalSelfSchedulingWindowDays,
+        portal_self_scheduling_min_notice_hours: portalSelfSchedulingMinNoticeHours,
+        portal_self_scheduling_cancellation_cutoff_hours:
+          portalSelfSchedulingCancellationCutoffHours,
         intro_lesson_duration_minutes: introLessonDurationMinutes,
         intro_booking_window_days: introBookingWindowDays,
         intro_default_instructor_id: introDefaultInstructorId || null,

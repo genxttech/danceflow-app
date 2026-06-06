@@ -17,6 +17,14 @@ type ClientRow = {
   linked_instructor_id: string | null;
 };
 
+type StudioSettingsRow = {
+  portal_self_scheduling_enabled: boolean | null;
+  portal_self_scheduling_mode: string | null;
+  portal_self_scheduling_window_days: number | null;
+  portal_self_scheduling_min_notice_hours: number | null;
+  portal_self_scheduling_cancellation_cutoff_hours: number | null;
+};
+
 type CalendarRow = {
   id: string;
   title: string | null;
@@ -315,6 +323,30 @@ export default async function PortalSchedulePage({ params }: PageProps) {
     notFound();
   }
 
+  const { data: studioSettings, error: studioSettingsError } = await supabase
+    .from("studio_settings")
+    .select(`
+      portal_self_scheduling_enabled,
+      portal_self_scheduling_mode,
+      portal_self_scheduling_window_days,
+      portal_self_scheduling_min_notice_hours,
+      portal_self_scheduling_cancellation_cutoff_hours
+    `)
+    .eq("studio_id", studio.id)
+    .maybeSingle<StudioSettingsRow>();
+
+  if (studioSettingsError) {
+    throw new Error(`Failed to load scheduling settings: ${studioSettingsError.message}`);
+  }
+
+  const schedulingSettings: StudioSettingsRow = studioSettings ?? {
+    portal_self_scheduling_enabled: false,
+    portal_self_scheduling_mode: "disabled",
+    portal_self_scheduling_window_days: 14,
+    portal_self_scheduling_min_notice_hours: 24,
+    portal_self_scheduling_cancellation_cutoff_hours: 24,
+  };
+
   const { data: portalClient, error: portalClientError } = await supabase
     .from("clients")
     .select(`
@@ -450,6 +482,58 @@ export default async function PortalSchedulePage({ params }: PageProps) {
             </>
           ) : null}
         </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-violet-600">
+              Scheduling requests
+            </p>
+            <h2 className="mt-2 text-lg font-semibold text-slate-900">
+              {schedulingSettings.portal_self_scheduling_enabled
+                ? "Student schedule requests are enabled"
+                : "Student self-scheduling is not enabled"}
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              {schedulingSettings.portal_self_scheduling_enabled
+                ? `This studio accepts portal schedule requests up to ${
+                    schedulingSettings.portal_self_scheduling_window_days ?? 14
+                  } days ahead with at least ${
+                    schedulingSettings.portal_self_scheduling_min_notice_hours ?? 24
+                  } hours of notice. Staff approval is still required before schedule changes are confirmed.`
+                : "This studio is not accepting portal schedule requests right now. Contact the studio directly if you need to book, cancel, or reschedule a lesson."}
+            </p>
+          </div>
+
+          <Link
+            href={`/portal/${studioSlug}/profile`}
+            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Update Contact Info
+          </Link>
+        </div>
+
+        {schedulingSettings.portal_self_scheduling_enabled ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-medium text-slate-900">Mode</p>
+              <p className="mt-1 text-sm text-slate-600">Request only</p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-medium text-slate-900">Booking window</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Next {schedulingSettings.portal_self_scheduling_window_days ?? 14} days
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-medium text-slate-900">Cutoff</p>
+              <p className="mt-1 text-sm text-slate-600">
+                {schedulingSettings.portal_self_scheduling_cancellation_cutoff_hours ?? 24} hours
+              </p>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02] md:p-6">

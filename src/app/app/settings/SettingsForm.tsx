@@ -34,6 +34,11 @@ type StudioSettingsRow = {
   block_depleted_package_booking: boolean | null;
   warn_low_package_balance: boolean | null;
   public_intro_booking_enabled: boolean | null;
+  portal_self_scheduling_enabled: boolean | null;
+  portal_self_scheduling_mode: string | null;
+  portal_self_scheduling_window_days: number | null;
+  portal_self_scheduling_min_notice_hours: number | null;
+  portal_self_scheduling_cancellation_cutoff_hours: number | null;
   intro_lesson_duration_minutes: number | null;
   intro_booking_window_days: number | null;
   intro_default_instructor_id: string | null;
@@ -402,18 +407,45 @@ export default function SettingsForm({
         </div>
 
         <div className="rounded-2xl border bg-white p-6">
-          <h3 className="text-xl font-semibold">Intro Lesson Booking</h3>
-          <p className="mt-2 text-sm text-slate-600">
-            Configure self-service intro lesson booking rules for the public booking flow.
-          </p>
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-wide text-violet-600">
+                Booking and self-scheduling
+              </p>
+              <h3 className="mt-2 text-xl font-semibold text-slate-900">
+                Public requests and portal scheduling
+              </h3>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                Control whether new dancers can request intro lessons from your public booking page
+                and whether existing students can request schedule changes from the portal.
+              </p>
+            </div>
+            <a
+              href="/app/settings/public-profile"
+              className="hidden rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Public profile
+            </a>
+          </div>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <div className="md:col-span-2">
+            <div className="md:col-span-2 rounded-2xl border border-violet-100 bg-violet-50 p-4">
+              <p className="text-sm font-semibold text-violet-900">
+                Safe V1 behavior
+              </p>
+              <p className="mt-1 text-sm leading-6 text-violet-800">
+                Public intro booking creates a request/reservation workflow using the default instructor
+                and room below. Portal self-scheduling is request-based for now, so students can see
+                scheduling guidance without bypassing staff approval or conflict checks.
+              </p>
+            </div>
+
+            <div>
               <label
                 htmlFor="publicIntroBookingEnabled"
                 className="mb-1 block text-sm font-medium"
               >
-                Self-Service Intro Booking
+                Public intro lesson requests
               </label>
               <select
                 id="publicIntroBookingEnabled"
@@ -425,6 +457,104 @@ export default function SettingsForm({
                 <option value="true">Enabled</option>
                 <option value="false">Disabled</option>
               </select>
+              <p className="mt-1 text-xs text-slate-500">
+                Shows or hides the public intro booking page for new dancers.
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="portalSelfSchedulingEnabled"
+                className="mb-1 block text-sm font-medium"
+              >
+                Student portal schedule requests
+              </label>
+              <select
+                id="portalSelfSchedulingEnabled"
+                name="portalSelfSchedulingEnabled"
+                defaultValue={settings.portal_self_scheduling_enabled ? "true" : "false"}
+                disabled={!canEdit}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+              >
+                <option value="false">Disabled</option>
+                <option value="true">Enabled - request only</option>
+              </select>
+              <p className="mt-1 text-xs text-slate-500">
+                Lets students know they can request schedule help from the portal. Instant booking comes later.
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="portalSelfSchedulingMode"
+                className="mb-1 block text-sm font-medium"
+              >
+                Portal scheduling mode
+              </label>
+              <select
+                id="portalSelfSchedulingMode"
+                name="portalSelfSchedulingMode"
+                defaultValue={settings.portal_self_scheduling_mode ?? "request_only"}
+                disabled={!canEdit}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+              >
+                <option value="request_only">Request only</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="portalSelfSchedulingWindowDays"
+                className="mb-1 block text-sm font-medium"
+              >
+                Portal request window (days ahead)
+              </label>
+              <input
+                id="portalSelfSchedulingWindowDays"
+                name="portalSelfSchedulingWindowDays"
+                type="number"
+                min="1"
+                defaultValue={settings.portal_self_scheduling_window_days ?? 14}
+                disabled={!canEdit}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="portalSelfSchedulingMinNoticeHours"
+                className="mb-1 block text-sm font-medium"
+              >
+                Minimum notice (hours)
+              </label>
+              <input
+                id="portalSelfSchedulingMinNoticeHours"
+                name="portalSelfSchedulingMinNoticeHours"
+                type="number"
+                min="0"
+                defaultValue={settings.portal_self_scheduling_min_notice_hours ?? settings.booking_lead_time_hours ?? 24}
+                disabled={!canEdit}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="portalSelfSchedulingCancellationCutoffHours"
+                className="mb-1 block text-sm font-medium"
+              >
+                Reschedule/cancel cutoff (hours)
+              </label>
+              <input
+                id="portalSelfSchedulingCancellationCutoffHours"
+                name="portalSelfSchedulingCancellationCutoffHours"
+                type="number"
+                min="0"
+                defaultValue={settings.portal_self_scheduling_cancellation_cutoff_hours ?? settings.cancellation_window_hours ?? 24}
+                disabled={!canEdit}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+              />
             </div>
 
             <div>
@@ -432,7 +562,7 @@ export default function SettingsForm({
                 htmlFor="introLessonDurationMinutes"
                 className="mb-1 block text-sm font-medium"
               >
-                Intro Lesson Duration (Minutes)
+                Intro lesson duration (minutes)
               </label>
               <input
                 id="introLessonDurationMinutes"
@@ -451,7 +581,7 @@ export default function SettingsForm({
                 htmlFor="introBookingWindowDays"
                 className="mb-1 block text-sm font-medium"
               >
-                Booking Window (Days Ahead)
+                Public intro window (days ahead)
               </label>
               <input
                 id="introBookingWindowDays"
@@ -469,7 +599,7 @@ export default function SettingsForm({
                 htmlFor="introDefaultInstructorId"
                 className="mb-1 block text-sm font-medium"
               >
-                Default Intro Instructor
+                Default intro instructor
               </label>
               <select
                 id="introDefaultInstructorId"
@@ -492,7 +622,7 @@ export default function SettingsForm({
                 htmlFor="introDefaultRoomId"
                 className="mb-1 block text-sm font-medium"
               >
-                Default Intro Room
+                Default intro room
               </label>
               <select
                 id="introDefaultRoomId"

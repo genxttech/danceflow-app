@@ -296,10 +296,10 @@ export default async function PublicIntroBookingPage({
       : null);
 
   const headline =
-    typedStudio.public_lead_headline || `Book Your Intro Lesson at ${typedStudio.name}`;
+    typedStudio.public_lead_headline || `Request Your Intro Lesson at ${typedStudio.name}`;
   const description =
     typedStudio.public_lead_description ||
-    "Choose an available intro lesson time below and get started.";
+    "Choose an available intro lesson time below and send your request.";
   const accentColor = typedStudio.public_primary_color || "#0f172a";
   const ctaText = typedStudio.public_lead_cta_text || "Book Intro Lesson";
 
@@ -314,7 +314,7 @@ export default async function PublicIntroBookingPage({
             <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
-                  Intro Lesson Booking
+                  Intro Lesson Requests
                 </p>
                 <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
                   {headline}
@@ -355,14 +355,14 @@ export default async function PublicIntroBookingPage({
               <div className="rounded-3xl border border-green-200 bg-green-50 p-8">
                 <div className="max-w-2xl">
                   <p className="text-sm font-medium uppercase tracking-wide text-green-700">
-                    Booking Confirmed
+                    Request Received
                   </p>
                   <h2 className="mt-2 text-3xl font-semibold tracking-tight text-green-900">
-                    Your intro lesson has been booked.
+                    Your intro lesson request has been received.
                   </h2>
                   <p className="mt-3 text-green-800">
-                    We’ve reserved your selected intro lesson slot. The studio can now follow up
-                    with any next steps.
+                    The studio has received your selected intro lesson time and can follow up
+                    with confirmation or next steps.
                   </p>
 
                   {selectedSlot ? (
@@ -394,9 +394,9 @@ export default async function PublicIntroBookingPage({
               <>
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <h2 className="text-xl font-semibold text-slate-900">Available Intro Slots</h2>
+                    <h2 className="text-xl font-semibold text-slate-900">Available Intro Request Times</h2>
                     <p className="mt-1 text-sm text-slate-500">
-                      Choose a time, then complete the form below.
+                      Choose a time, then complete the request form below.
                     </p>
                   </div>
 
@@ -456,7 +456,7 @@ export default async function PublicIntroBookingPage({
                 </div>
 
                 <div className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6">
-                  <h3 className="text-xl font-semibold text-slate-900">Complete Your Booking</h3>
+                  <h3 className="text-xl font-semibold text-slate-900">Complete Your Request</h3>
 
                   {!selectedSlot ? (
                     <p className="mt-3 text-slate-600">
