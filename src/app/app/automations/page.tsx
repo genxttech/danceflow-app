@@ -17,6 +17,7 @@ import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   dismissAutomationAction,
+  evaluateAutomationRuleAction,
   getAutomationDefinitions,
   updateAutomationRuleAction,
 } from "./actions";
@@ -24,6 +25,8 @@ import {
 type SearchParams = Promise<{
   success?: string;
   error?: string;
+  created?: string;
+  candidates?: string;
 }>;
 
 type AutomationRuleRow = {
@@ -191,6 +194,12 @@ export default async function AutomationsPage({
           </div>
         ) : null}
 
+        {query.success === "evaluated" ? (
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+            Low package balance automation evaluated. {query.created ?? "0"} new suggested action(s) created from {query.candidates ?? "0"} candidate package balance(s).
+          </div>
+        ) : null}
+
         {query.error ? (
           <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
             Could not update automation: {query.error}
@@ -218,7 +227,7 @@ export default async function AutomationsPage({
             </p>
             <p className="mt-2 text-xl font-semibold">{formatDateTime(latestRun?.started_at)}</p>
             <p className="mt-1 text-sm text-slate-600">
-              Rule engine evaluation will be added in the next phase.
+              Run enabled rules manually now. Scheduled evaluations can be added later.
             </p>
           </div>
         </section>
@@ -318,14 +327,27 @@ export default async function AutomationsPage({
                     <p className="text-xs text-slate-500">
                       Current mode: {modeLabel(mode)}
                     </p>
-                    <button
-                      type="submit"
-                      disabled={!canManage}
-                      className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-slate-300"
-                    >
-                      Save rule
-                      <Settings2 className="h-4 w-4" />
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {definition.key === "low_package_balance" ? (
+                        <button
+                          type="submit"
+                          formAction={evaluateAutomationRuleAction}
+                          disabled={!canManage || !enabled}
+                          className="inline-flex items-center gap-2 rounded-full border border-[#F9A8D4] bg-white px-4 py-2 text-sm font-semibold text-[#BE185D] shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                        >
+                          Evaluate now
+                          <Sparkles className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                      <button
+                        type="submit"
+                        disabled={!canManage}
+                        className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      >
+                        Save rule
+                        <Settings2 className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 </form>
               );
@@ -402,8 +424,8 @@ export default async function AutomationsPage({
                     No automation actions yet
                   </h3>
                   <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-600">
-                    The next phase will evaluate enabled rules and create reviewable
-                    recommendations here.
+                    Enable Low package balance renewal, then click Evaluate now to create reviewable
+                    renewal recommendations here.
                   </p>
                 </div>
               )}
