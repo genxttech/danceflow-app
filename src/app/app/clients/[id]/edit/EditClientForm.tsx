@@ -2,42 +2,27 @@
 
 import { useActionState } from "react";
 import { updateClientAction } from "../../actions";
-import {
-  CLIENT_REFERRAL_SOURCE_OPTIONS,
-  CLIENT_SKILL_LEVEL_OPTIONS,
-  CLIENT_STATUS_OPTIONS,
-} from "@/lib/forms/options";
 
-type ClientRow = {
+const initialState = { error: "" };
+
+type ClientRecord = {
   id: string;
   first_name: string;
   last_name: string;
   email: string | null;
   phone: string | null;
-  status: string;
-  skill_level: string | null;
   dance_interests: string | null;
-  referral_source: string | null;
+  skill_level: string | null;
   notes: string | null;
-  is_independent_instructor: boolean | null;
-  linked_instructor_id: string | null;
+  referral_source: string | null;
+  photo_url: string | null;
+  status: string;
 };
-
-type InstructorOption = {
-  id: string;
-  first_name: string;
-  last_name: string;
-  active: boolean;
-};
-
-const initialState = { error: "" };
 
 export default function EditClientForm({
   client,
-  instructors,
 }: {
-  client: ClientRow;
-  instructors: InstructorOption[];
+  client: ClientRecord;
 }) {
   const [state, formAction, pending] = useActionState(
     updateClientAction,
@@ -45,130 +30,163 @@ export default function EditClientForm({
   );
 
   return (
-    <form action={formAction} className="rounded-2xl border bg-white p-6 shadow-sm">
-      <input type="hidden" name="clientId" value={client.id} />
+    <div className="max-w-2xl">
+      <h2 className="text-3xl font-semibold tracking-tight">Edit Client</h2>
+      <p className="mt-2 text-slate-600">Update client details.</p>
 
-      <div className="grid gap-6 md:grid-cols-2">
-        <div>
-          <label htmlFor="firstName" className="mb-1 block text-sm font-medium">
-            First Name
-          </label>
-          <input
-            id="firstName"
-            name="firstName"
-            required
-            defaultValue={client.first_name}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2"
-          />
+      <form action={formAction} encType="multipart/form-data" className="mt-8 space-y-4 rounded-2xl border bg-white p-6">
+        <input type="hidden" name="clientId" value={client.id} />
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+            <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-white text-xl font-semibold text-slate-500">
+              {client.photo_url ? (
+                <img
+                  src={client.photo_url}
+                  alt={`${client.first_name} ${client.last_name}`}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span>
+                  {client.first_name.slice(0, 1)}
+                  {client.last_name.slice(0, 1)}
+                </span>
+              )}
+            </div>
+
+            <div className="min-w-0 flex-1">
+              <label htmlFor="clientPhoto" className="block text-sm font-semibold text-slate-800">
+                Client headshot
+              </label>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Upload a photo or take one from a supported mobile camera for staff verification.
+              </p>
+              <input
+                id="clientPhoto"
+                name="clientPhoto"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                capture="environment"
+                className="mt-3 block w-full text-sm text-slate-700 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
+              />
+              <p className="mt-2 text-xs text-slate-500">JPG, PNG, or WebP up to 5MB.</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label htmlFor="firstName" className="mb-1 block text-sm font-medium">
+              First Name
+            </label>
+            <input
+              id="firstName"
+              name="firstName"
+              defaultValue={client.first_name}
+              required
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="lastName" className="mb-1 block text-sm font-medium">
+              Last Name
+            </label>
+            <input
+              id="lastName"
+              name="lastName"
+              defaultValue={client.last_name}
+              required
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label htmlFor="email" className="mb-1 block text-sm font-medium">
+              Email
+            </label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              defaultValue={client.email ?? ""}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="phone" className="mb-1 block text-sm font-medium">
+              Phone
+            </label>
+            <input
+              id="phone"
+              name="phone"
+              defaultValue={client.phone ?? ""}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label htmlFor="danceInterests" className="mb-1 block text-sm font-medium">
+              Dance Interests
+            </label>
+            <input
+              id="danceInterests"
+              name="danceInterests"
+              defaultValue={client.dance_interests ?? ""}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="skillLevel" className="mb-1 block text-sm font-medium">
+              Skill Level
+            </label>
+            <input
+              id="skillLevel"
+              name="skillLevel"
+              defaultValue={client.skill_level ?? ""}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </div>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label htmlFor="referralSource" className="mb-1 block text-sm font-medium">
+              Referral Source
+            </label>
+            <input
+              id="referralSource"
+              name="referralSource"
+              defaultValue={client.referral_source ?? ""}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="status" className="mb-1 block text-sm font-medium">
+              Status
+            </label>
+            <select
+              id="status"
+              name="status"
+              defaultValue={client.status}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            >
+              <option value="lead">Lead</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="archived">Archived</option>
+            </select>
+          </div>
         </div>
 
         <div>
-          <label htmlFor="lastName" className="mb-1 block text-sm font-medium">
-            Last Name
-          </label>
-          <input
-            id="lastName"
-            name="lastName"
-            required
-            defaultValue={client.last_name}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2"
-          />
-        </div>
-
-        <div>
-          <label htmlFor="email" className="mb-1 block text-sm font-medium">
-            Email
-          </label>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            defaultValue={client.email ?? ""}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2"
-          />
-        </div>
-
-        <div>
-          <label htmlFor="phone" className="mb-1 block text-sm font-medium">
-            Phone
-          </label>
-          <input
-            id="phone"
-            name="phone"
-            defaultValue={client.phone ?? ""}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2"
-          />
-        </div>
-
-        <div>
-          <label htmlFor="status" className="mb-1 block text-sm font-medium">
-            Status
-          </label>
-          <select
-            id="status"
-            name="status"
-            defaultValue={client.status}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2"
-          >
-            {CLIENT_STATUS_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label htmlFor="skillLevel" className="mb-1 block text-sm font-medium">
-            Skill Level
-          </label>
-          <select
-            id="skillLevel"
-            name="skillLevel"
-            defaultValue={client.skill_level ?? ""}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2"
-          >
-            <option value="">Select skill level</option>
-            {CLIENT_SKILL_LEVEL_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="md:col-span-2">
-          <label htmlFor="danceInterests" className="mb-1 block text-sm font-medium">
-            Dance Interests
-          </label>
-          <input
-            id="danceInterests"
-            name="danceInterests"
-            defaultValue={client.dance_interests ?? ""}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2"
-          />
-        </div>
-
-        <div className="md:col-span-2">
-          <label htmlFor="referralSource" className="mb-1 block text-sm font-medium">
-            Referral Source
-          </label>
-          <select
-            id="referralSource"
-            name="referralSource"
-            defaultValue={client.referral_source ?? ""}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2"
-          >
-            <option value="">Select referral source</option>
-            {CLIENT_REFERRAL_SOURCE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="md:col-span-2">
           <label htmlFor="notes" className="mb-1 block text-sm font-medium">
             Notes
           </label>
@@ -180,64 +198,30 @@ export default function EditClientForm({
             className="w-full rounded-xl border border-slate-300 px-3 py-2"
           />
         </div>
-      </div>
 
-      <div className="mt-6 space-y-4 rounded-2xl border bg-slate-50 p-4">
-        <label className="flex items-start gap-3">
-          <input
-            type="checkbox"
-            name="isIndependentInstructor"
-            defaultChecked={!!client.is_independent_instructor}
-            className="mt-1"
-          />
-          <div>
-            <p className="font-medium text-slate-900">
-              Independent Instructor
-            </p>
-            <p className="mt-1 text-sm text-slate-600">
-              Enable this only if this client should use independent instructor / floor rental workflows.
-            </p>
+        {state?.error ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {state.error}
           </div>
-        </label>
+        ) : null}
 
-        <div>
-          <label htmlFor="linkedInstructorId" className="mb-1 block text-sm font-medium">
-            Linked Instructor Profile
-          </label>
-          <select
-            id="linkedInstructorId"
-            name="linkedInstructorId"
-            defaultValue={client.linked_instructor_id ?? ""}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2"
+        <div className="flex gap-3">
+          <button
+            type="submit"
+            disabled={pending}
+            className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800 disabled:opacity-60"
           >
-            <option value="">No linked instructor</option>
-            {instructors.map((instructor) => (
-              <option key={instructor.id} value={instructor.id}>
-                {instructor.first_name} {instructor.last_name}
-              </option>
-            ))}
-          </select>
-          <p className="mt-1 text-xs text-slate-500">
-            Optional. Use when this client is also represented in the instructors table.
-          </p>
-        </div>
-      </div>
+            {pending ? "Saving..." : "Save Changes"}
+          </button>
 
-      {state.error ? (
-        <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {state.error}
+          <a
+            href={`/app/clients/${client.id}`}
+            className="rounded-xl border px-4 py-2 text-slate-700 hover:bg-slate-50"
+          >
+            Cancel
+          </a>
         </div>
-      ) : null}
-
-      <div className="mt-6 flex flex-wrap gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800 disabled:opacity-60"
-        >
-          {pending ? "Saving..." : "Save Client"}
-        </button>
-      </div>
-    </form>
+      </form>
+    </div>
   );
 }

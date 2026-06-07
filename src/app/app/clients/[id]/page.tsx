@@ -40,6 +40,7 @@ type ClientRecord = {
   last_name: string;
   email: string | null;
   phone: string | null;
+  photo_url: string | null;
   status: string;
   skill_level: string | null;
   dance_interests: string | null;
@@ -355,6 +356,13 @@ function getClientDetailTab(value: string | undefined): ClientDetailTab {
     ? (value as ClientDetailTab)
     : "overview";
 }
+
+function getClientInitials(firstName: string, lastName: string) {
+  const firstInitial = firstName.trim().charAt(0).toUpperCase();
+  const lastInitial = lastName.trim().charAt(0).toUpperCase();
+  return `${firstInitial}${lastInitial}` || "DF";
+}
+
 
 type PackageHealth =
   | "healthy"
@@ -1205,6 +1213,7 @@ export default async function ClientDetailPage({
         last_name,
         email,
         phone,
+        photo_url,
         status,
         skill_level,
         dance_interests,
@@ -1556,6 +1565,8 @@ export default async function ClientDetailPage({
 
   const typedStudio = studio as StudioRecord;
   const typedClient = client as ClientRecord;
+  const clientFullName = `${typedClient.first_name} ${typedClient.last_name}`.trim();
+  const clientInitials = getClientInitials(typedClient.first_name, typedClient.last_name);
   const typedInstructors = (instructors ?? []) as InstructorOption[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
   const typedUpcoming = (upcomingAppointments ?? []) as AppointmentRow[];
@@ -1828,15 +1839,28 @@ export default async function ClientDetailPage({
       <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,rgba(255,255,255,0.94)_0%,rgba(255,249,243,0.98)_100%)] p-6 shadow-sm">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-                Client Profile
-              </p>
+            <div className="flex min-w-0 flex-col gap-4 md:flex-row md:items-start">
+              <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-[28px] border border-[var(--brand-border)] bg-white text-2xl font-semibold text-[var(--brand-accent-dark)] shadow-sm">
+                {typedClient.photo_url ? (
+                  <img
+                    src={typedClient.photo_url}
+                    alt={`${clientFullName} headshot`}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span>{clientInitials}</span>
+                )}
+              </div>
 
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <h2 className="text-3xl font-semibold tracking-tight text-[var(--brand-text)] sm:text-4xl">
-                  {typedClient.first_name} {typedClient.last_name}
-                </h2>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+                  Client Profile
+                </p>
+
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <h2 className="text-3xl font-semibold tracking-tight text-[var(--brand-text)] sm:text-4xl">
+                    {clientFullName}
+                  </h2>
 
                 <span
                   className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClass(
@@ -1968,6 +1992,7 @@ export default async function ClientDetailPage({
                     </div>
                   </form>
                 ) : null}
+              </div>
               </div>
             </div>
 

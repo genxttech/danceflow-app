@@ -19,6 +19,7 @@ type ClientRow = {
   dance_interests: string | null;
   referral_source: string | null;
   notes: string | null;
+  photo_url: string | null;
   is_independent_instructor: boolean | null;
   linked_instructor_id: string | null;
 };
@@ -69,6 +70,7 @@ const role = context.studioRole ?? "";
         dance_interests,
         referral_source,
         notes,
+        photo_url,
         is_independent_instructor,
         linked_instructor_id
       `)
@@ -154,10 +156,7 @@ const role = context.studioRole ?? "";
       </section>
 
       <div className="mx-auto max-w-4xl">
-        <EditClientForm
-          client={client as ClientRow}
-          instructors={(instructors ?? []) as InstructorOption[]}
-        />
+        <EditClientForm client={client as ClientRow} />
       </div>
     </div>
   );

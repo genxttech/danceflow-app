@@ -34,13 +34,31 @@ export default function ClientCreateForm({
   );
 
   return (
-    <form action={formAction} className="space-y-8 rounded-2xl border bg-white p-6">
+    <form action={formAction} encType="multipart/form-data" className="space-y-8 rounded-2xl border bg-white p-6">
       <div>
         <h2 className="text-xl font-semibold text-slate-900">New Client</h2>
         <p className="mt-1 text-sm text-slate-600">
           Create a standard client record or mark the person as an independent
           instructor with limited floor-rental access.
         </p>
+      </div>
+
+      <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+        <label htmlFor="clientPhoto" className="block text-sm font-semibold text-slate-800">
+          Client headshot
+        </label>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          Upload or take a photo so staff can verify the client during check-ins and future QR workflows.
+        </p>
+        <input
+          id="clientPhoto"
+          name="clientPhoto"
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
+          className="mt-3 block w-full text-sm text-slate-700 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
+        />
+        <p className="mt-2 text-xs text-slate-500">JPG, PNG, or WebP up to 5MB.</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

@@ -118,7 +118,7 @@ export default function NewClientPage() {
         </div>
       </section>
 
-      <form action={formAction} className="space-y-6">
+      <form action={formAction} encType="multipart/form-data" className="space-y-6">
         <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
@@ -199,6 +199,35 @@ export default function NewClientPage() {
           </div>
         </section>
 
+
+        <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
+            Photo verification
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+            Add a client headshot
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            Add a photo now so staff can visually confirm the client during check-ins, lessons, and future QR workflows.
+          </p>
+
+          <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4">
+            <label htmlFor="clientPhoto" className="block text-sm font-semibold text-slate-800">
+              Upload or take photo
+            </label>
+            <input
+              id="clientPhoto"
+              name="clientPhoto"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              className="mt-3 block w-full text-sm text-slate-700 file:mr-4 file:rounded-xl file:border-0 file:bg-[#5B197A] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-[#4A1363]"
+            />
+            <p className="mt-3 text-xs leading-5 text-slate-500">
+              JPG, PNG, or WebP up to 5MB. On supported mobile devices, the file picker can open the camera.
+            </p>
+          </div>
+                </section>  
         <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
             Client profile

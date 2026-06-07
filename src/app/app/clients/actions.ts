@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
@@ -20,6 +21,82 @@ function appendQueryParam(url: string, key: string, value: string) {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
 }
+
+const CLIENT_PHOTO_BUCKET = "client-photos";
+const MAX_CLIENT_PHOTO_BYTES = 5 * 1024 * 1024;
+const ALLOWED_CLIENT_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function getOptionalImageFile(formData: FormData, key: string) {
+  const value = formData.get(key);
+
+  if (!(value instanceof File) || value.size === 0) {
+    return null;
+  }
+
+  return value;
+}
+
+function safePhotoFileName(file: File) {
+  const extension =
+    file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
+
+  const baseName = file.name
+    .replace(/\.[^/.]+$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 40);
+
+  return `${baseName || "client-photo"}.${extension}`;
+}
+
+async function uploadClientPhoto(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  clientId: string;
+  file: File | null;
+}) {
+  const { supabase, studioId, clientId, file } = params;
+
+  if (!file) {
+    return { url: null as string | null, error: null as string | null };
+  }
+
+  if (!ALLOWED_CLIENT_PHOTO_TYPES.has(file.type)) {
+    return {
+      url: null,
+      error: "Client photo must be a JPG, PNG, or WebP image.",
+    };
+  }
+
+  if (file.size > MAX_CLIENT_PHOTO_BYTES) {
+    return {
+      url: null,
+      error: "Client photo must be 5MB or smaller.",
+    };
+  }
+
+  const photoPath = `${studioId}/${clientId}/${Date.now()}-${safePhotoFileName(file)}`;
+  const { error: uploadError } = await supabase.storage
+    .from(CLIENT_PHOTO_BUCKET)
+    .upload(photoPath, file, {
+      cacheControl: "3600",
+      contentType: file.type,
+      upsert: false,
+    });
+
+  if (uploadError) {
+    return {
+      url: null,
+      error: `Client photo upload failed: ${uploadError.message}`,
+    };
+  }
+
+  const { data } = supabase.storage.from(CLIENT_PHOTO_BUCKET).getPublicUrl(photoPath);
+
+  return { url: data.publicUrl, error: null as string | null };
+}
+
 
 async function getCurrentUserStudioContext() {
   const supabase = await createClient();
@@ -158,6 +235,7 @@ export async function createClientAction(
     const linkedInstructorIdRaw = getString(formData, "linkedInstructorId");
     const isIndependentInstructor =
       formData.get("isIndependentInstructor") === "on";
+    const clientPhoto = getOptionalImageFile(formData, "clientPhoto");
 
     const linkedInstructorId = linkedInstructorIdRaw || null;
 
@@ -223,9 +301,23 @@ export async function createClientAction(
       isIndependentInstructor,
     });
 
+    const clientId = randomUUID();
+    const photoResult = await uploadClientPhoto({
+      supabase,
+      studioId,
+      clientId,
+      file: clientPhoto,
+    });
+
+    if (photoResult.error) {
+      return { error: photoResult.error };
+    }
+
     const { error } = await supabase.from("clients").insert({
+      id: clientId,
       studio_id: studioId,
       ...payload,
+      photo_url: photoResult.url,
     });
 
     if (error) {
@@ -262,6 +354,7 @@ export async function updateClientAction(
     const linkedInstructorIdRaw = getString(formData, "linkedInstructorId");
     const isIndependentInstructor =
       formData.get("isIndependentInstructor") === "on";
+    const clientPhoto = getOptionalImageFile(formData, "clientPhoto");
 
     const linkedInstructorId = linkedInstructorIdRaw || null;
 
@@ -345,9 +438,25 @@ export async function updateClientAction(
       isIndependentInstructor,
     });
 
+    const photoResult = await uploadClientPhoto({
+      supabase,
+      studioId,
+      clientId,
+      file: clientPhoto,
+    });
+
+    if (photoResult.error) {
+      return { error: photoResult.error };
+    }
+
+    const updatePayload = {
+      ...payload,
+      ...(photoResult.url ? { photo_url: photoResult.url } : {}),
+    };
+
     const { error } = await supabase
       .from("clients")
-      .update(payload)
+      .update(updatePayload)
       .eq("id", clientId)
       .eq("studio_id", studioId);
 
