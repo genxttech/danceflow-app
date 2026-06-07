@@ -2783,6 +2783,479 @@ A complete public page makes shared links more effective.
 `,
   },
 
+  {
+    slug: "managing-booking-requests",
+    title: "Managing Booking Requests",
+    category: "Booking Requests",
+    audience: "both",
+    description:
+      "Learn how public intro requests and portal schedule requests flow into the staff approval queue.",
+    content: `
+## Overview
+
+Booking requests let studios collect preferred lesson times without allowing visitors or portal clients to place appointments directly on the calendar.
+
+Requests are staff-reviewed. That means the studio stays in control of availability, instructor assignment, room usage, and final scheduling.
+
+## Where booking requests come from
+
+Booking requests can come from:
+
+- Public intro lesson request pages
+- Client portal schedule request pages
+- Future staff-created request workflows
+
+Public intro requests are usually for new or returning leads. Portal schedule requests are usually for existing clients who already have portal access.
+
+## Where staff reviews requests
+
+Go to **Schedule > Requests**.
+
+The request queue shows pending, approved, declined, and all requests.
+
+Each request includes client/contact details, requested time, source, notes, instructor or room preferences when available, and current status.
+
+## Statuses
+
+Booking requests use these statuses:
+
+- **Pending**: needs staff review
+- **Approved**: converted into an appointment
+- **Declined**: not scheduled
+
+## Best practice
+
+Review pending requests daily. If a requested time works, approve it and create the appointment. If it does not work, decline it with a note and follow up with the client using another available time.
+`,
+  },
+  {
+    slug: "approving-or-declining-booking-requests",
+    title: "Approving or Declining Booking Requests",
+    category: "Booking Requests",
+    audience: "app",
+    description:
+      "Learn what happens when staff approves or declines a booking request.",
+    content: `
+## Overview
+
+Approving a booking request creates a confirmed appointment. Declining a request keeps the calendar unchanged and records the staff decision.
+
+## Approving a request
+
+Go to **Schedule > Requests** and open the pending request.
+
+Before approval, review:
+
+- Client name and contact information
+- Requested date and time
+- Instructor
+- Room
+- Lesson type
+- Notes from the client
+
+When you approve, DanceFlow performs a final conflict check. If the time is still available, the appointment is created and the request is marked approved.
+
+## Declining a request
+
+Decline a request when the requested time or setup does not work.
+
+Add a staff note so your team understands why it was declined. A good note might include a suggested alternate time or a reminder to contact the client.
+
+## What clients see
+
+If email notifications are enabled, clients can receive updates when a request is received, approved, or declined.
+
+## Best practice
+
+Use approval for times you are confident can be honored. Use decline when the client needs a different time, different instructor, or additional follow-up before scheduling.
+`,
+  },
+  {
+    slug: "portal-schedule-requests",
+    title: "Letting Portal Clients Request Lesson Times",
+    category: "Booking Requests",
+    audience: "both",
+    description:
+      "Learn how existing clients can request lesson times from the client portal.",
+    content: `
+## Overview
+
+Portal schedule requests let existing clients ask for a preferred lesson time from their portal.
+
+This is not instant booking. The studio still reviews and approves the request before an appointment appears on the schedule.
+
+## How clients submit a request
+
+A portal client goes to the schedule area of the client portal and completes the request form.
+
+The request may include:
+
+- Preferred date
+- Preferred time
+- Lesson type
+- Notes for the studio
+
+## How staff handles the request
+
+Staff reviews portal schedule requests from **Schedule > Requests**.
+
+A portal request is labeled separately from a public intro request so the team can understand where it came from.
+
+## Why this is useful
+
+Portal schedule requests reduce back-and-forth messaging while keeping the studio in control.
+
+Clients can communicate preferred times, and staff can approve only the times that work for the instructor, room, and studio calendar.
+
+## Best practice
+
+Use portal schedule requests for existing clients who already understand your studio process. Keep instant booking disabled until your studio has clear availability rules and approval workflows in place.
+`,
+  },
+  {
+    slug: "booking-availability-rules",
+    title: "Setting Booking Availability Rules",
+    category: "Booking Requests",
+    audience: "app",
+    description:
+      "Learn how availability rules control when clients can request lesson times.",
+    content: `
+## Overview
+
+Booking availability rules control what dates and times clients can request.
+
+These rules help prevent unrealistic requests and make the booking request workflow easier for staff to manage.
+
+## What availability rules can control
+
+Depending on your workspace settings, you may be able to configure:
+
+- Requestable days of the week
+- Earliest request time
+- Latest request time
+- Minimum notice
+- How far ahead clients can request
+- Bookable instructors
+- Bookable lesson types
+
+## Public requests vs portal requests
+
+Public intro booking rules are usually designed for new leads.
+
+Portal schedule request rules are designed for existing clients.
+
+Your studio may choose to allow one, both, or neither.
+
+## Request-based scheduling
+
+Availability rules do not automatically create appointments. They guide the request process and help staff review better requests.
+
+## Best practice
+
+Start with conservative windows. For example, allow requests during your normal front desk hours or high-availability teaching blocks. Expand the request window after your team is comfortable with the workflow.
+`,
+  },
+  {
+    slug: "client-photo-verification",
+    title: "Adding Client Photos for Staff Verification",
+    category: "Clients & CRM",
+    audience: "app",
+    description:
+      "Learn how client photos help staff verify accounts and prepare for future QR check-in workflows.",
+    content: `
+## Overview
+
+Client photos help staff visually confirm that they are working with the correct client profile.
+
+This is useful at the front desk, during check-in, and when studios have multiple clients with similar names.
+
+## Where photos appear
+
+Client photos can appear on the client profile and may be used in future check-in and QR identity workflows.
+
+If no photo is available, DanceFlow can show an initials fallback.
+
+## Adding a photo
+
+When creating or editing a client, upload a clear headshot. On supported phones or tablets, the file picker may allow staff to take a new photo with the device camera.
+
+## Best practice
+
+Use a clear, well-lit headshot. Avoid group photos, blurry images, or images where the client is difficult to identify.
+
+## Future use
+
+Client photos are part of the foundation for future client QR identity. When staff scans a client QR code, the photo can help verify the client before checking them into lessons, classes, or events.
+`,
+  },
+  {
+    slug: "staff-photos-and-credentials",
+    title: "Adding Staff Photos and Credentials",
+    category: "Public Profile",
+    audience: "app",
+    description:
+      "Learn how to add staff photos, teaching certifications, and titles for instructor profiles.",
+    content: `
+## Overview
+
+Staff photos and credentials help your studio present instructors professionally.
+
+These details can support both internal staff profiles and public studio marketing.
+
+## Staff photos
+
+Add a clear instructor headshot from the instructor create or edit page. On supported devices, staff may be able to take a photo directly with the camera.
+
+Photos help public visitors recognize instructors and make staff profiles feel more complete.
+
+## Credentials and titles
+
+Credentials can include:
+
+- Teaching certifications
+- Judge certifications
+- Competitive titles
+- Professional achievements
+- Specialty training
+
+Examples:
+
+- DVIDA Certified Instructor
+- UCWDC Certified Judge
+- 2025 UCWDC World Masters Champion
+- West Coast Swing Specialist
+
+## Best practice
+
+Use specific credential names and include the issuing organization or event whenever possible. This makes verification easier and gives public visitors clearer information.
+`,
+  },
+  {
+    slug: "staff-credential-verification",
+    title: "Submitting Staff Credentials for Verification",
+    category: "Public Profile",
+    audience: "app",
+    description:
+      "Learn how credential verification works before certifications and titles appear publicly.",
+    content: `
+## Overview
+
+DanceFlow supports credential verification so public staff profiles can show accurate certifications and achievements.
+
+A studio can submit multiple credentials for one instructor. Each credential is reviewed separately.
+
+## Why credentials are reviewed separately
+
+One instructor may have several certifications or titles, and each may require its own proof.
+
+For example:
+
+- DVIDA Certified Instructor
+- UCWDC Certified Judge
+- 2025 UCWDC World Masters Champion
+
+Each credential should have its own proof or reference link.
+
+## Credential statuses
+
+Credentials may be:
+
+- **Submitted**: waiting for review
+- **Verified**: approved for public display if public display is enabled
+- **Rejected**: not approved based on the provided information
+
+## Public display
+
+Only verified credentials that are marked for public display appear on the public studio staff section.
+
+Submitted or rejected credentials remain internal and do not appear publicly.
+
+## Best practice
+
+Add a proof URL or reference that clearly supports the specific credential. Examples include certification records, official results pages, event results, or an uploaded proof document when supported.
+`,
+  },
+  {
+    slug: "verified-staff-credentials-on-public-pages",
+    title: "How Verified Staff Credentials Appear Publicly",
+    category: "Public Profile",
+    audience: "public",
+    description:
+      "Learn how verified staff certifications and achievements can appear on a studio public page.",
+    content: `
+## Overview
+
+Public staff credentials help dancers understand an instructor's background, training, and achievements.
+
+Studios can submit credentials for verification, and verified credentials can appear in the Staff section of the public studio page.
+
+## What may appear publicly
+
+A public staff profile may include:
+
+- Instructor photo
+- Title or role
+- Bio
+- Specialties
+- Verified teaching certifications
+- Verified titles or achievements
+
+## Why verification matters
+
+Verification helps protect the credibility of the studio and the platform. Public visitors should be able to trust that displayed certifications and achievements have been reviewed.
+
+## What does not appear publicly
+
+Submitted, rejected, or unverified credentials do not appear publicly by default.
+
+Studios can still view those credentials internally.
+`,
+  },
+  {
+    slug: "sms-consent-and-message-history",
+    title: "Using SMS Consent and Message History",
+    category: "Communication",
+    audience: "app",
+    description:
+      "Learn how to record SMS consent and review message history on a client profile.",
+    content: `
+## Overview
+
+SMS consent helps your studio track whether a client has agreed to receive text messages.
+
+DanceFlow requires consent tracking so staff can see whether a client is opted in, opted out, or still needs consent.
+
+## Where to manage SMS consent
+
+Open a client profile and go to the Marketing tab.
+
+There you can review or update the client's SMS consent status and consent note.
+
+## SMS statuses
+
+Common statuses include:
+
+- **Consent needed**: no clear SMS permission has been recorded
+- **Opted in**: client has agreed to receive texts
+- **Opted out**: client should not receive texts
+
+## Message history
+
+The client Marketing tab can show recent SMS message history, including queued, sent, delivered, or failed messages when available.
+
+## Best practice
+
+Only mark a client opted in when the client has clearly agreed to receive SMS messages. If a client replies STOP, keep them opted out unless they later opt back in.
+`,
+  },
+  {
+    slug: "sms-opt-in-for-studios",
+    title: "What SMS Opt-In Means for Studios",
+    category: "Communication",
+    audience: "public",
+    description:
+      "Understand what studios should know before texting clients through DanceFlow.",
+    content: `
+## Overview
+
+SMS opt-in means a client has agreed to receive text messages from the studio or organizer.
+
+Studios should not text clients who have not given permission.
+
+## What consent should cover
+
+Consent should make it clear that the client may receive text messages about studio-related communication, such as:
+
+- Lesson reminders
+- Schedule updates
+- Event or registration updates
+- Client follow-up
+- Account or service communication
+
+## Consent is optional
+
+SMS consent should not be required for a client to receive services, register for an event, or buy a ticket.
+
+Clients can use other communication methods if they do not want text messages.
+
+## Opting out
+
+Clients can opt out of SMS messages by replying STOP. They may reply HELP for help.
+
+## Best practice
+
+Record consent clearly in the client profile. Use notes when helpful, such as how consent was received or who recorded it.
+`,
+  },
+  {
+    slug: "documents-and-e-signatures",
+    title: "Creating and Sending Documents for E-Signature",
+    category: "Documents & E-Signatures",
+    audience: "app",
+    description:
+      "Learn how documents and e-signatures help studios collect agreements, waivers, and acknowledgments.",
+    content: `
+## Overview
+
+Documents and e-signatures help studios collect important agreements without relying on paper forms.
+
+Common examples include:
+
+- Studio policies
+- Liability waivers
+- Membership agreements
+- Event waivers
+- Code of conduct acknowledgments
+
+## Creating documents
+
+Use the Documents area to create reusable document templates for your studio.
+
+Templates can be used for clients, portal users, or event workflows depending on how the document is configured.
+
+## Sending for signature
+
+When a document is sent for signature, the recipient can review and sign the document electronically.
+
+Signed records are saved so staff can verify completion later.
+
+## Best practice
+
+Keep document language clear and specific. If a document is legally important, have it reviewed by an appropriate professional before using it with clients or attendees.
+`,
+  },
+  {
+    slug: "finding-signed-documents-and-waivers",
+    title: "Finding Signed Documents and Waivers",
+    category: "Documents & E-Signatures",
+    audience: "app",
+    description:
+      "Learn where to look when you need to confirm whether a client or event attendee signed a document.",
+    content: `
+## Overview
+
+Signed documents help staff confirm that required forms have been completed.
+
+This is especially useful for studio waivers, client agreements, event waivers, and membership documents.
+
+## Client documents
+
+Open the client profile and review the Documents area to see documents related to that client.
+
+Look for signed status, completion timestamps, and the document name.
+
+## Event waivers
+
+For events, signed waivers may be tied to the registration or attendee record.
+
+Use the event registration or check-in areas to confirm whether required waivers have been completed.
+
+## Best practice
+
+Before allowing participation in activities that require a waiver, confirm the document status is complete. If a document is missing or unsigned, ask the client or attendee to complete it before participating.
+`,
+  },
+
 ];
 
 export function getPublicKnowledgebaseArticles() {
