@@ -17,6 +17,8 @@ type NotificationItem = {
   created_at: string;
   client_id: string | null;
   appointment_id: string | null;
+  category?: string | null;
+  priority?: string | null;
 };
 
 function fmtShortDateTime(value: string) {
@@ -28,20 +30,64 @@ function fmtShortDateTime(value: string) {
   });
 }
 
-function notificationBadgeClass(type: string) {
-  if (type === "public_intro_booking") return "bg-blue-50 text-blue-700";
-  if (type === "follow_up_overdue") return "bg-amber-50 text-amber-700";
-  if (type === "package_low_balance") return "bg-orange-50 text-orange-700";
-  if (type === "package_depleted") return "bg-red-50 text-red-700";
+function notificationBadgeClass(type: string, category?: string | null) {
+  const key = category || type;
+
+  if (key === "booking" || type === "public_intro_booking") return "bg-blue-50 text-blue-700";
+  if (key === "client" || type === "follow_up_overdue") return "bg-amber-50 text-amber-700";
+  if (key === "package" || type === "package_low_balance") return "bg-orange-50 text-orange-700";
+  if (type === "package_depleted" || key === "payment") return "bg-red-50 text-red-700";
+  if (key === "membership") return "bg-fuchsia-50 text-fuchsia-700";
+  if (key === "document") return "bg-cyan-50 text-cyan-700";
+  if (key === "event") return "bg-emerald-50 text-emerald-700";
+  if (key === "sms") return "bg-rose-50 text-rose-700";
+  if (key === "credential") return "bg-violet-50 text-violet-700";
+  if (key === "automation") return "bg-purple-50 text-purple-700";
+  if (key === "check_in") return "bg-teal-50 text-teal-700";
   return "bg-slate-100 text-slate-700";
 }
 
 function notificationTypeLabel(type: string) {
-  if (type === "public_intro_booking") return "Public Intro";
-  if (type === "follow_up_overdue") return "Follow-Up";
-  if (type === "package_low_balance") return "Low Balance";
-  if (type === "package_depleted") return "Package";
-  return type.replaceAll("_", " ");
+  const labels: Record<string, string> = {
+    public_intro_booking: "Public Intro",
+    booking_request_pending: "Booking Request",
+    booking_request_approved: "Request Approved",
+    booking_request_declined: "Request Declined",
+    portal_schedule_request: "Portal Request",
+    follow_up_overdue: "Follow-Up",
+    no_upcoming_lesson: "No Lesson Scheduled",
+    package_low_balance: "Low Balance",
+    package_depleted: "Package",
+    package_renewal_due: "Package Renewal",
+    membership_expiring: "Membership",
+    membership_expired: "Membership",
+    document_signature_needed: "Signature Needed",
+    waiver_missing: "Waiver Missing",
+    credential_submitted: "Credential",
+    credential_verified: "Credential",
+    credential_rejected: "Credential",
+    client_checked_in: "Check-In",
+    client_qr_identity: "Client QR",
+    sms_failed: "SMS Failed",
+    automation_action_needed: "Automation",
+    mambo_opportunity: "ARIA",
+    event_registration: "Event",
+    event_check_in: "Event Check-In",
+  };
+
+  return labels[type] ?? type.replaceAll("_", " ");
+}
+
+function priorityBadgeClass(priority?: string | null) {
+  if (priority === "urgent") return "bg-red-600 text-white";
+  if (priority === "high") return "bg-amber-500 text-white";
+  if (priority === "low") return "bg-slate-100 text-slate-600";
+  return "bg-slate-100 text-slate-700";
+}
+
+function priorityLabel(priority?: string | null) {
+  if (!priority || priority === "normal") return null;
+  return priority.charAt(0).toUpperCase() + priority.slice(1);
 }
 
 function getNotificationHref(notification: NotificationItem) {
@@ -143,11 +189,22 @@ export default function NotificationMenu({
 
                             <span
                               className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${notificationBadgeClass(
-                                notification.type
+                                notification.type,
+                                notification.category
                               )}`}
                             >
                               {notificationTypeLabel(notification.type)}
                             </span>
+
+                            {priorityLabel(notification.priority) ? (
+                              <span
+                                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${priorityBadgeClass(
+                                  notification.priority
+                                )}`}
+                              >
+                                {priorityLabel(notification.priority)}
+                              </span>
+                            ) : null}
 
                             {!notification.read_at ? (
                               <span className="inline-flex h-2 w-2 rounded-full bg-slate-900" />

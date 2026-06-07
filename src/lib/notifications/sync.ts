@@ -371,6 +371,8 @@ export async function syncStudioNotifications(studioId: string) {
           return {
             studio_id: studioId,
             type: "follow_up_overdue",
+            category: "client",
+            priority: "high",
             title: `${clientName} — Overdue follow-up`,
             body: [
               activity.follow_up_due_at
@@ -397,6 +399,8 @@ export async function syncStudioNotifications(studioId: string) {
           return {
             studio_id: studioId,
             type: "package_depleted",
+            category: "package",
+            priority: "urgent",
             title: `${clientName} — ${packageName} depleted`,
             body: `Package "${packageName}" has no remaining balance in at least one finite item.`,
             client_id: pkg.client_id,
@@ -417,6 +421,8 @@ export async function syncStudioNotifications(studioId: string) {
           return {
             studio_id: studioId,
             type: "package_low_balance",
+            category: "package",
+            priority: "high",
             title: `${clientName} — ${packageName} low balance`,
             body: `Package "${packageName}" is running low and has 2 or fewer remaining in at least one finite item.`,
             client_id: pkg.client_id,
@@ -435,6 +441,8 @@ export async function syncStudioNotifications(studioId: string) {
           return {
             studio_id: studioId,
             type: "floor_rental_upcoming",
+            category: "schedule",
+            priority: "normal",
             title: `${clientName} — Upcoming floor rental`,
             body: `${rentalTitle} starts ${fmtDateTime(
               rental.starts_at

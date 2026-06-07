@@ -12,6 +12,7 @@ import { Bell, CalendarDays, Sparkles } from "lucide-react";
 type SearchParams = Promise<{
   status?: string;
   type?: string;
+  category?: string;
 }>;
 
 type NotificationRow = {
@@ -19,6 +20,8 @@ type NotificationRow = {
   type: string;
   title: string;
   body: string | null;
+  category: string | null;
+  priority: string | null;
   read_at: string | null;
   created_at: string;
   client_id: string | null;
@@ -40,11 +43,46 @@ type WorkspaceRow = {
 
 const studioNotificationTypeOptions: NotificationTypeOption[] = [
   { value: "event_registration", label: "Event Registration" },
+  { value: "event_check_in", label: "Event Check-In" },
   { value: "public_intro_booking", label: "Public Intro" },
+  { value: "booking_request_pending", label: "Booking Request" },
+  { value: "booking_request_approved", label: "Request Approved" },
+  { value: "booking_request_declined", label: "Request Declined" },
+  { value: "portal_schedule_request", label: "Portal Request" },
   { value: "floor_rental_upcoming", label: "Floor Rental" },
   { value: "follow_up_overdue", label: "Follow-Up Overdue" },
+  { value: "no_upcoming_lesson", label: "No Lesson Scheduled" },
   { value: "package_low_balance", label: "Package Low Balance" },
   { value: "package_depleted", label: "Package Depleted" },
+  { value: "package_renewal_due", label: "Package Renewal" },
+  { value: "membership_expiring", label: "Membership Expiring" },
+  { value: "membership_expired", label: "Membership Expired" },
+  { value: "document_signature_needed", label: "Signature Needed" },
+  { value: "waiver_missing", label: "Waiver Missing" },
+  { value: "credential_submitted", label: "Credential Submitted" },
+  { value: "credential_verified", label: "Credential Verified" },
+  { value: "credential_rejected", label: "Credential Rejected" },
+  { value: "client_checked_in", label: "Client Checked In" },
+  { value: "client_qr_identity", label: "Client QR" },
+  { value: "sms_failed", label: "SMS Failed" },
+  { value: "automation_action_needed", label: "Automation" },
+  { value: "mambo_opportunity", label: "ARIA Opportunity" },
+];
+
+const notificationCategoryOptions: NotificationTypeOption[] = [
+  { value: "booking", label: "Booking" },
+  { value: "schedule", label: "Schedule" },
+  { value: "client", label: "Client" },
+  { value: "package", label: "Packages" },
+  { value: "membership", label: "Memberships" },
+  { value: "document", label: "Documents" },
+  { value: "event", label: "Events" },
+  { value: "sms", label: "SMS" },
+  { value: "credential", label: "Credentials" },
+  { value: "automation", label: "Automations" },
+  { value: "payment", label: "Payments" },
+  { value: "check_in", label: "Check-In" },
+  { value: "system", label: "System" },
 ];
 
 function isOrganizerWorkspaceName(value: string | null | undefined) {
@@ -69,13 +107,21 @@ function fmtDateTime(value: string) {
   });
 }
 
-function notificationBadgeClass(type: string) {
-  if (type === "event_registration") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
-  if (type === "public_intro_booking") return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
-  if (type === "follow_up_overdue") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-  if (type === "package_low_balance") return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
-  if (type === "package_depleted") return "bg-red-50 text-red-700 ring-1 ring-red-200";
-  if (type === "floor_rental_upcoming") return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
+function notificationBadgeClass(type: string, category?: string | null) {
+  const key = category || type;
+
+  if (key === "event" || type === "event_registration") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  if (key === "booking" || type === "public_intro_booking") return "bg-blue-50 text-blue-700 ring-1 ring-blue-200";
+  if (key === "client" || type === "follow_up_overdue") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (key === "package" || type === "package_low_balance") return "bg-orange-50 text-orange-700 ring-1 ring-orange-200";
+  if (type === "package_depleted" || key === "payment") return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  if (key === "schedule") return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200";
+  if (key === "membership") return "bg-fuchsia-50 text-fuchsia-700 ring-1 ring-fuchsia-200";
+  if (key === "document") return "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-200";
+  if (key === "sms") return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
+  if (key === "credential") return "bg-violet-50 text-violet-700 ring-1 ring-violet-200";
+  if (key === "automation") return "bg-purple-50 text-purple-700 ring-1 ring-purple-200";
+  if (key === "check_in") return "bg-teal-50 text-teal-700 ring-1 ring-teal-200";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
@@ -83,6 +129,24 @@ function notificationTypeLabel(type: string) {
   const match = studioNotificationTypeOptions.find((option) => option.value === type);
   if (match) return match.label;
   return type.replaceAll("_", " ");
+}
+
+function notificationCategoryLabel(category: string | null | undefined) {
+  if (!category) return null;
+  const match = notificationCategoryOptions.find((option) => option.value === category);
+  return match?.label ?? category.replaceAll("_", " ");
+}
+
+function priorityBadgeClass(priority: string | null | undefined) {
+  if (priority === "urgent") return "bg-red-600 text-white";
+  if (priority === "high") return "bg-amber-500 text-white";
+  if (priority === "low") return "bg-slate-100 text-slate-600";
+  return "bg-slate-100 text-slate-700";
+}
+
+function priorityLabel(priority: string | null | undefined) {
+  if (!priority || priority === "normal") return null;
+  return priority.charAt(0).toUpperCase() + priority.slice(1);
 }
 
 function getNotificationHref(notification: NotificationRow) {
@@ -101,11 +165,17 @@ function getNotificationHref(notification: NotificationRow) {
   return "/app";
 }
 
-function buildFilterHref(status: string, type: string, organizerWorkspace: boolean) {
+function buildFilterHref(
+  status: string,
+  type: string,
+  category: string,
+  organizerWorkspace: boolean
+) {
   const params = new URLSearchParams();
 
   if (status !== "all") params.set("status", status);
   if (!organizerWorkspace && type !== "all") params.set("type", type);
+  if (!organizerWorkspace && category !== "all") params.set("category", category);
 
   const query = params.toString();
   return query ? `/app/notifications?${query}` : "/app/notifications";
@@ -143,6 +213,7 @@ export default async function NotificationsPage({
   const params = await searchParams;
   const statusFilter = params.status ?? "all";
   const typeFilter = params.type ?? "all";
+  const categoryFilter = params.category ?? "all";
 
   const supabase = await createClient();
 
@@ -184,6 +255,8 @@ export default async function NotificationsPage({
       type,
       title,
       body,
+      category,
+      priority,
       read_at,
       created_at,
       client_id,
@@ -203,6 +276,10 @@ export default async function NotificationsPage({
 
   if (!organizerWorkspace && typeFilter !== "all") {
     notificationsQuery = notificationsQuery.eq("type", typeFilter);
+  }
+
+  if (!organizerWorkspace && categoryFilter !== "all") {
+    notificationsQuery = notificationsQuery.eq("category", categoryFilter);
   }
 
   const [
@@ -283,7 +360,7 @@ export default async function NotificationsPage({
       <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
         <div
           className={`grid gap-4 ${
-            organizerWorkspace ? "lg:grid-cols-[220px_auto]" : "lg:grid-cols-[220px_220px_auto]"
+            organizerWorkspace ? "lg:grid-cols-[220px_auto]" : "lg:grid-cols-[200px_200px_200px_auto]"
           }`}
         >
           <div>
@@ -302,6 +379,28 @@ export default async function NotificationsPage({
               <option value="read">Read</option>
             </select>
           </div>
+
+          {!organizerWorkspace ? (
+            <div>
+              <label htmlFor="category" className="mb-1.5 block text-sm font-medium text-slate-800">
+                Category
+              </label>
+              <select
+                id="category"
+                name="category"
+                defaultValue={categoryFilter}
+                form="notification-filter-form"
+                className="w-full rounded-2xl border border-slate-300 px-3 py-2.5 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-4 focus:ring-[var(--brand-primary)]/10"
+              >
+                <option value="all">All Categories</option>
+                {notificationCategoryOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           {!organizerWorkspace ? (
             <div>
@@ -347,7 +446,7 @@ export default async function NotificationsPage({
         <div className="mt-5 space-y-4">
           <div className="flex flex-wrap gap-3">
             <Link
-              href={buildFilterHref("all", typeFilter, organizerWorkspace)}
+              href={buildFilterHref("all", typeFilter, categoryFilter, organizerWorkspace)}
               className={`rounded-full px-4 py-2 text-sm ${
                 statusFilter === "all"
                   ? "bg-slate-900 text-white"
@@ -357,7 +456,7 @@ export default async function NotificationsPage({
               All
             </Link>
             <Link
-              href={buildFilterHref("unread", typeFilter, organizerWorkspace)}
+              href={buildFilterHref("unread", typeFilter, categoryFilter, organizerWorkspace)}
               className={`rounded-full px-4 py-2 text-sm ${
                 statusFilter === "unread"
                   ? "bg-slate-900 text-white"
@@ -367,7 +466,7 @@ export default async function NotificationsPage({
               Unread
             </Link>
             <Link
-              href={buildFilterHref("read", typeFilter, organizerWorkspace)}
+              href={buildFilterHref("read", typeFilter, categoryFilter, organizerWorkspace)}
               className={`rounded-full px-4 py-2 text-sm ${
                 statusFilter === "read"
                   ? "bg-slate-900 text-white"
@@ -381,7 +480,36 @@ export default async function NotificationsPage({
           {!organizerWorkspace ? (
             <div className="flex flex-wrap gap-3">
               <Link
-                href={buildFilterHref(statusFilter, "all", organizerWorkspace)}
+                href={buildFilterHref(statusFilter, typeFilter, "all", organizerWorkspace)}
+                className={`rounded-full px-4 py-2 text-sm ${
+                  categoryFilter === "all"
+                    ? "bg-slate-900 text-white"
+                    : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                All Categories
+              </Link>
+
+              {notificationCategoryOptions.map((option) => (
+                <Link
+                  key={option.value}
+                  href={buildFilterHref(statusFilter, typeFilter, option.value, organizerWorkspace)}
+                  className={`rounded-full px-4 py-2 text-sm ${
+                    categoryFilter === option.value
+                      ? "bg-slate-900 text-white"
+                      : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {option.label}
+                </Link>
+              ))}
+            </div>
+          ) : null}
+
+          {!organizerWorkspace ? (
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href={buildFilterHref(statusFilter, "all", categoryFilter, organizerWorkspace)}
                 className={`rounded-full px-4 py-2 text-sm ${
                   typeFilter === "all"
                     ? "bg-slate-900 text-white"
@@ -394,7 +522,7 @@ export default async function NotificationsPage({
               {notificationTypeOptions.map((option) => (
                 <Link
                   key={option.value}
-                  href={buildFilterHref(statusFilter, option.value, organizerWorkspace)}
+                  href={buildFilterHref(statusFilter, option.value, categoryFilter, organizerWorkspace)}
                   className={`rounded-full px-4 py-2 text-sm ${
                     typeFilter === option.value
                       ? "bg-slate-900 text-white"
@@ -430,10 +558,27 @@ export default async function NotificationsPage({
                     {!organizerWorkspace ? (
                       <span
                         className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${notificationBadgeClass(
-                          notification.type
+                          notification.type,
+                          notification.category
                         )}`}
                       >
                         {notificationTypeLabel(notification.type)}
+                      </span>
+                    ) : null}
+
+                    {notificationCategoryLabel(notification.category) ? (
+                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                        {notificationCategoryLabel(notification.category)}
+                      </span>
+                    ) : null}
+
+                    {priorityLabel(notification.priority) ? (
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${priorityBadgeClass(
+                          notification.priority
+                        )}`}
+                      >
+                        {priorityLabel(notification.priority)}
                       </span>
                     ) : null}
 

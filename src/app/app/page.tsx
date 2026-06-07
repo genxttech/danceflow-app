@@ -42,6 +42,8 @@ type NotificationRow = {
   type: string;
   title: string;
   body: string | null;
+  category: string | null;
+  priority: string | null;
   read_at: string | null;
   created_at: string;
 };
@@ -902,7 +904,7 @@ export default async function AppDashboardPage({
 
     supabase
       .from("notifications")
-      .select("id, type, title, body, read_at, created_at")
+      .select("id, type, title, body, category, priority, read_at, created_at")
       .eq("studio_id", studioId)
       .order("created_at", { ascending: false })
       .limit(6),
