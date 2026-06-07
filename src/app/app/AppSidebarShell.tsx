@@ -28,6 +28,7 @@ import {
   Ticket,
   Search,
   Megaphone,
+  Sparkles,
 } from "lucide-react";
 import NotificationMenu from "@/components/ui/NotificationMenu";
 
@@ -138,6 +139,7 @@ function getIcon(icon: string) {
   if (icon === "notifications") return Bell;
   if (icon === "discovery") return Search;
   if (icon === "marketing") return Megaphone;
+  if (icon === "automations") return Sparkles;
   return LayoutDashboard;
 }
 
@@ -710,6 +712,103 @@ function injectDocumentsLink(sections: NavSectionType[]): NavSectionType[] {
   ];
 }
 
+
+function injectAutomationsLink(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+
+  if (flatItems.some((item) => item.href === "/app/automations")) {
+    return sections;
+  }
+
+  const automationsItem: NavItem = {
+    label: "Automations",
+    href: "/app/automations",
+    icon: "automations",
+  };
+
+  const operationsSectionIndex = sections.findIndex((section) => {
+    const title = section.title.trim().toLowerCase();
+
+    return (
+      title === "operations" ||
+      title === "growth" ||
+      title === "marketing" ||
+      section.items.some(
+        (item) =>
+          item.href === "/app/marketing" ||
+          item.href === "/app/campaigns" ||
+          item.href === "/app/notifications" ||
+          item.href === "/app/reports",
+      )
+    );
+  });
+
+  if (operationsSectionIndex >= 0) {
+    return sections.map((section, index) => {
+      if (index !== operationsSectionIndex) {
+        return section;
+      }
+
+      const notificationsIndex = section.items.findIndex(
+        (item) => item.href === "/app/notifications",
+      );
+      const reportsIndex = section.items.findIndex(
+        (item) => item.href === "/app/reports",
+      );
+      const marketingIndex = section.items.findIndex(
+        (item) =>
+          item.href === "/app/marketing" || item.href === "/app/campaigns",
+      );
+      const insertAfterIndex =
+        notificationsIndex >= 0
+          ? notificationsIndex
+          : marketingIndex >= 0
+            ? marketingIndex
+            : reportsIndex;
+
+      if (insertAfterIndex >= 0) {
+        return {
+          ...section,
+          items: [
+            ...section.items.slice(0, insertAfterIndex + 1),
+            automationsItem,
+            ...section.items.slice(insertAfterIndex + 1),
+          ],
+        };
+      }
+
+      return {
+        ...section,
+        items: [...section.items, automationsItem],
+      };
+    });
+  }
+
+  const dashboardIndex = sections.findIndex((section) =>
+    section.items.some((item) => item.href === "/app"),
+  );
+
+  if (dashboardIndex >= 0) {
+    return [
+      ...sections.slice(0, dashboardIndex + 1),
+      {
+        title: "Growth",
+        items: [automationsItem],
+      },
+      ...sections.slice(dashboardIndex + 1),
+    ];
+  }
+
+  return [
+    {
+      title: "Growth",
+      items: [automationsItem],
+    },
+    ...sections,
+  ];
+}
+
+
 function normalizeSections(input: unknown): NavSectionType[] {
   if (!Array.isArray(input)) return [];
 
@@ -770,8 +869,9 @@ function normalizeSections(input: unknown): NavSectionType[] {
   );
 
   const withSyllabusLink = injectSyllabusLink(withOrganizerCampaignsLink);
+  const withDocumentsLink = injectDocumentsLink(withSyllabusLink);
 
-  return injectDocumentsLink(withSyllabusLink);
+  return injectAutomationsLink(withDocumentsLink);
 }
 
 function prettyRole(role: string) {
