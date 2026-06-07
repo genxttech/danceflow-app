@@ -12,21 +12,39 @@ type SearchParams = Promise<{
   saved?: string;
 }>;
 
-type InstructorCredentialRow = {
+type CredentialRow = {
   id: string;
   studio_id: string;
-  first_name: string;
-  last_name: string;
-  email: string | null;
-  photo_url?: string | null;
-  public_photo_url?: string | null;
-  teaching_certifications: string | null;
-  competitive_titles: string | null;
-  credential_proof_url: string | null;
-  credentials_verification_status: string | null;
-  credentials_review_note: string | null;
-  credentials_submitted_at: string | null;
-  credentials_verified_at: string | null;
+  instructor_id: string;
+  credential_type: string;
+  name: string;
+  issuing_organization: string | null;
+  credential_year: number | null;
+  proof_url: string | null;
+  notes: string | null;
+  public_enabled: boolean | null;
+  display_order: number | null;
+  verification_status: string | null;
+  review_note: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  created_at: string | null;
+  instructors:
+    | {
+        id: string;
+        first_name: string;
+        last_name: string;
+        email: string | null;
+        public_photo_url: string | null;
+      }
+    | {
+        id: string;
+        first_name: string;
+        last_name: string;
+        email: string | null;
+        public_photo_url: string | null;
+      }[]
+    | null;
   studios:
     | {
         id: string;
@@ -41,98 +59,47 @@ type InstructorCredentialRow = {
     | null;
 };
 
-const FILTERS = [
-  { value: "submitted", label: "Submitted" },
-  { value: "verified", label: "Verified" },
-  { value: "rejected", label: "Rejected" },
-  { value: "unverified", label: "Unverified" },
-  { value: "all", label: "All" },
+const statusFilters = [
+  { key: "submitted", label: "Submitted" },
+  { key: "verified", label: "Verified" },
+  { key: "rejected", label: "Rejected" },
+  { key: "all", label: "All" },
 ];
 
-function normalizeStatus(value: string | null | undefined) {
-  const normalized = String(value ?? "submitted").trim().toLowerCase();
-
-  if (["submitted", "verified", "rejected", "unverified", "all"].includes(normalized)) {
-    return normalized;
-  }
-
-  return "submitted";
-}
-
-function fullName(instructor: InstructorCredentialRow) {
-  return `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim() || "Unnamed instructor";
-}
-
-function getStudio(
-  value: InstructorCredentialRow["studios"],
-): { id: string; name: string; slug: string | null } | null {
+function firstItem<T>(value: T | T[] | null | undefined) {
   if (Array.isArray(value)) return value[0] ?? null;
-  return value;
+  return value ?? null;
 }
 
-function formatDateTime(value: string | null | undefined) {
-  if (!value) return "—";
+function instructorName(credential: CredentialRow) {
+  const instructor = firstItem(credential.instructors);
+  if (!instructor) return "Unknown instructor";
+  return `${instructor.first_name} ${instructor.last_name}`.trim() || "Unnamed instructor";
+}
 
+function studioName(credential: CredentialRow) {
+  return firstItem(credential.studios)?.name ?? "Unknown studio";
+}
+
+function credentialTypeLabel(value: string | null | undefined) {
+  if (value === "title") return "Title";
+  if (value === "achievement") return "Achievement";
+  return "Certification";
+}
+
+function statusClass(status: string | null | undefined) {
+  if (status === "verified") return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  if (status === "rejected") return "bg-red-50 text-red-700 ring-red-200";
+  return "bg-amber-50 text-amber-700 ring-amber-200";
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "—";
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
   }).format(new Date(value));
-}
-
-function statusBadgeClass(status: string | null | undefined) {
-  const normalized = normalizeStatus(status);
-
-  if (normalized === "verified") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
-  if (normalized === "submitted") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-  if (normalized === "rejected") return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
-
-  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
-}
-
-function splitLines(value: string | null | undefined) {
-  return String(value ?? "")
-    .split(/\r?\n|,/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("") || "DF";
-}
-
-function CredentialList({
-  title,
-  items,
-}: {
-  title: string;
-  items: string[];
-}) {
-  return (
-    <div>
-      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-        {title}
-      </p>
-      {items.length > 0 ? (
-        <ul className="mt-2 space-y-1 text-sm text-slate-700">
-          {items.map((item) => (
-            <li key={item} className="rounded-xl bg-slate-50 px-3 py-2">
-              {item}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-2 text-sm text-slate-500">No details submitted.</p>
-      )}
-    </div>
-  );
 }
 
 export default async function PlatformCredentialsPage({
@@ -143,272 +110,261 @@ export default async function PlatformCredentialsPage({
   await requirePlatformAdmin();
 
   const query = await searchParams;
-  const statusFilter = normalizeStatus(query.status);
+  const selectedStatus = query.status ?? "submitted";
   const supabase = await createClient();
 
+  const baseCredentialSelect = `
+    id,
+    studio_id,
+    instructor_id,
+    credential_type,
+    name,
+    issuing_organization,
+    credential_year,
+    proof_url,
+    notes,
+    public_enabled,
+    display_order,
+    verification_status,
+    review_note,
+    submitted_at,
+    reviewed_at,
+    created_at,
+    instructors:instructor_id(id, first_name, last_name, email, public_photo_url),
+    studios:studio_id(id, name, slug)
+  `;
+
   let request = supabase
-    .from("instructors")
-    .select(
-      `
-        id,
-        studio_id,
-        first_name,
-        last_name,
-        email,
-        photo_url,
-        public_photo_url,
-        teaching_certifications,
-        competitive_titles,
-        credential_proof_url,
-        credentials_verification_status,
-        credentials_review_note,
-        credentials_submitted_at,
-        credentials_verified_at,
-        studios (
-          id,
-          name,
-          slug
-        )
-      `,
-    )
-    .or(
-      "teaching_certifications.not.is.null,competitive_titles.not.is.null,credential_proof_url.not.is.null",
-    )
-    .order("credentials_submitted_at", { ascending: false, nullsFirst: false })
-    .order("last_name", { ascending: true });
+    .from("instructor_credentials")
+    .select(baseCredentialSelect)
+    .order("submitted_at", { ascending: false });
 
-  if (statusFilter !== "all") {
-    request = request.eq("credentials_verification_status", statusFilter);
+  if (selectedStatus !== "all") {
+    request = request.eq("verification_status", selectedStatus);
   }
 
-  const { data: credentials, error } = await request;
+  const [filteredResult, countResult] = await Promise.all([
+    request,
+    supabase.from("instructor_credentials").select("verification_status"),
+  ]);
 
-  if (error) {
-    throw new Error(`Failed to load instructor credentials: ${error.message}`);
+  if (filteredResult.error) {
+    throw new Error(`Failed to load credentials: ${filteredResult.error.message}`);
   }
 
-  const rows = (credentials ?? []) as InstructorCredentialRow[];
-  const counts = FILTERS.reduce<Record<string, number>>((acc, filter) => {
-    if (filter.value === "all") {
-      acc[filter.value] = rows.length;
-    } else {
-      acc[filter.value] = rows.filter(
-        (row) => normalizeStatus(row.credentials_verification_status) === filter.value,
-      ).length;
-    }
-    return acc;
-  }, {});
+  if (countResult.error) {
+    throw new Error(`Failed to load credential counts: ${countResult.error.message}`);
+  }
+
+  const credentials = (filteredResult.data ?? []) as CredentialRow[];
+  const allCredentialStatuses = (countResult.data ?? []) as Array<{
+    verification_status: string | null;
+  }>;
+  const counts = allCredentialStatuses.reduce(
+    (acc, credential) => {
+      const status = credential.verification_status ?? "submitted";
+      acc[status] = (acc[status] ?? 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>,
+  );
+  counts.all = allCredentialStatuses.length;
 
   return (
     <div className="space-y-8">
       <section className="overflow-hidden rounded-3xl border border-slate-200 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 shadow-sm">
         <div className="p-6 text-white md:p-8">
-          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-cyan-200">
-            Platform verification
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-amber-200">
+            Platform Verification
           </p>
-          <div className="mt-3 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight md:text-4xl">
-                Staff credential queue
-              </h1>
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-200 md:text-base">
-                Review teaching certifications, competitive titles, and proof links before
-                credentials appear on public studio staff profiles.
-              </p>
-            </div>
-            <Link
-              href="/platform"
-              className="inline-flex rounded-2xl border border-white/20 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/10"
-            >
-              Platform dashboard
-            </Link>
-          </div>
+          <h1 className="mt-3 text-3xl font-bold tracking-tight md:text-4xl">
+            Staff Credential Review
+          </h1>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-200 md:text-base">
+            Review each instructor certification, title, or achievement individually. Verified public credentials can appear on a studio’s public Staff section.
+          </p>
         </div>
       </section>
 
-      {query.saved ? (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-          Credential review saved.
+      {query.saved === "1" ? (
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+          Credential review updated.
         </div>
       ) : null}
 
-      <section className="grid gap-3 md:grid-cols-5">
-        {FILTERS.map((filter) => {
-          const active = statusFilter === filter.value;
-          return (
-            <Link
-              key={filter.value}
-              href={`/platform/credentials?status=${filter.value}`}
-              className={`rounded-2xl border p-4 shadow-sm transition ${
-                active
-                  ? "border-slate-900 bg-slate-900 text-white"
-                  : "border-slate-200 bg-white text-slate-700 hover:border-slate-300"
-              }`}
-            >
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-75">
-                {filter.label}
-              </p>
-              <p className="mt-2 text-3xl font-bold">{counts[filter.value] ?? 0}</p>
-            </Link>
-          );
-        })}
+      <section className="grid gap-4 md:grid-cols-4">
+        {statusFilters.map((filter) => (
+          <Link
+            key={filter.key}
+            href={`/platform/credentials?status=${filter.key}`}
+            className={`rounded-2xl border p-4 shadow-sm ${
+              selectedStatus === filter.key
+                ? "border-slate-950 bg-slate-950 text-white"
+                : "border-slate-200 bg-white text-slate-800 hover:bg-slate-50"
+            }`}
+          >
+            <p className="text-xs font-semibold uppercase tracking-wide opacity-70">
+              {filter.label}
+            </p>
+            <p className="mt-2 text-2xl font-bold">
+              {counts[filter.key] ?? 0}
+            </p>
+          </Link>
+        ))}
       </section>
 
-      <section className="space-y-4">
-        {rows.length > 0 ? (
-          rows.map((row) => {
-            const name = fullName(row);
-            const studio = getStudio(row.studios);
-            const photoUrl = row.photo_url || row.public_photo_url || null;
-            const status = normalizeStatus(row.credentials_verification_status);
-            const certifications = splitLines(row.teaching_certifications);
-            const titles = splitLines(row.competitive_titles);
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+          <div>
+            <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+              Credential Queue
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              Approve, reject, or send credentials back to the submitted queue. Each credential has its own proof/reference.
+            </p>
+          </div>
+        </div>
 
-            return (
-              <article
-                key={row.id}
-                className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6"
-              >
-                <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="flex gap-4">
-                    {photoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={photoUrl}
-                        alt={name}
-                        className="h-16 w-16 rounded-2xl object-cover ring-1 ring-slate-200"
-                      />
-                    ) : (
-                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-900 text-lg font-bold text-white">
-                        {initials(name)}
-                      </div>
-                    )}
+        {credentials.length === 0 ? (
+          <div className="mt-6 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-600">
+            No credentials match this filter.
+          </div>
+        ) : (
+          <div className="mt-6 space-y-4">
+            {credentials.map((credential) => {
+              const instructor = firstItem(credential.instructors);
+              const studio = firstItem(credential.studios);
+              const status = credential.verification_status ?? "submitted";
 
-                    <div>
+              return (
+                <article key={credential.id} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+                  <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-xl font-semibold text-slate-950">{name}</h2>
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClass(
-                            status,
-                          )}`}
-                        >
+                        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                          {credentialTypeLabel(credential.credential_type)}
+                        </span>
+                        <span className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ${statusClass(status)}`}>
                           {status}
                         </span>
+                        {credential.public_enabled ? (
+                          <span className="rounded-full bg-violet-50 px-3 py-1 text-xs font-semibold text-violet-700 ring-1 ring-violet-100">
+                            Public when verified
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-500 ring-1 ring-slate-200">
+                            Internal only
+                          </span>
+                        )}
                       </div>
+
+                      <h3 className="mt-3 text-xl font-semibold text-slate-950">
+                        {credential.name}
+                      </h3>
                       <p className="mt-1 text-sm text-slate-600">
-                        {studio?.name ?? "Unknown studio"}
-                        {row.email ? ` · ${row.email}` : ""}
+                        {studioName(credential)} · {instructorName(credential)}
                       </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        Submitted {formatDateTime(row.credentials_submitted_at)}
-                        {row.credentials_verified_at
-                          ? ` · Verified ${formatDateTime(row.credentials_verified_at)}`
-                          : ""}
+                      <p className="mt-1 text-sm text-slate-500">
+                        {[credential.issuing_organization, credential.credential_year]
+                          .filter(Boolean)
+                          .join(" · ") || "No issuer/year listed"}
                       </p>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Submitted {formatDate(credential.submitted_at ?? credential.created_at)}
+                        {credential.reviewed_at ? ` · Reviewed ${formatDate(credential.reviewed_at)}` : ""}
+                      </p>
+
+                      {credential.proof_url ? (
+                        <a
+                          href={credential.proof_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-3 inline-flex rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Open proof / reference
+                        </a>
+                      ) : (
+                        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                          No proof URL was provided. Review carefully before approving.
+                        </p>
+                      )}
+
+                      {credential.notes ? (
+                        <p className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                          Studio note: {credential.notes}
+                        </p>
+                      ) : null}
+
+                      {credential.review_note ? (
+                        <p className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                          Review note: {credential.review_note}
+                        </p>
+                      ) : null}
+
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        {studio?.slug ? (
+                          <Link
+                            href={`/studios/${studio.slug}?tab=staff`}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Public Staff Page
+                          </Link>
+                        ) : null}
+                        {instructor?.id ? (
+                          <Link
+                            href={`/app/instructors/${instructor.id}`}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Instructor Profile
+                          </Link>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="w-full space-y-3 rounded-2xl border border-slate-200 bg-white p-4 lg:w-80">
+                      <p className="text-sm font-semibold text-slate-950">Review action</p>
+                      <form action={approveInstructorCredentialAction} className="space-y-3">
+                        <input type="hidden" name="credentialId" value={credential.id} />
+                        <input type="hidden" name="currentStatus" value={selectedStatus} />
+                        <textarea
+                          name="reviewNote"
+                          rows={2}
+                          placeholder="Optional approval note"
+                          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <button className="w-full rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">
+                          Approve
+                        </button>
+                      </form>
+
+                      <form action={rejectInstructorCredentialAction} className="space-y-3">
+                        <input type="hidden" name="credentialId" value={credential.id} />
+                        <input type="hidden" name="currentStatus" value={selectedStatus} />
+                        <textarea
+                          name="reviewNote"
+                          rows={2}
+                          placeholder="Reason for rejection"
+                          className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+                        />
+                        <button className="w-full rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700">
+                          Reject
+                        </button>
+                      </form>
+
+                      {status !== "submitted" ? (
+                        <form action={resetInstructorCredentialAction}>
+                          <input type="hidden" name="credentialId" value={credential.id} />
+                          <input type="hidden" name="currentStatus" value={selectedStatus} />
+                          <button className="w-full rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                            Send back to queue
+                          </button>
+                        </form>
+                      ) : null}
                     </div>
                   </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {studio?.id ? (
-                      <Link
-                        href={`/platform/studios/${studio.id}`}
-                        className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                      >
-                        Studio
-                      </Link>
-                    ) : null}
-                    <Link
-                      href={`/app/instructors/${row.id}`}
-                      className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Instructor
-                    </Link>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                  <CredentialList title="Teaching certifications" items={certifications} />
-                  <CredentialList title="Titles / achievements" items={titles} />
-                </div>
-
-                <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
-                    Proof / reference
-                  </p>
-                  {row.credential_proof_url ? (
-                    <a
-                      href={row.credential_proof_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 inline-flex text-sm font-semibold text-[#6B21A8] underline-offset-4 hover:underline"
-                    >
-                      Open submitted proof
-                    </a>
-                  ) : (
-                    <p className="mt-2 text-sm text-slate-500">No proof URL submitted.</p>
-                  )}
-                  {row.credentials_review_note ? (
-                    <p className="mt-3 rounded-xl bg-white px-3 py-2 text-sm text-slate-600">
-                      Review note: {row.credentials_review_note}
-                    </p>
-                  ) : null}
-                </div>
-
-                <div className="mt-5 grid gap-3 lg:grid-cols-[1fr_auto_auto_auto] lg:items-end">
-                  <form action={approveInstructorCredentialAction} className="contents">
-                    <input type="hidden" name="instructorId" value={row.id} />
-                    <input type="hidden" name="currentStatus" value={statusFilter} />
-                    <label className="block text-sm font-semibold text-slate-700 lg:col-span-1">
-                      Review note
-                      <textarea
-                        name="reviewNote"
-                        rows={2}
-                        defaultValue={row.credentials_review_note ?? ""}
-                        className="mt-2 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-800 shadow-sm focus:border-[#6B21A8] focus:outline-none focus:ring-2 focus:ring-[#6B21A8]/20"
-                        placeholder="Optional note for the credential review."
-                      />
-                    </label>
-                    <button className="rounded-2xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700">
-                      Approve
-                    </button>
-                  </form>
-
-                  <form action={rejectInstructorCredentialAction}>
-                    <input type="hidden" name="instructorId" value={row.id} />
-                    <input type="hidden" name="currentStatus" value={statusFilter} />
-                    <input
-                      type="hidden"
-                      name="reviewNote"
-                      value={
-                        row.credentials_review_note ||
-                        "Credential could not be verified from the submitted information."
-                      }
-                    />
-                    <button className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100">
-                      Reject
-                    </button>
-                  </form>
-
-                  {status !== "submitted" ? (
-                    <form action={resetInstructorCredentialAction}>
-                      <input type="hidden" name="instructorId" value={row.id} />
-                      <input type="hidden" name="currentStatus" value={statusFilter} />
-                      <button className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                        Send back to queue
-                      </button>
-                    </form>
-                  ) : null}
-                </div>
-              </article>
-            );
-          })
-        ) : (
-          <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm">
-            <h2 className="text-xl font-semibold text-slate-950">No credentials in this view</h2>
-            <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              Submitted instructor credentials will appear here once studios add certifications,
-              titles, achievements, or a proof link from their instructor profiles.
-            </p>
+                </article>
+              );
+            })}
           </div>
         )}
       </section>

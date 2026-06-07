@@ -293,7 +293,7 @@ export async function setStudioWorkspaceActiveAction(formData: FormData) {
 
 function credentialReviewRedirect(status: string) {
   const normalized = String(status || "submitted").trim().toLowerCase();
-  if (["submitted", "verified", "rejected", "unverified", "all"].includes(normalized)) {
+  if (["submitted", "verified", "rejected", "all"].includes(normalized)) {
     redirect(`/platform/credentials?status=${encodeURIComponent(normalized)}&saved=1`);
   }
 
@@ -303,11 +303,11 @@ function credentialReviewRedirect(status: string) {
 export async function approveInstructorCredentialAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const instructorId = String(formData.get("instructorId") ?? "").trim();
+  const credentialId = String(formData.get("credentialId") ?? "").trim();
   const currentStatus = String(formData.get("currentStatus") ?? "submitted").trim();
   const reviewNote = String(formData.get("reviewNote") ?? "").trim();
 
-  if (!instructorId) {
+  if (!credentialId) {
     credentialReviewRedirect(currentStatus);
   }
 
@@ -317,14 +317,14 @@ export async function approveInstructorCredentialAction(formData: FormData) {
   } = await supabase.auth.getUser();
 
   const { error } = await supabase
-    .from("instructors")
+    .from("instructor_credentials")
     .update({
-      credentials_verification_status: "verified",
-      credentials_review_note: reviewNote || null,
-      credentials_verified_at: new Date().toISOString(),
-      credentials_verified_by: user?.id ?? null,
+      verification_status: "verified",
+      review_note: reviewNote || null,
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: user?.id ?? null,
     })
-    .eq("id", instructorId);
+    .eq("id", credentialId);
 
   if (error) {
     throw new Error(`Failed to approve instructor credential: ${error.message}`);
@@ -338,25 +338,25 @@ export async function approveInstructorCredentialAction(formData: FormData) {
 export async function rejectInstructorCredentialAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const instructorId = String(formData.get("instructorId") ?? "").trim();
+  const credentialId = String(formData.get("credentialId") ?? "").trim();
   const currentStatus = String(formData.get("currentStatus") ?? "submitted").trim();
   const reviewNote = String(formData.get("reviewNote") ?? "").trim();
 
-  if (!instructorId) {
+  if (!credentialId) {
     credentialReviewRedirect(currentStatus);
   }
 
   const supabase = await createClient();
 
   const { error } = await supabase
-    .from("instructors")
+    .from("instructor_credentials")
     .update({
-      credentials_verification_status: "rejected",
-      credentials_review_note: reviewNote || "Credential could not be verified from the submitted information.",
-      credentials_verified_at: null,
-      credentials_verified_by: null,
+      verification_status: "rejected",
+      review_note: reviewNote || "Credential could not be verified from the submitted information.",
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: null,
     })
-    .eq("id", instructorId);
+    .eq("id", credentialId);
 
   if (error) {
     throw new Error(`Failed to reject instructor credential: ${error.message}`);
@@ -370,24 +370,25 @@ export async function rejectInstructorCredentialAction(formData: FormData) {
 export async function resetInstructorCredentialAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const instructorId = String(formData.get("instructorId") ?? "").trim();
+  const credentialId = String(formData.get("credentialId") ?? "").trim();
   const currentStatus = String(formData.get("currentStatus") ?? "submitted").trim();
 
-  if (!instructorId) {
+  if (!credentialId) {
     credentialReviewRedirect(currentStatus);
   }
 
   const supabase = await createClient();
 
   const { error } = await supabase
-    .from("instructors")
+    .from("instructor_credentials")
     .update({
-      credentials_verification_status: "submitted",
-      credentials_review_note: null,
-      credentials_verified_at: null,
-      credentials_verified_by: null,
+      verification_status: "submitted",
+      review_note: null,
+      reviewed_at: null,
+      reviewed_by: null,
+      submitted_at: new Date().toISOString(),
     })
-    .eq("id", instructorId);
+    .eq("id", credentialId);
 
   if (error) {
     throw new Error(`Failed to reset instructor credential: ${error.message}`);

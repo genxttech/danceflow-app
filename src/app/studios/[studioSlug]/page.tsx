@@ -113,6 +113,16 @@ type EventRow = {
   public_directory_enabled: boolean | null;
 };
 
+type PublicInstructorCredentialRow = {
+  id: string;
+  instructor_id: string;
+  credential_type: string;
+  name: string;
+  issuing_organization: string | null;
+  credential_year: number | null;
+  display_order: number | null;
+};
+
 type PublicInstructorRow = {
   id: string;
   first_name: string;
@@ -125,11 +135,13 @@ type PublicInstructorRow = {
   public_specialties: string | null;
   years_experience: number | null;
   display_order: number;
-  teaching_certifications: string | null;
-  competitive_titles: string | null;
-  credentials_verification_status: string | null;
 };
 
+function credentialTypeLabel(value: string) {
+  if (value === "title") return "Title";
+  if (value === "achievement") return "Achievement";
+  return "Certification";
+}
 
 const siteUrl = "https://www.idanceflow.com";
 
@@ -213,14 +225,6 @@ function formatEventDateRange(start: string | null, end: string | null) {
   });
 
   return `${startText} - ${endText}`;
-}
-
-function splitCredentialLines(value: string | null) {
-  return String(value ?? "")
-    .split(/\n|,/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .slice(0, 6);
 }
 
 function eventTypeLabel(value: string | null) {
@@ -414,6 +418,7 @@ export default async function PublicStudioPage({
     { data: events, error: eventsError },
     { data: introSettings, error: introSettingsError },
     { data: publicInstructors, error: publicInstructorsError },
+    { data: publicInstructorCredentials, error: publicInstructorCredentialsError },
     favoriteResult,
   ] = await Promise.all([
     supabase
@@ -480,10 +485,7 @@ export default async function PublicStudioPage({
           public_bio,
           public_specialties,
           years_experience,
-          display_order,
-          teaching_certifications,
-          competitive_titles,
-          credentials_verification_status
+          display_order
         `
       )
       .eq("studio_id", studio.id)
@@ -491,6 +493,15 @@ export default async function PublicStudioPage({
       .eq("public_profile_enabled", true)
       .order("display_order", { ascending: true })
       .order("first_name", { ascending: true }),
+
+    supabase
+      .from("instructor_credentials")
+      .select("id, instructor_id, credential_type, name, issuing_organization, credential_year, display_order")
+      .eq("studio_id", studio.id)
+      .eq("verification_status", "verified")
+      .eq("public_enabled", true)
+      .order("display_order", { ascending: true })
+      .order("created_at", { ascending: true }),
 
     user
       ? supabase
@@ -526,6 +537,12 @@ export default async function PublicStudioPage({
     );
   }
 
+  if (publicInstructorCredentialsError) {
+    throw new Error(
+      `Failed to load public staff credentials: ${publicInstructorCredentialsError.message}`
+    );
+  }
+
   if (favoriteResult?.error) {
     throw new Error(
       `Failed to load studio favorite state: ${favoriteResult.error.message}`
@@ -536,6 +553,13 @@ export default async function PublicStudioPage({
   const typedOfferings = (offerings ?? []) as OfferingRow[];
   const typedEvents = (events ?? []) as EventRow[];
   const typedPublicInstructors = (publicInstructors ?? []) as PublicInstructorRow[];
+  const typedPublicInstructorCredentials = (publicInstructorCredentials ?? []) as PublicInstructorCredentialRow[];
+  const publicCredentialsByInstructorId = typedPublicInstructorCredentials.reduce((map, credential) => {
+    const items = map.get(credential.instructor_id) ?? [];
+    items.push(credential);
+    map.set(credential.instructor_id, items);
+    return map;
+  }, new Map<string, PublicInstructorCredentialRow[]>());
   const title = studioTitle(studio);
   const location = locationLabel(studio);
   const studioUrlSlug = studio.slug ?? studioSlug;
@@ -927,6 +951,28 @@ export default async function PublicStudioPage({
                               </p>
                             </div>
 
+                            {publicCredentialsByInstructorId.get(instructor.id)?.length ? (
+                              <div className="space-y-2 rounded-2xl border border-amber-100 bg-amber-50/70 p-3">
+                                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-700">
+                                  Verified Credentials
+                                </p>
+                                <div className="space-y-1.5">
+                                  {publicCredentialsByInstructorId.get(instructor.id)!.slice(0, 4).map((credential) => (
+                                    <div key={credential.id} className="text-sm text-slate-700">
+                                      <span className="font-semibold text-slate-950">{credential.name}</span>
+                                      <span className="text-slate-500">
+                                        {credential.issuing_organization ? ` · ${credential.issuing_organization}` : ""}
+                                        {credential.credential_year ? ` · ${credential.credential_year}` : ""}
+                                      </span>
+                                      <span className="ml-2 rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 ring-1 ring-amber-100">
+                                        {credentialTypeLabel(credential.credential_type)}
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+
                             <div className="flex flex-wrap gap-2">
                               {specialtyText
                                 .split(",")
@@ -947,50 +993,6 @@ export default async function PublicStudioPage({
                               <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
                                 {instructor.years_experience}+ years experience
                               </p>
-                            ) : null}
-
-                            {instructor.credentials_verification_status === "verified" ? (
-                              <div className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
-                                {splitCredentialLines(instructor.teaching_certifications).length > 0 ? (
-                                  <div>
-                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
-                                      Certifications
-                                    </p>
-                                    <div className="mt-2 flex flex-wrap gap-2">
-                                      {splitCredentialLines(instructor.teaching_certifications).map((item) => (
-                                        <span
-                                          key={item}
-                                          className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100"
-                                        >
-                                          {item}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ) : null}
-
-                                {splitCredentialLines(instructor.competitive_titles).length > 0 ? (
-                                  <div>
-                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
-                                      Titles & Achievements
-                                    </p>
-                                    <div className="mt-2 flex flex-wrap gap-2">
-                                      {splitCredentialLines(instructor.competitive_titles).map((item) => (
-                                        <span
-                                          key={item}
-                                          className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100"
-                                        >
-                                          {item}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  </div>
-                                ) : null}
-
-                                <p className="text-xs font-semibold text-emerald-700">
-                                  Verified credentials
-                                </p>
-                              </div>
                             ) : null}
 
                             <p className="text-sm leading-6 text-slate-600">

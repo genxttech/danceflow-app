@@ -3,6 +3,22 @@ import { notFound } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import InstructorEditForm from "./InstructorEditForm";
 
+type InstructorCredentialRow = {
+  id: string;
+  credential_type: string;
+  name: string;
+  issuing_organization: string | null;
+  credential_year: number | null;
+  proof_url: string | null;
+  notes: string | null;
+  public_enabled: boolean;
+  display_order: number;
+  verification_status: string;
+  review_note: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+};
+
 type InstructorRow = {
   id: string;
   first_name: string;
@@ -19,11 +35,6 @@ type InstructorRow = {
   public_specialties?: string | null;
   years_experience?: number | null;
   display_order?: number | null;
-  teaching_certifications?: string | null;
-  competitive_titles?: string | null;
-  credential_proof_url?: string | null;
-  credentials_verification_status?: string | null;
-  credentials_review_note?: string | null;
 };
 
 export default async function EditInstructorPage({
@@ -37,17 +48,40 @@ export default async function EditInstructorPage({
 
   const studioId = context.studioId;
 
-  const { data: instructor, error } = await supabase
-    .from("instructors")
-    .select("*")
-    .eq("id", id)
-    .eq("studio_id", studioId)
-    .single();
+  const [instructorResult, credentialsResult] = await Promise.all([
+    supabase
+      .from("instructors")
+      .select("*")
+      .eq("id", id)
+      .eq("studio_id", studioId)
+      .single(),
+    supabase
+      .from("instructor_credentials")
+      .select(
+        "id, credential_type, name, issuing_organization, credential_year, proof_url, notes, public_enabled, display_order, verification_status, review_note, submitted_at, reviewed_at"
+      )
+      .eq("instructor_id", id)
+      .eq("studio_id", studioId)
+      .order("display_order", { ascending: true })
+      .order("created_at", { ascending: false }),
+  ]);
+
+  const instructor = instructorResult.data;
+  const error = instructorResult.error;
 
   if (error || !instructor) {
     notFound();
   }
 
-  return <InstructorEditForm instructor={instructor as InstructorRow} />;
+  if (credentialsResult.error) {
+    throw new Error(`Failed to load instructor credentials: ${credentialsResult.error.message}`);
+  }
+
+  return (
+    <InstructorEditForm
+      instructor={instructor as InstructorRow}
+      credentials={(credentialsResult.data ?? []) as InstructorCredentialRow[]}
+    />
+  );
 }
 

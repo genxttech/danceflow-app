@@ -361,3 +361,110 @@ export async function regenerateInstructorCalendarFeedAction(formData: FormData)
   redirect("/app/instructors");
 }
 
+function getCredentialType(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "title" || normalized === "achievement") return normalized;
+  return "certification";
+}
+
+function getCredentialStatusReturn(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (["submitted", "verified", "rejected", "all"].includes(normalized)) return normalized;
+  return "submitted";
+}
+
+function instructorCredentialRedirect(instructorId: string, status = "submitted") {
+  const normalized = getCredentialStatusReturn(status);
+  redirect(`/app/instructors/${instructorId}/edit?credentials=${encodeURIComponent(normalized)}`);
+}
+
+export async function createInstructorCredentialAction(formData: FormData) {
+  const { supabase, studioId, user } = await requireInstructorManageAccess();
+
+  const instructorId = getString(formData, "instructorId");
+  const credentialType = getCredentialType(getString(formData, "credentialType"));
+  const credentialName = getString(formData, "credentialName");
+  const issuingOrganization = getString(formData, "issuingOrganization");
+  const credentialYear = getOptionalInteger(formData, "credentialYear");
+  const proofUrl = getString(formData, "proofUrl");
+  const notes = getString(formData, "credentialNotes");
+  const publicEnabled = getCheckbox(formData, "credentialPublicEnabled");
+  const displayOrder = getOptionalInteger(formData, "credentialDisplayOrder") ?? 0;
+
+  if (!instructorId) {
+    redirect("/app/instructors");
+  }
+
+  if (!credentialName) {
+    instructorCredentialRedirect(instructorId, "submitted");
+  }
+
+  const { data: instructor, error: instructorError } = await supabase
+    .from("instructors")
+    .select("id, studio_id")
+    .eq("id", instructorId)
+    .eq("studio_id", studioId)
+    .single();
+
+  if (instructorError || !instructor) {
+    throw new Error(
+      `Could not verify instructor before adding credential: ${instructorError?.message ?? "Instructor not found."}`,
+    );
+  }
+
+  const { error } = await supabase.from("instructor_credentials").insert({
+    studio_id: studioId,
+    instructor_id: instructorId,
+    credential_type: credentialType,
+    name: credentialName,
+    issuing_organization: issuingOrganization || null,
+    credential_year: credentialYear,
+    proof_url: proofUrl || null,
+    notes: notes || null,
+    public_enabled: publicEnabled,
+    display_order: displayOrder,
+    verification_status: "submitted",
+    review_note: null,
+    submitted_at: new Date().toISOString(),
+    created_by: user.id,
+  });
+
+  if (error) {
+    throw new Error(`Could not add instructor credential: ${error.message}`);
+  }
+
+  revalidatePath(`/app/instructors/${instructorId}`);
+  revalidatePath(`/app/instructors/${instructorId}/edit`);
+  revalidatePath("/app/settings/public-profile/instructors");
+  revalidatePath("/platform/credentials");
+  instructorCredentialRedirect(instructorId, "submitted");
+}
+
+export async function deleteInstructorCredentialAction(formData: FormData) {
+  const { supabase, studioId } = await requireInstructorManageAccess();
+
+  const instructorId = getString(formData, "instructorId");
+  const credentialId = getString(formData, "credentialId");
+
+  if (!instructorId || !credentialId) {
+    redirect("/app/instructors");
+  }
+
+  const { error } = await supabase
+    .from("instructor_credentials")
+    .delete()
+    .eq("id", credentialId)
+    .eq("instructor_id", instructorId)
+    .eq("studio_id", studioId);
+
+  if (error) {
+    throw new Error(`Could not remove instructor credential: ${error.message}`);
+  }
+
+  revalidatePath(`/app/instructors/${instructorId}`);
+  revalidatePath(`/app/instructors/${instructorId}/edit`);
+  revalidatePath("/app/settings/public-profile/instructors");
+  revalidatePath("/platform/credentials");
+  instructorCredentialRedirect(instructorId, "all");
+}
+

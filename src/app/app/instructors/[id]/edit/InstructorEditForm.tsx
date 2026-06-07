@@ -2,9 +2,29 @@
 
 import Link from "next/link";
 import { useActionState } from "react";
-import { updateInstructorAction } from "../../actions";
+import {
+  createInstructorCredentialAction,
+  deleteInstructorCredentialAction,
+  updateInstructorAction,
+} from "../../actions";
 
 const initialState = { error: "" };
+
+type InstructorCredentialRecord = {
+  id: string;
+  credential_type: string;
+  name: string;
+  issuing_organization: string | null;
+  credential_year: number | null;
+  proof_url: string | null;
+  notes: string | null;
+  public_enabled: boolean;
+  display_order: number;
+  verification_status: string;
+  review_note: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+};
 
 type InstructorRecord = {
   id: string;
@@ -33,10 +53,28 @@ function RequiredMark() {
   return <span className="ml-1 text-red-600">*</span>;
 }
 
+function credentialTypeLabel(value: string) {
+  if (value === "title") return "Title";
+  if (value === "achievement") return "Achievement";
+  return "Certification";
+}
+
+function credentialStatusClass(value: string) {
+  if (value === "verified") {
+    return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  }
+  if (value === "rejected") {
+    return "bg-red-50 text-red-700 ring-red-200";
+  }
+  return "bg-amber-50 text-amber-700 ring-amber-200";
+}
+
 export default function InstructorEditForm({
   instructor,
+  credentials,
 }: {
   instructor: InstructorRecord;
+  credentials: InstructorCredentialRecord[];
 }) {
   const [state, formAction, pending] = useActionState(
     updateInstructorAction,
@@ -330,75 +368,235 @@ export default function InstructorEditForm({
                       Credentials for Verification
                     </p>
                     <h4 className="mt-1 font-semibold text-slate-950">
-                      Certifications and titles
+                      Certifications, titles, and achievements
                     </h4>
                     <p className="mt-1 text-sm leading-6 text-slate-600">
-                      These are stored for review. Only verified credentials appear on the public Staff section.
+                      Add each credential separately so DanceFlow can verify each certification or title against its own proof.
+                      Only verified public credentials appear on the studio Staff section.
                     </p>
                   </div>
                   <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
-                    {instructor.credentials_verification_status ?? "unverified"}
+                    {credentials.length} item{credentials.length === 1 ? "" : "s"}
                   </span>
                 </div>
 
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <div>
-                    <label
-                      htmlFor="teachingCertifications"
-                      className="mb-1 block text-sm font-semibold text-slate-800"
-                    >
-                      Teaching Certifications
-                    </label>
-                    <textarea
-                      id="teachingCertifications"
-                      name="teachingCertifications"
-                      rows={3}
-                      defaultValue={instructor.teaching_certifications ?? ""}
-                      placeholder="Example: DVIDA Certified Instructor, UCWDC Certified Judge"
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-                    />
+                {credentials.length ? (
+                  <div className="mt-4 space-y-3">
+                    {credentials.map((credential) => (
+                      <div
+                        key={credential.id}
+                        className="rounded-2xl border border-amber-100 bg-white p-4 shadow-sm"
+                      >
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                                {credentialTypeLabel(credential.credential_type)}
+                              </span>
+                              <span
+                                className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${credentialStatusClass(
+                                  credential.verification_status,
+                                )}`}
+                              >
+                                {credential.verification_status}
+                              </span>
+                              {credential.public_enabled ? (
+                                <span className="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700 ring-1 ring-violet-100">
+                                  Public when verified
+                                </span>
+                              ) : (
+                                <span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                                  Internal only
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-2 font-semibold text-slate-950">
+                              {credential.name}
+                            </p>
+                            <p className="mt-1 text-sm text-slate-600">
+                              {[credential.issuing_organization, credential.credential_year]
+                                .filter(Boolean)
+                                .join(" · ") || "No issuer/year listed"}
+                            </p>
+                            {credential.proof_url ? (
+                              <a
+                                href={credential.proof_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="mt-2 inline-flex text-sm font-semibold text-amber-700 hover:text-amber-800"
+                              >
+                                View proof / reference
+                              </a>
+                            ) : null}
+                            {credential.review_note ? (
+                              <p className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">
+                                Review note: {credential.review_note}
+                              </p>
+                            ) : null}
+                          </div>
+
+                          <button
+                            type="submit"
+                            name="credentialId"
+                            value={credential.id}
+                            formAction={deleteInstructorCredentialAction}
+                            className="rounded-xl border border-red-200 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-50"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-
-                  <div>
-                    <label
-                      htmlFor="competitiveTitles"
-                      className="mb-1 block text-sm font-semibold text-slate-800"
-                    >
-                      Titles / Achievements
-                    </label>
-                    <textarea
-                      id="competitiveTitles"
-                      name="competitiveTitles"
-                      rows={3}
-                      defaultValue={instructor.competitive_titles ?? ""}
-                      placeholder="Example: 2025 UCWDC World Masters Champion"
-                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-                    />
+                ) : (
+                  <div className="mt-4 rounded-2xl border border-dashed border-amber-200 bg-white/70 p-4 text-sm text-slate-600">
+                    No credentials have been added yet. Add each certification, title, or achievement as its own item.
                   </div>
-                </div>
+                )}
 
-                <div className="mt-4">
-                  <label
-                    htmlFor="credentialProofUrl"
-                    className="mb-1 block text-sm font-semibold text-slate-800"
-                  >
-                    Proof / reference URL
-                  </label>
-                  <input
-                    id="credentialProofUrl"
-                    name="credentialProofUrl"
-                    type="url"
-                    defaultValue={instructor.credential_proof_url ?? ""}
-                    placeholder="Link to certification page, results page, or supporting proof"
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
-                  />
-                </div>
-
-                {instructor.credentials_review_note ? (
-                  <p className="mt-3 rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs leading-5 text-amber-800">
-                    Review note: {instructor.credentials_review_note}
+                <div className="mt-5 rounded-2xl border border-amber-200 bg-white p-4">
+                  <p className="text-sm font-semibold text-slate-950">
+                    Add a credential for verification
                   </p>
-                ) : null}
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Use one form per certification, title, or achievement so the platform can verify each item individually.
+                  </p>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-2">
+                    <div>
+                      <label
+                        htmlFor="credentialType"
+                        className="mb-1 block text-sm font-semibold text-slate-800"
+                      >
+                        Credential Type
+                      </label>
+                      <select
+                        id="credentialType"
+                        name="credentialType"
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                      >
+                        <option value="certification">Certification</option>
+                        <option value="title">Title</option>
+                        <option value="achievement">Achievement</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="credentialName"
+                        className="mb-1 block text-sm font-semibold text-slate-800"
+                      >
+                        Credential Name
+                      </label>
+                      <input
+                        id="credentialName"
+                        name="credentialName"
+                        placeholder="Example: DVIDA Certified Instructor"
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="issuingOrganization"
+                        className="mb-1 block text-sm font-semibold text-slate-800"
+                      >
+                        Issuing Organization / Event
+                      </label>
+                      <input
+                        id="issuingOrganization"
+                        name="issuingOrganization"
+                        placeholder="Example: UCWDC, DVIDA, NDCA"
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="credentialYear"
+                        className="mb-1 block text-sm font-semibold text-slate-800"
+                      >
+                        Year
+                      </label>
+                      <input
+                        id="credentialYear"
+                        name="credentialYear"
+                        type="number"
+                        min="1900"
+                        max="2100"
+                        placeholder="2025"
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                      />
+                    </div>
+
+                    <div className="md:col-span-2">
+                      <label
+                        htmlFor="proofUrl"
+                        className="mb-1 block text-sm font-semibold text-slate-800"
+                      >
+                        Proof / Reference URL
+                      </label>
+                      <input
+                        id="proofUrl"
+                        name="proofUrl"
+                        type="url"
+                        placeholder="Link to certificate, results page, directory listing, or proof"
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="credentialDisplayOrder"
+                        className="mb-1 block text-sm font-semibold text-slate-800"
+                      >
+                        Display Order
+                      </label>
+                      <input
+                        id="credentialDisplayOrder"
+                        name="credentialDisplayOrder"
+                        type="number"
+                        step="1"
+                        defaultValue="0"
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                      />
+                    </div>
+
+                    <label className="flex items-center gap-3 rounded-xl border border-amber-100 bg-amber-50/70 px-3 py-2 text-sm font-semibold text-slate-700">
+                      <input
+                        type="checkbox"
+                        name="credentialPublicEnabled"
+                        defaultChecked
+                        className="h-4 w-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                      />
+                      Show publicly after verification
+                    </label>
+
+                    <div className="md:col-span-2">
+                      <label
+                        htmlFor="credentialNotes"
+                        className="mb-1 block text-sm font-semibold text-slate-800"
+                      >
+                        Notes
+                      </label>
+                      <textarea
+                        id="credentialNotes"
+                        name="credentialNotes"
+                        rows={2}
+                        placeholder="Optional context for the platform review team."
+                        className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    formAction={createInstructorCredentialAction}
+                    className="mt-4 rounded-xl bg-amber-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-700"
+                  >
+                    Add Credential for Review
+                  </button>
+                </div>
               </div>
 
               <div>
