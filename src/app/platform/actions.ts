@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 
@@ -288,3 +289,110 @@ export async function setStudioWorkspaceActiveAction(formData: FormData) {
   redirect(returnTo);
 }
 
+
+
+function credentialReviewRedirect(status: string) {
+  const normalized = String(status || "submitted").trim().toLowerCase();
+  if (["submitted", "verified", "rejected", "unverified", "all"].includes(normalized)) {
+    redirect(`/platform/credentials?status=${encodeURIComponent(normalized)}&saved=1`);
+  }
+
+  redirect("/platform/credentials?saved=1");
+}
+
+export async function approveInstructorCredentialAction(formData: FormData) {
+  await requirePlatformAdmin();
+
+  const instructorId = String(formData.get("instructorId") ?? "").trim();
+  const currentStatus = String(formData.get("currentStatus") ?? "submitted").trim();
+  const reviewNote = String(formData.get("reviewNote") ?? "").trim();
+
+  if (!instructorId) {
+    credentialReviewRedirect(currentStatus);
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { error } = await supabase
+    .from("instructors")
+    .update({
+      credentials_verification_status: "verified",
+      credentials_review_note: reviewNote || null,
+      credentials_verified_at: new Date().toISOString(),
+      credentials_verified_by: user?.id ?? null,
+    })
+    .eq("id", instructorId);
+
+  if (error) {
+    throw new Error(`Failed to approve instructor credential: ${error.message}`);
+  }
+
+  revalidatePath("/platform/credentials");
+  revalidatePath("/app/settings/public-profile/instructors");
+  credentialReviewRedirect("verified");
+}
+
+export async function rejectInstructorCredentialAction(formData: FormData) {
+  await requirePlatformAdmin();
+
+  const instructorId = String(formData.get("instructorId") ?? "").trim();
+  const currentStatus = String(formData.get("currentStatus") ?? "submitted").trim();
+  const reviewNote = String(formData.get("reviewNote") ?? "").trim();
+
+  if (!instructorId) {
+    credentialReviewRedirect(currentStatus);
+  }
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("instructors")
+    .update({
+      credentials_verification_status: "rejected",
+      credentials_review_note: reviewNote || "Credential could not be verified from the submitted information.",
+      credentials_verified_at: null,
+      credentials_verified_by: null,
+    })
+    .eq("id", instructorId);
+
+  if (error) {
+    throw new Error(`Failed to reject instructor credential: ${error.message}`);
+  }
+
+  revalidatePath("/platform/credentials");
+  revalidatePath("/app/settings/public-profile/instructors");
+  credentialReviewRedirect("rejected");
+}
+
+export async function resetInstructorCredentialAction(formData: FormData) {
+  await requirePlatformAdmin();
+
+  const instructorId = String(formData.get("instructorId") ?? "").trim();
+  const currentStatus = String(formData.get("currentStatus") ?? "submitted").trim();
+
+  if (!instructorId) {
+    credentialReviewRedirect(currentStatus);
+  }
+
+  const supabase = await createClient();
+
+  const { error } = await supabase
+    .from("instructors")
+    .update({
+      credentials_verification_status: "submitted",
+      credentials_review_note: null,
+      credentials_verified_at: null,
+      credentials_verified_by: null,
+    })
+    .eq("id", instructorId);
+
+  if (error) {
+    throw new Error(`Failed to reset instructor credential: ${error.message}`);
+  }
+
+  revalidatePath("/platform/credentials");
+  credentialReviewRedirect("submitted");
+}

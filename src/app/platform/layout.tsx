@@ -25,6 +25,7 @@ export default async function PlatformLayout({
     { href: "/platform/organizers", label: "Organizers" },
     { href: "/platform/billing", label: "Billing" },
     { href: "/platform/invites", label: "Invites" },
+    { href: "/platform/credentials", label: "Credentials" },
     { href: "/platform/webhooks", label: "Webhook Health" },
   ];
 

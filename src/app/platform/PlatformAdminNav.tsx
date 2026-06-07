@@ -18,17 +18,13 @@ function isActivePath(currentPath: string, href: string) {
 
 export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
-  const withAlerts = items.some((item) => item.href === "/platform/alerts")
+  const normalizedItems = items.some((item) => item.href === "/platform/alerts")
     ? items
     : [
         ...items.slice(0, 1),
         { href: "/platform/alerts", label: "Alerts" },
         ...items.slice(1),
       ];
-
-  const normalizedItems = withAlerts.some((item) => item.href === "/platform/sms")
-    ? withAlerts
-    : [...withAlerts, { href: "/platform/sms", label: "SMS" }];
 
   return (
     <nav className="space-y-2">
