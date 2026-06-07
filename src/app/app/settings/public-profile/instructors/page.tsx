@@ -17,6 +17,9 @@ type InstructorRow = {
   public_photo_url: string | null;
   years_experience: number | null;
   display_order: number;
+  teaching_certifications: string | null;
+  competitive_titles: string | null;
+  credentials_verification_status: string | null;
 };
 
 type StudioRow = {
@@ -66,7 +69,10 @@ export default async function PublicInstructorSettingsPage({
         public_bio,
         public_photo_url,
         years_experience,
-        display_order
+        display_order,
+        teaching_certifications,
+        competitive_titles,
+        credentials_verification_status
       `)
       .eq("studio_id", context.studioId)
       .order("display_order", { ascending: true })
@@ -234,6 +240,38 @@ export default async function PublicInstructorSettingsPage({
                       defaultValue={instructor.display_order ?? 0}
                       className="w-full rounded-xl border border-slate-300 px-3 py-2"
                     />
+                  </div>
+
+                  <div className="md:col-span-2 rounded-2xl border border-amber-100 bg-white p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-900">
+                        Credentials for public display
+                      </p>
+                      <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-100">
+                        {instructor.credentials_verification_status ?? "unverified"}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-slate-500">
+                      Certifications and titles are managed on the instructor profile. Only verified credentials appear on the public Staff section.
+                    </p>
+                    <div className="mt-3 grid gap-3 md:grid-cols-2">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          Teaching Certifications
+                        </p>
+                        <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
+                          {instructor.teaching_certifications?.trim() || "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          Titles / Achievements
+                        </p>
+                        <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">
+                          {instructor.competitive_titles?.trim() || "—"}
+                        </p>
+                      </div>
+                    </div>
                   </div>
 
                   <div className="md:col-span-2">

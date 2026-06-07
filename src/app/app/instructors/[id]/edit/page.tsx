@@ -19,6 +19,11 @@ type InstructorRow = {
   public_specialties?: string | null;
   years_experience?: number | null;
   display_order?: number | null;
+  teaching_certifications?: string | null;
+  competitive_titles?: string | null;
+  credential_proof_url?: string | null;
+  credentials_verification_status?: string | null;
+  credentials_review_note?: string | null;
 };
 
 export default async function EditInstructorPage({

@@ -22,6 +22,11 @@ type InstructorRecord = {
   public_specialties?: string | null;
   years_experience?: number | null;
   display_order?: number | null;
+  teaching_certifications?: string | null;
+  competitive_titles?: string | null;
+  credential_proof_url?: string | null;
+  credentials_verification_status?: string | null;
+  credentials_review_note?: string | null;
 };
 
 function RequiredMark() {
@@ -96,7 +101,7 @@ export default function InstructorEditForm({
           </p>
         </div>
 
-        <form action={formAction} className="mt-6 space-y-6">
+        <form action={formAction} encType="multipart/form-data" className="mt-6 space-y-6">
           <input type="hidden" name="instructorId" value={instructor.id} />
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -266,10 +271,30 @@ export default function InstructorEditForm({
 
                 <div>
                   <label
+                    htmlFor="instructorPhoto"
+                    className="mb-1 block text-sm font-semibold text-slate-800"
+                  >
+                    Staff photo / headshot
+                  </label>
+                  <input
+                    id="instructorPhoto"
+                    name="instructorPhoto"
+                    type="file"
+                    accept="image/*"
+                    capture="user"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm file:mr-4 file:rounded-full file:border-0 file:bg-orange-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-orange-700"
+                  />
+                  <p className="mt-2 text-xs text-slate-500">
+                    Upload a headshot or take a picture on supported phones/tablets.
+                  </p>
+                </div>
+
+                <div>
+                  <label
                     htmlFor="publicPhotoUrl"
                     className="mb-1 block text-sm font-semibold text-slate-800"
                   >
-                    Headshot URL
+                    Photo URL fallback
                   </label>
                   <input
                     id="publicPhotoUrl"
@@ -279,10 +304,6 @@ export default function InstructorEditForm({
                     placeholder="https://..."
                     className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                   />
-                  <p className="mt-2 text-xs text-slate-500">
-                    Use a public image URL for V1. File upload can be added
-                    later.
-                  </p>
                 </div>
               </div>
 
@@ -300,6 +321,84 @@ export default function InstructorEditForm({
                   placeholder="Example: Country Two Step, West Coast Swing, wedding dance"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-orange-500 focus:ring-2 focus:ring-orange-100"
                 />
+              </div>
+
+              <div className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">
+                      Credentials for Verification
+                    </p>
+                    <h4 className="mt-1 font-semibold text-slate-950">
+                      Certifications and titles
+                    </h4>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      These are stored for review. Only verified credentials appear on the public Staff section.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+                    {instructor.credentials_verification_status ?? "unverified"}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor="teachingCertifications"
+                      className="mb-1 block text-sm font-semibold text-slate-800"
+                    >
+                      Teaching Certifications
+                    </label>
+                    <textarea
+                      id="teachingCertifications"
+                      name="teachingCertifications"
+                      rows={3}
+                      defaultValue={instructor.teaching_certifications ?? ""}
+                      placeholder="Example: DVIDA Certified Instructor, UCWDC Certified Judge"
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="competitiveTitles"
+                      className="mb-1 block text-sm font-semibold text-slate-800"
+                    >
+                      Titles / Achievements
+                    </label>
+                    <textarea
+                      id="competitiveTitles"
+                      name="competitiveTitles"
+                      rows={3}
+                      defaultValue={instructor.competitive_titles ?? ""}
+                      placeholder="Example: 2025 UCWDC World Masters Champion"
+                      className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <label
+                    htmlFor="credentialProofUrl"
+                    className="mb-1 block text-sm font-semibold text-slate-800"
+                  >
+                    Proof / reference URL
+                  </label>
+                  <input
+                    id="credentialProofUrl"
+                    name="credentialProofUrl"
+                    type="url"
+                    defaultValue={instructor.credential_proof_url ?? ""}
+                    placeholder="Link to certification page, results page, or supporting proof"
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 text-slate-950 shadow-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                  />
+                </div>
+
+                {instructor.credentials_review_note ? (
+                  <p className="mt-3 rounded-xl border border-amber-200 bg-white px-3 py-2 text-xs leading-5 text-amber-800">
+                    Review note: {instructor.credentials_review_note}
+                  </p>
+                ) : null}
               </div>
 
               <div>

@@ -22,6 +22,74 @@ function getOptionalInteger(formData: FormData, key: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function getFile(formData: FormData, key: string) {
+  const value = formData.get(key);
+
+  if (value instanceof File && value.size > 0) {
+    return value;
+  }
+
+  return null;
+}
+
+function safeFileName(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
+
+async function uploadInstructorPhoto({
+  supabase,
+  studioId,
+  file,
+}: {
+  supabase: Awaited<ReturnType<typeof requireInstructorManageAccess>>["supabase"];
+  studioId: string;
+  file: File | null;
+}) {
+  if (!file) return null;
+
+  if (!file.type.startsWith("image/")) {
+    throw new Error("Instructor photo must be an image file.");
+  }
+
+  const maxBytes = 5 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    throw new Error("Instructor photo must be smaller than 5 MB.");
+  }
+
+  const extension = safeFileName(file.name).split(".").pop() || "jpg";
+  const storagePath = `${studioId}/${randomBytes(16).toString("hex")}.${extension}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from("instructor-photos")
+    .upload(storagePath, file, {
+      contentType: file.type,
+      upsert: false,
+    });
+
+  if (uploadError) {
+    throw new Error(`Instructor photo upload failed: ${uploadError.message}`);
+  }
+
+  const { data } = supabase.storage
+    .from("instructor-photos")
+    .getPublicUrl(storagePath);
+
+  return data.publicUrl;
+}
+
+function credentialStatusFor(
+  certifications: string,
+  titles: string,
+  proofUrl: string,
+) {
+  if (certifications || titles || proofUrl) return "submitted";
+  return "unverified";
+}
+
 export async function createInstructorAction(
   prevState: { error: string },
   formData: FormData
@@ -36,9 +104,24 @@ export async function createInstructorAction(
     const specialties = getString(formData, "specialties");
     const publicProfileEnabled = getCheckbox(formData, "publicProfileEnabled");
     const publicPhotoUrl = getString(formData, "publicPhotoUrl");
+    const instructorPhoto = getFile(formData, "instructorPhoto");
+    const uploadedPhotoUrl = await uploadInstructorPhoto({
+      supabase,
+      studioId,
+      file: instructorPhoto,
+    });
+    const finalPhotoUrl = uploadedPhotoUrl || publicPhotoUrl;
     const publicTitle = getString(formData, "publicTitle");
     const publicBio = getString(formData, "publicBio");
     const publicSpecialties = getString(formData, "publicSpecialties");
+    const teachingCertifications = getString(formData, "teachingCertifications");
+    const competitiveTitles = getString(formData, "competitiveTitles");
+    const credentialProofUrl = getString(formData, "credentialProofUrl");
+    const credentialStatus = credentialStatusFor(
+      teachingCertifications,
+      competitiveTitles,
+      credentialProofUrl,
+    );
     const yearsExperience = getOptionalInteger(formData, "yearsExperience");
     const displayOrder = getOptionalInteger(formData, "displayOrder") ?? 0;
 
@@ -54,10 +137,16 @@ export async function createInstructorAction(
       phone: phone || null,
       specialties: specialties || null,
       public_profile_enabled: publicProfileEnabled,
-      public_photo_url: publicPhotoUrl || null,
+      public_photo_url: finalPhotoUrl || null,
       public_title: publicTitle || null,
       public_bio: publicBio || null,
       public_specialties: publicSpecialties || null,
+      teaching_certifications: teachingCertifications || null,
+      competitive_titles: competitiveTitles || null,
+      credential_proof_url: credentialProofUrl || null,
+      credentials_verification_status: credentialStatus,
+      credentials_submitted_at: credentialStatus === "submitted" ? new Date().toISOString() : null,
+      credentials_review_note: null,
       years_experience: yearsExperience,
       display_order: displayOrder,
       active: true,
@@ -91,9 +180,24 @@ export async function updateInstructorAction(
     const specialties = getString(formData, "specialties");
     const publicProfileEnabled = getCheckbox(formData, "publicProfileEnabled");
     const publicPhotoUrl = getString(formData, "publicPhotoUrl");
+    const instructorPhoto = getFile(formData, "instructorPhoto");
+    const uploadedPhotoUrl = await uploadInstructorPhoto({
+      supabase,
+      studioId,
+      file: instructorPhoto,
+    });
+    const finalPhotoUrl = uploadedPhotoUrl || publicPhotoUrl;
     const publicTitle = getString(formData, "publicTitle");
     const publicBio = getString(formData, "publicBio");
     const publicSpecialties = getString(formData, "publicSpecialties");
+    const teachingCertifications = getString(formData, "teachingCertifications");
+    const competitiveTitles = getString(formData, "competitiveTitles");
+    const credentialProofUrl = getString(formData, "credentialProofUrl");
+    const credentialStatus = credentialStatusFor(
+      teachingCertifications,
+      competitiveTitles,
+      credentialProofUrl,
+    );
     const yearsExperience = getOptionalInteger(formData, "yearsExperience");
     const displayOrder = getOptionalInteger(formData, "displayOrder") ?? 0;
     const active = getString(formData, "active");
@@ -115,10 +219,17 @@ export async function updateInstructorAction(
         phone: phone || null,
         specialties: specialties || null,
         public_profile_enabled: publicProfileEnabled,
-        public_photo_url: publicPhotoUrl || null,
+        public_photo_url: finalPhotoUrl || null,
         public_title: publicTitle || null,
         public_bio: publicBio || null,
         public_specialties: publicSpecialties || null,
+        teaching_certifications: teachingCertifications || null,
+        competitive_titles: competitiveTitles || null,
+        credential_proof_url: credentialProofUrl || null,
+        credentials_verification_status: credentialStatus,
+        credentials_submitted_at: credentialStatus === "submitted" ? new Date().toISOString() : null,
+        credentials_verified_at: null,
+        credentials_verified_by: null,
         years_experience: yearsExperience,
         display_order: displayOrder,
         active: active === "true",

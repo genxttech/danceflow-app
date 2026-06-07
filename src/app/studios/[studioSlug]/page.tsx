@@ -125,6 +125,9 @@ type PublicInstructorRow = {
   public_specialties: string | null;
   years_experience: number | null;
   display_order: number;
+  teaching_certifications: string | null;
+  competitive_titles: string | null;
+  credentials_verification_status: string | null;
 };
 
 
@@ -210,6 +213,14 @@ function formatEventDateRange(start: string | null, end: string | null) {
   });
 
   return `${startText} - ${endText}`;
+}
+
+function splitCredentialLines(value: string | null) {
+  return String(value ?? "")
+    .split(/\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 6);
 }
 
 function eventTypeLabel(value: string | null) {
@@ -469,7 +480,10 @@ export default async function PublicStudioPage({
           public_bio,
           public_specialties,
           years_experience,
-          display_order
+          display_order,
+          teaching_certifications,
+          competitive_titles,
+          credentials_verification_status
         `
       )
       .eq("studio_id", studio.id)
@@ -933,6 +947,50 @@ export default async function PublicStudioPage({
                               <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
                                 {instructor.years_experience}+ years experience
                               </p>
+                            ) : null}
+
+                            {instructor.credentials_verification_status === "verified" ? (
+                              <div className="space-y-3 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-4">
+                                {splitCredentialLines(instructor.teaching_certifications).length > 0 ? (
+                                  <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                                      Certifications
+                                    </p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {splitCredentialLines(instructor.teaching_certifications).map((item) => (
+                                        <span
+                                          key={item}
+                                          className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100"
+                                        >
+                                          {item}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : null}
+
+                                {splitCredentialLines(instructor.competitive_titles).length > 0 ? (
+                                  <div>
+                                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                                      Titles & Achievements
+                                    </p>
+                                    <div className="mt-2 flex flex-wrap gap-2">
+                                      {splitCredentialLines(instructor.competitive_titles).map((item) => (
+                                        <span
+                                          key={item}
+                                          className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100"
+                                        >
+                                          {item}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : null}
+
+                                <p className="text-xs font-semibold text-emerald-700">
+                                  Verified credentials
+                                </p>
+                              </div>
                             ) : null}
 
                             <p className="text-sm leading-6 text-slate-600">

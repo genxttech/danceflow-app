@@ -65,7 +65,7 @@ export default function NewInstructorPage() {
         </div>
       </section>
 
-      <form action={formAction} className="mx-auto max-w-3xl space-y-5 rounded-[28px] border border-[var(--brand-border)] bg-white p-6 shadow-sm">
+      <form action={formAction} encType="multipart/form-data" className="mx-auto max-w-3xl space-y-5 rounded-[28px] border border-[var(--brand-border)] bg-white p-6 shadow-sm">
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <label htmlFor="firstName" className="mb-1 block text-sm font-medium">
@@ -237,6 +237,66 @@ export default function NewInstructorPage() {
                   className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 />
               </div>
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50/60 p-4">
+            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">
+                  Credentials for Review
+                </p>
+                <h3 className="mt-1 text-lg font-semibold text-slate-950">
+                  Teaching certifications and titles
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Add credentials now. They remain internal or pending until verified by the platform before public display.
+                </p>
+              </div>
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+                Verification required
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <div>
+                <label htmlFor="teachingCertifications" className="mb-1 block text-sm font-medium">
+                  Teaching Certifications
+                </label>
+                <textarea
+                  id="teachingCertifications"
+                  name="teachingCertifications"
+                  rows={3}
+                  placeholder="Example: DVIDA Certified Instructor, UCWDC Certified Judge"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="competitiveTitles" className="mb-1 block text-sm font-medium">
+                  Titles / Achievements
+                </label>
+                <textarea
+                  id="competitiveTitles"
+                  name="competitiveTitles"
+                  rows={3}
+                  placeholder="Example: 2025 UCWDC World Masters Champion"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4">
+              <label htmlFor="credentialProofUrl" className="mb-1 block text-sm font-medium">
+                Proof / reference URL
+              </label>
+              <input
+                id="credentialProofUrl"
+                name="credentialProofUrl"
+                type="url"
+                placeholder="Link to certification page, results page, or supporting proof"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              />
             </div>
           </div>
 

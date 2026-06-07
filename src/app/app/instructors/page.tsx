@@ -33,6 +33,9 @@ type InstructorRow = {
   public_specialties: string | null;
   years_experience: number | null;
   display_order: number;
+  teaching_certifications: string | null;
+  competitive_titles: string | null;
+  credentials_verification_status: string | null;
 };
 
 
@@ -68,7 +71,7 @@ export default async function InstructorsPage() {
 
   const { data: instructors, error } = await supabase
     .from("instructors")
-    .select("id, first_name, last_name, email, phone, specialties, active, created_at, public_profile_enabled, public_photo_url, public_title, public_bio, public_specialties, years_experience, display_order")
+    .select("id, first_name, last_name, email, phone, specialties, active, created_at, public_profile_enabled, public_photo_url, public_title, public_bio, public_specialties, years_experience, display_order, teaching_certifications, competitive_titles, credentials_verification_status")
     .eq("studio_id", studioId)
     .order("first_name", { ascending: true });
 

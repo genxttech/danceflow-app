@@ -19,6 +19,11 @@ type InstructorRow = {
   public_specialties?: string | null;
   years_experience?: number | null;
   display_order?: number | null;
+  teaching_certifications?: string | null;
+  competitive_titles?: string | null;
+  credential_proof_url?: string | null;
+  credentials_verification_status?: string | null;
+  credentials_review_note?: string | null;
 };
 
 function formatStatus(active: boolean) {
@@ -173,6 +178,37 @@ export default async function InstructorDetailPage({
             <div className="rounded-2xl border border-white bg-white/80 p-4 md:col-span-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Public Specialties</p>
               <p className="mt-1 font-semibold text-slate-950">{typedInstructor.public_specialties?.trim() || typedInstructor.specialties?.trim() || "—"}</p>
+            </div>
+            <div className="rounded-2xl border border-white bg-white/80 p-4 md:col-span-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Credentials
+                </p>
+                <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-100">
+                  {typedInstructor.credentials_verification_status ?? "unverified"}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Teaching Certifications
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm font-medium text-slate-800">
+                    {typedInstructor.teaching_certifications?.trim() || "—"}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                    Titles / Achievements
+                  </p>
+                  <p className="mt-1 whitespace-pre-wrap text-sm font-medium text-slate-800">
+                    {typedInstructor.competitive_titles?.trim() || "—"}
+                  </p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs leading-5 text-slate-500">
+                Credentials are visible publicly only after platform verification.
+              </p>
             </div>
             <div className="rounded-2xl border border-white bg-white/80 p-4 md:col-span-2">
               <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Public Bio</p>
