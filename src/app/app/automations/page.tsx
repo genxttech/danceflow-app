@@ -328,7 +328,7 @@ export default async function AutomationsPage({
                       Current mode: {modeLabel(mode)}
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
-                      {definition.key === "low_package_balance" ? (
+                      {["low_package_balance", "no_upcoming_lesson"].includes(definition.key) ? (
                         <button
                           type="submit"
                           formAction={evaluateAutomationRuleAction}

@@ -194,13 +194,370 @@ function packageActionStatusForMode(mode: string | null | undefined) {
   return mode === "draft" ? "drafted" : "suggested";
 }
 
-export async function evaluateAutomationRuleAction(formData: FormData) {
-  const ruleKey = String(formData.get("ruleKey") ?? "");
 
-  if (ruleKey !== "low_package_balance") {
-    redirect("/app/automations?error=rule-not-implemented-yet");
+type AppointmentAutomationRow = {
+  id: string;
+  client_id: string | null;
+  appointment_type: string | null;
+  status: string | null;
+  starts_at: string;
+  ends_at: string | null;
+  title: string | null;
+};
+
+type AutomationClientRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  status: string | null;
+};
+
+type BookingRequestAutomationRow = {
+  id: string;
+  client_id: string | null;
+  status: string | null;
+  requested_starts_at: string | null;
+};
+
+function getSimpleClientName(client: AutomationClientRow) {
+  const name = [client.first_name, client.last_name].filter(Boolean).join(" ").trim();
+  return name || client.email || "Client";
+}
+
+function isActiveClientStatus(status: string | null | undefined) {
+  const normalized = String(status ?? "").toLowerCase();
+  return !["archived", "lost"].includes(normalized);
+}
+
+function isCountableAppointment(status: string | null | undefined) {
+  const normalized = String(status ?? "").toLowerCase();
+  return !["cancelled", "canceled", "no_show", "void"].includes(normalized);
+}
+
+function getUsualLessonTimeSummary(appointments: AppointmentAutomationRow[]) {
+  if (appointments.length === 0) return null;
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    weekday: "long",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  const bucketCounts = new Map<string, { label: string; count: number }>();
+
+  for (const appointment of appointments) {
+    const date = new Date(appointment.starts_at);
+    if (Number.isNaN(date.getTime())) continue;
+
+    const label = formatter.format(date);
+    const day = date.getUTCDay();
+    const hour = date.getUTCHours();
+    const minuteBucket = Math.round(date.getUTCMinutes() / 15) * 15;
+    const key = `${day}-${hour}-${minuteBucket}`;
+
+    const existing = bucketCounts.get(key);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      bucketCounts.set(key, { label, count: 1 });
+    }
   }
 
+  const sorted = [...bucketCounts.values()].sort((a, b) => b.count - a.count);
+  return sorted[0]?.label ?? null;
+}
+
+async function evaluateLowPackageBalanceAutomation(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  context: Awaited<ReturnType<typeof getCurrentStudioContext>>;
+  definition: AutomationDefinition;
+  rule: { id: string; mode: string | null; trigger_config: unknown };
+  runId: string;
+  ruleKey: string;
+}) {
+  const { supabase, context, definition, rule, runId, ruleKey } = params;
+  let candidatesCount = 0;
+  let createdCount = 0;
+
+  const threshold = asNumber(
+    (rule.trigger_config as Record<string, unknown> | null | undefined)?.threshold,
+    asNumber(definition.defaultTriggerConfig.threshold, 2)
+  );
+
+  const { data: packages, error: packageError } = await supabase
+    .from("client_packages")
+    .select(`
+      id,
+      client_id,
+      name_snapshot,
+      active,
+      expiration_date,
+      clients (
+        first_name,
+        last_name,
+        email
+      ),
+      client_package_items (
+        id,
+        usage_type,
+        quantity_remaining,
+        is_unlimited
+      )
+    `)
+    .eq("studio_id", context.studioId)
+    .eq("active", true);
+
+  if (packageError) {
+    throw new Error(packageError.message);
+  }
+
+  const typedPackages = (packages ?? []) as ClientPackageBalanceRow[];
+  const candidates = typedPackages
+    .map((clientPackage) => {
+      const lowItems = (clientPackage.client_package_items ?? []).filter((item) => {
+        if (item.is_unlimited) return false;
+        if (item.quantity_remaining === null || item.quantity_remaining === undefined) return false;
+        return Number(item.quantity_remaining) <= threshold;
+      });
+
+      if (lowItems.length === 0) return null;
+
+      const lowestRemaining = Math.min(
+        ...lowItems.map((item) => Number(item.quantity_remaining ?? threshold))
+      );
+
+      return {
+        clientPackage,
+        lowItems,
+        lowestRemaining,
+      };
+    })
+    .filter(Boolean) as Array<{
+    clientPackage: ClientPackageBalanceRow;
+    lowItems: ClientPackageBalanceRow["client_package_items"];
+    lowestRemaining: number;
+  }>;
+
+  candidatesCount = candidates.length;
+  const existingRelatedIds = new Set<string>();
+
+  if (candidates.length > 0) {
+    const { data: existingActions, error: existingError } = await supabase
+      .from("automation_actions")
+      .select("related_id")
+      .eq("studio_id", context.studioId)
+      .eq("rule_key", ruleKey)
+      .eq("related_table", "client_packages")
+      .in(
+        "related_id",
+        candidates.map((candidate) => candidate.clientPackage.id)
+      )
+      .in("status", ["suggested", "drafted", "queued"]);
+
+    if (existingError) {
+      throw new Error(existingError.message);
+    }
+
+    for (const action of existingActions ?? []) {
+      if (action.related_id) existingRelatedIds.add(String(action.related_id));
+    }
+  }
+
+  const now = new Date();
+  const dueAt = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
+  const actionStatus = packageActionStatusForMode(rule.mode);
+  const actionsToCreate = candidates
+    .filter((candidate) => !existingRelatedIds.has(candidate.clientPackage.id))
+    .map((candidate) => {
+      const clientName = getClientDisplayName(candidate.clientPackage.clients);
+      const packageName = candidate.clientPackage.name_snapshot || "package";
+      const lowItemSummary = candidate.lowItems
+        .map((item) => `${item.quantity_remaining ?? 0} ${item.usage_type ?? "credit"}`)
+        .join(", ");
+
+      return {
+        studio_id: context.studioId,
+        rule_id: rule.id,
+        rule_key: ruleKey,
+        title: `Package renewal suggested: ${clientName}`,
+        body: `${clientName} has ${candidate.lowestRemaining} or fewer credits remaining on ${packageName}. Review their balance and send a renewal prompt from the client profile or package sales workflow. Low items: ${lowItemSummary}.`,
+        status: actionStatus,
+        priority: candidate.lowestRemaining <= 0 ? "urgent" : "high",
+        related_table: "client_packages",
+        related_id: candidate.clientPackage.id,
+        client_id: candidate.clientPackage.client_id,
+        due_at: dueAt,
+        created_by_run_id: runId,
+      };
+    });
+
+  createdCount = actionsToCreate.length;
+
+  if (actionsToCreate.length > 0) {
+    const { error: actionError } = await supabase
+      .from("automation_actions")
+      .insert(actionsToCreate);
+
+    if (actionError) {
+      throw new Error(actionError.message);
+    }
+  }
+
+  return { candidatesCount, createdCount };
+}
+
+async function evaluateNoUpcomingLessonAutomation(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  context: Awaited<ReturnType<typeof getCurrentStudioContext>>;
+  definition: AutomationDefinition;
+  rule: { id: string; mode: string | null; trigger_config: unknown };
+  runId: string;
+  ruleKey: string;
+}) {
+  const { supabase, context, definition, rule, runId, ruleKey } = params;
+  const lookbackDays = asNumber(
+    (rule.trigger_config as Record<string, unknown> | null | undefined)?.lookback_days,
+    asNumber(definition.defaultTriggerConfig.lookback_days, 90)
+  );
+
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const lookbackStart = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
+
+  const [{ data: clients, error: clientsError }, { data: recentAppointments, error: recentError }, { data: futureAppointments, error: futureError }, { data: pendingRequests, error: pendingError }] =
+    await Promise.all([
+      supabase
+        .from("clients")
+        .select("id, first_name, last_name, email, status")
+        .eq("studio_id", context.studioId),
+      supabase
+        .from("appointments")
+        .select("id, client_id, appointment_type, status, starts_at, ends_at, title")
+        .eq("studio_id", context.studioId)
+        .gte("starts_at", lookbackStart)
+        .lt("starts_at", nowIso)
+        .order("starts_at", { ascending: false }),
+      supabase
+        .from("appointments")
+        .select("id, client_id, appointment_type, status, starts_at, ends_at, title")
+        .eq("studio_id", context.studioId)
+        .gte("starts_at", nowIso),
+      supabase
+        .from("booking_requests")
+        .select("id, client_id, status, requested_starts_at")
+        .eq("studio_id", context.studioId)
+        .eq("status", "pending"),
+    ]);
+
+  if (clientsError) throw new Error(clientsError.message);
+  if (recentError) throw new Error(recentError.message);
+  if (futureError) throw new Error(futureError.message);
+  if (pendingError) throw new Error(pendingError.message);
+
+  const typedClients = ((clients ?? []) as AutomationClientRow[]).filter((client) =>
+    isActiveClientStatus(client.status)
+  );
+  const recentByClient = new Map<string, AppointmentAutomationRow[]>();
+  const futureClientIds = new Set<string>();
+  const pendingRequestClientIds = new Set<string>();
+
+  for (const appointment of (recentAppointments ?? []) as AppointmentAutomationRow[]) {
+    if (!appointment.client_id || !isCountableAppointment(appointment.status)) continue;
+    const existing = recentByClient.get(appointment.client_id) ?? [];
+    existing.push(appointment);
+    recentByClient.set(appointment.client_id, existing);
+  }
+
+  for (const appointment of (futureAppointments ?? []) as AppointmentAutomationRow[]) {
+    if (!appointment.client_id || !isCountableAppointment(appointment.status)) continue;
+    futureClientIds.add(appointment.client_id);
+  }
+
+  for (const request of (pendingRequests ?? []) as BookingRequestAutomationRow[]) {
+    if (request.client_id) pendingRequestClientIds.add(request.client_id);
+  }
+
+  const candidates = typedClients
+    .filter((client) => recentByClient.has(client.id))
+    .filter((client) => !futureClientIds.has(client.id))
+    .filter((client) => !pendingRequestClientIds.has(client.id))
+    .map((client) => ({
+      client,
+      recentAppointments: recentByClient.get(client.id) ?? [],
+    }));
+
+  const candidatesCount = candidates.length;
+  const existingRelatedIds = new Set<string>();
+
+  if (candidates.length > 0) {
+    const { data: existingActions, error: existingError } = await supabase
+      .from("automation_actions")
+      .select("related_id")
+      .eq("studio_id", context.studioId)
+      .eq("rule_key", ruleKey)
+      .eq("related_table", "clients")
+      .in(
+        "related_id",
+        candidates.map((candidate) => candidate.client.id)
+      )
+      .in("status", ["suggested", "drafted", "queued"]);
+
+    if (existingError) {
+      throw new Error(existingError.message);
+    }
+
+    for (const action of existingActions ?? []) {
+      if (action.related_id) existingRelatedIds.add(String(action.related_id));
+    }
+  }
+
+  const actionStatus = packageActionStatusForMode(rule.mode);
+  const dueAt = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+
+  const actionsToCreate = candidates
+    .filter((candidate) => !existingRelatedIds.has(candidate.client.id))
+    .map((candidate) => {
+      const clientName = getSimpleClientName(candidate.client);
+      const usualTime = getUsualLessonTimeSummary(candidate.recentAppointments);
+      const recentCount = candidate.recentAppointments.length;
+      const usualTimeText = usualTime
+        ? ` Their recent lessons most often happened around ${usualTime}.`
+        : "";
+      const portalPrompt =
+        "Suggested action: send a rebooking prompt or invite them to request their next lesson from the client portal.";
+
+      return {
+        studio_id: context.studioId,
+        rule_id: rule.id,
+        rule_key: ruleKey,
+        title: `Rebooking suggested: ${clientName}`,
+        body: `${clientName} has no upcoming lesson scheduled and had ${recentCount} lesson${recentCount === 1 ? "" : "s"} in the last ${lookbackDays} days.${usualTimeText} ${portalPrompt}`,
+        status: actionStatus,
+        priority: "high",
+        related_table: "clients",
+        related_id: candidate.client.id,
+        client_id: candidate.client.id,
+        due_at: dueAt,
+        created_by_run_id: runId,
+      };
+    });
+
+  if (actionsToCreate.length > 0) {
+    const { error: actionError } = await supabase
+      .from("automation_actions")
+      .insert(actionsToCreate);
+
+    if (actionError) {
+      throw new Error(actionError.message);
+    }
+  }
+
+  return { candidatesCount, createdCount: actionsToCreate.length };
+}
+
+export async function evaluateAutomationRuleAction(formData: FormData) {
+  const ruleKey = String(formData.get("ruleKey") ?? "");
   const context = await getCurrentStudioContext();
 
   if (!canManageSettings(context.studioRole ?? "")) {
@@ -212,6 +569,10 @@ export async function evaluateAutomationRuleAction(formData: FormData) {
 
   if (!definition) {
     redirect("/app/automations?error=unknown-rule");
+  }
+
+  if (!["low_package_balance", "no_upcoming_lesson"].includes(ruleKey)) {
+    redirect("/app/automations?error=rule-not-implemented-yet");
   }
 
   const { data: rule, error: ruleError } = await supabase
@@ -250,129 +611,27 @@ export async function evaluateAutomationRuleAction(formData: FormData) {
   let createdCount = 0;
 
   try {
-    const threshold = asNumber(
-      (rule.trigger_config as Record<string, unknown> | null | undefined)?.threshold,
-      asNumber(definition.defaultTriggerConfig.threshold, 2)
-    );
+    const result =
+      ruleKey === "low_package_balance"
+        ? await evaluateLowPackageBalanceAutomation({
+            supabase,
+            context,
+            definition,
+            rule,
+            runId: run.id,
+            ruleKey,
+          })
+        : await evaluateNoUpcomingLessonAutomation({
+            supabase,
+            context,
+            definition,
+            rule,
+            runId: run.id,
+            ruleKey,
+          });
 
-    const { data: packages, error: packageError } = await supabase
-      .from("client_packages")
-      .select(`
-        id,
-        client_id,
-        name_snapshot,
-        active,
-        expiration_date,
-        clients (
-          first_name,
-          last_name,
-          email
-        ),
-        client_package_items (
-          id,
-          usage_type,
-          quantity_remaining,
-          is_unlimited
-        )
-      `)
-      .eq("studio_id", context.studioId)
-      .eq("active", true);
-
-    if (packageError) {
-      throw new Error(packageError.message);
-    }
-
-    const typedPackages = (packages ?? []) as ClientPackageBalanceRow[];
-    const candidates = typedPackages
-      .map((clientPackage) => {
-        const lowItems = (clientPackage.client_package_items ?? []).filter((item) => {
-          if (item.is_unlimited) return false;
-          if (item.quantity_remaining === null || item.quantity_remaining === undefined) return false;
-          return Number(item.quantity_remaining) <= threshold;
-        });
-
-        if (lowItems.length === 0) return null;
-
-        const lowestRemaining = Math.min(
-          ...lowItems.map((item) => Number(item.quantity_remaining ?? threshold))
-        );
-
-        return {
-          clientPackage,
-          lowItems,
-          lowestRemaining,
-        };
-      })
-      .filter(Boolean) as Array<{
-      clientPackage: ClientPackageBalanceRow;
-      lowItems: ClientPackageBalanceRow["client_package_items"];
-      lowestRemaining: number;
-    }>;
-
-    candidatesCount = candidates.length;
-    const existingRelatedIds = new Set<string>();
-
-    if (candidates.length > 0) {
-      const { data: existingActions, error: existingError } = await supabase
-        .from("automation_actions")
-        .select("related_id")
-        .eq("studio_id", context.studioId)
-        .eq("rule_key", ruleKey)
-        .eq("related_table", "client_packages")
-        .in(
-          "related_id",
-          candidates.map((candidate) => candidate.clientPackage.id)
-        )
-        .in("status", ["suggested", "drafted", "queued"]);
-
-      if (existingError) {
-        throw new Error(existingError.message);
-      }
-
-      for (const action of existingActions ?? []) {
-        if (action.related_id) existingRelatedIds.add(String(action.related_id));
-      }
-    }
-
-    const now = new Date();
-    const dueAt = new Date(now.getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
-    const actionStatus = packageActionStatusForMode(rule.mode);
-    const actionsToCreate = candidates
-      .filter((candidate) => !existingRelatedIds.has(candidate.clientPackage.id))
-      .map((candidate) => {
-        const clientName = getClientDisplayName(candidate.clientPackage.clients);
-        const packageName = candidate.clientPackage.name_snapshot || "package";
-        const lowItemSummary = candidate.lowItems
-          .map((item) => `${item.quantity_remaining ?? 0} ${item.usage_type ?? "credit"}`)
-          .join(", ");
-
-        return {
-          studio_id: context.studioId,
-          rule_id: rule.id,
-          rule_key: ruleKey,
-          title: `Package renewal suggested: ${clientName}`,
-          body: `${clientName} has ${candidate.lowestRemaining} or fewer credits remaining on ${packageName}. Review their balance and send a renewal prompt from the client profile or package sales workflow. Low items: ${lowItemSummary}.`,
-          status: actionStatus,
-          priority: candidate.lowestRemaining <= 0 ? "urgent" : "high",
-          related_table: "client_packages",
-          related_id: candidate.clientPackage.id,
-          client_id: candidate.clientPackage.client_id,
-          due_at: dueAt,
-          created_by_run_id: run.id,
-        };
-      });
-
-    createdCount = actionsToCreate.length;
-
-    if (actionsToCreate.length > 0) {
-      const { error: actionError } = await supabase
-        .from("automation_actions")
-        .insert(actionsToCreate);
-
-      if (actionError) {
-        throw new Error(actionError.message);
-      }
-    }
+    candidatesCount = result.candidatesCount;
+    createdCount = result.createdCount;
 
     const finishedAt = new Date().toISOString();
 
@@ -426,6 +685,7 @@ export async function evaluateAutomationRuleAction(formData: FormData) {
   revalidatePath("/app/automations");
   revalidatePath("/app");
   revalidatePath("/app/packages/client-balances");
+  revalidatePath("/app/clients");
   redirect(
     `/app/automations?success=evaluated&created=${createdCount}&candidates=${candidatesCount}`
   );
