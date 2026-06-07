@@ -196,7 +196,7 @@ export default async function AutomationsPage({
 
         {query.success === "evaluated" ? (
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-            Low package balance automation evaluated. {query.created ?? "0"} new suggested action(s) created from {query.candidates ?? "0"} candidate package balance(s).
+            Automation evaluated. {query.created ?? "0"} new suggested action(s) created from {query.candidates ?? "0"} candidate(s).
           </div>
         ) : null}
 
@@ -328,7 +328,7 @@ export default async function AutomationsPage({
                       Current mode: {modeLabel(mode)}
                     </p>
                     <div className="flex flex-wrap items-center gap-2">
-                      {["low_package_balance", "no_upcoming_lesson"].includes(definition.key) ? (
+                      {["low_package_balance", "no_upcoming_lesson", "pending_booking_request", "unsigned_document"].includes(definition.key) ? (
                         <button
                           type="submit"
                           formAction={evaluateAutomationRuleAction}
@@ -424,8 +424,8 @@ export default async function AutomationsPage({
                     No automation actions yet
                   </h3>
                   <p className="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-600">
-                    Enable Low package balance renewal, then click Evaluate now to create reviewable
-                    renewal recommendations here.
+                    Enable an automation rule, then click Evaluate now to create reviewable
+                    recommendations here.
                   </p>
                 </div>
               )}

@@ -220,9 +220,93 @@ type BookingRequestAutomationRow = {
   requested_starts_at: string | null;
 };
 
+type PendingBookingRequestAutomationRow = {
+  id: string;
+  client_id: string | null;
+  source: string | null;
+  status: string | null;
+  customer_first_name: string | null;
+  customer_last_name: string | null;
+  customer_email: string | null;
+  requested_starts_at: string | null;
+  created_at: string;
+};
+
+
+type UnsignedDocumentAssignmentAutomationRow = {
+  id: string;
+  client_id: string | null;
+  status: string | null;
+  due_at: string | null;
+  assigned_to_email: string | null;
+  created_at: string;
+  document_templates:
+    | { title: string | null; document_type: string | null }
+    | { title: string | null; document_type: string | null }[]
+    | null;
+  clients:
+    | { first_name: string | null; last_name: string | null; email: string | null }
+    | { first_name: string | null; last_name: string | null; email: string | null }[]
+    | null;
+};
+
 function getSimpleClientName(client: AutomationClientRow) {
   const name = [client.first_name, client.last_name].filter(Boolean).join(" ").trim();
   return name || client.email || "Client";
+}
+
+function getBookingRequestClientName(request: PendingBookingRequestAutomationRow) {
+  const name = [request.customer_first_name, request.customer_last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+
+  return name || request.customer_email || "Client";
+}
+
+function sourceLabel(source: string | null | undefined) {
+  if (source === "portal_schedule") return "portal schedule request";
+  if (source === "public_intro") return "public intro request";
+  return "booking request";
+}
+
+function formatRequestedTime(value: string | null | undefined) {
+  if (!value) return "No requested time provided";
+
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+
+function formatDueDate(value: string | null | undefined) {
+  if (!value) return "No due date set";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function getDocumentTemplateTitle(
+  value:
+    | { title: string | null; document_type: string | null }
+    | { title: string | null; document_type: string | null }[]
+    | null
+) {
+  const template = Array.isArray(value) ? value[0] : value;
+  return template?.title || template?.document_type || "Document";
+}
+
+function getDocumentAssignmentClientName(assignment: UnsignedDocumentAssignmentAutomationRow) {
+  const client = Array.isArray(assignment.clients) ? assignment.clients[0] : assignment.clients;
+  const name = [client?.first_name, client?.last_name].filter(Boolean).join(" ").trim();
+  return name || client?.email || assignment.assigned_to_email || "Client";
 }
 
 function isActiveClientStatus(status: string | null | undefined) {
@@ -556,6 +640,227 @@ async function evaluateNoUpcomingLessonAutomation(params: {
   return { candidatesCount, createdCount: actionsToCreate.length };
 }
 
+
+async function evaluateUnsignedDocumentAutomation(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  context: Awaited<ReturnType<typeof getCurrentStudioContext>>;
+  definition: AutomationDefinition;
+  rule: { id: string; mode: string | null; trigger_config: unknown; action_config?: unknown };
+  runId: string;
+  ruleKey: string;
+}) {
+  const { supabase, context, definition, rule, runId, ruleKey } = params;
+  const dueWithinDays = asNumber(
+    (rule.trigger_config as Record<string, unknown> | null | undefined)?.due_within_days,
+    asNumber(definition.defaultTriggerConfig.due_within_days, 7)
+  );
+
+  const now = new Date();
+  const dueCutoffIso = new Date(now.getTime() + dueWithinDays * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: assignments, error: assignmentsError } = await supabase
+    .from("document_assignments")
+    .select(`
+      id,
+      client_id,
+      status,
+      due_at,
+      assigned_to_email,
+      created_at,
+      document_templates (
+        title,
+        document_type
+      ),
+      clients (
+        first_name,
+        last_name,
+        email
+      )
+    `)
+    .eq("studio_id", context.studioId)
+    .eq("status", "pending")
+    .or(`due_at.is.null,due_at.lte.${dueCutoffIso}`)
+    .order("due_at", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: true });
+
+  if (assignmentsError) {
+    throw new Error(assignmentsError.message);
+  }
+
+  const candidates = (assignments ?? []) as UnsignedDocumentAssignmentAutomationRow[];
+  const candidatesCount = candidates.length;
+  const existingRelatedIds = new Set<string>();
+
+  if (candidates.length > 0) {
+    const { data: existingActions, error: existingError } = await supabase
+      .from("automation_actions")
+      .select("related_id")
+      .eq("studio_id", context.studioId)
+      .eq("rule_key", ruleKey)
+      .eq("related_table", "document_assignments")
+      .in(
+        "related_id",
+        candidates.map((candidate) => candidate.id)
+      )
+      .in("status", ["suggested", "drafted", "queued"]);
+
+    if (existingError) {
+      throw new Error(existingError.message);
+    }
+
+    for (const action of existingActions ?? []) {
+      if (action.related_id) existingRelatedIds.add(String(action.related_id));
+    }
+  }
+
+  const actionStatus = packageActionStatusForMode(rule.mode);
+  const dueAt = now.toISOString();
+
+  const actionsToCreate = candidates
+    .filter((candidate) => !existingRelatedIds.has(candidate.id))
+    .map((candidate) => {
+      const clientName = getDocumentAssignmentClientName(candidate);
+      const documentTitle = getDocumentTemplateTitle(candidate.document_templates);
+      const dueDateText = candidate.due_at
+        ? `It is due ${formatDueDate(candidate.due_at)}.`
+        : "No due date is set, so staff should follow up when appropriate.";
+      const priority = candidate.due_at && new Date(candidate.due_at).getTime() < now.getTime()
+        ? "urgent"
+        : "high";
+
+      return {
+        studio_id: context.studioId,
+        rule_id: rule.id,
+        rule_key: ruleKey,
+        title: `Unsigned document reminder: ${clientName}`,
+        body: `${clientName} still needs to sign ${documentTitle}. ${dueDateText} Suggested action: remind the client to complete the document from their portal or resend the signing link from Documents.`,
+        status: actionStatus,
+        priority,
+        related_table: "document_assignments",
+        related_id: candidate.id,
+        client_id: candidate.client_id,
+        due_at: dueAt,
+        created_by_run_id: runId,
+      };
+    });
+
+  if (actionsToCreate.length > 0) {
+    const { error: actionError } = await supabase
+      .from("automation_actions")
+      .insert(actionsToCreate);
+
+    if (actionError) {
+      throw new Error(actionError.message);
+    }
+  }
+
+  return { candidatesCount, createdCount: actionsToCreate.length };
+}
+
+async function evaluatePendingBookingRequestAutomation(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  context: Awaited<ReturnType<typeof getCurrentStudioContext>>;
+  definition: AutomationDefinition;
+  rule: { id: string; mode: string | null; trigger_config: unknown; action_config?: unknown };
+  runId: string;
+  ruleKey: string;
+}) {
+  const { supabase, context, definition, rule, runId, ruleKey } = params;
+  const pendingHours = asNumber(
+    (rule.trigger_config as Record<string, unknown> | null | undefined)?.pending_hours,
+    asNumber(definition.defaultTriggerConfig.pending_hours, 24)
+  );
+
+  const now = new Date();
+  const cutoffIso = new Date(now.getTime() - pendingHours * 60 * 60 * 1000).toISOString();
+
+  const { data: pendingRequests, error: pendingError } = await supabase
+    .from("booking_requests")
+    .select(
+      "id, client_id, source, status, customer_first_name, customer_last_name, customer_email, requested_starts_at, created_at"
+    )
+    .eq("studio_id", context.studioId)
+    .eq("status", "pending")
+    .lte("created_at", cutoffIso)
+    .order("created_at", { ascending: true });
+
+  if (pendingError) {
+    throw new Error(pendingError.message);
+  }
+
+  const candidates = (pendingRequests ?? []) as PendingBookingRequestAutomationRow[];
+  const candidatesCount = candidates.length;
+  const existingRelatedIds = new Set<string>();
+
+  if (candidates.length > 0) {
+    const { data: existingActions, error: existingError } = await supabase
+      .from("automation_actions")
+      .select("related_id")
+      .eq("studio_id", context.studioId)
+      .eq("rule_key", ruleKey)
+      .eq("related_table", "booking_requests")
+      .in(
+        "related_id",
+        candidates.map((candidate) => candidate.id)
+      )
+      .in("status", ["suggested", "drafted", "queued"]);
+
+    if (existingError) {
+      throw new Error(existingError.message);
+    }
+
+    for (const action of existingActions ?? []) {
+      if (action.related_id) existingRelatedIds.add(String(action.related_id));
+    }
+  }
+
+  const actionStatus = packageActionStatusForMode(rule.mode);
+  const dueAt = now.toISOString();
+  const configuredPriority =
+    (rule.action_config as Record<string, unknown> | null | undefined)?.priority;
+  const priority =
+    typeof configuredPriority === "string" && configuredPriority.length > 0
+      ? configuredPriority
+      : "high";
+
+  const actionsToCreate = candidates
+    .filter((candidate) => !existingRelatedIds.has(candidate.id))
+    .map((candidate) => {
+      const clientName = getBookingRequestClientName(candidate);
+      const requestType = sourceLabel(candidate.source);
+      const requestedTime = formatRequestedTime(candidate.requested_starts_at);
+      const createdAt = formatRequestedTime(candidate.created_at);
+
+      return {
+        studio_id: context.studioId,
+        rule_id: rule.id,
+        rule_key: ruleKey,
+        title: `Booking request needs review: ${clientName}`,
+        body: `${clientName}'s ${requestType} has been pending since ${createdAt}. Requested time: ${requestedTime}. Suggested action: approve, decline, or contact the client with another option.`,
+        status: actionStatus,
+        priority,
+        related_table: "booking_requests",
+        related_id: candidate.id,
+        client_id: candidate.client_id,
+        due_at: dueAt,
+        created_by_run_id: runId,
+      };
+    });
+
+  if (actionsToCreate.length > 0) {
+    const { error: actionError } = await supabase
+      .from("automation_actions")
+      .insert(actionsToCreate);
+
+    if (actionError) {
+      throw new Error(actionError.message);
+    }
+  }
+
+  return { candidatesCount, createdCount: actionsToCreate.length };
+}
+
+
 export async function evaluateAutomationRuleAction(formData: FormData) {
   const ruleKey = String(formData.get("ruleKey") ?? "");
   const context = await getCurrentStudioContext();
@@ -571,13 +876,13 @@ export async function evaluateAutomationRuleAction(formData: FormData) {
     redirect("/app/automations?error=unknown-rule");
   }
 
-  if (!["low_package_balance", "no_upcoming_lesson"].includes(ruleKey)) {
+  if (!["low_package_balance", "no_upcoming_lesson", "unsigned_document", "pending_booking_request"].includes(ruleKey)) {
     redirect("/app/automations?error=rule-not-implemented-yet");
   }
 
   const { data: rule, error: ruleError } = await supabase
     .from("automation_rules")
-    .select("id, enabled, mode, trigger_config")
+    .select("id, enabled, mode, trigger_config, action_config")
     .eq("studio_id", context.studioId)
     .eq("rule_key", ruleKey)
     .maybeSingle();
@@ -621,14 +926,32 @@ export async function evaluateAutomationRuleAction(formData: FormData) {
             runId: run.id,
             ruleKey,
           })
-        : await evaluateNoUpcomingLessonAutomation({
-            supabase,
-            context,
-            definition,
-            rule,
-            runId: run.id,
-            ruleKey,
-          });
+        : ruleKey === "no_upcoming_lesson"
+          ? await evaluateNoUpcomingLessonAutomation({
+              supabase,
+              context,
+              definition,
+              rule,
+              runId: run.id,
+              ruleKey,
+            })
+          : ruleKey === "unsigned_document"
+            ? await evaluateUnsignedDocumentAutomation({
+                supabase,
+                context,
+                definition,
+                rule,
+                runId: run.id,
+                ruleKey,
+              })
+            : await evaluatePendingBookingRequestAutomation({
+                supabase,
+                context,
+                definition,
+                rule,
+                runId: run.id,
+                ruleKey,
+              });
 
     candidatesCount = result.candidatesCount;
     createdCount = result.createdCount;
