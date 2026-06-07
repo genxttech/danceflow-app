@@ -151,7 +151,7 @@ export default async function ClientBalancesPage() {
             ? `${depletedPackages.length} depleted`
             : `${lowBalancePackages.length} low balance`
         }
-        primaryAction={{ href: "/app/marketing/campaigns", label: "Create campaign" }}
+        primaryAction={{ href: "/app/aria", label: "Review with ARIA" }}
         secondaryAction={{ href: "/app/packages/sell", label: "Sell package" }}
       />
 

@@ -2320,12 +2320,12 @@ export default async function AppDashboardPage({
         insight={ariaDashboardInsight}
         recommendation={ariaDashboardRecommendation}
         metric={ariaDashboardMetric}
-        primaryAction={
+        primaryAction={{ href: "/app/aria", label: "Review with ARIA" }}
+        secondaryAction={
           ariaTopSuggestion
-            ? { href: ariaTopSuggestion.href, label: "Review recommendation" }
-            : { href: "/app/clients", label: "Review clients" }
+            ? { href: ariaTopSuggestion.href, label: "Open source page" }
+            : { href: "/app/automations", label: "Open automations" }
         }
-        secondaryAction={{ href: "/app/automations", label: "Open automations" }}
       />
 
       <SuggestedFollowUpsCard

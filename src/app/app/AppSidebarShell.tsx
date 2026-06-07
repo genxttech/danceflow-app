@@ -117,6 +117,7 @@ function isActivePath(pathname: string, href: string) {
 
 function getIcon(icon: string) {
   if (icon === "dashboard") return LayoutDashboard;
+  if (icon === "aria") return Sparkles;
   if (icon === "leads") return UserRoundPlus;
   if (icon === "clients") return Users;
   if (icon === "organizer_contacts") return Users;
@@ -713,6 +714,61 @@ function injectDocumentsLink(sections: NavSectionType[]): NavSectionType[] {
 }
 
 
+
+function injectAriaLink(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+
+  if (flatItems.some((item) => item.href === "/app/aria")) {
+    return sections;
+  }
+
+  const ariaItem: NavItem = {
+    label: "ARIA",
+    href: "/app/aria",
+    icon: "aria",
+  };
+
+  const dashboardSectionIndex = sections.findIndex((section) =>
+    section.items.some((item) => item.href === "/app"),
+  );
+
+  if (dashboardSectionIndex >= 0) {
+    return sections.map((section, index) => {
+      if (index !== dashboardSectionIndex) {
+        return section;
+      }
+
+      const dashboardIndex = section.items.findIndex(
+        (item) => item.href === "/app",
+      );
+
+      if (dashboardIndex >= 0) {
+        return {
+          ...section,
+          items: [
+            ...section.items.slice(0, dashboardIndex + 1),
+            ariaItem,
+            ...section.items.slice(dashboardIndex + 1),
+          ],
+        };
+      }
+
+      return {
+        ...section,
+        items: [...section.items, ariaItem],
+      };
+    });
+  }
+
+  return [
+    {
+      title: "Studio",
+      items: [ariaItem],
+    },
+    ...sections,
+  ];
+}
+
 function injectAutomationsLink(sections: NavSectionType[]): NavSectionType[] {
   const flatItems = sections.flatMap((section) => section.items);
 
@@ -858,8 +914,9 @@ function normalizeSections(input: unknown): NavSectionType[] {
     .filter((section) => section.items.length > 0);
 
   const withoutDiscoveryDuplicates = removeRedundantDiscoveryLinks(normalized);
+  const withAriaLink = injectAriaLink(withoutDiscoveryDuplicates);
   const withEventWorkflowLinks = injectEventWorkflowLinks(
-    withoutDiscoveryDuplicates,
+    withAriaLink,
   );
   const withOrganizerContactsLink = injectOrganizerContactsLink(
     withEventWorkflowLinks,

@@ -178,10 +178,10 @@ export default async function AutomationsPage({
                 {suggestionCount} suggested actions waiting for review.
               </p>
               <Link
-                href="/app/notifications?category=automation"
+                href="/app/aria"
                 className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-white underline decoration-white/40 underline-offset-4"
               >
-                View automation alerts
+                Review with ARIA
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
