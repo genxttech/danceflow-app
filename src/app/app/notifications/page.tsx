@@ -444,10 +444,10 @@ export default async function NotificationsPage({
         </div>
 
         <div className="mt-5 space-y-4">
-          <div className="flex flex-wrap gap-3">
+          <div className="flex gap-3 overflow-x-auto pb-2 md:flex-wrap md:overflow-visible md:pb-0">
             <Link
               href={buildFilterHref("all", typeFilter, categoryFilter, organizerWorkspace)}
-              className={`rounded-full px-4 py-2 text-sm ${
+              className={`shrink-0 rounded-full px-4 py-2 text-sm ${
                 statusFilter === "all"
                   ? "bg-slate-900 text-white"
                   : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -457,7 +457,7 @@ export default async function NotificationsPage({
             </Link>
             <Link
               href={buildFilterHref("unread", typeFilter, categoryFilter, organizerWorkspace)}
-              className={`rounded-full px-4 py-2 text-sm ${
+              className={`shrink-0 rounded-full px-4 py-2 text-sm ${
                 statusFilter === "unread"
                   ? "bg-slate-900 text-white"
                   : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -467,7 +467,7 @@ export default async function NotificationsPage({
             </Link>
             <Link
               href={buildFilterHref("read", typeFilter, categoryFilter, organizerWorkspace)}
-              className={`rounded-full px-4 py-2 text-sm ${
+              className={`shrink-0 rounded-full px-4 py-2 text-sm ${
                 statusFilter === "read"
                   ? "bg-slate-900 text-white"
                   : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -478,10 +478,10 @@ export default async function NotificationsPage({
           </div>
 
           {!organizerWorkspace ? (
-            <div className="flex flex-wrap gap-3">
+            <div className="hidden flex-wrap gap-3 md:flex">
               <Link
                 href={buildFilterHref(statusFilter, typeFilter, "all", organizerWorkspace)}
-                className={`rounded-full px-4 py-2 text-sm ${
+                className={`shrink-0 rounded-full px-4 py-2 text-sm ${
                   categoryFilter === "all"
                     ? "bg-slate-900 text-white"
                     : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -494,7 +494,7 @@ export default async function NotificationsPage({
                 <Link
                   key={option.value}
                   href={buildFilterHref(statusFilter, typeFilter, option.value, organizerWorkspace)}
-                  className={`rounded-full px-4 py-2 text-sm ${
+                  className={`shrink-0 rounded-full px-4 py-2 text-sm ${
                     categoryFilter === option.value
                       ? "bg-slate-900 text-white"
                       : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -507,10 +507,10 @@ export default async function NotificationsPage({
           ) : null}
 
           {!organizerWorkspace ? (
-            <div className="flex flex-wrap gap-3">
+            <div className="hidden flex-wrap gap-3 md:flex">
               <Link
                 href={buildFilterHref(statusFilter, "all", categoryFilter, organizerWorkspace)}
-                className={`rounded-full px-4 py-2 text-sm ${
+                className={`shrink-0 rounded-full px-4 py-2 text-sm ${
                   typeFilter === "all"
                     ? "bg-slate-900 text-white"
                     : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
@@ -523,7 +523,7 @@ export default async function NotificationsPage({
                 <Link
                   key={option.value}
                   href={buildFilterHref(statusFilter, option.value, categoryFilter, organizerWorkspace)}
-                  className={`rounded-full px-4 py-2 text-sm ${
+                  className={`shrink-0 rounded-full px-4 py-2 text-sm ${
                     typeFilter === option.value
                       ? "bg-slate-900 text-white"
                       : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
