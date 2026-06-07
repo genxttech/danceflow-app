@@ -2,9 +2,15 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { checkInClientIdentityAppointmentAction } from "./actions";
 
 type Params = Promise<{
   token: string;
+}>;
+
+type SearchParams = Promise<{
+  success?: string;
+  error?: string;
 }>;
 
 type ClientRow = {
@@ -45,6 +51,15 @@ type ClientMembershipRow = {
   name_snapshot: string | null;
   current_period_end: string | null;
   ends_on: string | null;
+};
+
+type AttendanceRow = {
+  id: string;
+  appointment_id: string | null;
+  client_id: string | null;
+  status: string | null;
+  checked_in_at: string | null;
+  marked_attended_at: string | null;
 };
 
 function getInitials(firstName: string, lastName: string) {
@@ -101,8 +116,34 @@ function statusClass(status: string | null | undefined) {
   return "bg-amber-50 text-amber-700";
 }
 
-export default async function ClientIdentityPage({ params }: { params: Params }) {
+function attendanceStatusClass(status: string | null | undefined) {
+  if (status === "attended") return "bg-emerald-50 text-emerald-700";
+  if (status === "checked_in") return "bg-indigo-50 text-indigo-700";
+  if (status === "no_show") return "bg-orange-50 text-orange-700";
+  if (status === "cancelled") return "bg-rose-50 text-rose-700";
+
+  return "bg-slate-100 text-slate-700";
+}
+
+function attendanceStatusLabel(status: string | null | undefined) {
+  if (status === "attended") return "Attended";
+  if (status === "checked_in") return "Checked in";
+  if (status === "no_show") return "No-show";
+  if (status === "cancelled") return "Cancelled";
+  if (status === "registered") return "Registered";
+
+  return "Not checked in";
+}
+
+export default async function ClientIdentityPage({
+  params,
+  searchParams,
+}: {
+  params: Params;
+  searchParams: SearchParams;
+}) {
   const { token } = await params;
+  const query = await searchParams;
   const supabase = await createClient();
   const { studioId } = await getCurrentStudioContext();
 
@@ -181,6 +222,25 @@ export default async function ClientIdentityPage({ params }: { params: Params })
   const appointments = (appointmentsResult.data ?? []) as AppointmentRow[];
   const activePackages = (packagesResult.data ?? []) as ClientPackageRow[];
   const membership = (membershipResult.data ?? null) as ClientMembershipRow | null;
+  const appointmentIds = appointments.map((appointment) => appointment.id);
+
+  const attendanceResult =
+    appointmentIds.length > 0
+      ? await supabase
+          .from("attendance_records")
+          .select("id, appointment_id, client_id, status, checked_in_at, marked_attended_at")
+          .eq("studio_id", studioId)
+          .eq("client_id", typedClient.id)
+          .in("appointment_id", appointmentIds)
+      : { data: [] as AttendanceRow[], error: null };
+
+  const attendanceRows = (attendanceResult.data ?? []) as AttendanceRow[];
+  const attendanceByAppointmentId = new Map(
+    attendanceRows
+      .filter((row) => row.appointment_id)
+      .map((row) => [row.appointment_id as string, row])
+  );
+  const identityPath = `/app/client-identity/${encodeURIComponent(trimmedToken)}`;
 
   return (
     <div className="space-y-8">
@@ -228,6 +288,24 @@ export default async function ClientIdentityPage({ params }: { params: Params })
           </div>
         </div>
       </div>
+
+      {query.success === "checked_in" ? (
+        <div className="rounded-[24px] border border-emerald-200 bg-emerald-50 px-5 py-4 text-sm font-medium text-emerald-800">
+          Client check-in was recorded.
+        </div>
+      ) : null}
+
+      {query.success === "already_checked_in" ? (
+        <div className="rounded-[24px] border border-indigo-200 bg-indigo-50 px-5 py-4 text-sm font-medium text-indigo-800">
+          This client was already checked in for that activity.
+        </div>
+      ) : null}
+
+      {query.error ? (
+        <div className="rounded-[24px] border border-rose-200 bg-rose-50 px-5 py-4 text-sm font-medium text-rose-800">
+          The check-in could not be recorded. Please open the appointment and try again.
+        </div>
+      ) : null}
 
       <div className="grid gap-5 lg:grid-cols-3">
         <div className="rounded-[28px] border border-[var(--brand-border)] bg-white p-5 shadow-sm">
@@ -305,8 +383,7 @@ export default async function ClientIdentityPage({ params }: { params: Params })
             Staff reminder
           </p>
           <p className="mt-3 text-sm leading-6 text-amber-800">
-            This screen identifies the client only. Check-ins are still completed from the
-            appointment, class, or event check-in flow until Client QR Check-In actions are added.
+            Scan the client QR, verify the headshot, then check the client into each same-day activity separately.
           </p>
         </div>
       </div>
@@ -321,7 +398,7 @@ export default async function ClientIdentityPage({ params }: { params: Params })
               Same-day activity
             </h2>
             <p className="mt-1 text-sm text-slate-600">
-              Each item is reviewed separately. Future check-in actions will appear here so staff can check the client into one activity at a time.
+              Each item is reviewed separately. Use the action on the correct card so a private lesson and group class can be checked in independently.
             </p>
           </div>
           <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-sm font-semibold text-[var(--brand-accent-dark)]">
@@ -338,7 +415,13 @@ export default async function ClientIdentityPage({ params }: { params: Params })
             appointments.map((appointment) => {
               const instructor = getSingle(appointment.instructors);
               const room = getSingle(appointment.rooms);
-              const checkedIn = appointment.status === "attended" || appointment.status === "completed";
+              const attendance = attendanceByAppointmentId.get(appointment.id) ?? null;
+              const attendanceStatus = attendance?.status ?? null;
+              const checkedIn =
+                attendanceStatus === "checked_in" ||
+                attendanceStatus === "attended" ||
+                appointment.status === "attended" ||
+                appointment.status === "completed";
 
               return (
                 <div
@@ -352,8 +435,15 @@ export default async function ClientIdentityPage({ params }: { params: Params })
                           {formatTime(appointment.starts_at)}
                           {appointment.ends_at ? ` – ${formatTime(appointment.ends_at)}` : ""}
                         </p>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${attendanceStatusClass(
+                            attendanceStatus
+                          )}`}
+                        >
+                          {checkedIn ? attendanceStatusLabel(attendanceStatus || "checked_in") : "Not checked in"}
+                        </span>
                         <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusClass(appointment.status)}`}>
-                          {checkedIn ? "Already checked in" : appointment.status ?? "Scheduled"}
+                          {appointment.status ?? "Scheduled"}
                         </span>
                       </div>
 
@@ -365,9 +455,33 @@ export default async function ClientIdentityPage({ params }: { params: Params })
                         {instructor ? ` · ${[instructor.first_name, instructor.last_name].filter(Boolean).join(" ")}` : ""}
                         {room?.name ? ` · ${room.name}` : ""}
                       </p>
+                      {attendance?.checked_in_at ? (
+                        <p className="mt-2 text-xs font-medium text-indigo-700">
+                          Checked in at {formatTime(attendance.checked_in_at)}
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="flex flex-wrap gap-2">
+                      {checkedIn ? (
+                        <span className="rounded-2xl bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
+                          Checked in
+                        </span>
+                      ) : (
+                        <form action={checkInClientIdentityAppointmentAction}>
+                          <input type="hidden" name="appointmentId" value={appointment.id} />
+                          <input type="hidden" name="clientId" value={typedClient.id} />
+                          <input type="hidden" name="token" value={trimmedToken} />
+                          <input type="hidden" name="returnTo" value={identityPath} />
+                          <button
+                            type="submit"
+                            className="rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-2 text-sm font-semibold text-white hover:brightness-105"
+                          >
+                            Check in
+                          </button>
+                        </form>
+                      )}
+
                       <Link
                         href={`/app/schedule/${appointment.id}`}
                         className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm hover:bg-[var(--brand-primary-soft)]"
@@ -376,7 +490,7 @@ export default async function ClientIdentityPage({ params }: { params: Params })
                       </Link>
                       <Link
                         href={`/app/schedule/${appointment.id}/attendance`}
-                        className="rounded-2xl bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] px-4 py-2 text-sm font-semibold text-white hover:brightness-105"
+                        className="rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm hover:bg-[var(--brand-primary-soft)]"
                       >
                         Attendance
                       </Link>
