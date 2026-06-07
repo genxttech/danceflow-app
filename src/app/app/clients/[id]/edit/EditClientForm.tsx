@@ -59,15 +59,14 @@ export default function EditClientForm({
                 Client headshot
               </label>
               <p className="mt-1 text-sm leading-6 text-slate-600">
-                Upload a photo or take one from a supported mobile camera for staff verification.
+                Choose an existing photo or take a new one, depending on your device. This helps staff verify the client during check-ins.
               </p>
               <input
                 id="clientPhoto"
                 name="clientPhoto"
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
-                capture="environment"
-                className="mt-3 block w-full text-sm text-slate-700 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
+                      className="mt-3 block w-full text-sm text-slate-700 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
               />
               <p className="mt-2 text-xs text-slate-500">JPG, PNG, or WebP up to 5MB.</p>
             </div>

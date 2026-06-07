@@ -41,6 +41,7 @@ type ClientRecord = {
   email: string | null;
   phone: string | null;
   photo_url: string | null;
+  client_qr_token: string | null;
   status: string;
   skill_level: string | null;
   dance_interests: string | null;
@@ -1214,6 +1215,7 @@ export default async function ClientDetailPage({
         email,
         phone,
         photo_url,
+        client_qr_token,
         status,
         skill_level,
         dance_interests,
@@ -1567,6 +1569,18 @@ export default async function ClientDetailPage({
   const typedClient = client as ClientRecord;
   const clientFullName = `${typedClient.first_name} ${typedClient.last_name}`.trim();
   const clientInitials = getClientInitials(typedClient.first_name, typedClient.last_name);
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
+  const clientIdentityPath = typedClient.client_qr_token
+    ? `/app/client-identity/${typedClient.client_qr_token}`
+    : null;
+  const clientIdentityUrl = clientIdentityPath
+    ? `${siteUrl || ""}${clientIdentityPath}`
+    : null;
+  const clientIdentityQrUrl = clientIdentityUrl
+    ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=12&data=${encodeURIComponent(
+        clientIdentityUrl,
+      )}`
+    : null;
   const typedInstructors = (instructors ?? []) as InstructorOption[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
   const typedUpcoming = (upcomingAppointments ?? []) as AppointmentRow[];
@@ -3257,6 +3271,41 @@ export default async function ClientDetailPage({
       instructor, their portal includes floor-space booking, rental history, and
       rental payment tools.
     </p>
+  </div>
+
+  <div className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+      <div>
+        <p className="text-sm font-semibold text-[var(--brand-text)]">Client QR Identity</p>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          Staff can scan this client code to open a verification screen with the client photo,
+          account details, and same-day check-in opportunities.
+        </p>
+        {clientIdentityPath ? (
+          <Link
+            href={clientIdentityPath}
+            className="mt-3 inline-flex rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-primary-soft)] px-4 py-2 text-sm font-semibold text-[var(--brand-primary)] hover:bg-white"
+          >
+            Open identity screen
+          </Link>
+        ) : (
+          <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            QR identity is not available for this client yet. Run the QR identity migration/backfill to generate a token.
+          </p>
+        )}
+      </div>
+
+      {clientIdentityQrUrl ? (
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-center">
+          <img
+            src={clientIdentityQrUrl}
+            alt={`${clientFullName} client QR identity code`}
+            className="mx-auto h-36 w-36 rounded-xl bg-white"
+          />
+          <p className="mt-2 text-xs font-medium text-slate-500">Staff scan code</p>
+        </div>
+      ) : null}
+    </div>
   </div>
 
   {isIndependentInstructor ? (

@@ -358,41 +358,62 @@ export default async function PublicIntroBookingPage({
   const ctaText = typedStudio.public_lead_cta_text || "Request Intro Lesson";
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-10">
-      <div className="mx-auto max-w-5xl">
-        <div className="overflow-hidden rounded-3xl border bg-white shadow-sm">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#FDF2F8,_transparent_34%),linear-gradient(135deg,_#FFF7ED_0%,_#F8FAFC_42%,_#FDF2F8_100%)] px-4 py-10">
+      <div className="mx-auto max-w-6xl">
+        <div className="overflow-hidden rounded-[34px] border border-white/70 bg-white/95 shadow-xl shadow-slate-200/70 backdrop-blur">
           <div
-            className="border-b px-6 py-8 md:px-8"
-            style={{ borderTop: `6px solid ${accentColor}` }}
+            className="relative overflow-hidden border-b border-slate-200 px-6 py-8 md:px-8"
+            style={{ borderTop: `7px solid ${accentColor}` }}
           >
-            <div className="flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
+            <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-r from-[#F97316]/10 via-[#EC4899]/10 to-[#7C3AED]/10" />
+            <div className="relative flex flex-col gap-6 md:flex-row md:items-start md:justify-between">
               <div className="min-w-0">
-                <p className="text-sm font-medium uppercase tracking-wide text-slate-500">
-                  Intro Lesson Requests
+                <p className="inline-flex rounded-full bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[#BE185D] ring-1 ring-pink-100">
+                  DanceFlow booking request
                 </p>
-                <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-900">
+                <h1 className="mt-4 text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
                   {headline}
                 </h1>
-                <p className="mt-3 max-w-2xl text-slate-600">{description}</p>
+                <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">{description}</p>
 
-                <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-600">
-                  <span className="rounded-full bg-slate-100 px-3 py-1">
-                    {lessonDurationMinutes} minutes
+                <div className="mt-6 grid gap-3 text-sm text-slate-700 sm:grid-cols-2 lg:grid-cols-3">
+                  <span className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                    <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      Lesson length
+                    </span>
+                    <span className="mt-1 block font-semibold text-slate-900">
+                      {lessonDurationMinutes} minutes
+                    </span>
                   </span>
 
-                  <span className="rounded-full bg-slate-100 px-3 py-1">
-                    Request window: {formatRequestWindow(typedSettings)}
+                  <span className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                    <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                      Request window
+                    </span>
+                    <span className="mt-1 block font-semibold text-slate-900">
+                      {formatRequestWindow(typedSettings)}
+                    </span>
                   </span>
 
                   {typedInstructor?.active ? (
-                    <span className="rounded-full bg-slate-100 px-3 py-1">
-                      Instructor: {typedInstructor.first_name} {typedInstructor.last_name}
+                    <span className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                      <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                        Instructor
+                      </span>
+                      <span className="mt-1 block font-semibold text-slate-900">
+                        {typedInstructor.first_name} {typedInstructor.last_name}
+                      </span>
                     </span>
                   ) : null}
 
                   {typedRoom?.active ? (
-                    <span className="rounded-full bg-slate-100 px-3 py-1">
-                      Room: {typedRoom.name}
+                    <span className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                      <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                        Room
+                      </span>
+                      <span className="mt-1 block font-semibold text-slate-900">
+                        {typedRoom.name}
+                      </span>
                     </span>
                   ) : null}
                 </div>
@@ -402,7 +423,7 @@ export default async function PublicIntroBookingPage({
                 <img
                   src={typedStudio.public_logo_url}
                   alt={`${typedStudio.name} logo`}
-                  className="h-16 w-16 rounded-xl object-contain"
+                  className="h-20 w-20 rounded-3xl border border-slate-200 bg-white object-contain p-2 shadow-sm"
                 />
               ) : null}
             </div>
@@ -410,17 +431,17 @@ export default async function PublicIntroBookingPage({
 
           <div className="px-6 py-8 md:px-8">
             {isSuccess ? (
-              <div className="rounded-3xl border border-green-200 bg-green-50 p-8">
+              <div className="rounded-[30px] border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-8 shadow-sm">
                 <div className="max-w-2xl">
-                  <p className="text-sm font-medium uppercase tracking-wide text-green-700">
-                    Request Received
+                  <p className="inline-flex rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                    Request received
                   </p>
-                  <h2 className="mt-2 text-3xl font-semibold tracking-tight text-green-900">
-                    Your intro lesson request has been received.
+                  <h2 className="mt-4 text-3xl font-semibold tracking-tight text-emerald-950">
+                    Your intro lesson request is on its way to the studio.
                   </h2>
-                  <p className="mt-3 text-green-800">
-                    The studio has received your intro lesson request and can follow up
-                    with confirmation or next steps.
+                  <p className="mt-3 text-base leading-7 text-emerald-900">
+                    The studio will review your selected time and follow up with confirmation
+                    or next steps. This is a request, not a confirmed appointment yet.
                   </p>
 
                   {selectedSlot ? (
@@ -438,11 +459,11 @@ export default async function PublicIntroBookingPage({
                   <div className="mt-6 flex flex-wrap gap-3">
                     <Link
                       href={`/book/${typedStudio.slug}`}
-                      className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
+                      className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
                     >
                       Back to booking page
                     </Link>
-                    <Link href="/" className="rounded-xl border px-4 py-2 hover:bg-slate-50">
+                    <Link href="/" className="rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
                       Back home
                     </Link>
                   </div>
@@ -450,29 +471,40 @@ export default async function PublicIntroBookingPage({
               </div>
             ) : (
               <>
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col gap-4 rounded-[28px] border border-slate-200 bg-slate-50/80 p-5 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <h2 className="text-xl font-semibold text-slate-900">Available Intro Request Times</h2>
-                    <p className="mt-1 text-sm text-slate-500">
-                      Choose a time, then complete the request form below.
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
+                      Step 1
+                    </p>
+                    <h2 className="mt-1 text-2xl font-semibold text-slate-950">
+                      Choose an intro request time
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                      Pick a preferred time below, then complete the request form. The studio will
+                      review the request before it becomes a confirmed appointment.
                     </p>
                   </div>
 
-                  <div className="text-sm text-slate-500">
+                  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
                     Window: next {bookingWindowDays} day{bookingWindowDays === 1 ? "" : "s"}
                   </div>
                 </div>
 
                 <div className="mt-6 space-y-6">
                   {groupedSlots.length === 0 ? (
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6 text-slate-600">
-                      No intro lesson request times are currently available in the active booking window.
+                    <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600 shadow-sm">
+                      <p className="text-lg font-semibold text-slate-950">
+                        No request times are available right now.
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-slate-500">
+                        Please check back soon or contact the studio directly for help finding an intro lesson time.
+                      </p>
                     </div>
                   ) : (
                     groupedSlots.map((group) => (
-                      <section key={group.date} className="rounded-2xl border border-slate-200">
-                        <div className="border-b bg-slate-50 px-5 py-4">
-                          <h3 className="font-medium text-slate-900">
+                      <section key={group.date} className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
+                        <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-pink-50/50 px-5 py-4">
+                          <h3 className="font-semibold text-slate-950">
                             {formatLongDate(group.date)}
                           </h3>
                         </div>
@@ -488,10 +520,10 @@ export default async function PublicIntroBookingPage({
                               <Link
                                 key={slot.start}
                                 href={href}
-                                className={`rounded-xl border p-4 ${
+                                className={`rounded-2xl border p-4 transition ${
                                   isSelected
-                                    ? "border-slate-900 bg-slate-900 text-white"
-                                    : "border-slate-200 bg-white hover:bg-slate-50"
+                                    ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-300/50"
+                                    : "border-slate-200 bg-white shadow-sm hover:-translate-y-0.5 hover:border-pink-200 hover:bg-pink-50/40"
                                 }`}
                               >
                                 <p className="text-base font-medium">
@@ -513,8 +545,16 @@ export default async function PublicIntroBookingPage({
                   )}
                 </div>
 
-                <div className="mt-10 rounded-2xl border border-slate-200 bg-slate-50 p-6">
-                  <h3 className="text-xl font-semibold text-slate-900">Complete Your Request</h3>
+                <div className="mt-10 rounded-[30px] border border-slate-200 bg-white p-6 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#BE185D]">
+                    Step 2
+                  </p>
+                  <h3 className="mt-1 text-2xl font-semibold text-slate-950">
+                    Complete your request
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Share your contact information and any notes that will help the studio prepare.
+                  </p>
 
                   {!selectedSlot ? (
                     <p className="mt-3 text-slate-600">
@@ -533,7 +573,7 @@ export default async function PublicIntroBookingPage({
             )}
 
             <div className="mt-6">
-              <Link href="/" className="text-sm underline text-slate-600">
+              <Link href="/" className="text-sm font-medium text-slate-600 underline decoration-slate-300 underline-offset-4 hover:text-slate-950">
                 Back
               </Link>
             </div>
