@@ -10,6 +10,7 @@ import {
 } from "@/app/app/leads/actions";
 import { completeLeadFollowUpAction } from "@/app/app/leads/activity-actions";
 import QuickActionPanel from "@/components/ui/QuickActionPanel";
+import AriaInsightCard from "@/components/app/AriaInsightCard";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
 import QuickPaymentPanel from "./QuickPaymentPanel";
 import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
@@ -1815,6 +1816,33 @@ export default async function ClientDetailPage({
     (row) => row.isRequired && row.status !== "signed" && row.status !== "completed",
   ).length;
 
+  const lowBalancePackageItemCount = activePackages.reduce((count, pkg) => {
+    return (
+      count +
+      pkg.client_package_items.filter(
+        (item) =>
+          !item.is_unlimited &&
+          item.quantity_remaining !== null &&
+          item.quantity_remaining <= 2
+      ).length
+    );
+  }, 0);
+
+  const ariaClientInsight = nextAppointment
+    ? `${clientFullName} has a future appointment scheduled for ${fmtShortDateTime(
+        nextAppointment.starts_at
+      )}.`
+    : `${clientFullName} does not have a future appointment scheduled.`;
+
+  const ariaClientRecommendation = nextAppointment
+    ? lowBalancePackageItemCount > 0
+      ? `Review package balances before the next visit. ARIA found ${lowBalancePackageItemCount} low-balance package item${
+          lowBalancePackageItemCount === 1 ? "" : "s"
+        } that may need a renewal conversation.`
+      : "Use the next visit to confirm goals, review progress, and schedule the following lesson before the client leaves."
+    : activePackages.length > 0
+      ? "Invite this client to request their next lesson from the portal or schedule them directly so their active package keeps momentum."
+      : "Consider a rebooking follow-up or a package recommendation based on the client’s goals and recent activity.";
 
   return (
     <div className="space-y-8">
@@ -3132,6 +3160,29 @@ export default async function ClientDetailPage({
       <div className="space-y-6">
         <div className="space-y-6">
           {activeTab === "overview" ? (
+            <>
+              <AriaInsightCard
+                eyebrow="ARIA Client Insight"
+                title="ARIA Suggests"
+                insight={ariaClientInsight}
+                recommendation={ariaClientRecommendation}
+                metric={
+                  lowBalancePackageItemCount > 0
+                    ? `${lowBalancePackageItemCount} low balance`
+                    : nextAppointment
+                      ? "Next lesson scheduled"
+                      : "Needs rebooking"
+                }
+                primaryAction={{
+                  href: `/app/clients/${typedClient.id}?tab=schedule`,
+                  label: "Review schedule",
+                }}
+                secondaryAction={{
+                  href: `/app/clients/${typedClient.id}?tab=billing`,
+                  label: "Review packages",
+                }}
+              />
+
           <SectionCard title="Client Snapshot">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
@@ -3210,6 +3261,7 @@ export default async function ClientDetailPage({
               </div>
             ) : null}
           </SectionCard>
+            </>
           ) : null}
 
           {activeTab === "portal" ? (

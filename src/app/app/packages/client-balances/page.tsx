@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { canManagePackages } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import AriaInsightCard from "@/components/app/AriaInsightCard";
 
 type BalanceRow = {
   id: string;
@@ -81,6 +82,28 @@ export default async function ClientBalancesPage() {
   const balances = (data ?? []) as BalanceRow[];
   const activeCount = balances.filter((balance) => balance.active).length;
   const inactiveCount = balances.filter((balance) => !balance.active).length;
+  const lowBalancePackages = balances.filter((balance) =>
+    balance.active &&
+    balance.client_package_items.some(
+      (item) =>
+        !item.is_unlimited &&
+        item.quantity_remaining !== null &&
+        Number(item.quantity_remaining) <= 2,
+    ),
+  );
+  const depletedPackages = balances.filter((balance) =>
+    balance.active &&
+    balance.client_package_items.some(
+      (item) =>
+        !item.is_unlimited &&
+        item.quantity_remaining !== null &&
+        Number(item.quantity_remaining) <= 0,
+    ),
+  );
+  const ariaBalanceInsight =
+    lowBalancePackages.length > 0
+      ? `${lowBalancePackages.length} active package${lowBalancePackages.length === 1 ? " is" : "s are"} at 2 or fewer remaining credits.`
+      : "No active packages are currently at the low-balance threshold.";
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -113,6 +136,24 @@ export default async function ClientBalancesPage() {
           <p className="mt-2 text-3xl font-semibold text-[var(--brand-text)]">{inactiveCount}</p>
         </div>
       </div>
+
+      <AriaInsightCard
+        eyebrow="ARIA Opportunity"
+        title="Package renewal watch"
+        insight={ariaBalanceInsight}
+        recommendation={
+          lowBalancePackages.length > 0
+            ? "Review these clients and send renewal prompts before they run out of lesson credits."
+            : "Keep monitoring balances weekly so renewal conversations happen before clients run out of credits."
+        }
+        metric={
+          depletedPackages.length > 0
+            ? `${depletedPackages.length} depleted`
+            : `${lowBalancePackages.length} low balance`
+        }
+        primaryAction={{ href: "/app/marketing/campaigns", label: "Create campaign" }}
+        secondaryAction={{ href: "/app/packages/sell", label: "Sell package" }}
+      />
 
       <div className="space-y-4">
         {balances.length === 0 ? (

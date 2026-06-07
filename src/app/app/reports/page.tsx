@@ -5,6 +5,7 @@ import { canViewReports } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import ReportInsightsCard from "./ReportInsightsCard";
+import AriaInsightCard from "@/components/app/AriaInsightCard";
 
 type SearchParams = Promise<{
   range?: string;
@@ -1313,6 +1314,16 @@ export default async function ReportsPage({
 
   const recentOrganizerCampaigns = typedOrganizerCampaigns.slice(0, 5);
 
+  const ariaReportMetric = revenueTotal > 0 ? fmtCurrency(revenueTotal) : rangeLabel(range);
+  const ariaReportInsight =
+    revenueTotal > 0
+      ? `Your studio recorded ${fmtCurrency(revenueTotal)} in total revenue for ${rangeLabel(range).toLowerCase()}, with estimated net income of ${fmtCurrency(estimatedNetIncome)}.`
+      : `No revenue has been recorded for ${rangeLabel(range).toLowerCase()} yet.`;
+  const ariaReportRecommendation =
+    packageRevenueSnapshot >= membershipRevenueSnapshot
+      ? "Use package renewal and no-upcoming-lesson follow-ups to keep lesson revenue moving."
+      : "Membership revenue is playing a larger role. Review renewal timing and attendance patterns to protect recurring revenue.";
+
   const reportInsightsMetrics = {
     range: rangeLabel(range),
     plan: studioPlanCode ?? "starter",
@@ -1491,6 +1502,16 @@ export default async function ReportsPage({
       <ReportInsightsCard
         canUseAi={canViewGrowthReports || canViewProReports}
         metrics={reportInsightsMetrics}
+      />
+
+      <AriaInsightCard
+        eyebrow="ARIA Revenue Insight"
+        title="Revenue focus for this report"
+        insight={ariaReportInsight}
+        recommendation={ariaReportRecommendation}
+        metric={ariaReportMetric}
+        primaryAction={{ href: "/app/packages/client-balances", label: "Review balances" }}
+        secondaryAction={{ href: "/app/marketing/campaigns", label: "Plan campaign" }}
       />
 
       <section className="grid gap-6 xl:grid-cols-2">

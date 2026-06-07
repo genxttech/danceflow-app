@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { redirect } from "next/navigation";
 import {
   ArrowRight,
@@ -1942,6 +1943,36 @@ export default async function AppDashboardPage({
     (a, b) => priorityRank[a.priority] - priorityRank[b.priority],
   );
 
+  const ariaTopSuggestion = suggestedFollowUps[0] ?? null;
+  const ariaHighPriorityCount = suggestedFollowUps.filter(
+    (item) => item.priority === "high",
+  ).length;
+  const ariaLowPackageCount = suggestedFollowUps.filter(
+    (item) => item.type === "package",
+  ).length;
+  const ariaNoUpcomingCount = suggestedFollowUps.filter((item) =>
+    item.id.startsWith("no-upcoming-"),
+  ).length;
+  const ariaDashboardTitle = ariaTopSuggestion
+    ? `ARIA's next best move: ${ariaTopSuggestion.personName}`
+    : "ARIA's next best move: keep the pipeline warm";
+  const ariaDashboardInsight = ariaTopSuggestion
+    ? ariaTopSuggestion.reason
+    : "Your studio has no urgent follow-up recommendations right now. Keep future lessons, package renewals, and booking requests moving so revenue does not stall.";
+  const ariaDashboardRecommendation = ariaTopSuggestion
+    ? ariaTopSuggestion.suggestedAction
+    : "Review upcoming lessons and package balances weekly to spot the next client who needs a rebooking or renewal prompt.";
+  const ariaDashboardMetric =
+    ariaHighPriorityCount > 0
+      ? `${ariaHighPriorityCount} high priority`
+      : pendingBookingRequests.length > 0
+        ? `${pendingBookingRequests.length} booking request${pendingBookingRequests.length === 1 ? "" : "s"}`
+        : ariaLowPackageCount > 0
+          ? `${ariaLowPackageCount} low balance`
+          : ariaNoUpcomingCount > 0
+            ? `${ariaNoUpcomingCount} rebooking`
+            : "All clear";
+
   const clientIds = Array.from(
     new Set(
       typedAppointments
@@ -2282,6 +2313,20 @@ export default async function AppDashboardPage({
           icon={Ticket}
         />
       </section>
+
+      <AriaInsightCard
+        eyebrow="ARIA's Next Best Move"
+        title={ariaDashboardTitle}
+        insight={ariaDashboardInsight}
+        recommendation={ariaDashboardRecommendation}
+        metric={ariaDashboardMetric}
+        primaryAction={
+          ariaTopSuggestion
+            ? { href: ariaTopSuggestion.href, label: "Review recommendation" }
+            : { href: "/app/clients", label: "Review clients" }
+        }
+        secondaryAction={{ href: "/app/automations", label: "Open automations" }}
+      />
 
       <SuggestedFollowUpsCard
         suggestions={suggestedFollowUps}
