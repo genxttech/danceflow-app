@@ -16,11 +16,13 @@ import { createClient } from "@/lib/supabase/server";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
+  completeAutomationAction,
   createAutomationEmailDraftAction,
   dismissAutomationAction,
-  queueAutomationEmailDraftAction,
   evaluateAutomationRuleAction,
   getAutomationDefinitions,
+  queueAutomationEmailDraftAction,
+  saveAutomationEmailDraftAction,
   updateAutomationRuleAction,
 } from "./actions";
 
@@ -63,6 +65,8 @@ type AutomationDraftRow = {
   related_id: string | null;
   created_at: string;
   updated_at: string | null;
+  sent_at: string | null;
+  error_message: string | null;
 };
 
 type AutomationRunRow = {
@@ -109,6 +113,23 @@ function priorityClasses(priority: string) {
   return "border-violet-200 bg-violet-50 text-violet-700";
 }
 
+function deliveryStatusLabel(status: string | null | undefined) {
+  if (status === "draft") return "Draft";
+  if (status === "queued") return "Queued for send";
+  if (status === "sent") return "Sent";
+  if (status === "failed") return "Failed";
+  if (status === "skipped") return "Skipped";
+  return status || "Not drafted";
+}
+
+function deliveryStatusClasses(status: string | null | undefined) {
+  if (status === "sent") return "bg-emerald-50 text-emerald-700";
+  if (status === "queued") return "bg-blue-50 text-blue-700";
+  if (status === "failed") return "bg-red-50 text-red-700";
+  if (status === "skipped") return "bg-slate-100 text-slate-600";
+  return "bg-pink-50 text-[#BE185D]";
+}
+
 export default async function AutomationsPage({
   searchParams,
 }: {
@@ -148,30 +169,27 @@ export default async function AutomationsPage({
       .limit(5),
   ]);
 
-  const ruleByKey = new Map(
-    ((rules ?? []) as AutomationRuleRow[]).map((rule) => [rule.rule_key, rule])
-  );
   const typedActions = (actions ?? []) as AutomationActionRow[];
-  const typedRuns = (runs ?? []) as AutomationRunRow[];
   const actionIds = typedActions.map((action) => action.id);
-
-  const { data: draftDeliveries } =
+  const { data: drafts } =
     actionIds.length > 0
       ? await supabase
           .from("outbound_deliveries")
-          .select("id, status, subject, body_text, recipient_email, related_id, created_at, updated_at")
+          .select("id, status, subject, body_text, recipient_email, related_id, created_at, updated_at, sent_at, error_message")
           .eq("studio_id", context.studioId)
           .eq("related_table", "automation_actions")
           .in("related_id", actionIds)
           .order("created_at", { ascending: false })
       : { data: [] };
 
-  const draftByActionId = new Map<string, AutomationDraftRow>();
-  ((draftDeliveries ?? []) as AutomationDraftRow[]).forEach((draft) => {
-    if (draft.related_id && !draftByActionId.has(draft.related_id)) {
-      draftByActionId.set(draft.related_id, draft);
-    }
-  });
+  const draftByActionId = new Map(
+    ((drafts ?? []) as AutomationDraftRow[]).map((draft) => [String(draft.related_id), draft])
+  );
+
+  const ruleByKey = new Map(
+    ((rules ?? []) as AutomationRuleRow[]).map((rule) => [rule.rule_key, rule])
+  );
+  const typedRuns = (runs ?? []) as AutomationRunRow[];
 
   const enabledCount = automationDefinitions.filter(
     (definition) => ruleByKey.get(definition.key)?.enabled
@@ -401,112 +419,184 @@ export default async function AutomationsPage({
 
             <div className="mt-5 space-y-3">
               {typedActions.length > 0 ? (
-                typedActions.map((action) => {
-                  const draft = draftByActionId.get(action.id);
-                  const draftStatusLabel = draft?.status === "queued" ? "Queued for send" : draft?.status === "sent" ? "Sent" : draft?.status === "failed" ? "Send failed" : draft?.status === "draft" ? "Draft ready" : null;
-
-                  return (
+                typedActions.map((action) => (
                   <div
                     key={action.id}
                     className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
                   >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span
-                            className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${priorityClasses(
-                              action.priority
-                            )}`}
-                          >
-                            {action.priority}
-                          </span>
-                          <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-500">
-                            {ruleBadge(action.rule_key)}
-                          </span>
-                        </div>
-                        <h3 className="mt-3 font-semibold text-slate-950">{action.title}</h3>
-                        {action.body ? (
-                          <p className="mt-1 text-sm leading-6 text-slate-600">
-                            {action.body}
-                          </p>
-                        ) : null}
-                        <p className="mt-2 text-xs text-slate-500">
-                          Created {formatDateTime(action.created_at)}
-                        </p>
-                        {action.status === "drafted" ? (
-                          <p className="mt-2 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                            Email draft created
-                          </p>
-                        ) : null}
-                        {draft ? (
-                          <div className="mt-3 rounded-2xl border border-violet-100 bg-white p-3 text-sm shadow-sm">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <p className="font-semibold text-slate-900">Draft preview</p>
-                              {draftStatusLabel ? (
-                                <span className="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700">
-                                  {draftStatusLabel}
+                    {(() => {
+                      const draft = draftByActionId.get(action.id);
+                      return (
+                        <div className="space-y-4">
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${priorityClasses(
+                                    action.priority
+                                  )}`}
+                                >
+                                  {action.priority}
                                 </span>
+                                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-500">
+                                  {ruleBadge(action.rule_key)}
+                                </span>
+                                <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500">
+                                  {draft?.status ?? action.status}
+                                </span>
+                              </div>
+                              <h3 className="mt-3 font-semibold text-slate-950">{action.title}</h3>
+                              {action.body ? (
+                                <p className="mt-1 text-sm leading-6 text-slate-600">
+                                  {action.body}
+                                </p>
                               ) : null}
-                            </div>
-                            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                              To {draft.recipient_email || "client"}
-                            </p>
-                            {draft.subject ? (
-                              <p className="mt-1 font-semibold text-slate-800">{draft.subject}</p>
-                            ) : null}
-                            {draft.body_text ? (
-                              <p className="mt-2 line-clamp-4 whitespace-pre-line text-xs leading-5 text-slate-600">
-                                {draft.body_text}
+                              <p className="mt-2 text-xs text-slate-500">
+                                Created {formatDateTime(action.created_at)}
                               </p>
-                            ) : null}
-                          </div>
-                        ) : null}
-                      </div>
+                            </div>
 
-                      {["suggested", "drafted"].includes(action.status) ? (
-                        <div className="flex flex-col gap-2 sm:items-end">
-                          {action.status === "suggested" ? (
-                            <form action={createAutomationEmailDraftAction}>
-                              <input type="hidden" name="actionId" value={action.id} />
-                              <button
-                                type="submit"
-                                className="rounded-full bg-[#DB2777] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#BE185D]"
-                              >
-                                Create email draft
-                              </button>
-                            </form>
+                            {["suggested", "drafted"].includes(action.status) ? (
+                              <div className="flex flex-wrap gap-2">
+                                {!draft ? (
+                                  <form action={createAutomationEmailDraftAction}>
+                                    <input type="hidden" name="actionId" value={action.id} />
+                                    <button
+                                      type="submit"
+                                      className="inline-flex items-center gap-2 rounded-full bg-[#DB2777] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#BE185D]"
+                                    >
+                                      <Mail className="h-3.5 w-3.5" />
+                                      Create email draft
+                                    </button>
+                                  </form>
+                                ) : null}
+                                <form action={dismissAutomationAction}>
+                                  <input type="hidden" name="actionId" value={action.id} />
+                                  <button
+                                    type="submit"
+                                    className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                                  >
+                                    Dismiss
+                                  </button>
+                                </form>
+                              </div>
+                            ) : (
+                              <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500">
+                                {action.status}
+                              </span>
+                            )}
+                          </div>
+
+                          {draft ? (
+                            <div className="rounded-2xl border border-pink-100 bg-white p-4">
+                              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#DB2777]">
+                                    Email draft
+                                  </p>
+                                  <p className="mt-1 text-xs text-slate-500">
+                                    To: {draft.recipient_email ?? "Missing recipient"}
+                                  </p>
+                                  {draft.status === "draft" ? (
+                                    <p className="mt-1 text-xs text-slate-500">
+                                      Review and edit this email before queueing it for send.
+                                    </p>
+                                  ) : null}
+                                  {draft.status === "queued" ? (
+                                    <p className="mt-1 text-xs text-blue-700">
+                                      Queued {formatDateTime(draft.updated_at)}. The normal outbound sender will process it.
+                                    </p>
+                                  ) : null}
+                                  {draft.status === "sent" ? (
+                                    <p className="mt-1 text-xs text-emerald-700">
+                                      Sent {formatDateTime(draft.sent_at ?? draft.updated_at)}.
+                                    </p>
+                                  ) : null}
+                                  {draft.status === "failed" ? (
+                                    <p className="mt-1 text-xs text-red-700">
+                                      Failed{draft.error_message ? `: ${draft.error_message}` : "."}
+                                    </p>
+                                  ) : null}
+                                </div>
+                                <span
+                                  className={`w-fit rounded-full px-3 py-1 text-xs font-semibold ${deliveryStatusClasses(
+                                    draft.status
+                                  )}`}
+                                >
+                                  {deliveryStatusLabel(draft.status)}
+                                </span>
+                              </div>
+
+                              {draft.status === "draft" ? (
+                                <form action={saveAutomationEmailDraftAction} className="mt-4 space-y-3">
+                                  <input type="hidden" name="actionId" value={action.id} />
+                                  <input type="hidden" name="draftId" value={draft.id} />
+                                  <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                    Subject
+                                    <input
+                                      name="subject"
+                                      defaultValue={draft.subject ?? ""}
+                                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal tracking-normal text-slate-900 outline-none focus:border-[#DB2777] focus:ring-2 focus:ring-pink-100"
+                                    />
+                                  </label>
+                                  <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                                    Body
+                                    <textarea
+                                      name="bodyText"
+                                      defaultValue={draft.body_text ?? ""}
+                                      rows={7}
+                                      className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm font-normal leading-6 tracking-normal text-slate-900 outline-none focus:border-[#DB2777] focus:ring-2 focus:ring-pink-100"
+                                    />
+                                  </label>
+                                  <div className="flex flex-wrap gap-2">
+                                    <button
+                                      type="submit"
+                                      className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                    >
+                                      Save draft
+                                    </button>
+                                    <button
+                                      type="submit"
+                                      formAction={queueAutomationEmailDraftAction}
+                                      className="rounded-full bg-[#6B21A8] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#581C87]"
+                                    >
+                                      Queue for send
+                                    </button>
+                                  </div>
+                                </form>
+                              ) : (
+                                <div className="mt-4 space-y-2">
+                                  <p className="text-sm font-semibold text-slate-900">
+                                    {draft.subject ?? "No subject"}
+                                  </p>
+                                  <p className="whitespace-pre-wrap rounded-2xl bg-slate-50 p-3 text-sm leading-6 text-slate-600">
+                                    {draft.body_text ?? "No body text saved."}
+                                  </p>
+                                  {draft.status === "sent" ? (
+                                    <form action={completeAutomationAction} className="pt-2">
+                                      <input type="hidden" name="actionId" value={action.id} />
+                                      <button
+                                        type="submit"
+                                        className="rounded-full bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-700"
+                                      >
+                                        Mark action complete
+                                      </button>
+                                    </form>
+                                  ) : null}
+                                  {draft.status === "queued" ? (
+                                    <p className="rounded-2xl bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
+                                      This draft is queued and waiting for the outbound sender. You can monitor delivery here after it is processed.
+                                    </p>
+                                  ) : null}
+                                </div>
+                              )}
+                            </div>
                           ) : null}
-                          {draft?.status === "draft" ? (
-                            <form action={queueAutomationEmailDraftAction}>
-                              <input type="hidden" name="actionId" value={action.id} />
-                              <input type="hidden" name="deliveryId" value={draft.id} />
-                              <button
-                                type="submit"
-                                className="rounded-full bg-[#6B21A8] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#581C87]"
-                              >
-                                Queue for send
-                              </button>
-                            </form>
-                          ) : null}
-                          <form action={dismissAutomationAction}>
-                            <input type="hidden" name="actionId" value={action.id} />
-                            <button
-                              type="submit"
-                              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                            >
-                              Dismiss
-                            </button>
-                          </form>
                         </div>
-                      ) : (
-                        <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500">
-                          {action.status}
-                        </span>
-                      )}
-                    </div>
+                      );
+                    })()}
                   </div>
-                  );
-                })
+                ))
               ) : (
                 <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
                   <Bell className="mx-auto h-7 w-7 text-slate-400" />

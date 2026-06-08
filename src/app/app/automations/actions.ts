@@ -156,6 +156,36 @@ export async function dismissAutomationAction(formData: FormData) {
 }
 
 
+
+export async function completeAutomationAction(formData: FormData) {
+  const actionId = String(formData.get("actionId") ?? "");
+
+  if (!actionId) {
+    return;
+  }
+
+  const context = await getCurrentStudioContext();
+
+  if (!canManageSettings(context.studioRole ?? "")) {
+    return;
+  }
+
+  const supabase = await createClient();
+
+  await supabase
+    .from("automation_actions")
+    .update({
+      status: "completed",
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", actionId)
+    .eq("studio_id", context.studioId)
+    .in("status", ["suggested", "drafted"]);
+
+  revalidatePath("/app/automations");
+}
+
 type AutomationActionDraftRow = {
   id: string;
   studio_id: string;
@@ -340,6 +370,33 @@ ${studioName}`,
   };
 }
 
+
+function getDraftFormValue(formData: FormData, names: string[]) {
+  for (const name of names) {
+    const value = formData.get(name);
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function renderPlainTextAsHtml(bodyText: string) {
+  const escaped = bodyText
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+
+  return escaped
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+    .map((paragraph) => `<p>${paragraph.replace(/\n/g, "<br />")}</p>`)
+    .join("");
+}
+
+
 export async function createAutomationEmailDraftAction(formData: FormData) {
   const actionId = String(formData.get("actionId") ?? "");
 
@@ -486,9 +543,84 @@ export async function createAutomationEmailDraftAction(formData: FormData) {
 
 
 
+export async function saveAutomationEmailDraftAction(formData: FormData) {
+  const actionId = String(formData.get("actionId") ?? "");
+  const deliveryId = String(formData.get("deliveryId") ?? "");
+  const subject = getDraftFormValue(formData, ["subject", "draftSubject"]);
+  const bodyText = getDraftFormValue(formData, ["bodyText", "draftBody", "body"]);
+
+  if (!actionId || !deliveryId) {
+    redirect("/app/automations?error=missing-draft");
+  }
+
+  if (!subject || !bodyText) {
+    redirect("/app/automations?error=missing-draft-content");
+  }
+
+  const context = await getCurrentStudioContext();
+
+  if (!canManageSettings(context.studioRole ?? "")) {
+    redirect("/app/automations?error=not-authorized");
+  }
+
+  const supabase = await createClient();
+
+  const { data: draft, error: draftError } = await supabase
+    .from("outbound_deliveries")
+    .select("id, status, related_id")
+    .eq("id", deliveryId)
+    .eq("studio_id", context.studioId)
+    .eq("related_table", "automation_actions")
+    .eq("related_id", actionId)
+    .maybeSingle();
+
+  if (draftError) {
+    redirect(`/app/automations?error=${encodeURIComponent(draftError.message)}`);
+  }
+
+  if (!draft) {
+    redirect("/app/automations?error=draft-not-found");
+  }
+
+  const typedDraft = draft as { id: string; status: string; related_id: string | null };
+
+  if (typedDraft.status !== "draft") {
+    redirect("/app/automations?error=draft-not-editable");
+  }
+
+  const { error: deliveryUpdateError } = await supabase
+    .from("outbound_deliveries")
+    .update({
+      subject,
+      body_text: bodyText,
+      body_html: renderPlainTextAsHtml(bodyText),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", deliveryId)
+    .eq("studio_id", context.studioId)
+    .eq("status", "draft");
+
+  if (deliveryUpdateError) {
+    redirect(`/app/automations?error=${encodeURIComponent(deliveryUpdateError.message)}`);
+  }
+
+  await supabase
+    .from("automation_actions")
+    .update({
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", actionId)
+    .eq("studio_id", context.studioId);
+
+  revalidatePath("/app/automations");
+  redirect("/app/automations?success=draft-saved");
+}
+
 export async function queueAutomationEmailDraftAction(formData: FormData) {
   const actionId = String(formData.get("actionId") ?? "");
   const deliveryId = String(formData.get("deliveryId") ?? "");
+  const subject = getDraftFormValue(formData, ["subject", "draftSubject"]);
+  const bodyText = getDraftFormValue(formData, ["bodyText", "draftBody", "body"]);
 
   if (!actionId || !deliveryId) {
     redirect("/app/automations?error=missing-draft");
@@ -525,12 +657,20 @@ export async function queueAutomationEmailDraftAction(formData: FormData) {
     redirect("/app/automations?error=draft-not-queueable");
   }
 
+  const updatePayload: Record<string, unknown> = {
+    status: "queued",
+    updated_at: new Date().toISOString(),
+  };
+
+  if (subject && bodyText) {
+    updatePayload.subject = subject;
+    updatePayload.body_text = bodyText;
+    updatePayload.body_html = renderPlainTextAsHtml(bodyText);
+  }
+
   const { error: deliveryUpdateError } = await supabase
     .from("outbound_deliveries")
-    .update({
-      status: "queued",
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq("id", deliveryId)
     .eq("studio_id", context.studioId)
     .eq("status", "draft");
