@@ -64,7 +64,7 @@ const AUTOMATION_DEFINITIONS: AutomationDefinition[] = [
       "Create a follow-up suggestion after a client completes their first lesson.",
     triggerKey: "first_lesson_completed",
     actionKey: "suggest_first_lesson_follow_up",
-    defaultTriggerConfig: { after_hours: 24 },
+    defaultTriggerConfig: { after_hours: 24, lookback_days: 14 },
     defaultActionConfig: { approval_required: true },
   },
 ];
@@ -1397,6 +1397,139 @@ async function evaluatePendingBookingRequestAutomation(params: {
 }
 
 
+async function evaluateFirstLessonFollowUpAutomation(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  context: Awaited<ReturnType<typeof getCurrentStudioContext>>;
+  definition: AutomationDefinition;
+  rule: { id: string; mode: string | null; trigger_config: unknown; action_config?: unknown };
+  runId: string;
+  ruleKey: string;
+}) {
+  const { supabase, context, definition, rule, runId, ruleKey } = params;
+  const afterHours = asNumber(
+    (rule.trigger_config as Record<string, unknown> | null | undefined)?.after_hours,
+    asNumber(definition.defaultTriggerConfig.after_hours, 24)
+  );
+  const lookbackDays = asNumber(
+    (rule.trigger_config as Record<string, unknown> | null | undefined)?.lookback_days,
+    asNumber(definition.defaultTriggerConfig.lookback_days, 14)
+  );
+
+  const now = new Date();
+  const cutoffIso = new Date(now.getTime() - afterHours * 60 * 60 * 1000).toISOString();
+  const lookbackStartIso = new Date(now.getTime() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
+
+  const [
+    { data: clients, error: clientsError },
+    { data: attendedAppointments, error: appointmentsError },
+  ] = await Promise.all([
+    supabase
+      .from("clients")
+      .select("id, first_name, last_name, email, status")
+      .eq("studio_id", context.studioId),
+    supabase
+      .from("appointments")
+      .select("id, client_id, appointment_type, status, starts_at, ends_at, title")
+      .eq("studio_id", context.studioId)
+      .eq("status", "attended")
+      .lte("starts_at", cutoffIso)
+      .order("starts_at", { ascending: true }),
+  ]);
+
+  if (clientsError) throw new Error(clientsError.message);
+  if (appointmentsError) throw new Error(appointmentsError.message);
+
+  const activeClients = new Map<string, AutomationClientRow>();
+  for (const client of (clients ?? []) as AutomationClientRow[]) {
+    if (isActiveClientStatus(client.status)) {
+      activeClients.set(client.id, client);
+    }
+  }
+
+  const firstAttendedByClient = new Map<string, AppointmentAutomationRow>();
+  for (const appointment of (attendedAppointments ?? []) as AppointmentAutomationRow[]) {
+    if (!appointment.client_id || !activeClients.has(appointment.client_id)) continue;
+    if (!isCountableAppointment(appointment.status)) continue;
+    if (!firstAttendedByClient.has(appointment.client_id)) {
+      firstAttendedByClient.set(appointment.client_id, appointment);
+    }
+  }
+
+  const candidates = [...firstAttendedByClient.entries()]
+    .map(([clientId, appointment]) => ({
+      client: activeClients.get(clientId),
+      appointment,
+    }))
+    .filter((candidate): candidate is { client: AutomationClientRow; appointment: AppointmentAutomationRow } => {
+      if (!candidate.client) return false;
+      const firstLessonTime = new Date(candidate.appointment.starts_at).getTime();
+      return firstLessonTime >= new Date(lookbackStartIso).getTime();
+    });
+
+  const candidatesCount = candidates.length;
+  const existingRelatedIds = new Set<string>();
+
+  if (candidates.length > 0) {
+    const { data: existingActions, error: existingError } = await supabase
+      .from("automation_actions")
+      .select("related_id")
+      .eq("studio_id", context.studioId)
+      .eq("rule_key", ruleKey)
+      .eq("related_table", "appointments")
+      .in(
+        "related_id",
+        candidates.map((candidate) => candidate.appointment.id)
+      );
+
+    if (existingError) {
+      throw new Error(existingError.message);
+    }
+
+    for (const action of existingActions ?? []) {
+      if (action.related_id) existingRelatedIds.add(String(action.related_id));
+    }
+  }
+
+  const actionStatus = packageActionStatusForMode(rule.mode);
+  const dueAt = now.toISOString();
+
+  const actionsToCreate = candidates
+    .filter((candidate) => !existingRelatedIds.has(candidate.appointment.id))
+    .map((candidate) => {
+      const clientName = getSimpleClientName(candidate.client);
+      const lessonTime = formatRequestedTime(candidate.appointment.starts_at);
+      const lessonLabel = candidate.appointment.title || candidate.appointment.appointment_type || "first lesson";
+
+      return {
+        studio_id: context.studioId,
+        rule_id: rule.id,
+        rule_key: ruleKey,
+        title: `First lesson follow-up suggested: ${clientName}`,
+        body: `${clientName} completed their first lesson (${lessonLabel}) on ${lessonTime}. Suggested action: send a warm follow-up, ask about their experience, and invite them to request or schedule their next lesson from the client portal.`,
+        status: actionStatus,
+        priority: "normal",
+        related_table: "appointments",
+        related_id: candidate.appointment.id,
+        client_id: candidate.client.id,
+        due_at: dueAt,
+        created_by_run_id: runId,
+      };
+    });
+
+  if (actionsToCreate.length > 0) {
+    const { error: actionError } = await supabase
+      .from("automation_actions")
+      .insert(actionsToCreate);
+
+    if (actionError) {
+      throw new Error(actionError.message);
+    }
+  }
+
+  return { candidatesCount, createdCount: actionsToCreate.length };
+}
+
+
 export async function evaluateAutomationRuleAction(formData: FormData) {
   const ruleKey = String(formData.get("ruleKey") ?? "");
   const context = await getCurrentStudioContext();
@@ -1412,7 +1545,7 @@ export async function evaluateAutomationRuleAction(formData: FormData) {
     redirect("/app/automations?error=unknown-rule");
   }
 
-  if (!["low_package_balance", "no_upcoming_lesson", "unsigned_document", "pending_booking_request"].includes(ruleKey)) {
+  if (!["low_package_balance", "no_upcoming_lesson", "unsigned_document", "pending_booking_request", "first_lesson_follow_up"].includes(ruleKey)) {
     redirect("/app/automations?error=rule-not-implemented-yet");
   }
 
@@ -1452,42 +1585,54 @@ export async function evaluateAutomationRuleAction(formData: FormData) {
   let createdCount = 0;
 
   try {
-    const result =
-      ruleKey === "low_package_balance"
-        ? await evaluateLowPackageBalanceAutomation({
-            supabase,
-            context,
-            definition,
-            rule,
-            runId: run.id,
-            ruleKey,
-          })
-        : ruleKey === "no_upcoming_lesson"
-          ? await evaluateNoUpcomingLessonAutomation({
-              supabase,
-              context,
-              definition,
-              rule,
-              runId: run.id,
-              ruleKey,
-            })
-          : ruleKey === "unsigned_document"
-            ? await evaluateUnsignedDocumentAutomation({
-                supabase,
-                context,
-                definition,
-                rule,
-                runId: run.id,
-                ruleKey,
-              })
-            : await evaluatePendingBookingRequestAutomation({
-                supabase,
-                context,
-                definition,
-                rule,
-                runId: run.id,
-                ruleKey,
-              });
+    let result: { candidatesCount: number; createdCount: number };
+
+    if (ruleKey === "low_package_balance") {
+      result = await evaluateLowPackageBalanceAutomation({
+        supabase,
+        context,
+        definition,
+        rule,
+        runId: run.id,
+        ruleKey,
+      });
+    } else if (ruleKey === "no_upcoming_lesson") {
+      result = await evaluateNoUpcomingLessonAutomation({
+        supabase,
+        context,
+        definition,
+        rule,
+        runId: run.id,
+        ruleKey,
+      });
+    } else if (ruleKey === "unsigned_document") {
+      result = await evaluateUnsignedDocumentAutomation({
+        supabase,
+        context,
+        definition,
+        rule,
+        runId: run.id,
+        ruleKey,
+      });
+    } else if (ruleKey === "pending_booking_request") {
+      result = await evaluatePendingBookingRequestAutomation({
+        supabase,
+        context,
+        definition,
+        rule,
+        runId: run.id,
+        ruleKey,
+      });
+    } else {
+      result = await evaluateFirstLessonFollowUpAutomation({
+        supabase,
+        context,
+        definition,
+        rule,
+        runId: run.id,
+        ruleKey,
+      });
+    }
 
     candidatesCount = result.candidatesCount;
     createdCount = result.createdCount;
