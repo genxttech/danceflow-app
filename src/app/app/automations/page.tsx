@@ -16,6 +16,7 @@ import { createClient } from "@/lib/supabase/server";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
+  createAutomationEmailDraftAction,
   dismissAutomationAction,
   evaluateAutomationRuleAction,
   getAutomationDefinitions,
@@ -178,10 +179,10 @@ export default async function AutomationsPage({
                 {suggestionCount} suggested actions waiting for review.
               </p>
               <Link
-                href="/app/aria"
+                href="/app/notifications?category=automation"
                 className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-white underline decoration-white/40 underline-offset-4"
               >
-                Review with ARIA
+                View automation alerts
                 <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
@@ -397,18 +398,36 @@ export default async function AutomationsPage({
                         <p className="mt-2 text-xs text-slate-500">
                           Created {formatDateTime(action.created_at)}
                         </p>
+                        {action.status === "drafted" ? (
+                          <p className="mt-2 inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                            Email draft created
+                          </p>
+                        ) : null}
                       </div>
 
                       {["suggested", "drafted"].includes(action.status) ? (
-                        <form action={dismissAutomationAction}>
-                          <input type="hidden" name="actionId" value={action.id} />
-                          <button
-                            type="submit"
-                            className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
-                          >
-                            Dismiss
-                          </button>
-                        </form>
+                        <div className="flex flex-col gap-2 sm:items-end">
+                          {action.status === "suggested" ? (
+                            <form action={createAutomationEmailDraftAction}>
+                              <input type="hidden" name="actionId" value={action.id} />
+                              <button
+                                type="submit"
+                                className="rounded-full bg-[#DB2777] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#BE185D]"
+                              >
+                                Create email draft
+                              </button>
+                            </form>
+                          ) : null}
+                          <form action={dismissAutomationAction}>
+                            <input type="hidden" name="actionId" value={action.id} />
+                            <button
+                              type="submit"
+                              className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                            >
+                              Dismiss
+                            </button>
+                          </form>
+                        </div>
                       ) : (
                         <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-500">
                           {action.status}

@@ -156,6 +156,335 @@ export async function dismissAutomationAction(formData: FormData) {
 }
 
 
+type AutomationActionDraftRow = {
+  id: string;
+  studio_id: string;
+  rule_key: string;
+  title: string;
+  body: string | null;
+  status: string;
+  related_table: string | null;
+  related_id: string | null;
+  client_id: string | null;
+};
+
+type DraftClientRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+};
+
+type DraftStudioRow = {
+  id: string;
+  name: string | null;
+  public_name: string | null;
+  slug: string | null;
+};
+
+type DraftBookingRequestRow = {
+  id: string;
+  customer_first_name: string | null;
+  customer_last_name: string | null;
+  customer_email: string | null;
+  requested_starts_at: string | null;
+};
+
+function compactName(firstName?: string | null, lastName?: string | null) {
+  return [firstName, lastName].filter(Boolean).join(" ").trim();
+}
+
+function draftGreeting(clientName: string) {
+  return clientName ? `Hi ${clientName},` : "Hi,";
+}
+
+function getStudioDisplayName(studio: DraftStudioRow | null | undefined) {
+  return studio?.public_name || studio?.name || "your studio";
+}
+
+function getPortalUrl(studio: DraftStudioRow | null | undefined, path = "") {
+  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/$/, "");
+  const slug = studio?.slug;
+  if (!slug) return siteUrl;
+  return `${siteUrl}/portal/${slug}${path}`;
+}
+
+function formatDraftDateTime(value: string | null | undefined) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function renderAutomationEmailDraft(params: {
+  action: AutomationActionDraftRow;
+  client: DraftClientRow | null;
+  studio: DraftStudioRow | null;
+  bookingRequest?: DraftBookingRequestRow | null;
+}) {
+  const { action, client, studio, bookingRequest } = params;
+  const studioName = getStudioDisplayName(studio);
+  const clientName =
+    compactName(client?.first_name, client?.last_name) ||
+    compactName(bookingRequest?.customer_first_name, bookingRequest?.customer_last_name);
+  const greeting = draftGreeting(clientName);
+  const portalUrl = getPortalUrl(studio);
+  const scheduleUrl = getPortalUrl(studio, "/schedule");
+  const documentsUrl = getPortalUrl(studio, "/documents");
+  const requestedTime = formatDraftDateTime(bookingRequest?.requested_starts_at);
+
+  if (action.rule_key === "low_package_balance") {
+    return {
+      subject: `${studioName}: renew your lesson package`,
+      bodyText: `${greeting}
+
+You are getting close to the end of your current lesson package.
+
+When you are ready, you can renew your package through your client portal or contact us and we can help you choose the best option.
+
+Client portal: ${portalUrl}
+
+Thank you,
+${studioName}`,
+      bodyHtml: `<p>${greeting}</p><p>You are getting close to the end of your current lesson package.</p><p>When you are ready, you can renew your package through your client portal or contact us and we can help you choose the best option.</p><p><a href="${portalUrl}">Open your client portal</a></p><p>Thank you,<br />${studioName}</p>`,
+    };
+  }
+
+  if (action.rule_key === "no_upcoming_lesson") {
+    return {
+      subject: `${studioName}: request your next lesson time`,
+      bodyText: `${greeting}
+
+We noticed you do not currently have your next lesson scheduled.
+
+You can request your next lesson time from your client portal, or reply to this email and we can help you find a time.
+
+Request your next lesson: ${scheduleUrl}
+
+Thank you,
+${studioName}`,
+      bodyHtml: `<p>${greeting}</p><p>We noticed you do not currently have your next lesson scheduled.</p><p>You can request your next lesson time from your client portal, or reply to this email and we can help you find a time.</p><p><a href="${scheduleUrl}">Request your next lesson</a></p><p>Thank you,<br />${studioName}</p>`,
+    };
+  }
+
+  if (action.rule_key === "unsigned_document") {
+    return {
+      subject: `${studioName}: document signature needed`,
+      bodyText: `${greeting}
+
+You have a document that still needs your signature before your next studio activity.
+
+Please open your client portal to review and complete your documents.
+
+Documents: ${documentsUrl}
+
+Thank you,
+${studioName}`,
+      bodyHtml: `<p>${greeting}</p><p>You have a document that still needs your signature before your next studio activity.</p><p>Please open your client portal to review and complete your documents.</p><p><a href="${documentsUrl}">Review documents</a></p><p>Thank you,<br />${studioName}</p>`,
+    };
+  }
+
+  if (action.rule_key === "pending_booking_request") {
+    return {
+      subject: `${studioName}: we are reviewing your lesson request`,
+      bodyText: `${greeting}
+
+Thank you for your lesson request${requestedTime ? ` for ${requestedTime}` : ""}. We are reviewing availability and will follow up with confirmation or alternate options.
+
+You can also view your schedule from your client portal.
+
+Client portal: ${portalUrl}
+
+Thank you,
+${studioName}`,
+      bodyHtml: `<p>${greeting}</p><p>Thank you for your lesson request${requestedTime ? ` for ${requestedTime}` : ""}. We are reviewing availability and will follow up with confirmation or alternate options.</p><p>You can also view your schedule from your client portal.</p><p><a href="${portalUrl}">Open your client portal</a></p><p>Thank you,<br />${studioName}</p>`,
+    };
+  }
+
+  if (action.rule_key === "first_lesson_follow_up") {
+    return {
+      subject: `${studioName}: thanks for your first lesson`,
+      bodyText: `${greeting}
+
+Thank you for taking your first lesson with us. We hope you had a great experience.
+
+When you are ready, we would love to help you plan your next step and schedule your next lesson.
+
+Request your next lesson: ${scheduleUrl}
+
+Thank you,
+${studioName}`,
+      bodyHtml: `<p>${greeting}</p><p>Thank you for taking your first lesson with us. We hope you had a great experience.</p><p>When you are ready, we would love to help you plan your next step and schedule your next lesson.</p><p><a href="${scheduleUrl}">Request your next lesson</a></p><p>Thank you,<br />${studioName}</p>`,
+    };
+  }
+
+  return {
+    subject: `${studioName}: follow-up from the studio`,
+    bodyText: `${greeting}
+
+${action.body || "We wanted to follow up with you."}
+
+Client portal: ${portalUrl}
+
+Thank you,
+${studioName}`,
+    bodyHtml: `<p>${greeting}</p><p>${action.body || "We wanted to follow up with you."}</p><p><a href="${portalUrl}">Open your client portal</a></p><p>Thank you,<br />${studioName}</p>`,
+  };
+}
+
+export async function createAutomationEmailDraftAction(formData: FormData) {
+  const actionId = String(formData.get("actionId") ?? "");
+
+  if (!actionId) {
+    redirect("/app/automations?error=missing-action");
+  }
+
+  const context = await getCurrentStudioContext();
+
+  if (!canManageSettings(context.studioRole ?? "")) {
+    redirect("/app/automations?error=not-authorized");
+  }
+
+  const supabase = await createClient();
+
+  const { data: action, error: actionError } = await supabase
+    .from("automation_actions")
+    .select("id, studio_id, rule_key, title, body, status, related_table, related_id, client_id")
+    .eq("id", actionId)
+    .eq("studio_id", context.studioId)
+    .maybeSingle();
+
+  if (actionError) {
+    redirect(`/app/automations?error=${encodeURIComponent(actionError.message)}`);
+  }
+
+  if (!action) {
+    redirect("/app/automations?error=action-not-found");
+  }
+
+  const typedAction = action as AutomationActionDraftRow;
+
+  if (!["suggested", "drafted"].includes(typedAction.status)) {
+    redirect("/app/automations?error=action-not-draftable");
+  }
+
+  const { data: existingDraft, error: existingDraftError } = await supabase
+    .from("outbound_deliveries")
+    .select("id")
+    .eq("studio_id", context.studioId)
+    .eq("related_table", "automation_actions")
+    .eq("related_id", actionId)
+    .eq("template_key", `automation_${typedAction.rule_key}`)
+    .in("status", ["draft", "queued", "sent"])
+    .maybeSingle();
+
+  if (existingDraftError) {
+    redirect(`/app/automations?error=${encodeURIComponent(existingDraftError.message)}`);
+  }
+
+  if (existingDraft) {
+    await supabase
+      .from("automation_actions")
+      .update({ status: "drafted", updated_at: new Date().toISOString() })
+      .eq("id", actionId)
+      .eq("studio_id", context.studioId);
+
+    revalidatePath("/app/automations");
+    redirect("/app/automations?success=draft-exists");
+  }
+
+  const [{ data: studio }, { data: client }] = await Promise.all([
+    supabase
+      .from("studios")
+      .select("id, name, public_name, slug")
+      .eq("id", context.studioId)
+      .maybeSingle(),
+    typedAction.client_id
+      ? supabase
+          .from("clients")
+          .select("id, first_name, last_name, email")
+          .eq("id", typedAction.client_id)
+          .eq("studio_id", context.studioId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  let bookingRequest: DraftBookingRequestRow | null = null;
+  if (typedAction.related_table === "booking_requests" && typedAction.related_id) {
+    const { data } = await supabase
+      .from("booking_requests")
+      .select("id, customer_first_name, customer_last_name, customer_email, requested_starts_at")
+      .eq("id", typedAction.related_id)
+      .eq("studio_id", context.studioId)
+      .maybeSingle();
+
+    bookingRequest = (data ?? null) as DraftBookingRequestRow | null;
+  }
+
+  const typedClient = (client ?? null) as DraftClientRow | null;
+  const typedStudio = (studio ?? null) as DraftStudioRow | null;
+  const recipientEmail = typedClient?.email || bookingRequest?.customer_email || null;
+
+  if (!recipientEmail) {
+    redirect("/app/automations?error=missing-recipient-email");
+  }
+
+  const draft = renderAutomationEmailDraft({
+    action: typedAction,
+    client: typedClient,
+    studio: typedStudio,
+    bookingRequest,
+  });
+
+  const { error: deliveryError } = await supabase.from("outbound_deliveries").insert({
+    studio_id: context.studioId,
+    channel: "email",
+    template_key: `automation_${typedAction.rule_key}`,
+    recipient_email: recipientEmail,
+    recipient_phone: null,
+    subject: draft.subject,
+    body_text: draft.bodyText,
+    body_html: draft.bodyHtml,
+    related_table: "automation_actions",
+    related_id: actionId,
+    dedupe_key: `automation:${actionId}:email-draft`,
+    status: "draft",
+    updated_at: new Date().toISOString(),
+  });
+
+  if (deliveryError) {
+    if (deliveryError.code !== "23505") {
+      redirect(`/app/automations?error=${encodeURIComponent(deliveryError.message)}`);
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from("automation_actions")
+    .update({
+      status: "drafted",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", actionId)
+    .eq("studio_id", context.studioId);
+
+  if (updateError) {
+    redirect(`/app/automations?error=${encodeURIComponent(updateError.message)}`);
+  }
+
+  revalidatePath("/app/automations");
+  redirect("/app/automations?success=draft-created");
+}
+
+
+
 type ClientPackageBalanceRow = {
   id: string;
   client_id: string | null;
