@@ -407,6 +407,41 @@ export default async function AriaOpportunityHubPage() {
                 automations that can reduce front desk work. Think of me as your studio’s
                 growth coach — I’ll help you decide what to focus on next.
               </p>
+              <div className="mt-5 grid gap-3 md:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 shadow-sm">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-slate-500">
+                    Starter
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    Meet ARIA
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    Basic ARIA insights help point you toward the next useful action.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-violet-200 bg-violet-50/80 p-4 shadow-sm">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-violet-700">
+                    Growth
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    Unlock the opportunity hub
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    Review revenue opportunities, automation recommendations, and client follow-ups.
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-pink-200 bg-pink-50/80 p-4 shadow-sm">
+                  <p className="text-xs font-bold uppercase tracking-[0.16em] text-pink-700">
+                    Pro
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    Plan with ARIA
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    Future ARIA Goals, growth plans, advanced AI recommendations, and Chat with ARIA.
+                  </p>
+                </div>
+              </div>
             </div>
             <Link
               href="/app/automations"

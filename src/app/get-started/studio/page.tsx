@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { formatPlanMoney, getPlansByAudience } from "@/lib/billing/plans";
@@ -77,6 +78,85 @@ export default async function StudioPricingPage() {
                 </div>
               </div>
             </div>
+
+            <section className="mt-12 overflow-hidden rounded-[36px] border border-pink-200/80 bg-white shadow-sm">
+              <div className="grid gap-0 lg:grid-cols-[0.9fr_1.1fr]">
+                <div className="relative flex min-h-[320px] items-center justify-center bg-[radial-gradient(circle_at_top_left,#fce7f3_0%,#fff7ed_42%,#ffffff_100%)] p-8">
+                  <div className="absolute inset-x-8 top-8 rounded-full bg-gradient-to-r from-pink-300/30 via-orange-200/30 to-violet-200/30 blur-3xl" />
+                  <div className="relative h-56 w-56 overflow-hidden rounded-[32px] border border-white/80 bg-white shadow-xl sm:h-72 sm:w-72">
+                    <Image
+                      src="/aria/aria-avatar.png"
+                      alt="ARIA, DanceFlow's AI Revenue Insights Assistant"
+                      fill
+                      className="object-cover"
+                      sizes="(min-width: 1024px) 18rem, 14rem"
+                      priority
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-col justify-center p-7 md:p-9">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-pink-700">
+                    Meet ARIA
+                  </p>
+                  <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+                    AI Revenue Insights Assistant
+                  </h2>
+                  <p className="mt-4 text-sm leading-7 text-slate-600">
+                    ARIA helps your studio spot the opportunities hiding inside
+                    your data — package renewals, rebooking chances, pending
+                    booking requests, unsigned documents, and automations that
+                    reduce front desk work.
+                  </p>
+                  <p className="mt-3 text-sm leading-7 text-slate-600">
+                    As your studio grows, ARIA will help turn your goals into
+                    clear next steps so DanceFlow does more than organize your
+                    business. It helps you decide what to focus on next.
+                  </p>
+
+                  <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                    {[
+                      "Find revenue opportunities",
+                      "Suggest next-best actions",
+                      "Recommend automations",
+                    ].map((item) => (
+                      <div
+                        key={item}
+                        className="rounded-2xl border border-pink-100 bg-pink-50/70 px-4 py-3 text-sm font-semibold text-pink-950"
+                      >
+                        {item}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-6 rounded-3xl border border-slate-200 bg-white/80 p-5">
+                    <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+                      ARIA by plan
+                    </p>
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-sm font-semibold text-slate-950">Starter</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-600">
+                          Basic ARIA insights and next-step previews.
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                        <p className="text-sm font-semibold text-slate-950">Growth</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-600">
+                          ARIA Opportunity Hub, automation recommendations, and revenue opportunity lists.
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-pink-200 bg-pink-50 p-4">
+                        <p className="text-sm font-semibold text-slate-950">Pro</p>
+                        <p className="mt-1 text-xs leading-5 text-slate-600">
+                          Future ARIA Goals, growth plans, advanced AI recommendations, and Chat with ARIA.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
 
             <div className="mt-12 grid gap-6 lg:grid-cols-3">
               {studioPlans.map((plan) => {

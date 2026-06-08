@@ -6,6 +6,7 @@ import {
 } from "./actions";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
+import AriaAvatar from "@/components/app/AriaAvatar";
 import { createClient } from "@/lib/supabase/server";
 
 export default async function GetStartedPage() {
@@ -49,7 +50,7 @@ export default async function GetStartedPage() {
                   <p className="mt-5 text-lg leading-8 text-slate-600">
                     DanceFlow is where studios grow and dancers connect. Start with
                     the path that fits how you want to use the platform — discovery,
-                    studio operations, AI-assisted follow-up, or event organizing.
+                    studio operations, ARIA-guided insights, or event organizing.
                   </p>
 
                   <div className="mt-7 rounded-2xl border border-violet-200 bg-violet-50 px-5 py-4 text-left">
@@ -139,7 +140,7 @@ export default async function GetStartedPage() {
                       Public studio profile, lead capture, and client follow-up
                     </div>
                     <div className="rounded-xl bg-violet-50 px-4 py-3 text-sm text-slate-700">
-                      Starter, Growth, and Pro marketing features by tier
+                      Starter, Growth, Pro, and ARIA-assisted growth features by tier
                     </div>
                   </div>
 
@@ -196,6 +197,65 @@ export default async function GetStartedPage() {
                   </form>
                 </section>
               </div>
+
+
+              <section className="mt-10 overflow-hidden rounded-[32px] border border-pink-200 bg-white shadow-sm">
+                <div className="relative p-7">
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(236,72,153,0.16),transparent_34%),linear-gradient(135deg,rgba(255,247,237,0.9),rgba(255,255,255,0.96)_42%,rgba(250,245,255,0.92))]" />
+                  <div className="relative grid gap-6 lg:grid-cols-[auto_1fr] lg:items-center">
+                    <div className="flex justify-center lg:justify-start">
+                      <AriaAvatar size="lg" />
+                    </div>
+
+                    <div>
+                      <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[#BE185D]">
+                        Meet ARIA
+                      </p>
+                      <h2 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                        AI Revenue Insights Assistant
+                      </h2>
+                      <p className="mt-3 text-sm leading-7 text-slate-700">
+                        ARIA helps studios turn everyday activity into clear next
+                        steps. She looks for package renewal opportunities, rebooking
+                        chances, pending booking requests, unsigned documents, and
+                        automations that can reduce front desk work.
+                      </p>
+
+                      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-2xl border border-pink-100 bg-white/80 p-4">
+                          <p className="text-sm font-semibold text-slate-950">
+                            Find opportunities
+                          </p>
+                          <p className="mt-2 text-xs leading-6 text-slate-600">
+                            Spot low balances, clients without future lessons, and
+                            stale requests.
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-orange-100 bg-white/80 p-4">
+                          <p className="text-sm font-semibold text-slate-950">
+                            Suggest next steps
+                          </p>
+                          <p className="mt-2 text-xs leading-6 text-slate-600">
+                            Turn studio data into follow-ups, campaigns, and guided
+                            action plans.
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-violet-100 bg-white/80 p-4">
+                          <p className="text-sm font-semibold text-slate-950">
+                            Support your goals
+                          </p>
+                          <p className="mt-2 text-xs leading-6 text-slate-600">
+                            Help owners focus on the work most likely to grow revenue
+                            and retention.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
               <section className="mt-10 rounded-[32px] border border-violet-200 bg-white p-7 shadow-sm">
                 <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
