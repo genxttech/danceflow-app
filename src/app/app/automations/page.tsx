@@ -18,6 +18,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   createAutomationEmailDraftAction,
   dismissAutomationAction,
+  queueAutomationEmailDraftAction,
   evaluateAutomationRuleAction,
   getAutomationDefinitions,
   updateAutomationRuleAction,
@@ -51,6 +52,17 @@ type AutomationActionRow = {
   client_id: string | null;
   due_at: string | null;
   created_at: string;
+};
+
+type AutomationDraftRow = {
+  id: string;
+  status: string;
+  subject: string | null;
+  body_text: string | null;
+  recipient_email: string | null;
+  related_id: string | null;
+  created_at: string;
+  updated_at: string | null;
 };
 
 type AutomationRunRow = {
@@ -141,6 +153,25 @@ export default async function AutomationsPage({
   );
   const typedActions = (actions ?? []) as AutomationActionRow[];
   const typedRuns = (runs ?? []) as AutomationRunRow[];
+  const actionIds = typedActions.map((action) => action.id);
+
+  const { data: draftDeliveries } =
+    actionIds.length > 0
+      ? await supabase
+          .from("outbound_deliveries")
+          .select("id, status, subject, body_text, recipient_email, related_id, created_at, updated_at")
+          .eq("studio_id", context.studioId)
+          .eq("related_table", "automation_actions")
+          .in("related_id", actionIds)
+          .order("created_at", { ascending: false })
+      : { data: [] };
+
+  const draftByActionId = new Map<string, AutomationDraftRow>();
+  ((draftDeliveries ?? []) as AutomationDraftRow[]).forEach((draft) => {
+    if (draft.related_id && !draftByActionId.has(draft.related_id)) {
+      draftByActionId.set(draft.related_id, draft);
+    }
+  });
 
   const enabledCount = automationDefinitions.filter(
     (definition) => ruleByKey.get(definition.key)?.enabled
@@ -370,7 +401,11 @@ export default async function AutomationsPage({
 
             <div className="mt-5 space-y-3">
               {typedActions.length > 0 ? (
-                typedActions.map((action) => (
+                typedActions.map((action) => {
+                  const draft = draftByActionId.get(action.id);
+                  const draftStatusLabel = draft?.status === "queued" ? "Queued for send" : draft?.status === "sent" ? "Sent" : draft?.status === "failed" ? "Send failed" : draft?.status === "draft" ? "Draft ready" : null;
+
+                  return (
                   <div
                     key={action.id}
                     className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
@@ -403,6 +438,29 @@ export default async function AutomationsPage({
                             Email draft created
                           </p>
                         ) : null}
+                        {draft ? (
+                          <div className="mt-3 rounded-2xl border border-violet-100 bg-white p-3 text-sm shadow-sm">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-semibold text-slate-900">Draft preview</p>
+                              {draftStatusLabel ? (
+                                <span className="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700">
+                                  {draftStatusLabel}
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                              To {draft.recipient_email || "client"}
+                            </p>
+                            {draft.subject ? (
+                              <p className="mt-1 font-semibold text-slate-800">{draft.subject}</p>
+                            ) : null}
+                            {draft.body_text ? (
+                              <p className="mt-2 line-clamp-4 whitespace-pre-line text-xs leading-5 text-slate-600">
+                                {draft.body_text}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
 
                       {["suggested", "drafted"].includes(action.status) ? (
@@ -415,6 +473,18 @@ export default async function AutomationsPage({
                                 className="rounded-full bg-[#DB2777] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#BE185D]"
                               >
                                 Create email draft
+                              </button>
+                            </form>
+                          ) : null}
+                          {draft?.status === "draft" ? (
+                            <form action={queueAutomationEmailDraftAction}>
+                              <input type="hidden" name="actionId" value={action.id} />
+                              <input type="hidden" name="deliveryId" value={draft.id} />
+                              <button
+                                type="submit"
+                                className="rounded-full bg-[#6B21A8] px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-[#581C87]"
+                              >
+                                Queue for send
                               </button>
                             </form>
                           ) : null}
@@ -435,7 +505,8 @@ export default async function AutomationsPage({
                       )}
                     </div>
                   </div>
-                ))
+                  );
+                })
               ) : (
                 <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center">
                   <Bell className="mx-auto h-7 w-7 text-slate-400" />

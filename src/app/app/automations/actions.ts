@@ -485,6 +485,73 @@ export async function createAutomationEmailDraftAction(formData: FormData) {
 
 
 
+
+export async function queueAutomationEmailDraftAction(formData: FormData) {
+  const actionId = String(formData.get("actionId") ?? "");
+  const deliveryId = String(formData.get("deliveryId") ?? "");
+
+  if (!actionId || !deliveryId) {
+    redirect("/app/automations?error=missing-draft");
+  }
+
+  const context = await getCurrentStudioContext();
+
+  if (!canManageSettings(context.studioRole ?? "")) {
+    redirect("/app/automations?error=not-authorized");
+  }
+
+  const supabase = await createClient();
+
+  const { data: draft, error: draftError } = await supabase
+    .from("outbound_deliveries")
+    .select("id, status, related_id")
+    .eq("id", deliveryId)
+    .eq("studio_id", context.studioId)
+    .eq("related_table", "automation_actions")
+    .eq("related_id", actionId)
+    .maybeSingle();
+
+  if (draftError) {
+    redirect(`/app/automations?error=${encodeURIComponent(draftError.message)}`);
+  }
+
+  if (!draft) {
+    redirect("/app/automations?error=draft-not-found");
+  }
+
+  const typedDraft = draft as { id: string; status: string; related_id: string | null };
+
+  if (typedDraft.status !== "draft") {
+    redirect("/app/automations?error=draft-not-queueable");
+  }
+
+  const { error: deliveryUpdateError } = await supabase
+    .from("outbound_deliveries")
+    .update({
+      status: "queued",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", deliveryId)
+    .eq("studio_id", context.studioId)
+    .eq("status", "draft");
+
+  if (deliveryUpdateError) {
+    redirect(`/app/automations?error=${encodeURIComponent(deliveryUpdateError.message)}`);
+  }
+
+  await supabase
+    .from("automation_actions")
+    .update({
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", actionId)
+    .eq("studio_id", context.studioId);
+
+  revalidatePath("/app/automations");
+  redirect("/app/automations?success=draft-queued");
+}
+
+
 type ClientPackageBalanceRow = {
   id: string;
   client_id: string | null;
