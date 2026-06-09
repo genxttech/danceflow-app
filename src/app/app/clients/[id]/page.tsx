@@ -10,7 +10,6 @@ import {
 } from "@/app/app/leads/actions";
 import { completeLeadFollowUpAction } from "@/app/app/leads/activity-actions";
 import QuickActionPanel from "@/components/ui/QuickActionPanel";
-import AriaInsightCard from "@/components/app/AriaInsightCard";
 import LeadActivityForm from "@/app/app/leads/LeadActivityForm";
 import QuickPaymentPanel from "./QuickPaymentPanel";
 import { ClientSmsConsentCard } from "./ClientSmsConsentCard";
@@ -41,8 +40,6 @@ type ClientRecord = {
   last_name: string;
   email: string | null;
   phone: string | null;
-  photo_url: string | null;
-  client_qr_token: string | null;
   status: string;
   skill_level: string | null;
   dance_interests: string | null;
@@ -157,6 +154,34 @@ type LeadActivityRow = {
     | { full_name: string | null; email: string | null }
     | { full_name: string | null; email: string | null }[]
     | null;
+};
+
+type ClientAutomationActionRow = {
+  id: string;
+  rule_key: string;
+  title: string;
+  body: string | null;
+  status: string;
+  priority: string | null;
+  related_table: string | null;
+  related_id: string | null;
+  due_at: string | null;
+  completed_at: string | null;
+  dismissed_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+type ClientAutomationDeliveryRow = {
+  id: string;
+  template_key: string | null;
+  recipient_email: string | null;
+  subject: string | null;
+  status: string;
+  error_message: string | null;
+  sent_at: string | null;
+  created_at: string;
+  related_id: string | null;
 };
 
 type PackageTemplateRow = {
@@ -359,13 +384,6 @@ function getClientDetailTab(value: string | undefined): ClientDetailTab {
     : "overview";
 }
 
-function getClientInitials(firstName: string, lastName: string) {
-  const firstInitial = firstName.trim().charAt(0).toUpperCase();
-  const lastInitial = lastName.trim().charAt(0).toUpperCase();
-  return `${firstInitial}${lastInitial}` || "DF";
-}
-
-
 type PackageHealth =
   | "healthy"
   | "low_balance"
@@ -470,6 +488,34 @@ function activityLabel(value: string) {
   if (value === "email") return "Email";
   if (value === "consultation") return "Consultation";
   return "Note";
+}
+
+function automationRuleLabel(value: string) {
+  if (value === "low_package_balance") return "Low Package Balance";
+  if (value === "no_upcoming_lesson") return "No Upcoming Lesson";
+  if (value === "pending_booking_request") return "Pending Booking Request";
+  if (value === "unsigned_document") return "Unsigned Document";
+  if (value === "first_lesson_follow_up") return "First Lesson Follow-Up";
+  return value.replaceAll("_", " ");
+}
+
+function automationStatusBadgeClass(status: string) {
+  if (status === "suggested") return "bg-amber-50 text-amber-700";
+  if (status === "drafted") return "bg-blue-50 text-blue-700";
+  if (status === "queued") return "bg-purple-50 text-purple-700";
+  if (status === "completed") return "bg-green-50 text-green-700";
+  if (status === "dismissed") return "bg-slate-100 text-slate-700";
+  if (status === "failed") return "bg-red-50 text-red-700";
+  return "bg-slate-100 text-slate-700";
+}
+
+function deliveryStatusBadgeClass(status: string) {
+  if (status === "draft") return "bg-blue-50 text-blue-700";
+  if (status === "queued") return "bg-purple-50 text-purple-700";
+  if (status === "sent") return "bg-green-50 text-green-700";
+  if (status === "failed") return "bg-red-50 text-red-700";
+  if (status === "skipped") return "bg-slate-100 text-slate-700";
+  return "bg-slate-100 text-slate-700";
 }
 
 function getInstructorName(
@@ -1215,8 +1261,6 @@ export default async function ClientDetailPage({
         last_name,
         email,
         phone,
-        photo_url,
-        client_qr_token,
         status,
         skill_level,
         dance_interests,
@@ -1566,22 +1610,63 @@ export default async function ClientDetailPage({
   if (syllabusTemplatesError) throw new Error(`Failed to load syllabus templates: ${syllabusTemplatesError.message}`);
   if (syllabusAssignmentsError) throw new Error(`Failed to load client syllabus progress: ${syllabusAssignmentsError.message}`);
 
+  const { data: automationActionsData, error: automationActionsError } = await supabase
+    .from("automation_actions")
+    .select(`
+      id,
+      rule_key,
+      title,
+      body,
+      status,
+      priority,
+      related_table,
+      related_id,
+      due_at,
+      completed_at,
+      dismissed_at,
+      created_at,
+      updated_at
+    `)
+    .eq("studio_id", studioId)
+    .eq("client_id", id)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (automationActionsError) {
+    throw new Error(`Failed to load automation activity: ${automationActionsError.message}`);
+  }
+
+  const automationActionIds = (automationActionsData ?? []).map((action) => action.id);
+  let automationDeliveriesData: ClientAutomationDeliveryRow[] = [];
+
+  if (automationActionIds.length > 0) {
+    const { data: deliveryRows, error: automationDeliveriesError } = await supabase
+      .from("outbound_deliveries")
+      .select(`
+        id,
+        template_key,
+        recipient_email,
+        subject,
+        status,
+        error_message,
+        sent_at,
+        created_at,
+        related_id
+      `)
+      .eq("studio_id", studioId)
+      .eq("related_table", "automation_actions")
+      .in("related_id", automationActionIds)
+      .order("created_at", { ascending: false });
+
+    if (automationDeliveriesError) {
+      throw new Error(`Failed to load automation email activity: ${automationDeliveriesError.message}`);
+    }
+
+    automationDeliveriesData = (deliveryRows ?? []) as ClientAutomationDeliveryRow[];
+  }
+
   const typedStudio = studio as StudioRecord;
   const typedClient = client as ClientRecord;
-  const clientFullName = `${typedClient.first_name} ${typedClient.last_name}`.trim();
-  const clientInitials = getClientInitials(typedClient.first_name, typedClient.last_name);
-  const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
-  const clientIdentityPath = typedClient.client_qr_token
-    ? `/app/client-identity/${typedClient.client_qr_token}`
-    : null;
-  const clientIdentityUrl = clientIdentityPath
-    ? `${siteUrl || ""}${clientIdentityPath}`
-    : null;
-  const clientIdentityQrUrl = clientIdentityUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=180x180&margin=12&data=${encodeURIComponent(
-        clientIdentityUrl,
-      )}`
-    : null;
   const typedInstructors = (instructors ?? []) as InstructorOption[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
   const typedUpcoming = (upcomingAppointments ?? []) as AppointmentRow[];
@@ -1591,6 +1676,11 @@ export default async function ClientDetailPage({
   const typedAccountLedger = (accountLedger ?? []) as ClientAccountLedgerRow[];
   const accountLedgerPreview = typedAccountLedger.slice(0, 20);
   const typedLeadActivities = (leadActivities ?? []) as LeadActivityRow[];
+  const typedAutomationActions = (automationActionsData ?? []) as ClientAutomationActionRow[];
+  const typedAutomationDeliveries = automationDeliveriesData;
+  const automationDeliveryByActionId = new Map(
+    typedAutomationDeliveries.map((delivery) => [delivery.related_id, delivery])
+  );
   const typedPackageTemplates = (packageTemplates ?? []) as PackageTemplateRow[];
   const typedMembershipPlans = (membershipPlans ?? []) as MembershipPlanOption[];
   const typedActiveMembershipBase: ActiveMembership | null = activeMembership
@@ -1816,33 +1906,6 @@ export default async function ClientDetailPage({
     (row) => row.isRequired && row.status !== "signed" && row.status !== "completed",
   ).length;
 
-  const lowBalancePackageItemCount = activePackages.reduce((count, pkg) => {
-    return (
-      count +
-      pkg.client_package_items.filter(
-        (item) =>
-          !item.is_unlimited &&
-          item.quantity_remaining !== null &&
-          item.quantity_remaining <= 2
-      ).length
-    );
-  }, 0);
-
-  const ariaClientInsight = nextAppointment
-    ? `${clientFullName} has a future appointment scheduled for ${fmtShortDateTime(
-        nextAppointment.starts_at
-      )}.`
-    : `${clientFullName} does not have a future appointment scheduled.`;
-
-  const ariaClientRecommendation = nextAppointment
-    ? lowBalancePackageItemCount > 0
-      ? `Review package balances before the next visit. ARIA found ${lowBalancePackageItemCount} low-balance package item${
-          lowBalancePackageItemCount === 1 ? "" : "s"
-        } that may need a renewal conversation.`
-      : "Use the next visit to confirm goals, review progress, and schedule the following lesson before the client leaves."
-    : activePackages.length > 0
-      ? "Invite this client to request their next lesson from the portal or schedule them directly so their active package keeps momentum."
-      : "Consider a rebooking follow-up or a package recommendation based on the client’s goals and recent activity.";
 
   return (
     <div className="space-y-8">
@@ -1881,28 +1944,15 @@ export default async function ClientDetailPage({
       <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,rgba(255,255,255,0.94)_0%,rgba(255,249,243,0.98)_100%)] p-6 shadow-sm">
         <div className="flex flex-col gap-6">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-            <div className="flex min-w-0 flex-col gap-4 md:flex-row md:items-start">
-              <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-[28px] border border-[var(--brand-border)] bg-white text-2xl font-semibold text-[var(--brand-accent-dark)] shadow-sm">
-                {typedClient.photo_url ? (
-                  <img
-                    src={typedClient.photo_url}
-                    alt={`${clientFullName} headshot`}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <span>{clientInitials}</span>
-                )}
-              </div>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+                Client Profile
+              </p>
 
-              <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-                  Client Profile
-                </p>
-
-                <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <h2 className="text-3xl font-semibold tracking-tight text-[var(--brand-text)] sm:text-4xl">
-                    {clientFullName}
-                  </h2>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <h2 className="text-3xl font-semibold tracking-tight text-[var(--brand-text)] sm:text-4xl">
+                  {typedClient.first_name} {typedClient.last_name}
+                </h2>
 
                 <span
                   className={`inline-flex rounded-full px-3 py-1 text-sm font-medium ${statusBadgeClass(
@@ -2034,7 +2084,6 @@ export default async function ClientDetailPage({
                     </div>
                   </form>
                 ) : null}
-              </div>
               </div>
             </div>
 
@@ -3160,29 +3209,6 @@ export default async function ClientDetailPage({
       <div className="space-y-6">
         <div className="space-y-6">
           {activeTab === "overview" ? (
-            <>
-              <AriaInsightCard
-                eyebrow="ARIA Client Insight"
-                title="ARIA Suggests"
-                insight={ariaClientInsight}
-                recommendation={ariaClientRecommendation}
-                metric={
-                  lowBalancePackageItemCount > 0
-                    ? `${lowBalancePackageItemCount} low balance`
-                    : nextAppointment
-                      ? "Next lesson scheduled"
-                      : "Needs rebooking"
-                }
-                primaryAction={{
-                  href: `/app/clients/${typedClient.id}?tab=schedule`,
-                  label: "Review schedule",
-                }}
-                secondaryAction={{
-                  href: `/app/clients/${typedClient.id}?tab=billing`,
-                  label: "Review packages",
-                }}
-              />
-
           <SectionCard title="Client Snapshot">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
@@ -3261,7 +3287,6 @@ export default async function ClientDetailPage({
               </div>
             ) : null}
           </SectionCard>
-            </>
           ) : null}
 
           {activeTab === "portal" ? (
@@ -3323,41 +3348,6 @@ export default async function ClientDetailPage({
       instructor, their portal includes floor-space booking, rental history, and
       rental payment tools.
     </p>
-  </div>
-
-  <div className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-white p-4 shadow-sm">
-    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-      <div>
-        <p className="text-sm font-semibold text-[var(--brand-text)]">Client QR Identity</p>
-        <p className="mt-1 text-sm leading-6 text-slate-600">
-          Staff can scan this client code to open a verification screen with the client photo,
-          account details, and same-day check-in opportunities.
-        </p>
-        {clientIdentityPath ? (
-          <Link
-            href={clientIdentityPath}
-            className="mt-3 inline-flex rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-primary-soft)] px-4 py-2 text-sm font-semibold text-[var(--brand-primary)] hover:bg-white"
-          >
-            Open identity screen
-          </Link>
-        ) : (
-          <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            QR identity is not available for this client yet. Run the QR identity migration/backfill to generate a token.
-          </p>
-        )}
-      </div>
-
-      {clientIdentityQrUrl ? (
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-center">
-          <img
-            src={clientIdentityQrUrl}
-            alt={`${clientFullName} client QR identity code`}
-            className="mx-auto h-36 w-36 rounded-xl bg-white"
-          />
-          <p className="mt-2 text-xs font-medium text-slate-500">Staff scan code</p>
-        </div>
-      ) : null}
-    </div>
   </div>
 
   {isIndependentInstructor ? (
@@ -3467,6 +3457,116 @@ export default async function ClientDetailPage({
               </p>
             </div>
           </SectionCard>
+          ) : null}
+
+          {activeTab === "notes" ? (
+            <SectionCard
+              title="Automation Activity"
+              subtitle="ARIA and automation suggestions, drafts, sends, and completions tied to this client."
+              action={
+                <Link
+                  href="/app/automations"
+                  className="rounded-full border border-[var(--brand-border)] px-3 py-1 text-xs font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+                >
+                  Open Automations
+                </Link>
+              }
+            >
+              <div className="space-y-3">
+                {typedAutomationActions.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    No automation activity has been recorded for this client yet.
+                  </p>
+                ) : (
+                  typedAutomationActions.map((action) => {
+                    const delivery = automationDeliveryByActionId.get(action.id);
+
+                    return (
+                      <div
+                        key={action.id}
+                        className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
+                              {automationRuleLabel(action.rule_key)}
+                            </p>
+                            <p className="mt-1 font-semibold text-[var(--brand-text)]">
+                              {action.title}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              Created {fmtShortDateTime(action.created_at)}
+                              {action.due_at ? ` · Due ${fmtShortDateTime(action.due_at)}` : ""}
+                            </p>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <span
+                              className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${automationStatusBadgeClass(
+                                action.status,
+                              )}`}
+                            >
+                              {action.status.replaceAll("_", " ")}
+                            </span>
+                            {action.priority ? (
+                              <span className="inline-flex rounded-full bg-white px-2 py-1 text-xs font-semibold text-slate-600">
+                                {action.priority}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        {action.body ? (
+                          <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                            {action.body}
+                          </p>
+                        ) : null}
+
+                        {delivery ? (
+                          <div className="mt-3 rounded-2xl border border-white bg-white/80 p-3 text-sm">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="font-semibold text-[var(--brand-text)]">
+                                Email draft / delivery
+                              </p>
+                              <span
+                                className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${deliveryStatusBadgeClass(
+                                  delivery.status,
+                                )}`}
+                              >
+                                {delivery.status.replaceAll("_", " ")}
+                              </span>
+                            </div>
+
+                            <p className="mt-2 text-xs text-slate-500">
+                              To: {delivery.recipient_email ?? "No recipient"} · Created{" "}
+                              {fmtShortDateTime(delivery.created_at)}
+                              {delivery.sent_at ? ` · Sent ${fmtShortDateTime(delivery.sent_at)}` : ""}
+                            </p>
+
+                            {delivery.subject ? (
+                              <p className="mt-2 text-sm text-slate-700">
+                                <span className="font-medium">Subject:</span> {delivery.subject}
+                              </p>
+                            ) : null}
+
+                            {delivery.error_message ? (
+                              <p className="mt-2 text-xs text-red-600">
+                                {delivery.error_message}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : null}
+
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-500">
+                          {action.completed_at ? <span>Completed {fmtShortDateTime(action.completed_at)}</span> : null}
+                          {action.dismissed_at ? <span>Dismissed {fmtShortDateTime(action.dismissed_at)}</span> : null}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </SectionCard>
           ) : null}
         </div>
 
