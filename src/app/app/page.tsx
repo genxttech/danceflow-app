@@ -43,8 +43,6 @@ type NotificationRow = {
   type: string;
   title: string;
   body: string | null;
-  category: string | null;
-  priority: string | null;
   read_at: string | null;
   created_at: string;
 };
@@ -78,6 +76,23 @@ type WorkspaceOnboardingPreferenceRow = {
   id: string;
   dismissed_at: string | null;
   completed_at: string | null;
+};
+
+
+type DashboardAriaGoalRow = {
+  id: string;
+  title: string;
+  goal_type: string;
+  focus_area: string;
+  target_value: number | string | null;
+  current_value: number | string | null;
+  target_unit: string | null;
+  timeline_days: number | null;
+  starts_at: string | null;
+  target_date: string | null;
+  status: string | null;
+  plan_summary: string | null;
+  updated_at: string | null;
 };
 
 type HostStudioPortalLink = {
@@ -146,21 +161,6 @@ type FollowUpLeadActivityRow = {
   client_id: string | null;
   follow_up_due_at: string | null;
   completed_at: string | null;
-};
-
-type FollowUpBookingRequestRow = {
-  id: string;
-  client_id: string | null;
-  status: string | null;
-  source: string | null;
-  appointment_type: string | null;
-  title: string | null;
-  requested_starts_at: string | null;
-  requested_ends_at: string | null;
-  customer_first_name: string | null;
-  customer_last_name: string | null;
-  customer_email: string | null;
-  created_at: string;
 };
 
 type FollowUpPackageItemRow = {
@@ -304,6 +304,60 @@ function toNumericValue(value: number | string | null | undefined) {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function formatAriaGoalValue(
+  value: number | string | null | undefined,
+  unit: string | null | undefined,
+) {
+  const numericValue = toNumericValue(value);
+
+  if (numericValue === null) return "Not set";
+
+  const normalizedUnit = (unit ?? "").trim().toLowerCase();
+
+  if (normalizedUnit === "dollars" || normalizedUnit === "dollar") {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      maximumFractionDigits: 0,
+    }).format(numericValue);
+  }
+
+  if (normalizedUnit === "percent" || normalizedUnit === "percentage") {
+    return `${numericValue}%`;
+  }
+
+  return `${numericValue.toLocaleString()} ${normalizedUnit || "target"}`;
+}
+
+function getAriaGoalProgressPercent(
+  currentValue: number | string | null | undefined,
+  targetValue: number | string | null | undefined,
+) {
+  const current = toNumericValue(currentValue);
+  const target = toNumericValue(targetValue);
+
+  if (current === null || target === null || target <= 0) return null;
+
+  return Math.min(100, Math.max(0, Math.round((current / target) * 100)));
+}
+
+function getAriaGoalTimelinePercent(
+  startsAt: string | null | undefined,
+  targetDate: string | null | undefined,
+) {
+  if (!startsAt || !targetDate) return null;
+
+  const start = new Date(startsAt).getTime();
+  const target = new Date(targetDate).getTime();
+  const now = Date.now();
+
+  if (!Number.isFinite(start) || !Number.isFinite(target) || target <= start) {
+    return null;
+  }
+
+  return Math.min(100, Math.max(0, Math.round(((now - start) / (target - start)) * 100)));
 }
 
 function getEventRelationName(
@@ -905,7 +959,7 @@ export default async function AppDashboardPage({
 
     supabase
       .from("notifications")
-      .select("id, type, title, body, category, priority, read_at, created_at")
+      .select("id, type, title, body, read_at, created_at")
       .eq("studio_id", studioId)
       .order("created_at", { ascending: false })
       .limit(6),
@@ -1631,7 +1685,6 @@ export default async function AppDashboardPage({
     followUpLeadActivitiesResult,
     followUpPackagesResult,
     followUpEventRegistrationsResult,
-    followUpBookingRequestsResult,
   ] = await Promise.all([
     supabase
       .from("clients")
@@ -1700,16 +1753,6 @@ export default async function AppDashboardPage({
       .gte("created_at", followUpThirtyDaysAgoIso)
       .order("created_at", { ascending: false })
       .limit(75),
-
-    supabase
-      .from("booking_requests")
-      .select(
-        "id, client_id, status, source, appointment_type, title, requested_starts_at, requested_ends_at, customer_first_name, customer_last_name, customer_email, created_at",
-      )
-      .eq("studio_id", studioId)
-      .in("status", ["pending", "approved"])
-      .order("created_at", { ascending: false })
-      .limit(75),
   ]);
 
   if (followUpClientsResult.error) {
@@ -1742,12 +1785,6 @@ export default async function AppDashboardPage({
     );
   }
 
-  if (followUpBookingRequestsResult.error) {
-    throw new Error(
-      `Failed to load booking request follow-ups: ${followUpBookingRequestsResult.error.message}`,
-    );
-  }
-
   const followUpClients = (followUpClientsResult.data ??
     []) as FollowUpClientRow[];
   const followUpAppointments = (followUpAppointmentsResult.data ??
@@ -1758,8 +1795,6 @@ export default async function AppDashboardPage({
     []) as FollowUpPackageRow[];
   const followUpEventRegistrations = (followUpEventRegistrationsResult.data ??
     []) as FollowUpEventRegistrationRow[];
-  const followUpBookingRequests = (followUpBookingRequestsResult.data ??
-    []) as FollowUpBookingRequestRow[];
 
   const followUpClientMap = new Map(
     followUpClients.map((client) => [client.id, client]),
@@ -1767,18 +1802,6 @@ export default async function AppDashboardPage({
   const clientIdsWithUpcomingAppointments = new Set(
     followUpAppointments
       .map((appointment) => appointment.client_id)
-      .filter((id): id is string => Boolean(id)),
-  );
-
-  const pendingBookingRequests = followUpBookingRequests.filter(
-    (request) => (request.status ?? "").toLowerCase() === "pending",
-  );
-  const activeBookingRequestClientIds = new Set(
-    followUpBookingRequests
-      .filter((request) =>
-        ["pending", "approved"].includes((request.status ?? "").toLowerCase()),
-      )
-      .map((request) => request.client_id)
       .filter((id): id is string => Boolean(id)),
   );
 
@@ -1791,43 +1814,10 @@ export default async function AppDashboardPage({
     suggestedFollowUps.push(item);
   }
 
-  for (const request of pendingBookingRequests) {
-    const client = request.client_id ? followUpClientMap.get(request.client_id) : null;
-    const customerName =
-      followUpName(client) ||
-      [request.customer_first_name, request.customer_last_name]
-        .map((part) => part?.trim())
-        .filter(Boolean)
-        .join(" ") ||
-      request.customer_email ||
-      "Booking request";
-
-    addSuggestedFollowUp({
-      id: `booking-request-${request.id}`,
-      personName: customerName,
-      reason: "A public intro lesson request is waiting for staff review.",
-      suggestedAction:
-        "Review the request, then approve it into the schedule or decline it with a note.",
-      context: compactList([
-        request.requested_starts_at
-          ? `Requested: ${fmtDateTime(request.requested_starts_at)}`
-          : null,
-        request.appointment_type
-          ? `Type: ${appointmentTypeLabel(request.appointment_type)}`
-          : null,
-        request.customer_email ? `Email: ${request.customer_email}` : null,
-      ]),
-      href: "/app/schedule/requests?status=pending",
-      priority: "high",
-      type: "booking_request",
-    });
-  }
-
   for (const activity of followUpLeadActivities) {
     if (!activity.client_id) continue;
     const client = followUpClientMap.get(activity.client_id);
     if (!client) continue;
-    if (activeBookingRequestClientIds.has(client.id)) continue;
 
     addSuggestedFollowUp({
       id: `lead-follow-up-${activity.id}`,
@@ -1881,7 +1871,6 @@ export default async function AppDashboardPage({
   for (const client of followUpClients) {
     if (client.status !== "active") continue;
     if (clientIdsWithUpcomingAppointments.has(client.id)) continue;
-    if (activeBookingRequestClientIds.has(client.id)) continue;
 
     addSuggestedFollowUp({
       id: `no-upcoming-${client.id}`,
@@ -1901,7 +1890,6 @@ export default async function AppDashboardPage({
   for (const registration of followUpEventRegistrations) {
     if (!registration.client_id) continue;
     if (clientIdsWithUpcomingAppointments.has(registration.client_id)) continue;
-    if (activeBookingRequestClientIds.has(registration.client_id)) continue;
 
     const client = followUpClientMap.get(registration.client_id);
     const personName =
@@ -1942,36 +1930,6 @@ export default async function AppDashboardPage({
   suggestedFollowUps.sort(
     (a, b) => priorityRank[a.priority] - priorityRank[b.priority],
   );
-
-  const ariaTopSuggestion = suggestedFollowUps[0] ?? null;
-  const ariaHighPriorityCount = suggestedFollowUps.filter(
-    (item) => item.priority === "high",
-  ).length;
-  const ariaLowPackageCount = suggestedFollowUps.filter(
-    (item) => item.type === "package",
-  ).length;
-  const ariaNoUpcomingCount = suggestedFollowUps.filter((item) =>
-    item.id.startsWith("no-upcoming-"),
-  ).length;
-  const ariaDashboardTitle = ariaTopSuggestion
-    ? `ARIA's next best move: ${ariaTopSuggestion.personName}`
-    : "ARIA's next best move: keep the pipeline warm";
-  const ariaDashboardInsight = ariaTopSuggestion
-    ? ariaTopSuggestion.reason
-    : "Your studio has no urgent follow-up recommendations right now. Keep future lessons, package renewals, and booking requests moving so revenue does not stall.";
-  const ariaDashboardRecommendation = ariaTopSuggestion
-    ? ariaTopSuggestion.suggestedAction
-    : "Review upcoming lessons and package balances weekly to spot the next client who needs a rebooking or renewal prompt.";
-  const ariaDashboardMetric =
-    ariaHighPriorityCount > 0
-      ? `${ariaHighPriorityCount} high priority`
-      : pendingBookingRequests.length > 0
-        ? `${pendingBookingRequests.length} booking request${pendingBookingRequests.length === 1 ? "" : "s"}`
-        : ariaLowPackageCount > 0
-          ? `${ariaLowPackageCount} low balance`
-          : ariaNoUpcomingCount > 0
-            ? `${ariaNoUpcomingCount} rebooking`
-            : "All clear";
 
   const clientIds = Array.from(
     new Set(
@@ -2137,6 +2095,60 @@ export default async function AppDashboardPage({
     return normalizedStatus !== "cancelled" && normalizedStatus !== "completed";
   });
 
+  const { data: activeAriaGoalRows, error: activeAriaGoalError } = await supabase
+    .from("aria_goals")
+    .select(
+      "id, title, goal_type, focus_area, target_value, current_value, target_unit, timeline_days, starts_at, target_date, status, plan_summary, updated_at",
+    )
+    .eq("studio_id", studioId)
+    .eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (activeAriaGoalError) {
+    throw new Error(
+      `Failed to load dashboard ARIA goal: ${activeAriaGoalError.message}`,
+    );
+  }
+
+  const activeAriaGoal =
+    ((activeAriaGoalRows ?? []) as DashboardAriaGoalRow[])[0] ?? null;
+
+  const activeAriaGoalProgress = activeAriaGoal
+    ? getAriaGoalProgressPercent(
+        activeAriaGoal.current_value,
+        activeAriaGoal.target_value,
+      )
+    : null;
+
+  const activeAriaGoalTimeline = activeAriaGoal
+    ? getAriaGoalTimelinePercent(activeAriaGoal.starts_at, activeAriaGoal.target_date)
+    : null;
+
+  const activeAriaGoalTarget = activeAriaGoal
+    ? formatAriaGoalValue(activeAriaGoal.target_value, activeAriaGoal.target_unit)
+    : null;
+
+  const activeAriaGoalCurrent =
+    activeAriaGoal && activeAriaGoal.current_value !== null
+      ? formatAriaGoalValue(activeAriaGoal.current_value, activeAriaGoal.target_unit)
+      : null;
+
+  const activeAriaGoalMetric = activeAriaGoal
+    ? [
+        activeAriaGoalCurrent
+          ? `${activeAriaGoalCurrent} current`
+          : activeAriaGoalProgress !== null
+            ? `${activeAriaGoalProgress}% progress`
+            : null,
+        activeAriaGoalTimeline !== null
+          ? `${activeAriaGoalTimeline}% timeline`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+    : null;
+
   const planBadge = planLabel;
 
   return (
@@ -2286,6 +2298,43 @@ export default async function AppDashboardPage({
         </div>
       </section>
 
+      {activeAriaGoal ? (
+        <AriaInsightCard
+          eyebrow="ARIA Goal"
+          title={`Active goal: ${activeAriaGoal.title}`}
+          insight={`ARIA is tracking this ${activeAriaGoal.goal_type.replaceAll("_", " ")} goal toward ${activeAriaGoalTarget}. Keep the goal visible while your team reviews opportunities, drafts follow-ups, and updates progress.`}
+          recommendation={
+            activeAriaGoalProgress === null
+              ? "Open the goal plan and add a current progress value so ARIA can show how close you are to the target."
+              : "Review your goal plan, automation recommendations, and open follow-up work so ARIA can keep momentum toward the target."
+          }
+          metric={activeAriaGoalMetric || undefined}
+          primaryAction={{
+            href: `/app/aria/goals/${activeAriaGoal.id}`,
+            label: "Open goal",
+          }}
+          secondaryAction={{
+            href: "/app/aria",
+            label: "Open ARIA hub",
+          }}
+        />
+      ) : (
+        <AriaInsightCard
+          eyebrow="ARIA Goal"
+          title="Set a goal for ARIA to track"
+          insight="Give ARIA a revenue, retention, membership, or booking goal so she can organize your studio opportunities around a clear target."
+          recommendation="Create your first ARIA goal, then use the plan to connect package renewals, rebooking, follow-ups, and automations to measurable growth."
+          primaryAction={{
+            href: "/app/aria/goals#new-goal",
+            label: "Create ARIA goal",
+          }}
+          secondaryAction={{
+            href: "/app/aria",
+            label: "Open ARIA hub",
+          }}
+        />
+      )}
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <QuickActionCard
           href="/app/schedule/new"
@@ -2313,20 +2362,6 @@ export default async function AppDashboardPage({
           icon={Ticket}
         />
       </section>
-
-      <AriaInsightCard
-        eyebrow="ARIA's Next Best Move"
-        title={ariaDashboardTitle}
-        insight={ariaDashboardInsight}
-        recommendation={ariaDashboardRecommendation}
-        metric={ariaDashboardMetric}
-        primaryAction={{ href: "/app/aria", label: "Review with ARIA" }}
-        secondaryAction={
-          ariaTopSuggestion
-            ? { href: ariaTopSuggestion.href, label: "Open source page" }
-            : { href: "/app/automations", label: "Open automations" }
-        }
-      />
 
       <SuggestedFollowUpsCard
         suggestions={suggestedFollowUps}

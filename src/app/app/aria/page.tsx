@@ -75,6 +75,17 @@ type ClientRow = {
   created_at: string;
 };
 
+type AriaGoalRow = {
+  id: string;
+  title: string;
+  status: string;
+  target_value: number | string | null;
+  current_value: number | string | null;
+  target_unit: string;
+  target_date: string | null;
+  updated_at: string;
+};
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Not scheduled";
 
@@ -84,6 +95,28 @@ function formatDateTime(value: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatDate(value: string | null | undefined) {
+  if (!value) return "Not set";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function formatGoalTarget(value: number | string | null, unit: string) {
+  if (value === null || value === undefined || value === "") return "Target not set";
+  const numericValue = typeof value === "number" ? value : Number(value);
+  const formattedValue = Number.isFinite(numericValue)
+    ? numericValue.toLocaleString("en-US")
+    : String(value);
+
+  if (unit === "dollars") return `$${formattedValue}`;
+  if (unit === "percent") return `${formattedValue}%`;
+  return `${formattedValue} ${unit}`;
 }
 
 function personName(firstName?: string | null, lastName?: string | null, fallback = "Client") {
@@ -195,6 +228,7 @@ export default async function AriaOpportunityHubPage() {
     recentAppointmentsResult,
     futureAppointmentsResult,
     activeClientsResult,
+    ariaGoalsResult,
   ] = await Promise.all([
     supabase
       .from("client_packages")
@@ -259,6 +293,14 @@ export default async function AriaOpportunityHubPage() {
       .eq("status", "active")
       .order("created_at", { ascending: false })
       .limit(250),
+
+    supabase
+      .from("aria_goals")
+      .select("id, title, status, target_value, current_value, target_unit, target_date, updated_at")
+      .eq("studio_id", studioId)
+      .eq("status", "active")
+      .order("updated_at", { ascending: false })
+      .limit(3),
   ]);
 
   if (packagesResult.error) {
@@ -289,6 +331,10 @@ export default async function AriaOpportunityHubPage() {
     throw new Error(`Failed to load ARIA active clients: ${activeClientsResult.error.message}`);
   }
 
+  if (ariaGoalsResult.error) {
+    throw new Error(`Failed to load ARIA goals: ${ariaGoalsResult.error.message}`);
+  }
+
   const packages = (packagesResult.data ?? []) as ClientPackageRow[];
   const pendingRequests = (pendingRequestsResult.data ?? []) as BookingRequestRow[];
   const automationActions = (automationActionsResult.data ?? []) as AutomationActionRow[];
@@ -296,6 +342,8 @@ export default async function AriaOpportunityHubPage() {
   const recentAppointments = (recentAppointmentsResult.data ?? []) as AppointmentRow[];
   const futureAppointments = (futureAppointmentsResult.data ?? []) as AppointmentRow[];
   const activeClients = (activeClientsResult.data ?? []) as ClientRow[];
+  const activeGoals = (ariaGoalsResult.data ?? []) as AriaGoalRow[];
+  const activeGoal = activeGoals[0] ?? null;
 
   const lowBalancePackages = packages.filter((pkg) => {
     const lowestRemaining = packageLowestRemaining(pkg);
@@ -627,25 +675,67 @@ export default async function AriaOpportunityHubPage() {
       </section>
 
       <section className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
-              Coming next
+              ARIA Goals
             </p>
             <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-              ARIA Goals will turn these opportunities into a plan.
+              Turn opportunities into a focused growth plan.
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Soon, studio owners will enter a revenue, retention, membership, or booking goal with a
-              timeline. ARIA will turn the opportunity hub into weekly milestones, campaign ideas,
-              automation recommendations, and KPIs.
+              Give ARIA a revenue, retention, membership, booking, event, or attendance goal with a
+              timeline. She will organize the opportunity hub into a practical plan with focus areas,
+              suggested automations, weekly milestones, and KPIs to watch.
             </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <Link
+                href="/app/aria/goals"
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#BE185D] to-[#F97316] px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:opacity-95"
+              >
+                Open ARIA Goals
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link
+                href="/app/automations"
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-[#F9A8D4] hover:text-[#BE185D]"
+              >
+                Review automations
+              </Link>
+            </div>
           </div>
           <span className="inline-flex items-center gap-2 rounded-full bg-[#FCE7F3] px-3 py-1 text-xs font-bold uppercase tracking-[0.16em] text-[#BE185D] ring-1 ring-[#F9A8D4]">
             <Target className="h-3.5 w-3.5" />
-            ARIA Goals
+            Goal planning
           </span>
         </div>
+
+        {activeGoal ? (
+          <div className="mt-5 rounded-2xl border border-[#F9A8D4] bg-[#FDF2F8] p-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#BE185D]">
+                  Active goal
+                </p>
+                <h3 className="mt-2 text-base font-semibold text-slate-950">{activeGoal.title}</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Target: {formatGoalTarget(activeGoal.target_value, activeGoal.target_unit)}
+                  {activeGoal.target_date ? ` by ${formatDate(activeGoal.target_date)}` : ""}.
+                  {activeGoal.current_value !== null && activeGoal.current_value !== undefined
+                    ? ` Current progress: ${formatGoalTarget(activeGoal.current_value, activeGoal.target_unit)}.`
+                    : " Add progress updates so ARIA can track the plan."}
+                </p>
+              </div>
+              <Link
+                href={`/app/aria/goals/${activeGoal.id}`}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-semibold text-[#BE185D] ring-1 ring-[#F9A8D4]"
+              >
+                Open goal
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        ) : null}
       </section>
     </main>
   );
