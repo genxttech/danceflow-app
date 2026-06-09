@@ -407,14 +407,26 @@ export default async function AutomationsPage({
 
         <section className="grid gap-6 lg:grid-cols-[1.2fr_0.8fr]">
           <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
                   Suggested actions
                 </p>
                 <h2 className="mt-2 text-2xl font-semibold">Automation activity</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  Review suggested actions here, or use the draft inbox for a focused send-review workflow.
+                </p>
               </div>
-              <Sparkles className="h-6 w-6 text-[#DB2777]" />
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  href="/app/automations/drafts"
+                  className="inline-flex items-center gap-2 rounded-full border border-[#F9A8D4] bg-white px-3 py-1.5 text-xs font-semibold text-[#BE185D] shadow-sm hover:bg-pink-50"
+                >
+                  Review email drafts
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+                <Sparkles className="h-6 w-6 text-[#DB2777]" />
+              </div>
             </div>
 
             <div className="mt-5 space-y-3">
@@ -530,7 +542,8 @@ export default async function AutomationsPage({
                               {draft.status === "draft" ? (
                                 <form action={saveAutomationEmailDraftAction} className="mt-4 space-y-3">
                                   <input type="hidden" name="actionId" value={action.id} />
-                                  <input type="hidden" name="draftId" value={draft.id} />
+                                  <input type="hidden" name="deliveryId" value={draft.id} />
+                                  <input type="hidden" name="returnTo" value="/app/automations" />
                                   <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                                     Subject
                                     <input

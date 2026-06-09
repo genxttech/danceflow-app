@@ -122,6 +122,7 @@ export async function updateAutomationRuleAction(formData: FormData) {
   }
 
   revalidatePath("/app/automations");
+  revalidatePath("/app/automations/drafts");
   revalidatePath("/app");
   redirect("/app/automations?success=updated");
 }
@@ -153,6 +154,7 @@ export async function dismissAutomationAction(formData: FormData) {
     .in("status", ["suggested", "drafted"]);
 
   revalidatePath("/app/automations");
+  revalidatePath("/app/automations/drafts");
 }
 
 
@@ -184,6 +186,7 @@ export async function completeAutomationAction(formData: FormData) {
     .in("status", ["suggested", "drafted"]);
 
   revalidatePath("/app/automations");
+  revalidatePath("/app/automations/drafts");
 }
 
 type AutomationActionDraftRow = {
@@ -382,6 +385,16 @@ function getDraftFormValue(formData: FormData, names: string[]) {
   return "";
 }
 
+function getAutomationReturnPath(formData: FormData) {
+  const returnTo = String(formData.get("returnTo") ?? "");
+
+  if (returnTo.startsWith("/app/automations")) {
+    return returnTo;
+  }
+
+  return "/app/automations";
+}
+
 function renderPlainTextAsHtml(bodyText: string) {
   const escaped = bodyText
     .replace(/&/g, "&amp;")
@@ -455,6 +468,7 @@ export async function createAutomationEmailDraftAction(formData: FormData) {
       .eq("studio_id", context.studioId);
 
     revalidatePath("/app/automations");
+  revalidatePath("/app/automations/drafts");
     redirect("/app/automations?success=draft-exists");
   }
 
@@ -537,6 +551,7 @@ export async function createAutomationEmailDraftAction(formData: FormData) {
   }
 
   revalidatePath("/app/automations");
+  revalidatePath("/app/automations/drafts");
   redirect("/app/automations?success=draft-created");
 }
 
@@ -548,6 +563,7 @@ export async function saveAutomationEmailDraftAction(formData: FormData) {
   const deliveryId = String(formData.get("deliveryId") ?? "");
   const subject = getDraftFormValue(formData, ["subject", "draftSubject"]);
   const bodyText = getDraftFormValue(formData, ["bodyText", "draftBody", "body"]);
+  const returnPath = getAutomationReturnPath(formData);
 
   if (!actionId || !deliveryId) {
     redirect("/app/automations?error=missing-draft");
@@ -613,7 +629,8 @@ export async function saveAutomationEmailDraftAction(formData: FormData) {
     .eq("studio_id", context.studioId);
 
   revalidatePath("/app/automations");
-  redirect("/app/automations?success=draft-saved");
+  revalidatePath("/app/automations/drafts");
+  redirect(`${returnPath}?success=draft-saved`);
 }
 
 export async function queueAutomationEmailDraftAction(formData: FormData) {
@@ -621,6 +638,7 @@ export async function queueAutomationEmailDraftAction(formData: FormData) {
   const deliveryId = String(formData.get("deliveryId") ?? "");
   const subject = getDraftFormValue(formData, ["subject", "draftSubject"]);
   const bodyText = getDraftFormValue(formData, ["bodyText", "draftBody", "body"]);
+  const returnPath = getAutomationReturnPath(formData);
 
   if (!actionId || !deliveryId) {
     redirect("/app/automations?error=missing-draft");
@@ -688,7 +706,8 @@ export async function queueAutomationEmailDraftAction(formData: FormData) {
     .eq("studio_id", context.studioId);
 
   revalidatePath("/app/automations");
-  redirect("/app/automations?success=draft-queued");
+  revalidatePath("/app/automations/drafts");
+  redirect(`${returnPath}?success=draft-queued`);
 }
 
 
@@ -1683,10 +1702,12 @@ export async function evaluateAutomationRuleAction(formData: FormData) {
       .eq("studio_id", context.studioId);
 
     revalidatePath("/app/automations");
+  revalidatePath("/app/automations/drafts");
     redirect(`/app/automations?error=${encodeURIComponent(message)}`);
   }
 
   revalidatePath("/app/automations");
+  revalidatePath("/app/automations/drafts");
   revalidatePath("/app");
   revalidatePath("/app/packages/client-balances");
   revalidatePath("/app/clients");
