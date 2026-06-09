@@ -71,6 +71,20 @@ type AutomationDraftRow = {
   error_message: string | null;
 };
 
+type AutomationActionSummaryRow = {
+  status: string;
+  priority: string | null;
+  created_at: string;
+};
+
+type AutomationDeliverySummaryRow = {
+  status: string;
+  related_id: string | null;
+  sent_at: string | null;
+  error_message: string | null;
+  created_at: string;
+};
+
 type AutomationRunRow = {
   id: string;
   rule_key: string;
@@ -146,6 +160,35 @@ function deliveryStatusClasses(status: string | null | undefined) {
   return "bg-pink-50 text-[#BE185D]";
 }
 
+const AUTOMATION_TEMPLATE_SAMPLE_VALUES: Record<string, string> = {
+  client_first_name: "Chris",
+  client_name: "Chris Sheppard",
+  studio_name: "Michael Curtis Studio",
+  package_name: "Beginner Package",
+  remaining_credits: "1",
+  portal_link: "https://www.idanceflow.com/portal/your-studio",
+  schedule_link: "https://www.idanceflow.com/portal/your-studio/schedule",
+  documents_link: "https://www.idanceflow.com/portal/your-studio/documents",
+  document_name: "Liability Waiver",
+  requested_time: "Friday, June 12 at 6:00 PM",
+  lesson_time: "Tuesday at 6:00 PM",
+};
+
+function renderTemplatePreview(template: string, variables: string[]) {
+  const knownVariables = new Set([
+    ...variables,
+    ...Object.keys(AUTOMATION_TEMPLATE_SAMPLE_VALUES),
+  ]);
+
+  return template.replace(/{{\s*([a-zA-Z0-9_]+)\s*}}/g, (match, variableName) => {
+    if (!knownVariables.has(variableName)) {
+      return match;
+    }
+
+    return AUTOMATION_TEMPLATE_SAMPLE_VALUES[variableName] ?? match;
+  });
+}
+
 export default async function AutomationsPage({
   searchParams,
 }: {
@@ -163,7 +206,14 @@ export default async function AutomationsPage({
   const automationDefinitions = await getAutomationDefinitions();
   const templateDefaults = (await getAutomationTemplateDefaults()) as AutomationTemplateDefault[];
 
-  const [{ data: rules }, { data: actions }, { data: runs }, { data: templates }] = await Promise.all([
+  const [
+    { data: rules },
+    { data: actions },
+    { data: runs },
+    { data: templates },
+    { data: actionSummary },
+    { data: deliverySummary },
+  ] = await Promise.all([
     supabase
       .from("automation_rules")
       .select("id, rule_key, enabled, mode, last_evaluated_at, updated_at")
@@ -188,6 +238,15 @@ export default async function AutomationsPage({
       .from("automation_email_templates")
       .select("rule_key, subject, body_text, updated_at")
       .eq("studio_id", context.studioId),
+    supabase
+      .from("automation_actions")
+      .select("status, priority, created_at")
+      .eq("studio_id", context.studioId),
+    supabase
+      .from("outbound_deliveries")
+      .select("status, related_id, sent_at, error_message, created_at")
+      .eq("studio_id", context.studioId)
+      .eq("related_table", "automation_actions"),
   ]);
 
   const typedActions = (actions ?? []) as AutomationActionRow[];
@@ -225,6 +284,29 @@ export default async function AutomationsPage({
     ["suggested", "drafted"].includes(action.status)
   ).length;
   const latestRun = typedRuns[0];
+  const typedActionSummary = (actionSummary ?? []) as AutomationActionSummaryRow[];
+  const typedDeliverySummary = (deliverySummary ?? []) as AutomationDeliverySummaryRow[];
+  const summarySuggestedCount = typedActionSummary.filter(
+    (action) => action.status === "suggested"
+  ).length;
+  const summaryDraftedCount = typedActionSummary.filter(
+    (action) => action.status === "drafted"
+  ).length;
+  const summaryQueuedCount = typedDeliverySummary.filter(
+    (delivery) => delivery.status === "queued"
+  ).length;
+  const summarySentCount = typedDeliverySummary.filter(
+    (delivery) => delivery.status === "sent"
+  ).length;
+  const summaryFailedCount = typedDeliverySummary.filter(
+    (delivery) => delivery.status === "failed"
+  ).length;
+  const summaryCompletedCount = typedActionSummary.filter(
+    (action) => action.status === "completed"
+  ).length;
+  const summaryDismissedCount = typedActionSummary.filter(
+    (action) => action.status === "dismissed"
+  ).length;
 
   return (
     <main className="min-h-screen bg-[#F8F5FF] px-4 py-8 text-slate-950 sm:px-6 lg:px-8">
@@ -306,6 +388,123 @@ export default async function AutomationsPage({
             <p className="mt-1 text-sm text-slate-600">
               Run enabled rules manually now. Scheduled evaluations can be added later.
             </p>
+          </div>
+        </section>
+
+        <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
+                Automation summary
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                Workflow health
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                Track how automation opportunities are moving from ARIA suggestions into
+                reviewed drafts, queued email, completed follow-up, or failed delivery that needs attention.
+              </p>
+            </div>
+            <Link
+              href="/app/automations/drafts"
+              className="inline-flex w-fit items-center gap-2 rounded-full border border-[#F9A8D4] bg-white px-4 py-2 text-sm font-semibold text-[#BE185D] shadow-sm hover:bg-pink-50"
+            >
+              Review drafts
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-2xl border border-violet-100 bg-violet-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-700">
+                Suggested
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-violet-950">
+                {summarySuggestedCount}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-violet-700">
+                New recommendations awaiting review.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-pink-100 bg-pink-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-[#BE185D]">
+                Drafted
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {summaryDraftedCount}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                Emails prepared but not queued yet.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-blue-700">
+                Queued
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-blue-950">
+                {summaryQueuedCount}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-blue-700">
+                Approved and waiting for outbound sending.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                Sent
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-emerald-950">
+                {summarySentCount}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-emerald-700">
+                Automation emails delivered to the send pipeline.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Completed
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {summaryCompletedCount}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                Staff marked the automation follow-up complete.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Dismissed
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {summaryDismissedCount}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                Recommendations intentionally cleared.
+              </p>
+            </div>
+            <div className={`rounded-2xl border p-4 ${
+              summaryFailedCount > 0
+                ? "border-red-200 bg-red-50"
+                : "border-slate-200 bg-slate-50"
+            }`}>
+              <p className={`text-xs font-semibold uppercase tracking-[0.14em] ${
+                summaryFailedCount > 0 ? "text-red-700" : "text-slate-500"
+              }`}>
+                Failed
+              </p>
+              <p className={`mt-2 text-2xl font-semibold ${
+                summaryFailedCount > 0 ? "text-red-950" : "text-slate-950"
+              }`}>
+                {summaryFailedCount}
+              </p>
+              <p className={`mt-1 text-xs leading-5 ${
+                summaryFailedCount > 0 ? "text-red-700" : "text-slate-600"
+              }`}>
+                Delivery failures that may need review.
+              </p>
+            </div>
           </div>
         </section>
 
@@ -455,6 +654,8 @@ export default async function AutomationsPage({
               const subject = savedTemplate?.subject || defaultTemplate?.subject || "";
               const bodyText = savedTemplate?.body_text || defaultTemplate?.bodyText || "";
               const variables = defaultTemplate?.variables ?? [];
+              const previewSubject = renderTemplatePreview(subject, variables);
+              const previewBody = renderTemplatePreview(bodyText, variables);
 
               return (
                 <form
@@ -522,6 +723,35 @@ export default async function AutomationsPage({
                       </div>
                     </div>
                   ) : null}
+
+                  <div className="mt-4 rounded-2xl border border-pink-100 bg-white p-4">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#BE185D]">
+                        Sample preview
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Uses sample values so you can check variable placement before saving.
+                      </p>
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                          Subject preview
+                        </p>
+                        <p className="mt-1 rounded-xl bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
+                          {previewSubject || "Add a subject to preview it here."}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                          Body preview
+                        </p>
+                        <div className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-700">
+                          {previewBody || "Add body text to preview it here."}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
 
                   <div className="mt-4 flex justify-end">
                     <button
