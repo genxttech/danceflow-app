@@ -16,6 +16,19 @@ type AutomationDefinition = {
   defaultActionConfig: Record<string, unknown>;
 };
 
+type AutomationTemplateDefault = {
+  ruleKey: string;
+  subject: string;
+  bodyText: string;
+  variables: string[];
+};
+
+type AutomationEmailTemplateRow = {
+  rule_key: string;
+  subject: string | null;
+  body_text: string | null;
+};
+
 const AUTOMATION_DEFINITIONS: AutomationDefinition[] = [
   {
     key: "low_package_balance",
@@ -68,6 +81,123 @@ const AUTOMATION_DEFINITIONS: AutomationDefinition[] = [
     defaultActionConfig: { approval_required: true },
   },
 ];
+
+const AUTOMATION_TEMPLATE_DEFAULTS: AutomationTemplateDefault[] = [
+  {
+    ruleKey: "low_package_balance",
+    subject: "{{studio_name}}: renew your lesson package",
+    bodyText: `Hi {{client_first_name}},
+
+You are getting close to the end of your current lesson package.
+
+When you are ready, you can renew your package through your client portal or contact us and we can help you choose the best option.
+
+Client portal: {{portal_link}}
+
+Thank you,
+{{studio_name}}`,
+    variables: ["client_first_name", "client_name", "studio_name", "portal_link"],
+  },
+  {
+    ruleKey: "no_upcoming_lesson",
+    subject: "{{studio_name}}: request your next lesson time",
+    bodyText: `Hi {{client_first_name}},
+
+We noticed you do not currently have your next lesson scheduled.
+
+You can request your next lesson time from your client portal, or reply to this email and we can help you find a time.
+
+Request your next lesson: {{schedule_link}}
+
+Thank you,
+{{studio_name}}`,
+    variables: ["client_first_name", "client_name", "studio_name", "schedule_link", "portal_link"],
+  },
+  {
+    ruleKey: "unsigned_document",
+    subject: "{{studio_name}}: document signature needed",
+    bodyText: `Hi {{client_first_name}},
+
+You have a document that still needs your signature before your next studio activity.
+
+Please open your client portal to review and sign it when you have a moment.
+
+Documents: {{documents_link}}
+
+Thank you,
+{{studio_name}}`,
+    variables: ["client_first_name", "client_name", "studio_name", "documents_link", "portal_link"],
+  },
+  {
+    ruleKey: "pending_booking_request",
+    subject: "{{studio_name}}: we received your lesson request",
+    bodyText: `Hi {{client_first_name}},
+
+We received your lesson request{{requested_time_sentence}}.
+
+Our team is reviewing it and will follow up with you soon. If you need to adjust the requested time, you can reply to this email.
+
+Thank you,
+{{studio_name}}`,
+    variables: ["client_first_name", "client_name", "studio_name", "requested_time"],
+  },
+  {
+    ruleKey: "first_lesson_follow_up",
+    subject: "{{studio_name}}: thanks for your first lesson",
+    bodyText: `Hi {{client_first_name}},
+
+Thank you for joining us for your first lesson. We hope you had a great time on the floor.
+
+When you are ready, you can request your next lesson from your client portal or reply here and we can help you schedule.
+
+Request your next lesson: {{schedule_link}}
+
+Thank you,
+{{studio_name}}`,
+    variables: ["client_first_name", "client_name", "studio_name", "schedule_link", "portal_link"],
+  },
+];
+
+function getAutomationTemplateDefault(ruleKey: string) {
+  return AUTOMATION_TEMPLATE_DEFAULTS.find((template) => template.ruleKey === ruleKey) ?? null;
+}
+
+function getAutomationVariableValues(params: {
+  client: DraftClientRow | null;
+  studio: DraftStudioRow | null;
+  bookingRequest?: DraftBookingRequestRow | null;
+}) {
+  const { client, studio, bookingRequest } = params;
+  const studioName = getStudioDisplayName(studio);
+  const clientName =
+    compactName(client?.first_name, client?.last_name) ||
+    compactName(bookingRequest?.customer_first_name, bookingRequest?.customer_last_name);
+  const firstName =
+    client?.first_name ||
+    bookingRequest?.customer_first_name ||
+    clientName.split(" ")[0] ||
+    "";
+  const portalUrl = getPortalUrl(studio);
+  const scheduleUrl = getPortalUrl(studio, "/schedule");
+  const documentsUrl = getPortalUrl(studio, "/documents");
+  const requestedTime = formatDraftDateTime(bookingRequest?.requested_starts_at) ?? "";
+  return {
+    studio_name: studioName,
+    client_name: clientName || "there",
+    client_first_name: firstName || "there",
+    portal_link: portalUrl,
+    schedule_link: scheduleUrl,
+    documents_link: documentsUrl,
+    requested_time: requestedTime,
+    requested_time_sentence: requestedTime ? ` for ${requestedTime}` : "",
+  };
+}
+
+function applyAutomationTemplate(content: string, values: Record<string, string>) {
+  return content.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key: string) => {
+    return values[key] ?? "";
+  });
+}
 
 function getDefinition(ruleKey: string) {
   return AUTOMATION_DEFINITIONS.find((definition) => definition.key === ruleKey);
@@ -262,137 +392,40 @@ function renderAutomationEmailDraft(params: {
   client: DraftClientRow | null;
   studio: DraftStudioRow | null;
   bookingRequest?: DraftBookingRequestRow | null;
+  template?: AutomationEmailTemplateRow | null;
 }) {
-  const { action, client, studio, bookingRequest } = params;
-  const studioName = getStudioDisplayName(studio);
-  const clientName =
-    compactName(client?.first_name, client?.last_name) ||
-    compactName(bookingRequest?.customer_first_name, bookingRequest?.customer_last_name);
-  const greeting = draftGreeting(clientName);
-  const portalUrl = getPortalUrl(studio);
-  const scheduleUrl = getPortalUrl(studio, "/schedule");
-  const documentsUrl = getPortalUrl(studio, "/documents");
-  const requestedTime = formatDraftDateTime(bookingRequest?.requested_starts_at);
+  const { action, client, studio, bookingRequest, template } = params;
+  const values = getAutomationVariableValues({ client, studio, bookingRequest });
+  const defaultTemplate = getAutomationTemplateDefault(action.rule_key);
 
-  if (action.rule_key === "low_package_balance") {
-    return {
-      subject: `${studioName}: renew your lesson package`,
-      bodyText: `${greeting}
+  const fallbackSubject =
+    defaultTemplate?.subject ||
+    "{{studio_name}}: follow-up from the studio";
+  const fallbackBody =
+    defaultTemplate?.bodyText ||
+    `Hi {{client_first_name}},
 
-You are getting close to the end of your current lesson package.
+{{action_body}}
 
-When you are ready, you can renew your package through your client portal or contact us and we can help you choose the best option.
-
-Client portal: ${portalUrl}
+Client portal: {{portal_link}}
 
 Thank you,
-${studioName}`,
-      bodyHtml: `<p>${greeting}</p><p>You are getting close to the end of your current lesson package.</p><p>When you are ready, you can renew your package through your client portal or contact us and we can help you choose the best option.</p><p><a href="${portalUrl}">Open your client portal</a></p><p>Thank you,<br />${studioName}</p>`,
-    };
-  }
+{{studio_name}}`;
 
-  if (action.rule_key === "no_upcoming_lesson") {
-    return {
-      subject: `${studioName}: request your next lesson time`,
-      bodyText: `${greeting}
+  const subjectTemplate = template?.subject?.trim() || fallbackSubject;
+  const bodyTemplate = template?.body_text?.trim() || fallbackBody;
 
-We noticed you do not currently have your next lesson scheduled.
-
-You can request your next lesson time from your client portal, or reply to this email and we can help you find a time.
-
-Request your next lesson: ${scheduleUrl}
-
-Thank you,
-${studioName}`,
-      bodyHtml: `<p>${greeting}</p><p>We noticed you do not currently have your next lesson scheduled.</p><p>You can request your next lesson time from your client portal, or reply to this email and we can help you find a time.</p><p><a href="${scheduleUrl}">Request your next lesson</a></p><p>Thank you,<br />${studioName}</p>`,
-    };
-  }
-
-  if (action.rule_key === "unsigned_document") {
-    return {
-      subject: `${studioName}: document signature needed`,
-      bodyText: `${greeting}
-
-You have a document that still needs your signature before your next studio activity.
-
-Please open your client portal to review and complete your documents.
-
-Documents: ${documentsUrl}
-
-Thank you,
-${studioName}`,
-      bodyHtml: `<p>${greeting}</p><p>You have a document that still needs your signature before your next studio activity.</p><p>Please open your client portal to review and complete your documents.</p><p><a href="${documentsUrl}">Review documents</a></p><p>Thank you,<br />${studioName}</p>`,
-    };
-  }
-
-  if (action.rule_key === "pending_booking_request") {
-    return {
-      subject: `${studioName}: we are reviewing your lesson request`,
-      bodyText: `${greeting}
-
-Thank you for your lesson request${requestedTime ? ` for ${requestedTime}` : ""}. We are reviewing availability and will follow up with confirmation or alternate options.
-
-You can also view your schedule from your client portal.
-
-Client portal: ${portalUrl}
-
-Thank you,
-${studioName}`,
-      bodyHtml: `<p>${greeting}</p><p>Thank you for your lesson request${requestedTime ? ` for ${requestedTime}` : ""}. We are reviewing availability and will follow up with confirmation or alternate options.</p><p>You can also view your schedule from your client portal.</p><p><a href="${portalUrl}">Open your client portal</a></p><p>Thank you,<br />${studioName}</p>`,
-    };
-  }
-
-  if (action.rule_key === "first_lesson_follow_up") {
-    return {
-      subject: `${studioName}: thanks for your first lesson`,
-      bodyText: `${greeting}
-
-Thank you for taking your first lesson with us. We hope you had a great experience.
-
-When you are ready, we would love to help you plan your next step and schedule your next lesson.
-
-Request your next lesson: ${scheduleUrl}
-
-Thank you,
-${studioName}`,
-      bodyHtml: `<p>${greeting}</p><p>Thank you for taking your first lesson with us. We hope you had a great experience.</p><p>When you are ready, we would love to help you plan your next step and schedule your next lesson.</p><p><a href="${scheduleUrl}">Request your next lesson</a></p><p>Thank you,<br />${studioName}</p>`,
-    };
-  }
+  const subject = applyAutomationTemplate(subjectTemplate, values);
+  const bodyText = applyAutomationTemplate(bodyTemplate, {
+    ...values,
+    action_body: action.body || "We wanted to follow up with you.",
+  });
 
   return {
-    subject: `${studioName}: follow-up from the studio`,
-    bodyText: `${greeting}
-
-${action.body || "We wanted to follow up with you."}
-
-Client portal: ${portalUrl}
-
-Thank you,
-${studioName}`,
-    bodyHtml: `<p>${greeting}</p><p>${action.body || "We wanted to follow up with you."}</p><p><a href="${portalUrl}">Open your client portal</a></p><p>Thank you,<br />${studioName}</p>`,
+    subject,
+    bodyText,
+    bodyHtml: renderPlainTextAsHtml(bodyText),
   };
-}
-
-
-function getDraftFormValue(formData: FormData, names: string[]) {
-  for (const name of names) {
-    const value = formData.get(name);
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-  }
-
-  return "";
-}
-
-function getAutomationReturnPath(formData: FormData) {
-  const returnTo = String(formData.get("returnTo") ?? "");
-
-  if (returnTo.startsWith("/app/automations")) {
-    return returnTo;
-  }
-
-  return "/app/automations";
 }
 
 function renderPlainTextAsHtml(bodyText: string) {
@@ -508,11 +541,19 @@ export async function createAutomationEmailDraftAction(formData: FormData) {
     redirect("/app/automations?error=missing-recipient-email");
   }
 
+  const { data: template } = await supabase
+    .from("automation_email_templates")
+    .select("rule_key, subject, body_text")
+    .eq("studio_id", context.studioId)
+    .eq("rule_key", typedAction.rule_key)
+    .maybeSingle();
+
   const draft = renderAutomationEmailDraft({
     action: typedAction,
     client: typedClient,
     studio: typedStudio,
     bookingRequest,
+    template: (template ?? null) as AutomationEmailTemplateRow | null,
   });
 
   const { error: deliveryError } = await supabase.from("outbound_deliveries").insert({
@@ -555,7 +596,37 @@ export async function createAutomationEmailDraftAction(formData: FormData) {
   redirect("/app/automations?success=draft-created");
 }
 
+function getDraftFormValue(formData: FormData, keys: string[]): string {
+  for (const key of keys) {
+    const value = formData.get(key);
 
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+
+  return "";
+}
+
+function getAutomationReturnPath(formData: FormData): string {
+  const rawReturnTo = formData.get("returnTo");
+
+  if (typeof rawReturnTo !== "string") {
+    return "/app/automations";
+  }
+
+  const returnTo = rawReturnTo.trim();
+
+  if (
+    returnTo.startsWith("/app/automations") &&
+    !returnTo.startsWith("//") &&
+    !returnTo.includes("://")
+  ) {
+    return returnTo;
+  }
+
+  return "/app/automations";
+}
 
 
 export async function saveAutomationEmailDraftAction(formData: FormData) {
@@ -1714,6 +1785,62 @@ export async function evaluateAutomationRuleAction(formData: FormData) {
   redirect(
     `/app/automations?success=evaluated&created=${createdCount}&candidates=${candidatesCount}`
   );
+}
+
+
+export async function getAutomationTemplateDefaults() {
+  return AUTOMATION_TEMPLATE_DEFAULTS;
+}
+
+export async function saveAutomationEmailTemplateAction(formData: FormData) {
+  const ruleKey = String(formData.get("ruleKey") ?? "");
+  const subject = String(formData.get("subject") ?? "").trim();
+  const bodyText = String(formData.get("bodyText") ?? "").trim();
+
+  if (!ruleKey) {
+    redirect("/app/automations?error=missing-template-rule");
+  }
+
+  if (!subject || !bodyText) {
+    redirect("/app/automations?error=missing-template-content");
+  }
+
+  const definition = getDefinition(ruleKey);
+
+  if (!definition) {
+    redirect("/app/automations?error=unknown-rule");
+  }
+
+  const context = await getCurrentStudioContext();
+
+  if (!canManageSettings(context.studioRole ?? "")) {
+    redirect("/app/automations?error=not-authorized");
+  }
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { error } = await supabase.from("automation_email_templates").upsert(
+    {
+      studio_id: context.studioId,
+      rule_key: ruleKey,
+      subject,
+      body_text: bodyText,
+      updated_by: user?.id ?? null,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "studio_id,rule_key" }
+  );
+
+  if (error) {
+    redirect(`/app/automations?error=${encodeURIComponent(error.message)}`);
+  }
+
+  revalidatePath("/app/automations");
+  revalidatePath("/app/automations/drafts");
+  redirect("/app/automations?success=template-saved");
 }
 
 export async function getAutomationDefinitions() {

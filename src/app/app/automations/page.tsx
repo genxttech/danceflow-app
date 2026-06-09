@@ -23,7 +23,9 @@ import {
   getAutomationDefinitions,
   queueAutomationEmailDraftAction,
   saveAutomationEmailDraftAction,
+  saveAutomationEmailTemplateAction,
   updateAutomationRuleAction,
+  getAutomationTemplateDefaults,
 } from "./actions";
 
 type SearchParams = Promise<{
@@ -78,6 +80,20 @@ type AutomationRunRow = {
   started_at: string;
   finished_at: string | null;
   error_message: string | null;
+};
+
+type AutomationTemplateRow = {
+  rule_key: string;
+  subject: string | null;
+  body_text: string | null;
+  updated_at: string | null;
+};
+
+type AutomationTemplateDefault = {
+  ruleKey: string;
+  subject: string;
+  bodyText: string;
+  variables: string[];
 };
 
 function formatDateTime(value: string | null | undefined) {
@@ -145,8 +161,9 @@ export default async function AutomationsPage({
 
   const canManage = canManageSettings(context.studioRole ?? "");
   const automationDefinitions = await getAutomationDefinitions();
+  const templateDefaults = (await getAutomationTemplateDefaults()) as AutomationTemplateDefault[];
 
-  const [{ data: rules }, { data: actions }, { data: runs }] = await Promise.all([
+  const [{ data: rules }, { data: actions }, { data: runs }, { data: templates }] = await Promise.all([
     supabase
       .from("automation_rules")
       .select("id, rule_key, enabled, mode, last_evaluated_at, updated_at")
@@ -167,6 +184,10 @@ export default async function AutomationsPage({
       .eq("studio_id", context.studioId)
       .order("created_at", { ascending: false })
       .limit(5),
+    supabase
+      .from("automation_email_templates")
+      .select("rule_key, subject, body_text, updated_at")
+      .eq("studio_id", context.studioId),
   ]);
 
   const typedActions = (actions ?? []) as AutomationActionRow[];
@@ -188,6 +209,12 @@ export default async function AutomationsPage({
 
   const ruleByKey = new Map(
     ((rules ?? []) as AutomationRuleRow[]).map((rule) => [rule.rule_key, rule])
+  );
+  const templateByRuleKey = new Map(
+    ((templates ?? []) as AutomationTemplateRow[]).map((template) => [template.rule_key, template])
+  );
+  const defaultTemplateByRuleKey = new Map(
+    templateDefaults.map((template) => [template.ruleKey, template])
   );
   const typedRuns = (runs ?? []) as AutomationRunRow[];
 
@@ -398,6 +425,113 @@ export default async function AutomationsPage({
                         <Settings2 className="h-4 w-4" />
                       </button>
                     </div>
+                  </div>
+                </form>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
+                Email templates
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                Customize automation draft language
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                These defaults are used when an automation action creates an email draft. Staff can still edit each draft before queueing it for send.
+              </p>
+            </div>
+            <Mail className="h-6 w-6 text-[#DB2777]" />
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            {automationDefinitions.map((definition) => {
+              const savedTemplate = templateByRuleKey.get(definition.key);
+              const defaultTemplate = defaultTemplateByRuleKey.get(definition.key);
+              const subject = savedTemplate?.subject || defaultTemplate?.subject || "";
+              const bodyText = savedTemplate?.body_text || defaultTemplate?.bodyText || "";
+              const variables = defaultTemplate?.variables ?? [];
+
+              return (
+                <form
+                  key={`${definition.key}-template`}
+                  action={saveAutomationEmailTemplateAction}
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                >
+                  <input type="hidden" name="ruleKey" value={definition.key} />
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#BE185D] ring-1 ring-pink-100">
+                        {ruleBadge(definition.key)}
+                      </span>
+                      <h3 className="mt-2 text-base font-semibold text-slate-950">
+                        {definition.name}
+                      </h3>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                        Used when creating a draft from this automation.
+                      </p>
+                    </div>
+                    {savedTemplate?.updated_at ? (
+                      <span className="text-xs text-slate-500">
+                        Updated {formatDateTime(savedTemplate.updated_at)}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-500">Using default</span>
+                    )}
+                  </div>
+
+                  <label className="mt-4 block text-sm font-semibold text-slate-800">
+                    Subject
+                    <input
+                      name="subject"
+                      defaultValue={subject}
+                      disabled={!canManage}
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 shadow-sm"
+                    />
+                  </label>
+
+                  <label className="mt-4 block text-sm font-semibold text-slate-800">
+                    Body
+                    <textarea
+                      name="bodyText"
+                      defaultValue={bodyText}
+                      rows={8}
+                      disabled={!canManage}
+                      className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm leading-6 text-slate-700 shadow-sm"
+                    />
+                  </label>
+
+                  {variables.length > 0 ? (
+                    <div className="mt-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                        Available variables
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {variables.map((variable) => (
+                          <code
+                            key={`${definition.key}-${variable}`}
+                            className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200"
+                          >
+                            {"{{"}{variable}{"}}"}
+                          </code>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      type="submit"
+                      disabled={!canManage}
+                      className="inline-flex items-center gap-2 rounded-full bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      Save template
+                      <Settings2 className="h-4 w-4" />
+                    </button>
                   </div>
                 </form>
               );
