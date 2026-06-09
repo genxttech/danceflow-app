@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 
@@ -675,7 +676,8 @@ export async function saveAutomationEmailDraftAction(formData: FormData) {
     redirect("/app/automations?error=draft-not-editable");
   }
 
-  const { error: deliveryUpdateError } = await supabase
+  const adminSupabase = createAdminClient();
+  const { data: updatedDelivery, error: deliveryUpdateError } = await adminSupabase
     .from("outbound_deliveries")
     .update({
       subject,
@@ -685,13 +687,19 @@ export async function saveAutomationEmailDraftAction(formData: FormData) {
     })
     .eq("id", deliveryId)
     .eq("studio_id", context.studioId)
-    .eq("status", "draft");
+    .eq("status", "draft")
+    .select("id")
+    .maybeSingle();
 
   if (deliveryUpdateError) {
-    redirect(`/app/automations?error=${encodeURIComponent(deliveryUpdateError.message)}`);
+    redirect(`${returnPath}?error=${encodeURIComponent(deliveryUpdateError.message)}`);
   }
 
-  await supabase
+  if (!updatedDelivery) {
+    redirect(`${returnPath}?error=draft-update-skipped`);
+  }
+
+  await adminSupabase
     .from("automation_actions")
     .update({
       updated_at: new Date().toISOString(),
@@ -757,18 +765,25 @@ export async function queueAutomationEmailDraftAction(formData: FormData) {
     updatePayload.body_html = renderPlainTextAsHtml(bodyText);
   }
 
-  const { error: deliveryUpdateError } = await supabase
+  const adminSupabase = createAdminClient();
+  const { data: updatedDelivery, error: deliveryUpdateError } = await adminSupabase
     .from("outbound_deliveries")
     .update(updatePayload)
     .eq("id", deliveryId)
     .eq("studio_id", context.studioId)
-    .eq("status", "draft");
+    .eq("status", "draft")
+    .select("id")
+    .maybeSingle();
 
   if (deliveryUpdateError) {
-    redirect(`/app/automations?error=${encodeURIComponent(deliveryUpdateError.message)}`);
+    redirect(`${returnPath}?error=${encodeURIComponent(deliveryUpdateError.message)}`);
   }
 
-  await supabase
+  if (!updatedDelivery) {
+    redirect(`${returnPath}?error=draft-update-skipped`);
+  }
+
+  await adminSupabase
     .from("automation_actions")
     .update({
       updated_at: new Date().toISOString(),
@@ -1853,7 +1868,8 @@ export async function queueSelectedAutomationEmailDraftsAction(formData: FormDat
     new Set(queueableDrafts.map((draft) => draft.related_id).filter(Boolean) as string[])
   );
 
-  const { error: updateError } = await supabase
+  const adminSupabase = createAdminClient();
+  const { data: updatedDrafts, error: updateError } = await adminSupabase
     .from("outbound_deliveries")
     .update({
       status: "queued",
@@ -1862,14 +1878,21 @@ export async function queueSelectedAutomationEmailDraftsAction(formData: FormDat
     .eq("studio_id", context.studioId)
     .eq("related_table", "automation_actions")
     .eq("status", "draft")
-    .in("id", queueableIds);
+    .in("id", queueableIds)
+    .select("id");
 
   if (updateError) {
     redirect(`${returnPath}?error=${encodeURIComponent(updateError.message)}`);
   }
 
+  const updatedCount = updatedDrafts?.length ?? 0;
+
+  if (updatedCount === 0) {
+    redirect(`${returnPath}?error=no-drafts-updated`);
+  }
+
   if (relatedActionIds.length > 0) {
-    await supabase
+    await adminSupabase
       .from("automation_actions")
       .update({
         updated_at: new Date().toISOString(),
@@ -1882,7 +1905,7 @@ export async function queueSelectedAutomationEmailDraftsAction(formData: FormDat
   revalidatePath("/app/automations/drafts");
 
   const skippedCount = deliveryIds.length - queueableIds.length;
-  redirect(`${returnPath}?success=batch-queued&queued=${queueableIds.length}&skipped=${skippedCount}`);
+  redirect(`${returnPath}?success=batch-queued&queued=${updatedCount}&skipped=${skippedCount}`);
 }
 
 
