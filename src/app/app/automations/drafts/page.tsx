@@ -16,6 +16,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   completeAutomationAction,
   queueAutomationEmailDraftAction,
+  queueSelectedAutomationEmailDraftsAction,
   saveAutomationEmailDraftAction,
 } from "../actions";
 
@@ -23,6 +24,8 @@ type SearchParams = Promise<{
   status?: string;
   success?: string;
   error?: string;
+  queued?: string;
+  skipped?: string;
 }>;
 
 type AutomationDraftDeliveryRow = {
@@ -174,6 +177,7 @@ export default async function AutomationDraftsPage({
     acc[status] = typedDeliveries.filter((delivery) => delivery.status === status).length;
     return acc;
   }, {});
+  const visibleDraftCount = typedDeliveries.filter((delivery) => delivery.status === "draft").length;
 
   return (
     <main className="min-h-screen bg-[#F8F5FF] px-4 py-8 text-slate-950 sm:px-6 lg:px-8">
@@ -214,7 +218,9 @@ export default async function AutomationDraftsPage({
 
         {query.success ? (
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
-            Draft workflow updated.
+            {query.success === "batch-queued"
+              ? `${query.queued ?? "0"} draft${query.queued === "1" ? "" : "s"} queued for send${query.skipped && query.skipped !== "0" ? `; ${query.skipped} skipped because they were not ready.` : "."}`
+              : "Draft workflow updated."}
           </div>
         ) : null}
         {query.error ? (
@@ -253,6 +259,29 @@ export default async function AutomationDraftsPage({
           })}
         </section>
 
+        {visibleDraftCount > 0 ? (
+          <section className="rounded-[28px] border border-pink-100 bg-white p-4 shadow-sm sm:p-5">
+            <form id="batchQueueForm" action={queueSelectedAutomationEmailDraftsAction} className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <input type="hidden" name="returnTo" value="/app/automations/drafts" />
+              <div>
+                <p className="text-sm font-semibold text-slate-950">Batch queue reviewed drafts</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Select draft emails below, then queue them together. Drafts without a recipient,
+                  subject, or body will be skipped.
+                </p>
+              </div>
+              <button
+                type="submit"
+                disabled={!canManage}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-[#6B21A8] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#581C87] disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                Queue selected drafts
+                <Send className="h-4 w-4" />
+              </button>
+            </form>
+          </section>
+        ) : null}
+
         <section className="space-y-4">
           {typedDeliveries.length > 0 ? (
             typedDeliveries.map((delivery) => {
@@ -262,6 +291,19 @@ export default async function AutomationDraftsPage({
 
               return (
                 <article key={delivery.id} className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+                  {delivery.status === "draft" ? (
+                    <label className="mb-4 flex items-center gap-3 rounded-2xl border border-pink-100 bg-pink-50/50 px-3 py-2 text-sm font-semibold text-slate-700">
+                      <input
+                        form="batchQueueForm"
+                        type="checkbox"
+                        name="deliveryIds"
+                        value={delivery.id}
+                        disabled={!canManage}
+                        className="h-4 w-4 rounded border-slate-300 text-[#DB2777] focus:ring-[#DB2777]"
+                      />
+                      Select this draft for batch queue
+                    </label>
+                  ) : null}
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">

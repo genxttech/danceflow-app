@@ -1792,6 +1792,100 @@ export async function getAutomationTemplateDefaults() {
   return AUTOMATION_TEMPLATE_DEFAULTS;
 }
 
+
+export async function queueSelectedAutomationEmailDraftsAction(formData: FormData) {
+  const deliveryIds = Array.from(
+    new Set(
+      formData
+        .getAll("deliveryIds")
+        .map((value) => String(value))
+        .filter((value) => value.length > 0)
+    )
+  );
+  const returnPath = getAutomationReturnPath(formData);
+
+  if (deliveryIds.length === 0) {
+    redirect(`${returnPath}?error=no-drafts-selected`);
+  }
+
+  const context = await getCurrentStudioContext();
+
+  if (!canManageSettings(context.studioRole ?? "")) {
+    redirect(`${returnPath}?error=not-authorized`);
+  }
+
+  const supabase = await createClient();
+
+  const { data: drafts, error: draftsError } = await supabase
+    .from("outbound_deliveries")
+    .select("id, status, related_id, recipient_email, subject, body_text")
+    .eq("studio_id", context.studioId)
+    .eq("related_table", "automation_actions")
+    .in("id", deliveryIds);
+
+  if (draftsError) {
+    redirect(`${returnPath}?error=${encodeURIComponent(draftsError.message)}`);
+  }
+
+  const typedDrafts = (drafts ?? []) as Array<{
+    id: string;
+    status: string;
+    related_id: string | null;
+    recipient_email: string | null;
+    subject: string | null;
+    body_text: string | null;
+  }>;
+
+  const queueableDrafts = typedDrafts.filter(
+    (draft) =>
+      draft.status === "draft" &&
+      Boolean(draft.recipient_email?.trim()) &&
+      Boolean(draft.subject?.trim()) &&
+      Boolean(draft.body_text?.trim())
+  );
+
+  if (queueableDrafts.length === 0) {
+    redirect(`${returnPath}?error=no-queueable-drafts`);
+  }
+
+  const queueableIds = queueableDrafts.map((draft) => draft.id);
+  const relatedActionIds = Array.from(
+    new Set(queueableDrafts.map((draft) => draft.related_id).filter(Boolean) as string[])
+  );
+
+  const { error: updateError } = await supabase
+    .from("outbound_deliveries")
+    .update({
+      status: "queued",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("studio_id", context.studioId)
+    .eq("related_table", "automation_actions")
+    .eq("status", "draft")
+    .in("id", queueableIds);
+
+  if (updateError) {
+    redirect(`${returnPath}?error=${encodeURIComponent(updateError.message)}`);
+  }
+
+  if (relatedActionIds.length > 0) {
+    await supabase
+      .from("automation_actions")
+      .update({
+        updated_at: new Date().toISOString(),
+      })
+      .eq("studio_id", context.studioId)
+      .in("id", relatedActionIds);
+  }
+
+  revalidatePath("/app/automations");
+  revalidatePath("/app/automations/drafts");
+
+  const skippedCount = deliveryIds.length - queueableIds.length;
+  redirect(`${returnPath}?success=batch-queued&queued=${queueableIds.length}&skipped=${skippedCount}`);
+}
+
+
 export async function saveAutomationEmailTemplateAction(formData: FormData) {
   const ruleKey = String(formData.get("ruleKey") ?? "");
   const subject = String(formData.get("subject") ?? "").trim();
