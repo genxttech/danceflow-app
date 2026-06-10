@@ -33,113 +33,6 @@ function getNumber(value: unknown): number | null {
   return typeof value === "number" ? value : null;
 }
 
-type StripeFeeDetails = {
-  stripeChargeId: string | null;
-  stripeBalanceTransactionId: string | null;
-  stripeProcessingFeeAmount: number;
-  stripeApplicationFeeAmount: number;
-  platformFeeAmount: number;
-};
-
-function emptyStripeFeeDetails(): StripeFeeDetails {
-  return {
-    stripeChargeId: null,
-    stripeBalanceTransactionId: null,
-    stripeProcessingFeeAmount: 0,
-    stripeApplicationFeeAmount: 0,
-    platformFeeAmount: 0,
-  };
-}
-
-function centsToDecimalAmount(value: unknown) {
-  const amount = typeof value === "number" ? value : 0;
-  return Number((amount / 100).toFixed(2));
-}
-
-function multiplyMoney(value: number, ratio: number) {
-  return Number((Math.max(0, value) * Math.max(0, ratio)).toFixed(2));
-}
-
-function allocateStripeFeeDetails(
-  details: StripeFeeDetails,
-  ratio: number
-): StripeFeeDetails {
-  return {
-    stripeChargeId: details.stripeChargeId,
-    stripeBalanceTransactionId: details.stripeBalanceTransactionId,
-    stripeProcessingFeeAmount: multiplyMoney(details.stripeProcessingFeeAmount, ratio),
-    stripeApplicationFeeAmount: multiplyMoney(details.stripeApplicationFeeAmount, ratio),
-    platformFeeAmount: multiplyMoney(details.platformFeeAmount, ratio),
-  };
-}
-
-async function getStripeFeeDetailsForPaymentIntent(
-  stripe: Stripe,
-  paymentIntentId: string | null
-): Promise<StripeFeeDetails> {
-  if (!paymentIntentId) return emptyStripeFeeDetails();
-
-  try {
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
-      expand: ["latest_charge.balance_transaction"],
-    });
-
-    const latestChargeRaw = paymentIntent.latest_charge;
-
-    if (!latestChargeRaw) return emptyStripeFeeDetails();
-
-    const latestCharge =
-      typeof latestChargeRaw === "string"
-        ? await stripe.charges.retrieve(latestChargeRaw, {
-            expand: ["balance_transaction"],
-          })
-        : latestChargeRaw;
-
-    const charge = latestCharge as Stripe.Charge & {
-      application_fee_amount?: number | null;
-      balance_transaction?: string | Stripe.BalanceTransaction | null;
-    };
-
-    const balanceTransactionRaw = charge.balance_transaction;
-    const balanceTransaction =
-      typeof balanceTransactionRaw === "string"
-        ? await stripe.balanceTransactions.retrieve(balanceTransactionRaw)
-        : balanceTransactionRaw;
-
-    const stripeProcessingFeeAmount = centsToDecimalAmount(
-      balanceTransaction?.fee ?? 0
-    );
-    const stripeApplicationFeeAmount = centsToDecimalAmount(
-      charge.application_fee_amount ?? 0
-    );
-
-    return {
-      stripeChargeId: charge.id ?? null,
-      stripeBalanceTransactionId: balanceTransaction?.id ?? null,
-      stripeProcessingFeeAmount,
-      stripeApplicationFeeAmount,
-      platformFeeAmount: stripeApplicationFeeAmount,
-    };
-  } catch (error) {
-    console.warn("Stripe fee lookup failed", {
-      paymentIntentId,
-      error: error instanceof Error ? error.message : error,
-    });
-
-    return emptyStripeFeeDetails();
-  }
-}
-
-function stripeFeeColumns(details: StripeFeeDetails) {
-  return {
-    stripe_charge_id: details.stripeChargeId,
-    stripe_processing_fee_amount: details.stripeProcessingFeeAmount,
-    stripe_application_fee_amount: details.stripeApplicationFeeAmount,
-    platform_fee_amount: details.platformFeeAmount,
-    stripe_balance_transaction_id: details.stripeBalanceTransactionId,
-  };
-}
-
 function toIsoOrNull(unixSeconds: number | null): string | null {
   if (!unixSeconds) return null;
   return new Date(unixSeconds * 1000).toISOString();
@@ -1427,7 +1320,6 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
 
 async function handleEventRegistrationCheckoutCompleted(
   supabase: SupabaseClient,
-  stripe: Stripe,
   session: Stripe.Checkout.Session
 ) {
   const source = getString(session.metadata?.source);
@@ -1443,7 +1335,6 @@ async function handleEventRegistrationCheckoutCompleted(
   }
 
   const paymentIntentId = getString(session.payment_intent);
-  const stripeFeeDetails = await getStripeFeeDetailsForPaymentIntent(stripe, paymentIntentId);
   const sessionId = session.id;
   const amountTotal = Number(session.amount_total ?? 0) / 100;
   const currency = (session.currency ?? "usd").toUpperCase();
@@ -1480,7 +1371,6 @@ async function handleEventRegistrationCheckoutCompleted(
         amount: amountTotal,
         currency,
         stripe_payment_intent_id: paymentIntentId,
-        ...stripeFeeColumns(stripeFeeDetails),
         external_reference: sessionId,
         notes: "Completed by Stripe checkout.session.completed webhook.",
       })
@@ -1501,7 +1391,6 @@ async function handleEventRegistrationCheckoutCompleted(
         source: "stripe",
         stripe_checkout_session_id: sessionId,
         stripe_payment_intent_id: paymentIntentId,
-        ...stripeFeeColumns(stripeFeeDetails),
         external_reference: sessionId,
         notes: "Created by Stripe checkout.session.completed webhook.",
       });
@@ -1533,7 +1422,6 @@ async function handleEventRegistrationCheckoutCompleted(
 
 async function handleEventCartOrderCheckoutCompleted(
   supabase: SupabaseClient,
-  stripe: Stripe,
   session: Stripe.Checkout.Session
 ) {
   const source = getString(session.metadata?.source);
@@ -1549,7 +1437,6 @@ async function handleEventCartOrderCheckoutCompleted(
   }
 
   const paymentIntentId = getString(session.payment_intent);
-  const stripeFeeDetails = await getStripeFeeDetailsForPaymentIntent(stripe, paymentIntentId);
   const sessionId = session.id;
   const amountTotal = Number(session.amount_total ?? 0) / 100;
   const currency = (session.currency ?? "usd").toUpperCase();
@@ -1583,12 +1470,6 @@ async function handleEventCartOrderCheckoutCompleted(
   }
 
   for (const registration of registrations ?? []) {
-    const registrationAmount = Number(registration.total_price ?? 0);
-    const registrationFeeDetails = allocateStripeFeeDetails(
-      stripeFeeDetails,
-      amountTotal > 0 ? registrationAmount / amountTotal : 0
-    );
-
     const { error: registrationUpdateError } = await supabase
       .from("event_registrations")
       .update({
@@ -1619,14 +1500,13 @@ async function handleEventCartOrderCheckoutCompleted(
         .from("event_payments")
         .insert({
           registration_id: registration.id,
-          amount: registrationAmount,
+          amount: Number(registration.total_price ?? 0),
           currency: registration.currency || currency,
           payment_method: "stripe_checkout",
           status: "paid",
           source: "stripe",
           stripe_checkout_session_id: sessionId,
           stripe_payment_intent_id: paymentIntentId,
-          ...stripeFeeColumns(registrationFeeDetails),
           external_reference: sessionId,
           notes: "Created by Stripe checkout.session.completed webhook for event cart order.",
         });
@@ -1712,82 +1592,381 @@ async function handleEventPrivateLessonCheckoutCompleted(
   return true;
 }
 
-async function handleEventRegistrationRefundUpdated(
-  supabase: SupabaseClient,
-  refund: Stripe.Refund
+
+type StripeFeeDetails = {
+  chargeId: string | null;
+  balanceTransactionId: string | null;
+  stripeProcessingFeeAmount: number;
+  stripeApplicationFeeAmount: number;
+  platformFeeAmount: number;
+};
+
+function stripeObjectId(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "id" in value) {
+    const id = (value as { id?: unknown }).id;
+    return typeof id === "string" ? id : null;
+  }
+  return null;
+}
+
+function centsToDollars(value: number | null | undefined) {
+  return Number(value ?? 0) / 100;
+}
+
+function dollarsToCents(value: number | string | null | undefined) {
+  return Math.round(Number(value ?? 0) * 100);
+}
+
+function prorateCents(totalCents: number, rowAmountCents: number, allRowsAmountCents: number) {
+  if (totalCents <= 0 || rowAmountCents <= 0 || allRowsAmountCents <= 0) return 0;
+  return Math.round((totalCents * rowAmountCents) / allRowsAmountCents);
+}
+
+async function getStripeFeeDetailsFromCharge(
+  stripe: Stripe,
+  charge: Stripe.Charge
+): Promise<StripeFeeDetails> {
+  const chargeId = charge.id ?? null;
+  const balanceTransactionId = stripeObjectId(charge.balance_transaction);
+
+  let stripeProcessingFeeAmount = 0;
+  let stripeApplicationFeeAmount = centsToDollars(charge.application_fee_amount ?? 0);
+  let platformFeeAmount = stripeApplicationFeeAmount;
+
+  if (balanceTransactionId) {
+    try {
+      const balanceTransaction =
+        typeof charge.balance_transaction === "object" &&
+        charge.balance_transaction &&
+        "fee" in charge.balance_transaction
+          ? (charge.balance_transaction as Stripe.BalanceTransaction)
+          : await stripe.balanceTransactions.retrieve(balanceTransactionId);
+
+      stripeProcessingFeeAmount = centsToDollars(balanceTransaction.fee ?? 0);
+    } catch (error) {
+      console.warn("Unable to retrieve Stripe balance transaction fees.", error);
+    }
+  }
+
+  return {
+    chargeId,
+    balanceTransactionId,
+    stripeProcessingFeeAmount,
+    stripeApplicationFeeAmount,
+    platformFeeAmount,
+  };
+}
+
+async function getStripeFeeDetailsFromPaymentIntent(
+  stripe: Stripe,
+  paymentIntentId: string
 ) {
-  const paymentIntentId = getString(refund.payment_intent);
-  if (!paymentIntentId) return false;
+  try {
+    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
+      expand: ["latest_charge", "latest_charge.balance_transaction"],
+    });
 
-  const amountRefunded = Number(refund.amount ?? 0) / 100;
+    const latestCharge = paymentIntent.latest_charge;
+    const charge =
+      typeof latestCharge === "object" && latestCharge
+        ? (latestCharge as Stripe.Charge)
+        : null;
 
-  const { data: eventPayment, error: paymentLookupError } = await supabase
-    .from("event_payments")
-    .select(
-      `
-      id,
-      registration_id,
-      amount,
-      refund_amount,
-      stripe_payment_intent_id
-    `
-    )
-    .eq("stripe_payment_intent_id", paymentIntentId)
-    .maybeSingle();
+    if (!charge) return null;
 
-  if (paymentLookupError) {
-    throw new Error(paymentLookupError.message);
+    return getStripeFeeDetailsFromCharge(stripe, charge);
+  } catch (error) {
+    console.warn("Unable to retrieve Stripe payment intent fee details.", error);
+    return null;
   }
+}
 
-  if (!eventPayment) {
-    return false;
-  }
+async function syncFeeDetailsForPaymentIntent(
+  supabase: SupabaseClient,
+  stripe: Stripe,
+  paymentIntentId: string
+) {
+  const feeDetails = await getStripeFeeDetailsFromPaymentIntent(stripe, paymentIntentId);
+  if (!feeDetails) return false;
 
-  const totalAmount = Number(eventPayment.amount ?? 0);
-  const fullyRefunded = amountRefunded >= totalAmount;
-
-  const { error: paymentUpdateError } = await supabase
-    .from("event_payments")
-    .update({
-      status: fullyRefunded ? "refunded" : "partial",
-      refund_amount: amountRefunded,
-      refunded_at: new Date().toISOString(),
-      notes: fullyRefunded
-        ? "Refund synced from Stripe webhook."
-        : "Partial refund synced from Stripe webhook.",
-    })
-    .eq("id", eventPayment.id);
-
-  if (paymentUpdateError) {
-    throw new Error(paymentUpdateError.message);
-  }
-
-  const registrationPayload: {
-    payment_status: string;
-    status?: string;
-  } = {
-    payment_status: fullyRefunded ? "refunded" : "partial",
+  const feePayload = {
+    stripe_charge_id: feeDetails.chargeId,
+    stripe_balance_transaction_id: feeDetails.balanceTransactionId,
+    stripe_processing_fee_amount: feeDetails.stripeProcessingFeeAmount,
+    stripe_application_fee_amount: feeDetails.stripeApplicationFeeAmount,
+    platform_fee_amount: feeDetails.platformFeeAmount,
   };
 
-  if (fullyRefunded) {
-    registrationPayload.status = "refunded";
+  const { error: paymentsError } = await supabase
+    .from("payments")
+    .update(feePayload)
+    .eq("stripe_payment_intent_id", paymentIntentId);
+
+  if (paymentsError) {
+    throw new Error(paymentsError.message);
   }
 
-  const { error: registrationUpdateError } = await supabase
-    .from("event_registrations")
-    .update(registrationPayload)
-    .eq("id", eventPayment.registration_id);
+  const { data: eventPayments, error: eventPaymentsLookupError } = await supabase
+    .from("event_payments")
+    .select("id, amount")
+    .eq("stripe_payment_intent_id", paymentIntentId);
 
-  if (registrationUpdateError) {
-    throw new Error(registrationUpdateError.message);
+  if (eventPaymentsLookupError) {
+    throw new Error(eventPaymentsLookupError.message);
+  }
+
+  const rows = eventPayments ?? [];
+  const totalAmountCents = rows.reduce(
+    (sum, row) => sum + dollarsToCents(row.amount),
+    0,
+  );
+
+  if (rows.length > 0) {
+    for (const row of rows) {
+      const rowAmountCents = dollarsToCents(row.amount);
+      const rowProcessingFee = centsToDollars(
+        prorateCents(
+          Math.round(feeDetails.stripeProcessingFeeAmount * 100),
+          rowAmountCents,
+          totalAmountCents,
+        ),
+      );
+      const rowApplicationFee = centsToDollars(
+        prorateCents(
+          Math.round(feeDetails.stripeApplicationFeeAmount * 100),
+          rowAmountCents,
+          totalAmountCents,
+        ),
+      );
+      const rowPlatformFee = centsToDollars(
+        prorateCents(
+          Math.round(feeDetails.platformFeeAmount * 100),
+          rowAmountCents,
+          totalAmountCents,
+        ),
+      );
+
+      const { error: eventPaymentUpdateError } = await supabase
+        .from("event_payments")
+        .update({
+          stripe_charge_id: feeDetails.chargeId,
+          stripe_balance_transaction_id: feeDetails.balanceTransactionId,
+          stripe_processing_fee_amount: rowProcessingFee,
+          stripe_application_fee_amount: rowApplicationFee,
+          platform_fee_amount: rowPlatformFee,
+        })
+        .eq("id", row.id);
+
+      if (eventPaymentUpdateError) {
+        throw new Error(eventPaymentUpdateError.message);
+      }
+    }
   }
 
   return true;
 }
 
-async function handlePortalFloorRentalCheckoutCompleted(
+async function syncFeeDetailsForCharge(
   supabase: SupabaseClient,
   stripe: Stripe,
+  charge: Stripe.Charge
+) {
+  const paymentIntentId = stripeObjectId(charge.payment_intent);
+  if (!paymentIntentId) return false;
+
+  return syncFeeDetailsForPaymentIntent(supabase, stripe, paymentIntentId);
+}
+
+async function updatePaymentRefundByPaymentIntent(
+  supabase: SupabaseClient,
+  paymentIntentId: string,
+  refundAmount: number,
+  stripeRefundId: string | null
+) {
+  const { data: payments, error: paymentsLookupError } = await supabase
+    .from("payments")
+    .select("id, amount")
+    .eq("stripe_payment_intent_id", paymentIntentId);
+
+  if (paymentsLookupError) {
+    throw new Error(paymentsLookupError.message);
+  }
+
+  let updated = false;
+
+  for (const payment of payments ?? []) {
+    const totalAmount = Number(payment.amount ?? 0);
+    const fullyRefunded = refundAmount >= totalAmount;
+
+    const { error: paymentUpdateError } = await supabase
+      .from("payments")
+      .update({
+        status: fullyRefunded ? "refunded" : "partial",
+        refund_amount: refundAmount,
+        refunded_at: new Date().toISOString(),
+        stripe_refund_id: stripeRefundId,
+        notes: fullyRefunded
+          ? "Refund synced from Stripe webhook."
+          : "Partial refund synced from Stripe webhook.",
+      })
+      .eq("id", payment.id);
+
+    if (paymentUpdateError) {
+      throw new Error(paymentUpdateError.message);
+    }
+
+    updated = true;
+  }
+
+  return updated;
+}
+
+async function updateEventPaymentRefundByPaymentIntent(
+  supabase: SupabaseClient,
+  paymentIntentId: string,
+  refundAmount: number,
+  stripeRefundId: string | null
+) {
+  const { data: eventPayments, error: paymentLookupError } = await supabase
+    .from("event_payments")
+    .select("id, registration_id, amount, refund_amount, stripe_payment_intent_id")
+    .eq("stripe_payment_intent_id", paymentIntentId);
+
+  if (paymentLookupError) {
+    throw new Error(paymentLookupError.message);
+  }
+
+  const rows = eventPayments ?? [];
+  if (rows.length === 0) return false;
+
+  const totalAmount = rows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  const fullyRefundedCart = refundAmount >= totalAmount;
+
+  for (const eventPayment of rows) {
+    const rowAmount = Number(eventPayment.amount ?? 0);
+    const rowRefundAmount = fullyRefundedCart
+      ? rowAmount
+      : totalAmount > 0
+        ? Math.round(((refundAmount * rowAmount) / totalAmount) * 100) / 100
+        : refundAmount;
+
+    const fullyRefunded = rowRefundAmount >= rowAmount;
+
+    const { error: paymentUpdateError } = await supabase
+      .from("event_payments")
+      .update({
+        status: fullyRefunded ? "refunded" : "partial",
+        refund_amount: rowRefundAmount,
+        refunded_at: new Date().toISOString(),
+        stripe_refund_id: stripeRefundId,
+        notes: fullyRefunded
+          ? "Refund synced from Stripe webhook."
+          : "Partial refund synced from Stripe webhook.",
+      })
+      .eq("id", eventPayment.id);
+
+    if (paymentUpdateError) {
+      throw new Error(paymentUpdateError.message);
+    }
+
+    const registrationPayload: {
+      payment_status: string;
+      status?: string;
+    } = {
+      payment_status: fullyRefunded ? "refunded" : "partial",
+    };
+
+    if (fullyRefunded) {
+      registrationPayload.status = "refunded";
+    }
+
+    const { error: registrationUpdateError } = await supabase
+      .from("event_registrations")
+      .update(registrationPayload)
+      .eq("id", eventPayment.registration_id);
+
+    if (registrationUpdateError) {
+      throw new Error(registrationUpdateError.message);
+    }
+  }
+
+  return true;
+}
+
+async function handleStripeRefundUpdated(
+  supabase: SupabaseClient,
+  stripe: Stripe,
+  refund: Stripe.Refund
+) {
+  const paymentIntentId = stripeObjectId(refund.payment_intent);
+  const chargeId = stripeObjectId(refund.charge);
+  const refundAmount = centsToDollars(refund.amount ?? 0);
+  const stripeRefundId = refund.id ?? null;
+
+  let resolvedPaymentIntentId = paymentIntentId;
+
+  if (!resolvedPaymentIntentId && chargeId) {
+    try {
+      const charge = await stripe.charges.retrieve(chargeId);
+      resolvedPaymentIntentId = stripeObjectId(charge.payment_intent);
+    } catch (error) {
+      console.warn("Unable to retrieve Stripe charge for refund sync.", error);
+    }
+  }
+
+  if (!resolvedPaymentIntentId || refundAmount <= 0) return false;
+
+  const paymentUpdated = await updatePaymentRefundByPaymentIntent(
+    supabase,
+    resolvedPaymentIntentId,
+    refundAmount,
+    stripeRefundId,
+  );
+
+  const eventPaymentUpdated = await updateEventPaymentRefundByPaymentIntent(
+    supabase,
+    resolvedPaymentIntentId,
+    refundAmount,
+    stripeRefundId,
+  );
+
+  await syncFeeDetailsForPaymentIntent(supabase, stripe, resolvedPaymentIntentId);
+
+  return paymentUpdated || eventPaymentUpdated;
+}
+
+async function handleChargeRefunded(
+  supabase: SupabaseClient,
+  stripe: Stripe,
+  charge: Stripe.Charge
+) {
+  const paymentIntentId = stripeObjectId(charge.payment_intent);
+  const refundAmount = centsToDollars(charge.amount_refunded ?? 0);
+
+  if (!paymentIntentId || refundAmount <= 0) return false;
+
+  const paymentUpdated = await updatePaymentRefundByPaymentIntent(
+    supabase,
+    paymentIntentId,
+    refundAmount,
+    null,
+  );
+
+  const eventPaymentUpdated = await updateEventPaymentRefundByPaymentIntent(
+    supabase,
+    paymentIntentId,
+    refundAmount,
+    null,
+  );
+
+  await syncFeeDetailsForCharge(supabase, stripe, charge);
+
+  return paymentUpdated || eventPaymentUpdated;
+}
+
+async function handlePortalFloorRentalCheckoutCompleted(
+  supabase: SupabaseClient,
   session: Stripe.Checkout.Session
 ) {
   const source = getString(session.metadata?.source);
@@ -1815,7 +1994,6 @@ async function handlePortalFloorRentalCheckoutCompleted(
   }
 
   const paymentIntentId = getString(session.payment_intent);
-  const stripeFeeDetails = await getStripeFeeDetailsForPaymentIntent(stripe, paymentIntentId);
   const sessionId = session.id;
   const amountTotal = Number(session.amount_total ?? 0) / 100;
 
@@ -1880,7 +2058,6 @@ async function handlePortalFloorRentalCheckoutCompleted(
     payment_type: "floor_fee",
     source: "floor_rental",
     stripe_payment_intent_id: paymentIntentId,
-    ...stripeFeeColumns(stripeFeeDetails),
     notes: `Floor rental payment for appointments: ${appointmentIds.join(", ")}`,
   });
 
@@ -1908,7 +2085,6 @@ async function handlePortalFloorRentalCheckoutCompleted(
 
 async function handleClientPaymentRequestCheckoutCompleted(
   supabase: SupabaseClient,
-  stripe: Stripe,
   session: Stripe.Checkout.Session
 ) {
   const source = getString(session.metadata?.source);
@@ -1924,7 +2100,6 @@ async function handleClientPaymentRequestCheckoutCompleted(
   }
 
   const paymentIntentId = getString(session.payment_intent);
-  const stripeFeeDetails = await getStripeFeeDetailsForPaymentIntent(stripe, paymentIntentId);
   const sessionId = session.id;
   const amountTotal = Number(session.amount_total ?? 0) / 100;
   const currency = (session.currency ?? "usd").toLowerCase();
@@ -1959,7 +2134,6 @@ async function handleClientPaymentRequestCheckoutCompleted(
       payment_method: "card",
       stripe_checkout_session_id: sessionId,
       stripe_payment_intent_id: paymentIntentId,
-      ...stripeFeeColumns(stripeFeeDetails),
       external_payment_id: sessionId,
       external_reference: sessionId,
       currency,
@@ -2021,7 +2195,6 @@ async function handleCheckoutSessionCompleted(
 
   const handledEventCartOrder = await handleEventCartOrderCheckoutCompleted(
     supabase,
-    stripe,
     session
   );
 
@@ -2040,7 +2213,6 @@ async function handleCheckoutSessionCompleted(
 
     const handledEventRegistration = await handleEventRegistrationCheckoutCompleted(
     supabase,
-    stripe,
     session
   );
 
@@ -2050,7 +2222,6 @@ async function handleCheckoutSessionCompleted(
 
   const handledPortalFloorRental = await handlePortalFloorRentalCheckoutCompleted(
     supabase,
-    stripe,
     session
   );
 
@@ -2060,7 +2231,6 @@ async function handleCheckoutSessionCompleted(
 
   const handledClientPaymentRequest = await handleClientPaymentRequestCheckoutCompleted(
     supabase,
-    stripe,
     session
   );
 
@@ -2169,11 +2339,6 @@ async function handleInvoicePaid(
   const stripeCustomerId = getString(invoice.customer);
   const paymentIntentId = getInvoicePaymentIntentId(invoice);
   const chargeId = getInvoiceChargeId(invoice);
-  const invoiceStripeFeeDetails = await getStripeFeeDetailsForPaymentIntent(stripe, paymentIntentId);
-  const stripeFeeDetails: StripeFeeDetails = {
-    ...invoiceStripeFeeDetails,
-    stripeChargeId: chargeId ?? invoiceStripeFeeDetails.stripeChargeId,
-  };
 
   if (!stripeCustomerId) {
     throw new Error("Invoice missing customer id.");
@@ -2340,8 +2505,7 @@ async function handleInvoicePaid(
     payment_type: "membership",
     stripe_payment_intent_id: paymentIntentId,
     stripe_invoice_id: stripeInvoiceId,
-    ...stripeFeeColumns(stripeFeeDetails),
-    stripe_charge_id: chargeId ?? stripeFeeDetails.stripeChargeId,
+    stripe_charge_id: chargeId,
     currency,
   });
 
@@ -2505,28 +2669,38 @@ export async function POST(request: Request) {
         break;
       }
 
+      case "payment_intent.succeeded": {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        await syncFeeDetailsForPaymentIntent(supabase, stripe, paymentIntent.id);
+        break;
+      }
+
+      case "charge.succeeded":
+      case "charge.updated": {
+        await syncFeeDetailsForCharge(
+          supabase,
+          stripe,
+          event.data.object as Stripe.Charge
+        );
+        break;
+      }
+
       case "refund.created":
       case "refund.updated": {
-        await handleEventRegistrationRefundUpdated(
+        await handleStripeRefundUpdated(
           supabase,
+          stripe,
           event.data.object as Stripe.Refund
         );
         break;
       }
 
       case "charge.refunded": {
-        const charge = event.data.object as Stripe.Charge;
-        if (charge.payment_intent) {
-          await handleEventRegistrationRefundUpdated(supabase, {
-            id: charge.id,
-            object: "refund",
-            amount: charge.amount_refunded,
-            payment_intent:
-              typeof charge.payment_intent === "string"
-                ? charge.payment_intent
-                : charge.payment_intent.id,
-          } as Stripe.Refund);
-        }
+        await handleChargeRefunded(
+          supabase,
+          stripe,
+          event.data.object as Stripe.Charge
+        );
         break;
       }
 

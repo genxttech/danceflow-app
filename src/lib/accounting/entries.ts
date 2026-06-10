@@ -24,6 +24,9 @@ type PaymentRow = {
   stripe_application_fee_amount?: number | string | null;
   platform_fee_amount?: number | string | null;
   stripe_balance_transaction_id?: string | null;
+  refund_amount?: number | string | null;
+  refunded_at?: string | null;
+  stripe_refund_id?: string | null;
 };
 
 type EventPaymentRow = {
@@ -39,10 +42,14 @@ type EventPaymentRow = {
   external_reference?: string | null;
   stripe_payment_intent_id?: string | null;
   stripe_charge_id?: string | null;
+  stripe_invoice_id?: string | null;
   stripe_processing_fee_amount?: number | string | null;
   stripe_application_fee_amount?: number | string | null;
   platform_fee_amount?: number | string | null;
   stripe_balance_transaction_id?: string | null;
+  refund_amount?: number | string | null;
+  refunded_at?: string | null;
+  stripe_refund_id?: string | null;
   event_registrations:
     | {
         id: string;
@@ -148,10 +155,14 @@ export function accountingCategoryLabel(category: string) {
     coach_private_lesson_revenue: "Coach Private Lesson Revenue",
     floor_rental_revenue: "Floor Rental Revenue",
     practice_party_revenue: "Practice Party Revenue",
-    manual_payment_revenue: "Manual Payment Revenue",
-    other_revenue: "Other Revenue",
-    other_income: "Other Revenue",
+    other_income: "Other Income",
     refund: "Refund",
+    client_payment_refund: "Client Payment Refund",
+    package_refund: "Package Refund",
+    membership_refund: "Membership Refund",
+    floor_rental_refund: "Floor Rental Refund",
+    event_ticket_refund: "Event Ticket Refund",
+    other_refund: "Other Refund",
     stripe_processing_fee: "Stripe Processing Fee",
     danceflow_platform_fee: "DanceFlow Platform Fee",
     organizer_platform_fee: "Organizer Platform Fee",
@@ -171,228 +182,19 @@ export function accountingCategoryLabel(category: string) {
   return labels[category] ?? category.replaceAll("_", " ");
 }
 
-function normalizeAccountingText(value: string | null | undefined) {
-  return (value ?? "")
-    .toLowerCase()
-    .replaceAll("-", "_")
-    .replaceAll(" ", "_")
-    .trim();
-}
-
-function paymentText(payment: PaymentRow) {
-  return [
-    payment.payment_type,
-    payment.source,
-    payment.notes,
-    payment.external_reference,
-    payment.external_payment_id,
-  ]
-    .map(normalizeAccountingText)
-    .filter(Boolean)
-    .join(" ");
-}
-
-function includesAny(value: string, terms: string[]) {
-  return terms.some((term) => value.includes(term));
-}
-
 function paymentCategory(payment: PaymentRow) {
-  const type = normalizeAccountingText(payment.payment_type);
-  const source = normalizeAccountingText(payment.source);
-  const text = paymentText(payment);
+  const type = (payment.payment_type ?? "").toLowerCase();
+  const source = (payment.source ?? "").toLowerCase();
+  const notes = (payment.notes ?? "").toLowerCase();
 
-  if (
-    payment.client_membership_id ||
-    includesAny(text, [
-      "membership",
-      "membership_sale",
-      "membership_payment",
-      "membership_subscription",
-      "stripe_invoice",
-    ])
-  ) {
-    return "membership_revenue";
-  }
-
-  if (
-    payment.client_package_id ||
-    includesAny(text, [
-      "package",
-      "package_sale",
-      "package_purchase",
-      "existing_package_payment",
-    ])
-  ) {
-    return "package_revenue";
-  }
-
-  if (
-    includesAny(text, [
-      "floor_rental",
-      "floor_space_rental",
-      "floor_fee",
-      "floor_space",
-      "room_rental",
-    ])
-  ) {
-    return "floor_rental_revenue";
-  }
-
-  if (
-    includesAny(text, [
-      "event_registration",
-      "event_ticket",
-      "ticket_sale",
-      "manual_ticket_sale",
-    ])
-  ) {
-    return "event_ticket_revenue";
-  }
-
-  if (
-    includesAny(text, [
-      "coach_private_lesson",
-      "guest_coach_private_lesson",
-      "coach_private",
-    ])
-  ) {
-    return "coach_private_lesson_revenue";
-  }
-
-  if (
-    includesAny(text, [
-      "private_lesson",
-      "private_lesson_payment",
-      "private",
-    ])
-  ) {
-    return "private_lesson_revenue";
-  }
-
-  if (
-    includesAny(text, [
-      "group_class",
-      "group_class_payment",
-      "class_payment",
-      "group",
-    ])
-  ) {
-    return "group_class_revenue";
-  }
-
-  if (includesAny(text, ["practice_party", "practice"])) {
-    return "practice_party_revenue";
-  }
-
-  if (type === "general" && source === "manual") {
-    return "manual_payment_revenue";
-  }
-
-  return "other_revenue";
-}
-
-
-function positiveMoney(value: number | string | null | undefined) {
-  const amount = toNumber(value);
-  return amount > 0 ? amount : 0;
-}
-
-function paymentFeeEntries(payment: PaymentRow, baseEntry: AccountingEntry) {
-  const entries: AccountingEntry[] = [];
-
-  const stripeProcessingFee = positiveMoney(payment.stripe_processing_fee_amount);
-  if (stripeProcessingFee > 0) {
-    entries.push({
-      ...baseEntry,
-      id: `payments:${payment.id}:processing_fee:stripe_processing_fee`,
-      entryType: "processing_fee",
-      category: "stripe_processing_fee",
-      categoryLabel: accountingCategoryLabel("stripe_processing_fee"),
-      direction: "debit",
-      grossAmount: 0,
-      feeAmount: stripeProcessingFee,
-      refundAmount: 0,
-      netAmount: -stripeProcessingFee,
-      sourceTable: "payments",
-      sourceId: payment.id,
-      description: "Stripe processing fee",
-      status: payment.status,
-    });
-  }
-
-  const applicationFee = positiveMoney(payment.stripe_application_fee_amount);
-  const platformFee = positiveMoney(payment.platform_fee_amount);
-  const danceFlowPlatformFee = platformFee || applicationFee;
-
-  if (danceFlowPlatformFee > 0) {
-    entries.push({
-      ...baseEntry,
-      id: `payments:${payment.id}:platform_fee:danceflow_platform_fee`,
-      entryType: "platform_fee",
-      category: "danceflow_platform_fee",
-      categoryLabel: accountingCategoryLabel("danceflow_platform_fee"),
-      direction: "debit",
-      grossAmount: 0,
-      feeAmount: danceFlowPlatformFee,
-      refundAmount: 0,
-      netAmount: -danceFlowPlatformFee,
-      sourceTable: "payments",
-      sourceId: payment.id,
-      description: "DanceFlow platform fee",
-      status: payment.status,
-    });
-  }
-
-  return entries;
-}
-
-function eventPaymentFeeEntries(payment: EventPaymentRow, baseEntry: AccountingEntry) {
-  const entries: AccountingEntry[] = [];
-
-  const stripeProcessingFee = positiveMoney(payment.stripe_processing_fee_amount);
-  if (stripeProcessingFee > 0) {
-    entries.push({
-      ...baseEntry,
-      id: `event_payments:${payment.id}:processing_fee:stripe_processing_fee`,
-      entryType: "processing_fee",
-      category: "stripe_processing_fee",
-      categoryLabel: accountingCategoryLabel("stripe_processing_fee"),
-      direction: "debit",
-      grossAmount: 0,
-      feeAmount: stripeProcessingFee,
-      refundAmount: 0,
-      netAmount: -stripeProcessingFee,
-      sourceTable: "event_payments",
-      sourceId: payment.id,
-      description: "Stripe processing fee",
-      status: payment.status,
-    });
-  }
-
-  const applicationFee = positiveMoney(payment.stripe_application_fee_amount);
-  const platformFee = positiveMoney(payment.platform_fee_amount);
-  const organizerPlatformFee = platformFee || applicationFee;
-
-  if (organizerPlatformFee > 0) {
-    entries.push({
-      ...baseEntry,
-      id: `event_payments:${payment.id}:platform_fee:organizer_platform_fee`,
-      entryType: "platform_fee",
-      category: "organizer_platform_fee",
-      categoryLabel: accountingCategoryLabel("organizer_platform_fee"),
-      direction: "debit",
-      grossAmount: 0,
-      feeAmount: organizerPlatformFee,
-      refundAmount: 0,
-      netAmount: -organizerPlatformFee,
-      sourceTable: "event_payments",
-      sourceId: payment.id,
-      description: "Organizer platform fee",
-      status: payment.status,
-    });
-  }
-
-  return entries;
+  if (type.includes("membership")) return "membership_revenue";
+  if (type.includes("package") || payment.client_package_id) return "package_revenue";
+  if (type.includes("floor") || source.includes("floor")) return "floor_rental_revenue";
+  if (type.includes("event")) return "event_ticket_revenue";
+  if (type.includes("private")) return "private_lesson_revenue";
+  if (type.includes("group")) return "group_class_revenue";
+  if (notes.includes("practice")) return "practice_party_revenue";
+  return "other_income";
 }
 
 function expenseCategory(expense: ExpenseRow) {
@@ -408,37 +210,48 @@ function expenseCategory(expense: ExpenseRow) {
   return "other_expense";
 }
 
-function isRefunded(status: string | null | undefined) {
-  return (status ?? "").toLowerCase() === "refunded";
-}
 
 function isPaidLike(status: string | null | undefined) {
-  return ["paid", "processed", "complete", "completed", "refunded"].includes(
+  return ["paid", "processed", "complete", "completed", "refunded", "partial"].includes(
     (status ?? "").toLowerCase(),
   );
 }
 
-function paymentToEntries(payment: PaymentRow): AccountingEntry[] {
-  if (!isPaidLike(payment.status)) return [];
+function hasPositiveAmount(value: number | string | null | undefined) {
+  return toNumber(value) > 0;
+}
+
+function paymentRefundCategory(payment: PaymentRow) {
+  const revenueCategory = paymentCategory(payment);
+
+  if (revenueCategory === "package_revenue") return "package_refund";
+  if (revenueCategory === "membership_revenue") return "membership_refund";
+  if (revenueCategory === "floor_rental_revenue") return "floor_rental_refund";
+
+  return "client_payment_refund";
+}
+
+function paymentRevenueEntry(payment: PaymentRow): AccountingEntry | null {
+  if (!isPaidLike(payment.status)) return null;
 
   const amount = toNumber(payment.amount);
-  const refunded = isRefunded(payment.status);
-  const entryType: AccountingEntryType = refunded ? "refund" : "revenue";
-  const category = refunded ? "refund" : paymentCategory(payment);
+  if (amount <= 0) return null;
 
-  const baseEntry: AccountingEntry = {
-    id: `payments:${payment.id}:${entryType}:${category}`,
+  const category = paymentCategory(payment);
+
+  return {
+    id: `payments:${payment.id}:revenue:${category}`,
     studioId: payment.studio_id,
     organizerId: null,
     entryDate: toDateOnly(payment.paid_at ?? payment.created_at),
-    entryType,
+    entryType: "revenue",
     category,
     categoryLabel: accountingCategoryLabel(category),
-    direction: refunded ? "debit" : "credit",
-    grossAmount: refunded ? 0 : amount,
+    direction: "credit",
+    grossAmount: amount,
     feeAmount: 0,
-    refundAmount: refunded ? amount : 0,
-    netAmount: refunded ? -amount : amount,
+    refundAmount: 0,
+    netAmount: amount,
     currency: toCurrency(payment.currency),
     paymentMethod: payment.payment_method,
     sourceTable: "payments",
@@ -455,37 +268,157 @@ function paymentToEntries(payment: PaymentRow): AccountingEntry[] {
     status: payment.status,
     createdAt: payment.created_at,
   };
-
-  if (refunded) return [baseEntry];
-
-  return [baseEntry, ...paymentFeeEntries(payment, baseEntry)];
 }
 
-function eventPaymentToEntries(payment: EventPaymentRow): AccountingEntry[] {
+function paymentRefundEntry(payment: PaymentRow): AccountingEntry | null {
+  if (!isPaidLike(payment.status)) return null;
+
+  const explicitRefundAmount = toNumber(payment.refund_amount);
+  const status = (payment.status ?? "").toLowerCase();
+  const refundAmount =
+    explicitRefundAmount > 0
+      ? explicitRefundAmount
+      : status === "refunded"
+        ? toNumber(payment.amount)
+        : 0;
+
+  if (refundAmount <= 0) return null;
+
+  const category = paymentRefundCategory(payment);
+
+  return {
+    id: `payments:${payment.id}:refund:${category}`,
+    studioId: payment.studio_id,
+    organizerId: null,
+    entryDate: toDateOnly(payment.refunded_at ?? payment.paid_at ?? payment.created_at),
+    entryType: "refund",
+    category,
+    categoryLabel: accountingCategoryLabel(category),
+    direction: "debit",
+    grossAmount: 0,
+    feeAmount: 0,
+    refundAmount,
+    netAmount: -refundAmount,
+    currency: toCurrency(payment.currency),
+    paymentMethod: payment.payment_method,
+    sourceTable: "payments",
+    sourceId: payment.id,
+    clientId: payment.client_id,
+    eventId: null,
+    appointmentId: null,
+    externalReference:
+      payment.stripe_refund_id ??
+      payment.external_reference ??
+      payment.external_payment_id ??
+      null,
+    stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
+    stripeChargeId: payment.stripe_charge_id ?? null,
+    stripeInvoiceId: payment.stripe_invoice_id ?? null,
+    description: `${accountingCategoryLabel(category)} — ${payment.notes || "Stripe refund"}`,
+    status: payment.status,
+    createdAt: payment.refunded_at ?? payment.created_at,
+  };
+}
+
+function paymentFeeEntries(payment: PaymentRow): AccountingEntry[] {
   if (!isPaidLike(payment.status)) return [];
 
+  const entries: AccountingEntry[] = [];
+  const stripeProcessingFee = toNumber(payment.stripe_processing_fee_amount);
+  const platformFee =
+    toNumber(payment.platform_fee_amount) ||
+    toNumber(payment.stripe_application_fee_amount);
+
+  if (stripeProcessingFee > 0) {
+    entries.push({
+      id: `payments:${payment.id}:processing_fee:stripe_processing_fee`,
+      studioId: payment.studio_id,
+      organizerId: null,
+      entryDate: toDateOnly(payment.paid_at ?? payment.created_at),
+      entryType: "processing_fee",
+      category: "stripe_processing_fee",
+      categoryLabel: accountingCategoryLabel("stripe_processing_fee"),
+      direction: "debit",
+      grossAmount: 0,
+      feeAmount: stripeProcessingFee,
+      refundAmount: 0,
+      netAmount: -stripeProcessingFee,
+      currency: toCurrency(payment.currency),
+      paymentMethod: payment.payment_method,
+      sourceTable: "payments",
+      sourceId: payment.id,
+      clientId: payment.client_id,
+      eventId: null,
+      appointmentId: null,
+      externalReference: payment.stripe_balance_transaction_id ?? payment.external_reference ?? null,
+      stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
+      stripeChargeId: payment.stripe_charge_id ?? null,
+      stripeInvoiceId: payment.stripe_invoice_id ?? null,
+      description: "Stripe processing fee",
+      status: payment.status,
+      createdAt: payment.created_at,
+    });
+  }
+
+  if (platformFee > 0) {
+    entries.push({
+      id: `payments:${payment.id}:platform_fee:danceflow_platform_fee`,
+      studioId: payment.studio_id,
+      organizerId: null,
+      entryDate: toDateOnly(payment.paid_at ?? payment.created_at),
+      entryType: "platform_fee",
+      category: "danceflow_platform_fee",
+      categoryLabel: accountingCategoryLabel("danceflow_platform_fee"),
+      direction: "debit",
+      grossAmount: 0,
+      feeAmount: platformFee,
+      refundAmount: 0,
+      netAmount: -platformFee,
+      currency: toCurrency(payment.currency),
+      paymentMethod: payment.payment_method,
+      sourceTable: "payments",
+      sourceId: payment.id,
+      clientId: payment.client_id,
+      eventId: null,
+      appointmentId: null,
+      externalReference: payment.stripe_balance_transaction_id ?? payment.external_reference ?? null,
+      stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
+      stripeChargeId: payment.stripe_charge_id ?? null,
+      stripeInvoiceId: payment.stripe_invoice_id ?? null,
+      description: "DanceFlow platform fee",
+      status: payment.status,
+      createdAt: payment.created_at,
+    });
+  }
+
+  return entries;
+}
+
+function eventPaymentRevenueEntry(payment: EventPaymentRow): AccountingEntry | null {
+  if (!isPaidLike(payment.status)) return null;
+
   const registration = first(payment.event_registrations);
-  if (!registration?.studio_id) return [];
+  if (!registration?.studio_id) return null;
 
   const event = first(registration.events);
   const amount = toNumber(payment.amount);
-  const refunded = isRefunded(payment.status);
-  const entryType: AccountingEntryType = refunded ? "refund" : "revenue";
-  const category = refunded ? "refund" : "event_ticket_revenue";
+  if (amount <= 0) return null;
 
-  const baseEntry: AccountingEntry = {
-    id: `event_payments:${payment.id}:${entryType}:${category}`,
+  const category = "event_ticket_revenue";
+
+  return {
+    id: `event_payments:${payment.id}:revenue:${category}`,
     studioId: registration.studio_id,
     organizerId: event?.organizer_id ?? null,
     entryDate: toDateOnly(payment.created_at),
-    entryType,
+    entryType: "revenue",
     category,
     categoryLabel: accountingCategoryLabel(category),
-    direction: refunded ? "debit" : "credit",
-    grossAmount: refunded ? 0 : amount,
+    direction: "credit",
+    grossAmount: amount,
     feeAmount: 0,
-    refundAmount: refunded ? amount : 0,
-    netAmount: refunded ? -amount : amount,
+    refundAmount: 0,
+    netAmount: amount,
     currency: toCurrency(payment.currency),
     paymentMethod: payment.payment_method,
     sourceTable: "event_payments",
@@ -496,15 +429,139 @@ function eventPaymentToEntries(payment: EventPaymentRow): AccountingEntry[] {
     externalReference: payment.external_reference ?? null,
     stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
     stripeChargeId: payment.stripe_charge_id ?? null,
-    stripeInvoiceId: null,
+    stripeInvoiceId: payment.stripe_invoice_id ?? null,
     description: payment.notes || event?.name || "Event ticket revenue",
     status: payment.status,
     createdAt: payment.created_at,
   };
+}
 
-  if (refunded) return [baseEntry];
+function eventPaymentRefundEntry(payment: EventPaymentRow): AccountingEntry | null {
+  if (!isPaidLike(payment.status)) return null;
 
-  return [baseEntry, ...eventPaymentFeeEntries(payment, baseEntry)];
+  const registration = first(payment.event_registrations);
+  if (!registration?.studio_id) return null;
+
+  const event = first(registration.events);
+  const explicitRefundAmount = toNumber(payment.refund_amount);
+  const status = (payment.status ?? "").toLowerCase();
+  const refundAmount =
+    explicitRefundAmount > 0
+      ? explicitRefundAmount
+      : status === "refunded"
+        ? toNumber(payment.amount)
+        : 0;
+
+  if (refundAmount <= 0) return null;
+
+  const category = "event_ticket_refund";
+
+  return {
+    id: `event_payments:${payment.id}:refund:${category}`,
+    studioId: registration.studio_id,
+    organizerId: event?.organizer_id ?? null,
+    entryDate: toDateOnly(payment.refunded_at ?? payment.created_at),
+    entryType: "refund",
+    category,
+    categoryLabel: accountingCategoryLabel(category),
+    direction: "debit",
+    grossAmount: 0,
+    feeAmount: 0,
+    refundAmount,
+    netAmount: -refundAmount,
+    currency: toCurrency(payment.currency),
+    paymentMethod: payment.payment_method,
+    sourceTable: "event_payments",
+    sourceId: payment.id,
+    clientId: registration.client_id ?? null,
+    eventId: registration.event_id,
+    appointmentId: null,
+    externalReference: payment.stripe_refund_id ?? payment.external_reference ?? null,
+    stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
+    stripeChargeId: payment.stripe_charge_id ?? null,
+    stripeInvoiceId: payment.stripe_invoice_id ?? null,
+    description: `${accountingCategoryLabel(category)} — ${payment.notes || event?.name || "Stripe refund"}`,
+    status: payment.status,
+    createdAt: payment.refunded_at ?? payment.created_at,
+  };
+}
+
+function eventPaymentFeeEntries(payment: EventPaymentRow): AccountingEntry[] {
+  if (!isPaidLike(payment.status)) return [];
+
+  const registration = first(payment.event_registrations);
+  if (!registration?.studio_id) return [];
+
+  const event = first(registration.events);
+  const entries: AccountingEntry[] = [];
+  const stripeProcessingFee = toNumber(payment.stripe_processing_fee_amount);
+  const platformFee =
+    toNumber(payment.platform_fee_amount) ||
+    toNumber(payment.stripe_application_fee_amount);
+
+  if (stripeProcessingFee > 0) {
+    entries.push({
+      id: `event_payments:${payment.id}:processing_fee:stripe_processing_fee`,
+      studioId: registration.studio_id,
+      organizerId: event?.organizer_id ?? null,
+      entryDate: toDateOnly(payment.created_at),
+      entryType: "processing_fee",
+      category: "stripe_processing_fee",
+      categoryLabel: accountingCategoryLabel("stripe_processing_fee"),
+      direction: "debit",
+      grossAmount: 0,
+      feeAmount: stripeProcessingFee,
+      refundAmount: 0,
+      netAmount: -stripeProcessingFee,
+      currency: toCurrency(payment.currency),
+      paymentMethod: payment.payment_method,
+      sourceTable: "event_payments",
+      sourceId: payment.id,
+      clientId: registration.client_id ?? null,
+      eventId: registration.event_id,
+      appointmentId: null,
+      externalReference: payment.stripe_balance_transaction_id ?? payment.external_reference ?? null,
+      stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
+      stripeChargeId: payment.stripe_charge_id ?? null,
+      stripeInvoiceId: payment.stripe_invoice_id ?? null,
+      description: "Stripe processing fee",
+      status: payment.status,
+      createdAt: payment.created_at,
+    });
+  }
+
+  if (platformFee > 0) {
+    entries.push({
+      id: `event_payments:${payment.id}:platform_fee:organizer_platform_fee`,
+      studioId: registration.studio_id,
+      organizerId: event?.organizer_id ?? null,
+      entryDate: toDateOnly(payment.created_at),
+      entryType: "platform_fee",
+      category: "organizer_platform_fee",
+      categoryLabel: accountingCategoryLabel("organizer_platform_fee"),
+      direction: "debit",
+      grossAmount: 0,
+      feeAmount: platformFee,
+      refundAmount: 0,
+      netAmount: -platformFee,
+      currency: toCurrency(payment.currency),
+      paymentMethod: payment.payment_method,
+      sourceTable: "event_payments",
+      sourceId: payment.id,
+      clientId: registration.client_id ?? null,
+      eventId: registration.event_id,
+      appointmentId: null,
+      externalReference: payment.stripe_balance_transaction_id ?? payment.external_reference ?? null,
+      stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
+      stripeChargeId: payment.stripe_charge_id ?? null,
+      stripeInvoiceId: payment.stripe_invoice_id ?? null,
+      description: "Organizer platform fee",
+      status: payment.status,
+      createdAt: payment.created_at,
+    });
+  }
+
+  return entries;
 }
 
 function expenseToEntry(expense: ExpenseRow): AccountingEntry {
@@ -541,6 +598,7 @@ function expenseToEntry(expense: ExpenseRow): AccountingEntry {
   };
 }
 
+
 export async function getStudioAccountingEntries({
   supabase,
   studioId,
@@ -556,7 +614,7 @@ export async function getStudioAccountingEntries({
     supabase
       .from("payments")
       .select(
-        "id, studio_id, client_id, client_package_id, client_membership_id, amount, currency, payment_method, payment_type, source, status, notes, paid_at, created_at, external_payment_id, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_invoice_id, stripe_processing_fee_amount, stripe_application_fee_amount, platform_fee_amount, stripe_balance_transaction_id",
+        "id, studio_id, client_id, client_package_id, client_membership_id, amount, currency, payment_method, payment_type, source, status, notes, paid_at, created_at, external_payment_id, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_invoice_id, stripe_processing_fee_amount, stripe_application_fee_amount, platform_fee_amount, stripe_balance_transaction_id, refund_amount, refunded_at, stripe_refund_id",
       )
       .eq("studio_id", studioId)
       .gte("created_at", startDate)
@@ -565,7 +623,7 @@ export async function getStudioAccountingEntries({
     supabase
       .from("event_payments")
       .select(
-        `id, registration_id, amount, currency, payment_method, status, source, notes, created_at, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_processing_fee_amount, stripe_application_fee_amount, platform_fee_amount, stripe_balance_transaction_id,
+        `id, registration_id, amount, currency, payment_method, status, source, notes, created_at, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_invoice_id, stripe_processing_fee_amount, stripe_application_fee_amount, platform_fee_amount, stripe_balance_transaction_id, refund_amount, refunded_at, stripe_refund_id,
         event_registrations!inner (
           id,
           studio_id,
@@ -605,11 +663,27 @@ export async function getStudioAccountingEntries({
     throw new Error(`Accounting expenses lookup failed: ${expensesResult.error.message}`);
   }
 
+  const paymentEntries = ((paymentsResult.data ?? []) as PaymentRow[]).flatMap(
+    (payment) =>
+      [
+        paymentRevenueEntry(payment),
+        paymentRefundEntry(payment),
+        ...paymentFeeEntries(payment),
+      ].filter((entry): entry is AccountingEntry => Boolean(entry)),
+  );
+
+  const eventPaymentEntries = ((eventPaymentsResult.data ?? []) as EventPaymentRow[]).flatMap(
+    (payment) =>
+      [
+        eventPaymentRevenueEntry(payment),
+        eventPaymentRefundEntry(payment),
+        ...eventPaymentFeeEntries(payment),
+      ].filter((entry): entry is AccountingEntry => Boolean(entry)),
+  );
+
   const entries = [
-    ...((paymentsResult.data ?? []) as PaymentRow[])
-      .flatMap(paymentToEntries),
-    ...((eventPaymentsResult.data ?? []) as EventPaymentRow[])
-      .flatMap(eventPaymentToEntries),
+    ...paymentEntries,
+    ...eventPaymentEntries,
     ...((expensesResult.data ?? []) as ExpenseRow[]).map(expenseToEntry),
   ].sort((a, b) => {
     if (a.entryDate === b.entryDate) return b.createdAt.localeCompare(a.createdAt);
