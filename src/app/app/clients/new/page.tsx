@@ -202,6 +202,127 @@ export default function NewClientPage() {
 
         <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
+            Personal details
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+            Birthday and mailing address
+          </h2>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            These details help studios send birthday cards, holiday mailers, and printed account notices.
+          </p>
+
+          <div className="mt-6 grid gap-5 md:grid-cols-2">
+            <div>
+              <label
+                htmlFor="birthday"
+                className="block text-sm font-medium text-slate-700"
+              >
+                Birthday
+              </label>
+              <input
+                id="birthday"
+                name="birthday"
+                type="date"
+                className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
+              />
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Used for birthday reminders and card lists.
+              </p>
+            </div>
+
+            <div>
+              <label
+                htmlFor="country"
+                className="block text-sm font-medium text-slate-700"
+              >
+                Country
+              </label>
+              <input
+                id="country"
+                name="country"
+                defaultValue="United States"
+                className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label
+                htmlFor="addressLine1"
+                className="block text-sm font-medium text-slate-700"
+              >
+                Mailing address
+              </label>
+              <input
+                id="addressLine1"
+                name="addressLine1"
+                placeholder="Street address"
+                className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label
+                htmlFor="addressLine2"
+                className="block text-sm font-medium text-slate-700"
+              >
+                Apartment, suite, or unit
+              </label>
+              <input
+                id="addressLine2"
+                name="addressLine2"
+                placeholder="Optional"
+                className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="city"
+                className="block text-sm font-medium text-slate-700"
+              >
+                City
+              </label>
+              <input
+                id="city"
+                name="city"
+                className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
+              />
+            </div>
+
+            <div className="grid gap-5 sm:grid-cols-2">
+              <div>
+                <label
+                  htmlFor="state"
+                  className="block text-sm font-medium text-slate-700"
+                >
+                  State / Region
+                </label>
+                <input
+                  id="state"
+                  name="state"
+                  className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
+                />
+              </div>
+
+              <div>
+                <label
+                  htmlFor="postalCode"
+                  className="block text-sm font-medium text-slate-700"
+                >
+                  ZIP / Postal code
+                </label>
+                <input
+                  id="postalCode"
+                  name="postalCode"
+                  className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
             Photo verification
           </p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-950">

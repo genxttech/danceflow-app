@@ -40,6 +40,13 @@ type ClientRecord = {
   last_name: string;
   email: string | null;
   phone: string | null;
+  birthday: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
   status: string;
   skill_level: string | null;
   dance_interests: string | null;
@@ -681,6 +688,29 @@ function paymentMethodLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
+function formatClientBirthday(value: string | null) {
+  if (!value) return "—";
+
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return date.toLocaleDateString(undefined, {
+    month: "long",
+    day: "numeric",
+  });
+}
+
+function formatMailingAddress(client: Pick<ClientRecord, "address_line1" | "address_line2" | "city" | "state" | "postal_code" | "country">) {
+  const cityStateZip = [client.city, client.state, client.postal_code]
+    .filter(Boolean)
+    .join(", ")
+    .replace(/, ([^,]*)$/, " $1");
+
+  const lines = [client.address_line1, client.address_line2, cityStateZip, client.country].filter(Boolean);
+
+  return lines.length ? lines : ["—"];
+}
+
 function leadSourceLabel(value: string | null) {
   if (!value) return "Direct / manual";
   if (value === "public_intro_booking") return "Public Intro";
@@ -1261,6 +1291,13 @@ export default async function ClientDetailPage({
         last_name,
         email,
         phone,
+        birthday,
+        address_line1,
+        address_line2,
+        city,
+        state,
+        postal_code,
+        country,
         status,
         skill_level,
         dance_interests,
@@ -2147,6 +2184,22 @@ export default async function ClientDetailPage({
               <p className="mt-1 break-words font-medium text-[var(--brand-text)]">
                 {typedClient.phone ?? "—"}
               </p>
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-sm text-slate-500">Birthday</p>
+              <p className="mt-1 break-words font-medium text-[var(--brand-text)]">
+                {formatClientBirthday(typedClient.birthday)}
+              </p>
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-sm text-slate-500">Mailing Address</p>
+              <div className="mt-1 space-y-0.5 break-words font-medium text-[var(--brand-text)]">
+                {formatMailingAddress(typedClient).map((line) => (
+                  <p key={line}>{line}</p>
+                ))}
+              </div>
             </div>
 
             <div className="min-w-0">

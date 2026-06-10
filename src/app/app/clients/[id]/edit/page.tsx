@@ -14,6 +14,13 @@ type ClientRow = {
   last_name: string;
   email: string | null;
   phone: string | null;
+  birthday: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  country: string | null;
   status: string;
   skill_level: string | null;
   dance_interests: string | null;
@@ -65,6 +72,13 @@ const role = context.studioRole ?? "";
         last_name,
         email,
         phone,
+        birthday,
+        address_line1,
+        address_line2,
+        city,
+        state,
+        postal_code,
+        country,
         status,
         skill_level,
         dance_interests,

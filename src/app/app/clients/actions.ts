@@ -171,6 +171,13 @@ function normalizeClientPayload(params: {
   lastName: string;
   email: string;
   phone: string;
+  birthday: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
   danceInterests: string;
   skillLevel: string;
   notes: string;
@@ -184,6 +191,13 @@ function normalizeClientPayload(params: {
     lastName,
     email,
     phone,
+    birthday,
+    addressLine1,
+    addressLine2,
+    city,
+    state,
+    postalCode,
+    country,
     danceInterests,
     skillLevel,
     notes,
@@ -202,6 +216,13 @@ function normalizeClientPayload(params: {
     last_name: lastName,
     email: email || null,
     phone: phone || null,
+    birthday: birthday || null,
+    address_line1: addressLine1 || null,
+    address_line2: addressLine2 || null,
+    city: city || null,
+    state: state || null,
+    postal_code: postalCode || null,
+    country: country || null,
     dance_interests: danceInterests || null,
     skill_level: skillLevel
       ? normalizeOptionValue(CLIENT_SKILL_LEVEL_OPTIONS, skillLevel)
@@ -227,6 +248,13 @@ export async function createClientAction(
     const lastName = getString(formData, "lastName");
     const email = getString(formData, "email").toLowerCase();
     const phone = getString(formData, "phone");
+    const birthday = getString(formData, "birthday");
+    const addressLine1 = getString(formData, "addressLine1");
+    const addressLine2 = getString(formData, "addressLine2");
+    const city = getString(formData, "city");
+    const state = getString(formData, "state");
+    const postalCode = getString(formData, "postalCode");
+    const country = getString(formData, "country");
     const danceInterests = getString(formData, "danceInterests");
     const skillLevel = getString(formData, "skillLevel");
     const notes = getString(formData, "notes");
@@ -241,6 +269,10 @@ export async function createClientAction(
 
     if (!firstName || !lastName) {
       return { error: "First name and last name are required." };
+    }
+
+    if (birthday && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
+      return { error: "Birthday must be a valid date." };
     }
 
     const dropdownError = validateClientDropdowns({
@@ -292,6 +324,13 @@ export async function createClientAction(
       lastName,
       email,
       phone,
+      birthday,
+      addressLine1,
+      addressLine2,
+      city,
+      state,
+      postalCode,
+      country,
       danceInterests,
       skillLevel,
       notes,
@@ -346,6 +385,13 @@ export async function updateClientAction(
     const lastName = getString(formData, "lastName");
     const email = getString(formData, "email").toLowerCase();
     const phone = getString(formData, "phone");
+    const birthday = getString(formData, "birthday");
+    const addressLine1 = getString(formData, "addressLine1");
+    const addressLine2 = getString(formData, "addressLine2");
+    const city = getString(formData, "city");
+    const state = getString(formData, "state");
+    const postalCode = getString(formData, "postalCode");
+    const country = getString(formData, "country");
     const danceInterests = getString(formData, "danceInterests");
     const skillLevel = getString(formData, "skillLevel");
     const notes = getString(formData, "notes");
@@ -366,6 +412,10 @@ export async function updateClientAction(
 
     if (!firstName || !lastName) {
       return { error: "First name and last name are required." };
+    }
+
+    if (birthday && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
+      return { error: "Birthday must be a valid date." };
     }
 
     const dropdownError = validateClientDropdowns({
@@ -429,6 +479,13 @@ export async function updateClientAction(
       lastName,
       email,
       phone,
+      birthday,
+      addressLine1,
+      addressLine2,
+      city,
+      state,
+      postalCode,
+      country,
       danceInterests,
       skillLevel,
       notes,
