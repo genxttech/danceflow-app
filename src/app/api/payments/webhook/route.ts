@@ -2583,6 +2583,98 @@ async function handleInvoicePaymentFailed(
   }
 }
 
+async function resolveStudioIdForStripeAccount(
+  supabase: SupabaseClient,
+  stripeAccountId: string | null
+) {
+  if (!stripeAccountId) return null;
+
+  const { data: studio, error } = await supabase
+    .from("studios")
+    .select("id")
+    .eq("stripe_connected_account_id", stripeAccountId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return studio?.id ?? null;
+}
+
+function getStripeBalanceTransactionId(
+  value: string | Stripe.BalanceTransaction | null | undefined
+) {
+  if (!value) return null;
+  return typeof value === "string" ? value : value.id ?? null;
+}
+
+async function upsertStripePayoutRecord(
+  supabase: SupabaseClient,
+  event: Stripe.Event,
+  payout: Stripe.Payout
+) {
+  const stripeAccountId = event.account ?? null;
+  const studioId = await resolveStudioIdForStripeAccount(supabase, stripeAccountId);
+  const stripeBalanceTransactionId = getStripeBalanceTransactionId(
+    payout.balance_transaction
+  );
+
+  const payload = {
+    studio_id: studioId,
+    stripe_account_id: stripeAccountId,
+    stripe_payout_id: payout.id,
+    stripe_balance_transaction_id: stripeBalanceTransactionId,
+    amount: Number(payout.amount ?? 0) / 100,
+    currency: (payout.currency ?? "usd").toUpperCase(),
+    status: payout.status ?? null,
+    arrival_date: toDateOnlyOrNull(payout.arrival_date ?? null),
+    payout_created_at: toIsoOrNull(payout.created ?? null),
+    method: payout.method ?? null,
+    type: payout.type ?? null,
+    description: payout.description ?? null,
+    statement_descriptor: payout.statement_descriptor ?? null,
+    failure_code: payout.failure_code ?? null,
+    failure_message: payout.failure_message ?? null,
+    metadata: payout.metadata ?? {},
+    raw_payload: payout as unknown as Record<string, unknown>,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: existingPayout, error: existingPayoutError } = await supabase
+    .from("stripe_payouts")
+    .select("id")
+    .eq("stripe_payout_id", payout.id)
+    .eq("stripe_account_id", stripeAccountId)
+    .maybeSingle();
+
+  if (existingPayoutError) {
+    throw new Error(existingPayoutError.message);
+  }
+
+  if (existingPayout) {
+    const { error: updateError } = await supabase
+      .from("stripe_payouts")
+      .update(payload)
+      .eq("id", existingPayout.id);
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    return;
+  }
+
+  const { error: insertError } = await supabase.from("stripe_payouts").insert({
+    ...payload,
+    created_at: new Date().toISOString(),
+  });
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+}
+
 export async function POST(request: Request) {
   const stripe = getStripe();
   const body = await request.text();
@@ -2736,6 +2828,18 @@ case "customer.subscription.deleted": {
           supabase,
           stripe,
           event.data.object as Stripe.Invoice
+        );
+        break;
+      }
+
+      case "payout.created":
+      case "payout.updated":
+      case "payout.paid":
+      case "payout.failed": {
+        await upsertStripePayoutRecord(
+          supabase,
+          event,
+          event.data.object as Stripe.Payout
         );
         break;
       }
