@@ -6,6 +6,11 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import ReportInsightsCard from "./ReportInsightsCard";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
+import {
+  accountingCategoryLabel,
+  getStudioAccountingEntries,
+  summarizeAccountingEntries,
+} from "@/lib/accounting/entries";
 
 type SearchParams = Promise<{
   range?: string;
@@ -652,6 +657,55 @@ export default async function ReportsPage({
       `Failed to load active students count: ${activeStudentsError.message}`,
     );
   }
+
+  const accountingEntries = await getStudioAccountingEntries({
+    supabase,
+    studioId,
+    startDate: rangeStart,
+    endDate: nowIso,
+  });
+  const accountingSummary = summarizeAccountingEntries(accountingEntries);
+  const accountingRevenueCategories = Array.from(
+    accountingEntries
+      .filter((entry) => entry.entryType === "revenue")
+      .reduce((map, entry) => {
+        const key = entry.category || "other_income";
+        const existing = map.get(key) ?? {
+          key,
+          label: accountingCategoryLabel(key),
+          count: 0,
+          total: 0,
+        };
+
+        existing.count += 1;
+        existing.total += entry.grossAmount;
+        map.set(key, existing);
+
+        return map;
+      }, new Map<string, CategorySummary>())
+      .values(),
+  ).sort((a, b) => b.total - a.total);
+
+  const accountingExpenseCategories = Array.from(
+    accountingEntries
+      .filter((entry) => entry.entryType === "expense")
+      .reduce((map, entry) => {
+        const key = entry.category || "other_expense";
+        const existing = map.get(key) ?? {
+          key,
+          label: accountingCategoryLabel(key),
+          count: 0,
+          total: 0,
+        };
+
+        existing.count += 1;
+        existing.total += Math.abs(entry.netAmount);
+        map.set(key, existing);
+
+        return map;
+      }, new Map<string, CategorySummary>())
+      .values(),
+  ).sort((a, b) => b.total - a.total);
 
   const typedPayments = (payments ?? []) as PaymentRow[];
   const typedLeads = (leads ?? []) as ClientRow[];
@@ -1753,6 +1807,142 @@ export default async function ReportsPage({
             requiredPlan="Growth"
           />
         )}
+      </section>
+
+      <section className="rounded-3xl border border-[#C4B5FD] bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6D28D9]">
+              Accounting Source of Truth
+            </p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Accounting P&amp;L Preview
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              This preview is powered by normalized accounting entries from
+              payments, event payments, and expenses. Use it to compare against
+              the existing management P&amp;L before we fully switch reports to
+              the accounting layer.
+            </p>
+          </div>
+          <Link
+            href={`/app/reports/export/accounting?range=${range}`}
+            className="inline-flex w-fit rounded-xl border border-[#C4B5FD] bg-[#F5F3FF] px-4 py-2 text-sm font-semibold text-[#5B21B6] hover:bg-[#EDE9FE]"
+          >
+            Export Accounting CSV
+          </Link>
+        </div>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-2xl bg-emerald-50 p-4">
+            <p className="text-sm text-emerald-900/70">Accounting Revenue</p>
+            <p className="mt-2 text-2xl font-semibold text-emerald-950">
+              {fmtCurrency(accountingSummary.revenue)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-amber-50 p-4">
+            <p className="text-sm text-amber-900/70">Refunds</p>
+            <p className="mt-2 text-2xl font-semibold text-amber-950">
+              -{fmtCurrency(accountingSummary.refunds)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-rose-50 p-4">
+            <p className="text-sm text-rose-900/70">Expenses</p>
+            <p className="mt-2 text-2xl font-semibold text-rose-950">
+              -{fmtCurrency(accountingSummary.expenses)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Fees</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              -{fmtCurrency(accountingSummary.fees)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-[#C4B5FD] bg-[#F5F3FF] p-4">
+            <p className="text-sm font-medium text-[#5B21B6]">
+              Accounting Net
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-[#4C1D95]">
+              {fmtCurrency(accountingSummary.net)}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Revenue categories
+            </h3>
+            <div className="mt-3 space-y-3">
+              {accountingRevenueCategories.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                  No accounting revenue entries found for this range.
+                </p>
+              ) : (
+                accountingRevenueCategories.slice(0, 6).map((item) => (
+                  <div
+                    key={item.key}
+                    className="flex items-start justify-between gap-4 rounded-2xl bg-emerald-50/70 p-4"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-emerald-950">
+                        {item.label}
+                      </p>
+                      <p className="mt-1 text-xs text-emerald-900/70">
+                        {fmtNumber(item.count)} entries
+                      </p>
+                    </div>
+                    <p className="text-sm font-semibold text-emerald-950">
+                      {fmtCurrency(item.total)}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Expense categories
+            </h3>
+            <div className="mt-3 space-y-3">
+              {accountingExpenseCategories.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                  No accounting expense entries found for this range.
+                </p>
+              ) : (
+                accountingExpenseCategories.slice(0, 6).map((item) => (
+                  <div
+                    key={item.key}
+                    className="flex items-start justify-between gap-4 rounded-2xl bg-rose-50/70 p-4"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-rose-950">
+                        {item.label}
+                      </p>
+                      <p className="mt-1 text-xs text-rose-900/70">
+                        {fmtNumber(item.count)} entries
+                      </p>
+                    </div>
+                    <p className="text-sm font-semibold text-rose-950">
+                      -{fmtCurrency(item.total)}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
+          Accounting P&amp;L Preview is intentionally side-by-side for now.
+          This lets us validate normalized entries before making them the
+          primary reporting source.
+        </div>
       </section>
 
       <section className="grid gap-6 xl:grid-cols-3">

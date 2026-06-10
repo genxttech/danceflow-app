@@ -248,7 +248,11 @@ export async function sellPackageToClientAction(
       payment_method: paymentMethod,
       status: "paid",
       notes: paymentNotes || null,
+      paid_at: new Date().toISOString(),
       created_by: user.id,
+      payment_type: "package_sale",
+      source: "manual",
+      currency: "usd",
     });
 
     if (paymentError) {
@@ -318,4 +322,30 @@ export async function sellPackageToClientAction(
   }
 
   redirect("/app/packages/client-balances");
+}
+
+export async function sellSelectedPackageFromSellPageAction(formData: FormData) {
+  const result = await sellPackageToClientAction({ error: "" }, formData);
+
+  if (result?.error) {
+    const packageTemplateId = getString(formData, "packageTemplateId");
+    const clientId = getString(formData, "clientId");
+    const q = getString(formData, "q");
+    const params = new URLSearchParams();
+
+    if (packageTemplateId) {
+      params.set("template", packageTemplateId);
+    }
+
+    if (clientId) {
+      params.set("client", clientId);
+    }
+
+    if (q) {
+      params.set("q", q);
+    }
+
+    params.set("error", result.error);
+    redirect(`/app/packages/sell?${params.toString()}`);
+  }
 }
