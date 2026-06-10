@@ -2653,10 +2653,232 @@ async function upsertStripePayoutRecord(
   }
 
   if (existingPayout) {
-    const { error: updateError } = await supabase
+    const { data: updatedPayout, error: updateError } = await supabase
       .from("stripe_payouts")
       .update(payload)
-      .eq("id", existingPayout.id);
+      .eq("id", existingPayout.id)
+      .select("id")
+      .single();
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    return {
+      payoutRecordId: updatedPayout?.id ?? existingPayout.id,
+      studioId,
+      stripeAccountId,
+    };
+  }
+
+  const { data: insertedPayout, error: insertError } = await supabase
+    .from("stripe_payouts")
+    .insert({
+      ...payload,
+      created_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (insertError) {
+    throw new Error(insertError.message);
+  }
+
+  return {
+    payoutRecordId: insertedPayout.id,
+    studioId,
+    stripeAccountId,
+  };
+}
+
+function getStripeSourceId(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === "string") return value;
+  if (typeof value === "object" && value !== null && "id" in value) {
+    const id = (value as { id?: unknown }).id;
+    return typeof id === "string" ? id : null;
+  }
+
+  return null;
+}
+
+async function findPaymentIdForPayoutItem(params: {
+  supabase: SupabaseClient;
+  studioId: string | null;
+  balanceTransactionId: string;
+  sourceId: string | null;
+}) {
+  const { supabase, studioId, balanceTransactionId, sourceId } = params;
+
+  let paymentQuery = supabase
+    .from("payments")
+    .select("id")
+    .eq("stripe_balance_transaction_id", balanceTransactionId)
+    .limit(1);
+
+  if (studioId) {
+    paymentQuery = paymentQuery.eq("studio_id", studioId);
+  }
+
+  const { data: balanceMatches, error: balanceError } = await paymentQuery;
+
+  if (balanceError) {
+    throw new Error(balanceError.message);
+  }
+
+  if (balanceMatches?.[0]?.id) {
+    return balanceMatches[0].id as string;
+  }
+
+  if (!sourceId) return null;
+
+  let sourceQuery = supabase
+    .from("payments")
+    .select("id")
+    .eq("stripe_charge_id", sourceId)
+    .limit(1);
+
+  if (studioId) {
+    sourceQuery = sourceQuery.eq("studio_id", studioId);
+  }
+
+  const { data: sourceMatches, error: sourceError } = await sourceQuery;
+
+  if (sourceError) {
+    throw new Error(sourceError.message);
+  }
+
+  return (sourceMatches?.[0]?.id as string | undefined) ?? null;
+}
+
+async function findEventPaymentIdForPayoutItem(params: {
+  supabase: SupabaseClient;
+  studioId: string | null;
+  balanceTransactionId: string;
+  sourceId: string | null;
+}) {
+  const { supabase, studioId, balanceTransactionId, sourceId } = params;
+
+  let paymentQuery = supabase
+    .from("event_payments")
+    .select("id")
+    .eq("stripe_balance_transaction_id", balanceTransactionId)
+    .limit(1);
+
+  if (studioId) {
+    paymentQuery = paymentQuery.eq("studio_id", studioId);
+  }
+
+  const { data: balanceMatches, error: balanceError } = await paymentQuery;
+
+  if (balanceError) {
+    throw new Error(balanceError.message);
+  }
+
+  if (balanceMatches?.[0]?.id) {
+    return balanceMatches[0].id as string;
+  }
+
+  if (!sourceId) return null;
+
+  let sourceQuery = supabase
+    .from("event_payments")
+    .select("id")
+    .eq("stripe_charge_id", sourceId)
+    .limit(1);
+
+  if (studioId) {
+    sourceQuery = sourceQuery.eq("studio_id", studioId);
+  }
+
+  const { data: sourceMatches, error: sourceError } = await sourceQuery;
+
+  if (sourceError) {
+    throw new Error(sourceError.message);
+  }
+
+  return (sourceMatches?.[0]?.id as string | undefined) ?? null;
+}
+
+async function upsertStripePayoutItem(params: {
+  supabase: SupabaseClient;
+  payoutRecordId: string | null;
+  payout: Stripe.Payout;
+  stripeAccountId: string | null;
+  studioId: string | null;
+  balanceTransaction: Stripe.BalanceTransaction;
+}) {
+  const {
+    supabase,
+    payoutRecordId,
+    payout,
+    stripeAccountId,
+    studioId,
+    balanceTransaction,
+  } = params;
+
+  const balanceTransactionId = balanceTransaction.id;
+  const sourceId = getStripeSourceId(balanceTransaction.source);
+  const paymentId = await findPaymentIdForPayoutItem({
+    supabase,
+    studioId,
+    balanceTransactionId,
+    sourceId,
+  });
+  const eventPaymentId = paymentId
+    ? null
+    : await findEventPaymentIdForPayoutItem({
+        supabase,
+        studioId,
+        balanceTransactionId,
+        sourceId,
+      });
+
+  const payload = {
+    stripe_payout_record_id: payoutRecordId,
+    stripe_payout_id: payout.id,
+    stripe_account_id: stripeAccountId,
+    stripe_balance_transaction_id: balanceTransactionId,
+    stripe_source_id: sourceId,
+    stripe_source_type: balanceTransaction.type ?? null,
+    studio_id: studioId,
+    payment_id: paymentId,
+    event_payment_id: eventPaymentId,
+    amount: Number(balanceTransaction.amount ?? 0) / 100,
+    fee: Number(balanceTransaction.fee ?? 0) / 100,
+    net: Number(balanceTransaction.net ?? 0) / 100,
+    currency: (balanceTransaction.currency ?? payout.currency ?? "usd").toUpperCase(),
+    type: balanceTransaction.type ?? null,
+    description: balanceTransaction.description ?? null,
+    available_on: toDateOnlyOrNull(balanceTransaction.available_on ?? null),
+    balance_transaction_created_at: toIsoOrNull(
+      balanceTransaction.created ?? null
+    ),
+    reporting_category: balanceTransaction.reporting_category ?? null,
+    fee_details:
+      (balanceTransaction.fee_details as unknown as Record<string, unknown>[]) ??
+      [],
+    raw_payload:
+      balanceTransaction as unknown as Record<string, unknown>,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: existingItem, error: existingItemError } = await supabase
+    .from("stripe_payout_items")
+    .select("id")
+    .eq("stripe_balance_transaction_id", balanceTransactionId)
+    .eq("stripe_account_id", stripeAccountId)
+    .maybeSingle();
+
+  if (existingItemError) {
+    throw new Error(existingItemError.message);
+  }
+
+  if (existingItem) {
+    const { error: updateError } = await supabase
+      .from("stripe_payout_items")
+      .update(payload)
+      .eq("id", existingItem.id);
 
     if (updateError) {
       throw new Error(updateError.message);
@@ -2665,15 +2887,67 @@ async function upsertStripePayoutRecord(
     return;
   }
 
-  const { error: insertError } = await supabase.from("stripe_payouts").insert({
-    ...payload,
-    created_at: new Date().toISOString(),
-  });
+  const { error: insertError } = await supabase
+    .from("stripe_payout_items")
+    .insert({
+      ...payload,
+      created_at: new Date().toISOString(),
+    });
 
   if (insertError) {
     throw new Error(insertError.message);
   }
 }
+
+async function syncStripePayoutItems(params: {
+  supabase: SupabaseClient;
+  stripe: Stripe;
+  payout: Stripe.Payout;
+  payoutRecordId: string | null;
+  stripeAccountId: string | null;
+  studioId: string | null;
+}) {
+  const { supabase, stripe, payout, payoutRecordId, stripeAccountId, studioId } =
+    params;
+
+  let hasMore = true;
+  let startingAfter: string | undefined;
+
+  while (hasMore) {
+    const listParams: Stripe.BalanceTransactionListParams = {
+      payout: payout.id,
+      limit: 100,
+    };
+
+    if (startingAfter) {
+      listParams.starting_after = startingAfter;
+    }
+
+    const requestOptions = stripeAccountId
+      ? { stripeAccount: stripeAccountId }
+      : undefined;
+
+    const balanceTransactions = await stripe.balanceTransactions.list(
+      listParams,
+      requestOptions
+    );
+
+    for (const balanceTransaction of balanceTransactions.data) {
+      await upsertStripePayoutItem({
+        supabase,
+        payoutRecordId,
+        payout,
+        stripeAccountId,
+        studioId,
+        balanceTransaction,
+      });
+    }
+
+    hasMore = balanceTransactions.has_more;
+    startingAfter = balanceTransactions.data[balanceTransactions.data.length - 1]?.id;
+  }
+}
+
 
 export async function POST(request: Request) {
   const stripe = getStripe();
@@ -2836,11 +3110,22 @@ case "customer.subscription.deleted": {
       case "payout.updated":
       case "payout.paid":
       case "payout.failed": {
-        await upsertStripePayoutRecord(
+        const payout = event.data.object as Stripe.Payout;
+        const payoutSync = await upsertStripePayoutRecord(
           supabase,
           event,
-          event.data.object as Stripe.Payout
+          payout
         );
+
+        await syncStripePayoutItems({
+          supabase,
+          stripe,
+          payout,
+          payoutRecordId: payoutSync.payoutRecordId,
+          stripeAccountId: payoutSync.stripeAccountId,
+          studioId: payoutSync.studioId,
+        });
+
         break;
       }
 
