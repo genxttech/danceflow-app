@@ -156,6 +156,7 @@ export function accountingCategoryLabel(category: string) {
     floor_rental_revenue: "Floor Rental Revenue",
     practice_party_revenue: "Practice Party Revenue",
     other_income: "Other Income",
+    other_revenue: "Other Revenue",
     refund: "Refund",
     client_payment_refund: "Client Payment Refund",
     package_refund: "Package Refund",
@@ -694,17 +695,66 @@ export async function getStudioAccountingEntries({
 }
 
 export function summarizeAccountingEntries(entries: AccountingEntry[]) {
-  return entries.reduce(
-    (summary, entry) => {
-      if (entry.entryType === "revenue") summary.revenue += entry.grossAmount;
-      if (entry.entryType === "refund") summary.refunds += entry.refundAmount;
-      if (entry.entryType === "expense") summary.expenses += Math.abs(entry.netAmount);
-      if (entry.entryType === "processing_fee" || entry.entryType === "platform_fee") {
-        summary.fees += Math.abs(entry.netAmount || entry.feeAmount);
+  const summary = entries.reduce(
+    (current, entry) => {
+      if (entry.entryType === "revenue") {
+        current.revenue += entry.grossAmount;
       }
-      summary.net += entry.netAmount;
-      return summary;
+
+      if (entry.entryType === "refund") {
+        current.refunds += Math.abs(entry.refundAmount || entry.netAmount);
+      }
+
+      if (entry.entryType === "expense") {
+        current.expenses += Math.abs(entry.netAmount);
+      }
+
+      if (entry.entryType === "processing_fee") {
+        const amount = Math.abs(entry.netAmount || entry.feeAmount);
+        current.fees += amount;
+        current.processingFees += amount;
+
+        if (entry.category === "stripe_processing_fee") {
+          current.stripeProcessingFees += amount;
+        }
+      }
+
+      if (entry.entryType === "platform_fee") {
+        const amount = Math.abs(entry.netAmount || entry.feeAmount);
+        current.fees += amount;
+        current.platformFees += amount;
+
+        if (entry.category === "danceflow_platform_fee") {
+          current.danceflowPlatformFees += amount;
+        }
+
+        if (entry.category === "organizer_platform_fee") {
+          current.organizerPlatformFees += amount;
+        }
+      }
+
+      current.net += entry.netAmount;
+      return current;
     },
-    { revenue: 0, refunds: 0, expenses: 0, fees: 0, net: 0 },
+    {
+      revenue: 0,
+      refunds: 0,
+      expenses: 0,
+      fees: 0,
+      processingFees: 0,
+      stripeProcessingFees: 0,
+      platformFees: 0,
+      danceflowPlatformFees: 0,
+      organizerPlatformFees: 0,
+      deductions: 0,
+      netBeforeExpenses: 0,
+      net: 0,
+    },
   );
+
+  summary.deductions = summary.refunds + summary.fees;
+  summary.netBeforeExpenses = summary.revenue - summary.refunds - summary.fees;
+  summary.net = summary.netBeforeExpenses - summary.expenses;
+
+  return summary;
 }

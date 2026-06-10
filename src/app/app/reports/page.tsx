@@ -707,6 +707,53 @@ export default async function ReportsPage({
       .values(),
   ).sort((a, b) => b.total - a.total);
 
+  const accountingRefundCategories = Array.from(
+    accountingEntries
+      .filter((entry) => entry.entryType === "refund")
+      .reduce((map, entry) => {
+        const key = entry.category || "other_refund";
+        const existing = map.get(key) ?? {
+          key,
+          label: accountingCategoryLabel(key),
+          count: 0,
+          total: 0,
+        };
+
+        existing.count += 1;
+        existing.total += Math.abs(entry.refundAmount || entry.netAmount);
+        map.set(key, existing);
+
+        return map;
+      }, new Map<string, CategorySummary>())
+      .values(),
+  ).sort((a, b) => b.total - a.total);
+
+  const accountingFeeCategories = Array.from(
+    accountingEntries
+      .filter(
+        (entry) =>
+          entry.entryType === "processing_fee" ||
+          entry.entryType === "platform_fee",
+      )
+      .reduce((map, entry) => {
+        const key = entry.category || "fee";
+        const existing = map.get(key) ?? {
+          key,
+          label: accountingCategoryLabel(key),
+          count: 0,
+          total: 0,
+        };
+
+        existing.count += 1;
+        existing.total += Math.abs(entry.netAmount || entry.feeAmount);
+        map.set(key, existing);
+
+        return map;
+      }, new Map<string, CategorySummary>())
+      .values(),
+  ).sort((a, b) => b.total - a.total);
+
+
   const typedPayments = (payments ?? []) as PaymentRow[];
   const typedLeads = (leads ?? []) as ClientRow[];
   const typedAppointments = (appointments ?? []) as AppointmentRow[];
@@ -1816,13 +1863,12 @@ export default async function ReportsPage({
               Accounting Source of Truth
             </p>
             <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-              Accounting P&amp;L Preview
+              Net Revenue Preview
             </h2>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              This preview is powered by normalized accounting entries from
-              payments, event payments, and expenses. Use it to compare against
-              the existing management P&amp;L before we fully switch reports to
-              the accounting layer.
+              This preview uses the accounting source of truth to separate gross
+              revenue, refunds, Stripe fees, platform fees, expenses, and net
+              revenue for the selected report range.
             </p>
           </div>
           <Link
@@ -1833,9 +1879,9 @@ export default async function ReportsPage({
           </Link>
         </div>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
           <div className="rounded-2xl bg-emerald-50 p-4">
-            <p className="text-sm text-emerald-900/70">Accounting Revenue</p>
+            <p className="text-sm text-emerald-900/70">Gross Revenue</p>
             <p className="mt-2 text-2xl font-semibold text-emerald-950">
               {fmtCurrency(accountingSummary.revenue)}
             </p>
@@ -1848,6 +1894,20 @@ export default async function ReportsPage({
             </p>
           </div>
 
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Stripe Fees</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              -{fmtCurrency(accountingSummary.stripeProcessingFees)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Platform Fees</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              -{fmtCurrency(accountingSummary.platformFees)}
+            </p>
+          </div>
+
           <div className="rounded-2xl bg-rose-50 p-4">
             <p className="text-sm text-rose-900/70">Expenses</p>
             <p className="mt-2 text-2xl font-semibold text-rose-950">
@@ -1855,16 +1915,9 @@ export default async function ReportsPage({
             </p>
           </div>
 
-          <div className="rounded-2xl bg-slate-50 p-4">
-            <p className="text-sm text-slate-500">Fees</p>
-            <p className="mt-2 text-2xl font-semibold text-slate-950">
-              -{fmtCurrency(accountingSummary.fees)}
-            </p>
-          </div>
-
           <div className="rounded-2xl border border-[#C4B5FD] bg-[#F5F3FF] p-4">
             <p className="text-sm font-medium text-[#5B21B6]">
-              Accounting Net
+              Net Revenue
             </p>
             <p className="mt-2 text-2xl font-semibold text-[#4C1D95]">
               {fmtCurrency(accountingSummary.net)}
@@ -1872,7 +1925,19 @@ export default async function ReportsPage({
           </div>
         </div>
 
-        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-col gap-2 text-sm text-slate-700 lg:flex-row lg:items-center lg:justify-between">
+            <span>
+              Net formula: gross revenue minus refunds, Stripe fees, platform
+              fees, and expenses.
+            </span>
+            <span className="font-semibold text-slate-950">
+              {fmtCurrency(accountingSummary.revenue)} - {fmtCurrency(accountingSummary.refunds)} - {fmtCurrency(accountingSummary.fees)} - {fmtCurrency(accountingSummary.expenses)} = {fmtCurrency(accountingSummary.net)}
+            </span>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-3">
           <div>
             <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
               Revenue categories
@@ -1901,6 +1966,41 @@ export default async function ReportsPage({
                     </p>
                   </div>
                 ))
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Deductions
+            </h3>
+            <div className="mt-3 space-y-3">
+              {accountingRefundCategories.length === 0 &&
+              accountingFeeCategories.length === 0 ? (
+                <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                  No refund or fee entries found for this range.
+                </p>
+              ) : (
+                [...accountingRefundCategories, ...accountingFeeCategories]
+                  .slice(0, 8)
+                  .map((item) => (
+                    <div
+                      key={item.key}
+                      className="flex items-start justify-between gap-4 rounded-2xl bg-slate-50 p-4"
+                    >
+                      <div>
+                        <p className="text-sm font-semibold text-slate-950">
+                          {item.label}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {fmtNumber(item.count)} entries
+                        </p>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-950">
+                        -{fmtCurrency(item.total)}
+                      </p>
+                    </div>
+                  ))
               )}
             </div>
           </div>
@@ -1939,9 +2039,9 @@ export default async function ReportsPage({
         </div>
 
         <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
-          Accounting P&amp;L Preview is intentionally side-by-side for now.
-          This lets us validate normalized entries before making them the
-          primary reporting source.
+          Net Revenue Preview is powered by the same normalized accounting
+          entries used by the Accounting CSV export. Revenue, refunds, fees,
+          and expenses stay separate so the export remains easy to audit.
         </div>
       </section>
 
