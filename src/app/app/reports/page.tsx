@@ -240,6 +240,58 @@ type OrganizerEventSummary = {
   revenue: number;
 };
 
+
+type StripePayoutRow = {
+  id: string;
+  studio_id: string | null;
+  stripe_account_id: string | null;
+  stripe_payout_id: string;
+  stripe_balance_transaction_id: string | null;
+  amount: number | string | null;
+  currency: string | null;
+  status: string | null;
+  arrival_date: string | null;
+  payout_created_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+type StripePayoutItemRow = {
+  id: string;
+  stripe_payout_id: string;
+  stripe_account_id: string | null;
+  stripe_balance_transaction_id: string | null;
+  stripe_source_id: string | null;
+  stripe_source_type: string | null;
+  studio_id: string | null;
+  payment_id: string | null;
+  event_payment_id: string | null;
+  amount: number | string | null;
+  fee: number | string | null;
+  net: number | string | null;
+  currency: string | null;
+  type: string | null;
+  reporting_category: string | null;
+  description: string | null;
+  available_on: string | null;
+  balance_transaction_created_at: string | null;
+  created_at: string;
+};
+
+type PayoutItemSummary = {
+  payoutId: string;
+  itemCount: number;
+  matchedCount: number;
+  unmatchedCount: number;
+  grossAmount: number;
+  fees: number;
+  netAmount: number;
+};
+
+type RecentPayoutSummary = StripePayoutRow & {
+  itemSummary: PayoutItemSummary;
+};
+
 function fmtCurrency(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -259,6 +311,26 @@ function fmtDateTime(value: string) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function fmtDate(value: string | null | undefined) {
+  if (!value) return "Not scheduled";
+
+  return new Date(`${value}T00:00:00`).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function moneyValue(value: number | string | null | undefined) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  return 0;
 }
 
 function startOfTodayLocal() {
@@ -388,6 +460,15 @@ function paymentStatusBadgeClass(status: string | null) {
   if (status === "pending") return "bg-amber-50 text-amber-700";
   if (status === "failed") return "bg-red-50 text-red-700";
   if (status === "refunded") return "bg-blue-50 text-blue-700";
+  return "bg-slate-100 text-slate-700";
+}
+
+function payoutStatusBadgeClass(status: string | null) {
+  if (status === "paid") return "bg-green-50 text-green-700";
+  if (status === "in_transit" || status === "pending")
+    return "bg-amber-50 text-amber-700";
+  if (status === "failed" || status === "canceled")
+    return "bg-red-50 text-red-700";
   return "bg-slate-100 text-slate-700";
 }
 
@@ -753,6 +834,168 @@ export default async function ReportsPage({
       .values(),
   ).sort((a, b) => b.total - a.total);
 
+
+  const { data: stripePayouts, error: stripePayoutsError } = await supabase
+    .from("stripe_payouts")
+    .select(
+      `
+        id,
+        studio_id,
+        stripe_account_id,
+        stripe_payout_id,
+        stripe_balance_transaction_id,
+        amount,
+        currency,
+        status,
+        arrival_date,
+        payout_created_at,
+        created_at,
+        updated_at
+      `,
+    )
+    .eq("studio_id", studioId)
+    .gte("created_at", rangeStart)
+    .order("created_at", { ascending: false })
+    .limit(25);
+
+  if (stripePayoutsError) {
+    throw new Error(
+      `Failed to load payout reconciliation data: ${stripePayoutsError.message}`,
+    );
+  }
+
+  const typedStripePayouts = (stripePayouts ?? []) as StripePayoutRow[];
+  const stripePayoutIds = typedStripePayouts
+    .map((payout) => payout.stripe_payout_id)
+    .filter(Boolean);
+
+  const { data: stripePayoutItems, error: stripePayoutItemsError } =
+    stripePayoutIds.length > 0
+      ? await supabase
+          .from("stripe_payout_items")
+          .select(
+            `
+              id,
+              stripe_payout_id,
+              stripe_account_id,
+              stripe_balance_transaction_id,
+              stripe_source_id,
+              stripe_source_type,
+              studio_id,
+              payment_id,
+              event_payment_id,
+              amount,
+              fee,
+              net,
+              currency,
+              type,
+              reporting_category,
+              description,
+              available_on,
+              balance_transaction_created_at,
+              created_at
+            `,
+          )
+          .eq("studio_id", studioId)
+          .in("stripe_payout_id", stripePayoutIds)
+          .order("created_at", { ascending: false })
+          .limit(1000)
+      : { data: [], error: null };
+
+  if (stripePayoutItemsError) {
+    throw new Error(
+      `Failed to load payout reconciliation item data: ${stripePayoutItemsError.message}`,
+    );
+  }
+
+  const typedStripePayoutItems = (stripePayoutItems ??
+    []) as StripePayoutItemRow[];
+
+  const payoutItemSummaries = typedStripePayoutItems.reduce(
+    (map, item) => {
+      const payoutId = item.stripe_payout_id;
+      const existing =
+        map.get(payoutId) ??
+        ({
+          payoutId,
+          itemCount: 0,
+          matchedCount: 0,
+          unmatchedCount: 0,
+          grossAmount: 0,
+          fees: 0,
+          netAmount: 0,
+        } satisfies PayoutItemSummary);
+
+      const amount = moneyValue(item.amount);
+      const fee = Math.abs(moneyValue(item.fee));
+      const net = moneyValue(item.net);
+      const matched = Boolean(item.payment_id || item.event_payment_id);
+
+      existing.itemCount += 1;
+      existing.matchedCount += matched ? 1 : 0;
+      existing.unmatchedCount += matched ? 0 : 1;
+      existing.grossAmount += amount;
+      existing.fees += fee;
+      existing.netAmount += net;
+
+      map.set(payoutId, existing);
+
+      return map;
+    },
+    new Map<string, PayoutItemSummary>(),
+  );
+
+  const recentPayoutSummaries: RecentPayoutSummary[] = typedStripePayouts.map(
+    (payout) => {
+      const itemSummary =
+        payoutItemSummaries.get(payout.stripe_payout_id) ??
+        ({
+          payoutId: payout.stripe_payout_id,
+          itemCount: 0,
+          matchedCount: 0,
+          unmatchedCount: 0,
+          grossAmount: 0,
+          fees: 0,
+          netAmount: 0,
+        } satisfies PayoutItemSummary);
+
+      return {
+        ...payout,
+        itemSummary,
+      };
+    },
+  );
+
+  const payoutSummary = recentPayoutSummaries.reduce(
+    (summary, payout) => {
+      const amount = moneyValue(payout.amount);
+      const status = (payout.status ?? "unknown").toLowerCase();
+
+      summary.totalPayouts += amount;
+      summary.count += 1;
+      summary.paidCount += status === "paid" ? 1 : 0;
+      summary.pendingCount +=
+        status === "pending" || status === "in_transit" ? 1 : 0;
+      summary.failedCount += status === "failed" ? 1 : 0;
+      summary.unmatchedItems += payout.itemSummary.unmatchedCount;
+      summary.matchedItems += payout.itemSummary.matchedCount;
+      summary.netItemTotal += payout.itemSummary.netAmount;
+      summary.feeTotal += payout.itemSummary.fees;
+
+      return summary;
+    },
+    {
+      totalPayouts: 0,
+      count: 0,
+      paidCount: 0,
+      pendingCount: 0,
+      failedCount: 0,
+      matchedItems: 0,
+      unmatchedItems: 0,
+      netItemTotal: 0,
+      feeTotal: 0,
+    },
+  );
 
   const typedPayments = (payments ?? []) as PaymentRow[];
   const typedLeads = (leads ?? []) as ClientRow[];
@@ -2042,6 +2285,168 @@ export default async function ReportsPage({
           Net Revenue Preview is powered by the same normalized accounting
           entries used by the Accounting CSV export. Revenue, refunds, fees,
           and expenses stay separate so the export remains easy to audit.
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Payout Reconciliation
+            </p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Recent Stripe Payouts
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Review what Stripe paid out, when it is expected to arrive, and
+              how many payout items are matched back to DanceFlow payment
+              records.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/app/reports/export/payouts?range=${range}`}
+              className="inline-flex w-fit rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Export Payouts
+            </Link>
+            <Link
+              href={`/app/reports/export/payout-items?range=${range}`}
+              className="inline-flex w-fit rounded-xl border border-[#C4B5FD] bg-[#F5F3FF] px-4 py-2 text-sm font-semibold text-[#5B21B6] hover:bg-[#EDE9FE]"
+            >
+              Export Details
+            </Link>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Total Payouts</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {fmtCurrency(payoutSummary.totalPayouts)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {fmtNumber(payoutSummary.count)} payouts
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-green-50 p-4">
+            <p className="text-sm text-green-900/70">Paid</p>
+            <p className="mt-2 text-2xl font-semibold text-green-950">
+              {fmtNumber(payoutSummary.paidCount)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-amber-50 p-4">
+            <p className="text-sm text-amber-900/70">Pending / In Transit</p>
+            <p className="mt-2 text-2xl font-semibold text-amber-950">
+              {fmtNumber(payoutSummary.pendingCount)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-red-50 p-4">
+            <p className="text-sm text-red-900/70">Failed</p>
+            <p className="mt-2 text-2xl font-semibold text-red-950">
+              {fmtNumber(payoutSummary.failedCount)}
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-[#C4B5FD] bg-[#F5F3FF] p-4">
+            <p className="text-sm font-medium text-[#5B21B6]">
+              Unmatched Items
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-[#4C1D95]">
+              {fmtNumber(payoutSummary.unmatchedItems)}
+            </p>
+            <p className="mt-1 text-xs text-[#6D28D9]">
+              {fmtNumber(payoutSummary.matchedItems)} matched
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 overflow-hidden rounded-2xl border border-slate-200">
+          {recentPayoutSummaries.length === 0 ? (
+            <div className="bg-slate-50 px-4 py-10 text-center">
+              <p className="text-sm font-semibold text-slate-950">
+                No Stripe payouts have been recorded yet.
+              </p>
+              <p className="mt-2 text-sm text-slate-600">
+                Payouts will appear here after Stripe sends payout events for
+                this studio.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-slate-200 text-sm">
+                <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th className="px-4 py-3">Payout</th>
+                    <th className="px-4 py-3">Status</th>
+                    <th className="px-4 py-3">Arrival</th>
+                    <th className="px-4 py-3 text-right">Amount</th>
+                    <th className="px-4 py-3 text-right">Matched</th>
+                    <th className="px-4 py-3 text-right">Unmatched</th>
+                    <th className="px-4 py-3 text-right">Item Net</th>
+                    <th className="px-4 py-3 text-right">Details</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {recentPayoutSummaries.map((payout) => (
+                    <tr key={payout.id}>
+                      <td className="px-4 py-3">
+                        <p className="font-semibold text-slate-950">
+                          {payout.stripe_payout_id}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {payout.stripe_account_id ?? "Stripe account not recorded"}
+                        </p>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${payoutStatusBadgeClass(
+                            payout.status,
+                          )}`}
+                        >
+                          {labelize(payout.status)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {fmtDate(payout.arrival_date)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-950">
+                        {fmtCurrency(moneyValue(payout.amount))}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {fmtNumber(payout.itemSummary.matchedCount)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {fmtNumber(payout.itemSummary.unmatchedCount)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700">
+                        {fmtCurrency(payout.itemSummary.netAmount)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <Link
+                          href={`/app/reports/export/payout-items?range=${range}&payoutId=${encodeURIComponent(
+                            payout.stripe_payout_id,
+                          )}`}
+                          className="text-xs font-semibold text-[#6D28D9] hover:text-[#4C1D95]"
+                        >
+                          Export details
+                        </Link>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
+          Tip: unmatched items are expected when Stripe includes adjustments,
+          fees, transfers, refunds, or records that do not map cleanly to a
+          DanceFlow payment yet.
         </div>
       </section>
 
