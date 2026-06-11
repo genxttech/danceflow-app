@@ -3,7 +3,10 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { upsertEventAttendanceAction } from "./actions";
+import {
+  resendEventTicketConfirmationAction,
+  upsertEventAttendanceAction,
+} from "./actions";
 
 type Params = Promise<{
   id: string;
@@ -234,6 +237,10 @@ function paymentBadgeClass(status: string | null) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
+function shouldBlockAttendanceForPayment(paymentStatus: string | null) {
+  return ["pending", "unpaid", "failed", "refunded"].includes(paymentStatus ?? "");
+}
+
 function isRegistrationActiveForCheckIn(
   registration: Pick<RegistrationRow, "status" | "payment_status">,
 ) {
@@ -244,11 +251,7 @@ function isRegistrationActiveForCheckIn(
     "attended",
   ].includes(registration.status ?? "");
 
-  const paymentIsBlocked = ["pending", "unpaid", "failed", "refunded"].includes(
-    registration.payment_status ?? "",
-  );
-
-  return statusIsActive && !paymentIsBlocked;
+  return statusIsActive && !shouldBlockAttendanceForPayment(registration.payment_status);
 }
 
 function formatDateTime(value: string | null) {
@@ -284,6 +287,13 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "success" as const,
       message: "Attendance and CRM handoff updated.",
+    };
+  }
+
+  if (search.success === "ticket_confirmation_resent") {
+    return {
+      kind: "success" as const,
+      message: "Ticket confirmation email queued.",
     };
   }
 
@@ -382,6 +392,34 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "Could not create lead from registration.",
+    };
+  }
+
+  if (search.error === "resend_not_confirmed") {
+    return {
+      kind: "error" as const,
+      message: "Only confirmed registrations can receive ticket confirmations.",
+    };
+  }
+
+  if (search.error === "resend_not_paid") {
+    return {
+      kind: "error" as const,
+      message: "Only paid registrations can receive ticket confirmations.",
+    };
+  }
+
+  if (search.error === "resend_missing_email") {
+    return {
+      kind: "error" as const,
+      message: "This registration does not have an email address.",
+    };
+  }
+
+  if (search.error === "resend_ticket_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not queue the ticket confirmation email.",
     };
   }
 
@@ -1279,6 +1317,45 @@ export default async function EventRegistrationsPage({
                       <p className="mt-1 font-medium text-slate-900">
                         {registration.notes ? "Has notes" : "No notes"}
                       </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-indigo-950">
+                          Ticket confirmation
+                        </p>
+                        <p className="mt-1 text-sm text-indigo-800">
+                          Resend the confirmation email with all QR ticket codes
+                          for this registration.
+                        </p>
+                      </div>
+                      <form action={resendEventTicketConfirmationAction}>
+                        <input
+                          type="hidden"
+                          name="eventId"
+                          value={typedEvent.id}
+                        />
+                        <input
+                          type="hidden"
+                          name="registrationId"
+                          value={registration.id}
+                        />
+                        <button
+                          type="submit"
+                          disabled={
+                            !isRegistrationActiveForCheckIn(registration) ||
+                            shouldBlockAttendanceForPayment(
+                              registration.payment_status,
+                            ) ||
+                            !registration.attendee_email
+                          }
+                          className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                        >
+                          Resend ticket confirmation
+                        </button>
+                      </form>
                     </div>
                   </div>
 

@@ -1,14 +1,19 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/payments/stripe";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { queueOutboundDelivery } from "@/lib/notifications/outbound";
+import { buildEventConfirmedEmailTemplate } from "@/lib/notifications/templates";
 
 type RegistrationRow = {
   id: string;
   event_id: string;
   client_id: string | null;
+  ticket_type_id: string | null;
+  quantity: number | null;
   attendee_first_name: string;
   attendee_last_name: string;
   attendee_email: string;
@@ -153,6 +158,8 @@ async function getRegistrationForEvent(params: {
       id,
       event_id,
       client_id,
+      ticket_type_id,
+      quantity,
       attendee_first_name,
       attendee_last_name,
       attendee_email,
@@ -415,7 +422,6 @@ async function logEventPayment(params: {
   const { error } = await supabase.from("event_payments").insert({
     event_id: registration.event_id,
     registration_id: registration.id,
-    studio_id: studioId,
     amount,
     currency,
     payment_method: paymentMethod,
@@ -426,6 +432,306 @@ async function logEventPayment(params: {
 
   if (error) {
     throw new Error(error.message);
+  }
+}
+
+function getAppUrl() {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "http://localhost:3000"
+  );
+}
+
+function makeTicketCode() {
+  return `DF-${randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
+}
+
+function makeTicketToken() {
+  return randomUUID().replaceAll("-", "");
+}
+
+type TicketTypeForResend = {
+  id: string;
+  name: string | null;
+  attendees_per_ticket: number | null;
+};
+
+type EventForResend = {
+  id: string;
+  slug: string;
+  name: string;
+};
+
+type RegistrationForResend = RegistrationRow & {
+  studio_id: string;
+  event_ticket_types?: TicketTypeForResend | TicketTypeForResend[] | null;
+  events?: EventForResend | EventForResend[] | null;
+  event_registration_attendees?: Array<{
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+    ticket_code: string | null;
+    sort_order: number | null;
+  }> | null;
+};
+
+function singleRelation<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
+}
+
+async function ensureTicketRowsForRegistration(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  registration: RegistrationRow;
+}) {
+  const { supabase, registration } = params;
+
+  if (!registration.ticket_type_id) {
+    throw new Error("Registration is missing a ticket type.");
+  }
+
+  const { data: ticketType, error: ticketTypeError } = await supabase
+    .from("event_ticket_types")
+    .select("id, name, attendees_per_ticket")
+    .eq("id", registration.ticket_type_id)
+    .maybeSingle<TicketTypeForResend>();
+
+  if (ticketTypeError || !ticketType) {
+    throw new Error(ticketTypeError?.message ?? "Ticket type not found.");
+  }
+
+  const quantity = Math.max(1, Number(registration.quantity ?? 1));
+  const admitsPerTicket = Math.max(1, Number(ticketType.attendees_per_ticket ?? 1));
+  const expectedAttendees = Math.max(1, quantity * admitsPerTicket);
+  const now = new Date().toISOString();
+
+  const { data: existingItems, error: itemsLookupError } = await supabase
+    .from("event_registration_items")
+    .select("id")
+    .eq("registration_id", registration.id)
+    .limit(1);
+
+  if (itemsLookupError) {
+    throw new Error(itemsLookupError.message);
+  }
+
+  if (!existingItems?.length) {
+    const unitPrice = Number(
+      registration.total_amount ?? registration.total_price ?? 0,
+    );
+    const lineTotal = Number(
+      registration.total_amount ?? registration.total_price ?? unitPrice,
+    );
+
+    const { error: itemInsertError } = await supabase
+      .from("event_registration_items")
+      .insert({
+        registration_id: registration.id,
+        ticket_type_id: registration.ticket_type_id,
+        ticket_name_snapshot: ticketType.name || "Event ticket",
+        quantity,
+        unit_price: unitPrice,
+        line_total: lineTotal,
+        created_at: now,
+      });
+
+    if (itemInsertError) {
+      throw new Error(itemInsertError.message);
+    }
+  }
+
+  const { data: existingAttendees, error: attendeesLookupError } =
+    await supabase
+      .from("event_registration_attendees")
+      .select("id, sort_order, first_name, last_name, email, phone, ticket_code, ticket_token, ticket_issued_at")
+      .eq("registration_id", registration.id);
+
+  if (attendeesLookupError) {
+    throw new Error(attendeesLookupError.message);
+  }
+
+  const attendeesBySortOrder = new Map<number, any>();
+  for (const attendee of existingAttendees ?? []) {
+    const sortOrder = Number(attendee.sort_order ?? 1);
+    if (!attendeesBySortOrder.has(sortOrder)) {
+      attendeesBySortOrder.set(sortOrder, attendee);
+    }
+  }
+
+  const rowsToInsert = [];
+  for (let slot = 1; slot <= expectedAttendees; slot += 1) {
+    if (attendeesBySortOrder.has(slot)) continue;
+
+    rowsToInsert.push({
+      registration_id: registration.id,
+      event_id: registration.event_id,
+      ticket_type_id: registration.ticket_type_id,
+      first_name:
+        slot === 1
+          ? registration.attendee_first_name || "Guest"
+          : "Guest",
+      last_name:
+        slot === 1
+          ? registration.attendee_last_name || "Attendee"
+          : `${slot}`,
+      email: registration.attendee_email || null,
+      phone: registration.attendee_phone || null,
+      attendee_role: "attendee",
+      sort_order: slot,
+      ticket_code: makeTicketCode(),
+      ticket_token: makeTicketToken(),
+      ticket_issued_at: now,
+      created_at: now,
+      updated_at: now,
+    });
+  }
+
+  if (rowsToInsert.length) {
+    const { error: attendeesInsertError } = await supabase
+      .from("event_registration_attendees")
+      .insert(rowsToInsert);
+
+    if (attendeesInsertError) {
+      throw new Error(attendeesInsertError.message);
+    }
+  }
+
+  const { data: refreshedAttendees, error: refreshedError } = await supabase
+    .from("event_registration_attendees")
+    .select("id, sort_order, ticket_code, ticket_token, ticket_issued_at")
+    .eq("registration_id", registration.id);
+
+  if (refreshedError) {
+    throw new Error(refreshedError.message);
+  }
+
+  await Promise.all(
+    (refreshedAttendees ?? [])
+      .filter((attendee) => !attendee.ticket_code || !attendee.ticket_token)
+      .map((attendee) =>
+        supabase
+          .from("event_registration_attendees")
+          .update({
+            ticket_code: attendee.ticket_code || makeTicketCode(),
+            ticket_token: attendee.ticket_token || makeTicketToken(),
+            ticket_issued_at: attendee.ticket_issued_at || now,
+            updated_at: now,
+          })
+          .eq("id", attendee.id),
+      ),
+  );
+}
+
+async function queueTicketConfirmationResend(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  registrationId: string;
+}) {
+  const { data: registration, error } = await params.supabase
+    .from("event_registrations")
+    .select(
+      `
+      id,
+      event_id,
+      studio_id,
+      client_id,
+      ticket_type_id,
+      quantity,
+      attendee_first_name,
+      attendee_last_name,
+      attendee_email,
+      attendee_phone,
+      status,
+      payment_status,
+      total_amount,
+      total_price,
+      currency,
+      checked_in_at,
+      stripe_payment_intent_id,
+      events (
+        id,
+        slug,
+        name
+      ),
+      event_ticket_types (
+        id,
+        name,
+        attendees_per_ticket
+      ),
+      event_registration_attendees (
+        id,
+        first_name,
+        last_name,
+        email,
+        ticket_code,
+        sort_order
+      )
+    `,
+    )
+    .eq("id", params.registrationId)
+    .eq("event_id", params.eventId)
+    .maybeSingle<RegistrationForResend>();
+
+  if (error || !registration) {
+    throw new Error(error?.message ?? "Registration not found.");
+  }
+
+  const event = singleRelation(registration.events);
+  const ticketType = singleRelation(registration.event_ticket_types);
+
+  if (!event) {
+    throw new Error("Event not found for registration.");
+  }
+
+  const attendeeRows = [...(registration.event_registration_attendees ?? [])]
+    .sort((left, right) => Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0));
+
+  const ticketCodes = attendeeRows
+    .map((attendee, index) => {
+      const name =
+        `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim() ||
+        `Attendee ${index + 1}`;
+      const code =
+        typeof attendee.ticket_code === "string"
+          ? attendee.ticket_code.trim()
+          : "";
+
+      return code ? { name, code } : null;
+    })
+    .filter(Boolean) as Array<{ name: string; code: string }>;
+
+  if (!ticketCodes.length) {
+    throw new Error("No ticket codes were available to send.");
+  }
+
+  const template = buildEventConfirmedEmailTemplate({
+    eventName: event.name,
+    attendeeFirstName: registration.attendee_first_name,
+    attendeeLastName: registration.attendee_last_name,
+    ticketTypeName: ticketType?.name ?? "Event ticket",
+    quantity: Number(registration.quantity ?? 1),
+    totalPrice: Number(registration.total_price ?? registration.total_amount ?? 0),
+    currency: registration.currency || "USD",
+    eventUrl: `${getAppUrl()}/events/${encodeURIComponent(event.slug)}`,
+    ticketCodes,
+  });
+
+  const result = await queueOutboundDelivery({
+    studioId: registration.studio_id,
+    channel: "email",
+    templateKey: "event_registration_ticket_confirmation_resend",
+    recipientEmail: registration.attendee_email,
+    subject: template.subject,
+    bodyText: template.bodyText,
+    bodyHtml: template.bodyHtml,
+    relatedTable: "event_registrations",
+    relatedId: registration.id,
+    dedupeKey: `event_registration_resend:email:${registration.id}:${Date.now()}`,
+  });
+
+  if (!result.queued) {
+    throw new Error("Ticket confirmation could not be queued.");
   }
 }
 
@@ -1264,6 +1570,56 @@ export async function markEventRegistrationPaidAction(formData: FormData) {
     redirect(buildReturnUrl(eventId, "error=mark_paid_failed"));
   }
 }
+
+
+export async function resendEventTicketConfirmationAction(formData: FormData) {
+  const eventId = getString(formData, "eventId");
+  const registrationId = getString(formData, "registrationId");
+
+  if (!eventId || !registrationId) {
+    redirect("/app/events");
+  }
+
+  try {
+    const { supabase, studioId } = await getStudioContext();
+    await validateEventAccess(supabase, eventId, studioId);
+
+    const registration = await getRegistrationForEvent({
+      supabase,
+      eventId,
+      registrationId,
+    });
+
+    if (!registration) {
+      redirect(buildReturnUrl(eventId, "error=registration_not_found"));
+    }
+
+    if (!isRegistrationActiveForCheckIn(registration.status)) {
+      redirect(buildReturnUrl(eventId, "error=resend_not_confirmed"));
+    }
+
+    if (shouldBlockAttendanceForPayment(registration.payment_status)) {
+      redirect(buildReturnUrl(eventId, "error=resend_not_paid"));
+    }
+
+    if (!registration.attendee_email) {
+      redirect(buildReturnUrl(eventId, "error=resend_missing_email"));
+    }
+
+    await ensureTicketRowsForRegistration({ supabase, registration });
+    await queueTicketConfirmationResend({
+      supabase,
+      eventId,
+      registrationId,
+    });
+
+    redirect(buildReturnUrl(eventId, "success=ticket_confirmation_resent"));
+  } catch (error) {
+    console.error("resend ticket confirmation failed:", error);
+    redirect(buildReturnUrl(eventId, "error=resend_ticket_failed"));
+  }
+}
+
 
 export async function refundEventRegistrationAction(formData: FormData) {
   const eventId = getString(formData, "eventId");
