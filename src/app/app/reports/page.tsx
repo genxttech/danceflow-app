@@ -2928,12 +2928,20 @@ export default async function ReportsPage({
                   selected range.
                 </p>
               </div>
-              <Link
-                href="/app/clients"
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Open Clients
-              </Link>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  href="/app/clients"
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Open Clients
+                </Link>
+                <Link
+                  href="/app/reports/client-birthdays"
+                  className="rounded-xl bg-[#6B21A8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#581C87]"
+                >
+                  Birthday Outreach
+                </Link>
+              </div>
             </div>
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
@@ -3610,6 +3618,12 @@ export default async function ReportsPage({
                 className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
               >
                 Export Clients CSV
+              </a>
+              <a
+                href="/app/reports/client-birthdays/export?range=next30&format=labels"
+                className="rounded-2xl border border-[#D8B4FE] bg-[#FCF8FF] px-4 py-4 text-sm font-medium text-[#6B21A8] hover:bg-[#F3E8FF]"
+              >
+                Export Birthday Mailing Labels CSV
               </a>
               <a
                 href={exportHref("/app/reports/export/appointments", range)}

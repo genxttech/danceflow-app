@@ -36,6 +36,7 @@ const validRanges = new Set([
   "next_month",
   "missing_birthdays",
   "missing_addresses",
+  "missing_profile_info",
   "all",
 ]);
 
@@ -140,6 +141,9 @@ function filterClients(clients: BirthdayClient[], range: string, query: string) 
     .filter((client) => {
       if (range === "missing_birthdays") return !client.birthday;
       if (range === "missing_addresses") return !client.hasMailingAddress;
+      if (range === "missing_profile_info") {
+        return !client.birthday || !client.hasMailingAddress || !client.email || !client.phone;
+      }
       if (range === "all") return true;
 
       if (!client.birthday || client.daysUntilBirthday === null) return false;
@@ -169,7 +173,7 @@ function filterClients(clients: BirthdayClient[], range: string, query: string) 
         .includes(normalizedQuery);
     })
     .sort((a, b) => {
-      if (range === "missing_birthdays" || range === "missing_addresses") {
+      if (range === "missing_birthdays" || range === "missing_addresses" || range === "missing_profile_info") {
         return a.fullName.localeCompare(b.fullName);
       }
 
@@ -181,6 +185,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const range = normalizeRange(url.searchParams.get("range"));
   const query = url.searchParams.get("q") ?? "";
+  const format = url.searchParams.get("format") ?? "standard";
 
   const supabase = await createClient();
 
@@ -225,49 +230,84 @@ export async function GET(request: Request) {
   }
 
   const clients = filterClients(((data ?? []) as ClientBirthdayRow[]).map(enhanceClient), range, query);
+  const isLabelExport = format === "labels";
+  const exportClients = isLabelExport
+    ? clients.filter((client) => client.hasMailingAddress)
+    : clients;
 
-  const csv = toCsv(
-    [
-      "Client Name",
-      "Birthday",
-      "Next Birthday",
-      "Days Until Birthday",
-      "Email",
-      "Phone",
-      "Status",
-      "Address Line 1",
-      "Address Line 2",
-      "City",
-      "State",
-      "Postal Code",
-      "Country",
-      "Mailing Address",
-      "Client ID",
-    ],
-    clients.map((client) => [
-      client.fullName,
-      client.formattedBirthday,
-      formatNextBirthday(client.nextBirthday),
-      client.daysUntilBirthday ?? "",
-      client.email ?? "",
-      client.phone ?? "",
-      client.status ?? "",
-      client.address_line1 ?? "",
-      client.address_line2 ?? "",
-      client.city ?? "",
-      client.state ?? "",
-      client.postal_code ?? "",
-      client.country ?? "",
-      client.mailingAddress,
-      client.id,
-    ]),
-  );
+  const csv = isLabelExport
+    ? toCsv(
+        [
+          "Client Name",
+          "Address Line 1",
+          "Address Line 2",
+          "City",
+          "State",
+          "Postal Code",
+          "Country",
+          "Birthday",
+          "Next Birthday",
+          "Days Until Birthday",
+        ],
+        exportClients.map((client) => [
+          client.fullName,
+          client.address_line1 ?? "",
+          client.address_line2 ?? "",
+          client.city ?? "",
+          client.state ?? "",
+          client.postal_code ?? "",
+          client.country ?? "",
+          client.formattedBirthday,
+          formatNextBirthday(client.nextBirthday),
+          client.daysUntilBirthday ?? "",
+        ]),
+      )
+    : toCsv(
+        [
+          "Client Name",
+          "Birthday",
+          "Next Birthday",
+          "Days Until Birthday",
+          "Email",
+          "Phone",
+          "Status",
+          "Address Line 1",
+          "Address Line 2",
+          "City",
+          "State",
+          "Postal Code",
+          "Country",
+          "Mailing Address",
+          "Client ID",
+        ],
+        exportClients.map((client) => [
+          client.fullName,
+          client.formattedBirthday,
+          formatNextBirthday(client.nextBirthday),
+          client.daysUntilBirthday ?? "",
+          client.email ?? "",
+          client.phone ?? "",
+          client.status ?? "",
+          client.address_line1 ?? "",
+          client.address_line2 ?? "",
+          client.city ?? "",
+          client.state ?? "",
+          client.postal_code ?? "",
+          client.country ?? "",
+          client.mailingAddress,
+          client.id,
+        ]),
+      );
+
+  const filename = isLabelExport
+    ? `danceflow-client-mailing-labels-${range}.csv`
+    : `danceflow-client-birthdays-${range}.csv`;
 
   return new NextResponse(csv, {
     status: 200,
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="danceflow-client-birthdays-${range}.csv"`,
+      "Content-Disposition": `attachment; filename="${filename}"`,
       "Cache-Control": "no-store",
     },
   });

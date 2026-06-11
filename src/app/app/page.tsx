@@ -4,11 +4,13 @@ import { redirect } from "next/navigation";
 import {
   ArrowRight,
   Bell,
+  Cake,
   CalendarDays,
   CheckCircle2,
   Circle,
   ClipboardList,
   CreditCard,
+  Download,
   Globe2,
   Layers3,
   Sparkles,
@@ -66,6 +68,17 @@ type SubscriptionPlanRow = {
 type ClientRow = {
   id: string;
   portal_user_id?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  birthday?: string | null;
+  address_line1?: string | null;
+  address_line2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
 };
 
 type InstructorRow = {
@@ -295,6 +308,51 @@ function followUpName(
 ) {
   const name = fullName(row ?? null);
   return name || row?.email || "Contact";
+}
+
+function todayUtcDateOnly() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
+function parseBirthdayParts(value: string | null | undefined) {
+  if (!value) return null;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return null;
+
+  return {
+    month: Number(match[2]),
+    day: Number(match[3]),
+  };
+}
+
+function getDaysUntilBirthday(value: string | null | undefined) {
+  const parts = parseBirthdayParts(value);
+  if (!parts) return null;
+
+  const today = todayUtcDateOnly();
+  const year = today.getUTCFullYear();
+  let nextBirthday = new Date(Date.UTC(year, parts.month - 1, parts.day));
+
+  if (nextBirthday < today) {
+    nextBirthday = new Date(Date.UTC(year + 1, parts.month - 1, parts.day));
+  }
+
+  return Math.round((nextBirthday.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function hasMailingAddress(client: ClientRow) {
+  return Boolean(
+    [
+      client.address_line1,
+      client.city,
+      client.state,
+      client.postal_code,
+      client.country,
+    ]
+      .map((part) => part?.trim())
+      .filter(Boolean).length,
+  );
 }
 
 function toNumericValue(value: number | string | null | undefined) {
@@ -1614,7 +1672,7 @@ export default async function AppDashboardPage({
   ] = await Promise.all([
     supabase
       .from("clients")
-      .select("id, portal_user_id")
+      .select("id, portal_user_id, first_name, last_name, email, phone, birthday, address_line1, address_line2, city, state, postal_code, country")
       .eq("studio_id", studioId),
     supabase
       .from("appointments")
@@ -2017,6 +2075,29 @@ export default async function AppDashboardPage({
   const invitedPortalUsersCount = typedClients.filter((client) =>
     Boolean(client.portal_user_id),
   ).length;
+  const clientsWithBirthdayTiming = typedClients.map((client) => ({
+    ...client,
+    daysUntilBirthday: getDaysUntilBirthday(client.birthday),
+    hasMailingAddress: hasMailingAddress(client),
+  }));
+  const upcomingBirthdays7Count = clientsWithBirthdayTiming.filter(
+    (client) =>
+      client.daysUntilBirthday !== null && client.daysUntilBirthday <= 7,
+  ).length;
+  const upcomingBirthdays30Count = clientsWithBirthdayTiming.filter(
+    (client) =>
+      client.daysUntilBirthday !== null && client.daysUntilBirthday <= 30,
+  ).length;
+  const birthdayCardReadyCount = clientsWithBirthdayTiming.filter(
+    (client) =>
+      client.daysUntilBirthday !== null &&
+      client.daysUntilBirthday <= 30 &&
+      client.hasMailingAddress,
+  ).length;
+  const missingBirthdayCount = typedClients.filter((client) => !client.birthday).length;
+  const missingMailingAddressCount = typedClients.filter(
+    (client) => !hasMailingAddress(client),
+  ).length;
 
   const studioOnboardingTasks: WorkspaceOnboardingTask[] = [
     {
@@ -2361,6 +2442,74 @@ export default async function AppDashboardPage({
           description="Manage workshops, group classes, public events, registrations, and tickets."
           icon={Ticket}
         />
+      </section>
+
+      <section className="overflow-hidden rounded-[32px] border border-[#E9D5FF] bg-white shadow-sm">
+        <div className="border-b border-[#F3E8FF] bg-gradient-to-r from-[#FCF8FF] to-white px-6 py-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                Client Outreach
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                Upcoming Birthdays
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+                Keep birthday cards and client appreciation touchpoints from
+                slipping through the cracks.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/app/reports/client-birthdays"
+                className="inline-flex items-center justify-center rounded-xl bg-[#6B21A8] px-4 py-2 text-sm font-semibold text-white hover:bg-[#581C87]"
+              >
+                View birthday report
+              </Link>
+              <Link
+                href="/app/reports/client-birthdays/export?range=next30&format=labels"
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#D8B4FE] bg-white px-4 py-2 text-sm font-semibold text-[#6B21A8] hover:bg-[#FCF8FF]"
+              >
+                <Download className="h-4 w-4" />
+                Export labels
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-4 p-6 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-2xl bg-[#F3E8FF] p-4">
+            <Cake className="h-5 w-5 text-[#6B21A8]" />
+            <p className="mt-3 text-2xl font-semibold text-slate-950">
+              {upcomingBirthdays7Count}
+            </p>
+            <p className="text-sm text-slate-600">next 7 days</p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Next 30 days</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {upcomingBirthdays30Count}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Card-ready</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {birthdayCardReadyCount}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Missing birthday</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {missingBirthdayCount}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Missing address</p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {missingMailingAddressCount}
+            </p>
+          </div>
+        </div>
       </section>
 
       <SuggestedFollowUpsCard

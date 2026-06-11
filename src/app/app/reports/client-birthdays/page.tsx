@@ -51,6 +51,7 @@ const rangeOptions = [
   { value: "next_month", label: "Next month" },
   { value: "missing_birthdays", label: "Missing birthday" },
   { value: "missing_addresses", label: "Missing mailing address" },
+  { value: "missing_profile_info", label: "Missing profile info" },
   { value: "all", label: "All clients" },
 ];
 
@@ -160,6 +161,9 @@ function filterClients(clients: BirthdayClient[], range: string, query: string) 
     .filter((client) => {
       if (range === "missing_birthdays") return !client.birthday;
       if (range === "missing_addresses") return !client.hasMailingAddress;
+      if (range === "missing_profile_info") {
+        return !client.birthday || !client.hasMailingAddress || !client.email || !client.phone;
+      }
       if (range === "all") return true;
 
       if (!client.birthday || client.daysUntilBirthday === null) return false;
@@ -189,7 +193,7 @@ function filterClients(clients: BirthdayClient[], range: string, query: string) 
         .includes(normalizedQuery);
     })
     .sort((a, b) => {
-      if (range === "missing_birthdays" || range === "missing_addresses") {
+      if (range === "missing_birthdays" || range === "missing_addresses" || range === "missing_profile_info") {
         return a.fullName.localeCompare(b.fullName);
       }
 
@@ -260,6 +264,9 @@ export default async function ClientBirthdaysReportPage({
   ).length;
   const missingBirthdays = clients.filter((client) => !client.birthday).length;
   const missingAddresses = clients.filter((client) => !client.hasMailingAddress).length;
+  const missingProfileInfo = clients.filter(
+    (client) => !client.birthday || !client.hasMailingAddress || !client.email || !client.phone,
+  ).length;
   const readyForCards = clients.filter(
     (client) =>
       client.daysUntilBirthday !== null &&
@@ -270,6 +277,7 @@ export default async function ClientBirthdaysReportPage({
   const exportHref = `/app/reports/client-birthdays/export?range=${encodeURIComponent(
     range,
   )}${query ? `&q=${encodeURIComponent(query)}` : ""}`;
+  const labelExportHref = `${exportHref}&format=labels`;
 
   return (
     <div className="space-y-6">
@@ -303,10 +311,17 @@ export default async function ClientBirthdaysReportPage({
               <Download className="h-4 w-4" />
               Export CSV
             </Link>
+            <Link
+              href={labelExportHref}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
+            >
+              <MapPin className="h-4 w-4" />
+              Export mailing labels
+            </Link>
           </div>
         </div>
 
-        <div className="grid gap-3 border-t border-white/10 bg-black/10 px-6 py-4 md:grid-cols-4 md:px-8">
+        <div className="grid gap-3 border-t border-white/10 bg-black/10 px-6 py-4 md:grid-cols-5 md:px-8">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-white/65">
               Upcoming
@@ -334,6 +349,13 @@ export default async function ClientBirthdaysReportPage({
             </p>
             <p className="mt-1 text-2xl font-semibold">{missingAddresses}</p>
             <p className="text-xs text-white/70">not card-ready</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-white/65">
+              Missing profile
+            </p>
+            <p className="mt-1 text-2xl font-semibold">{missingProfileInfo}</p>
+            <p className="text-xs text-white/70">birthday, contact, or address</p>
           </div>
         </div>
       </section>
@@ -387,13 +409,22 @@ export default async function ClientBirthdaysReportPage({
               {filteredClients.length} client{filteredClients.length === 1 ? "" : "s"} in this view
             </p>
           </div>
-          <Link
-            href={exportHref}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-          >
-            <Download className="h-4 w-4" />
-            Export this view
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={exportHref}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              <Download className="h-4 w-4" />
+              Export this view
+            </Link>
+            <Link
+              href={labelExportHref}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-[#D8B4FE] px-3 py-2 text-sm font-semibold text-[#6B21A8] transition hover:bg-[#FCF8FF]"
+            >
+              <MapPin className="h-4 w-4" />
+              Labels
+            </Link>
+          </div>
         </div>
 
         {filteredClients.length === 0 ? (
