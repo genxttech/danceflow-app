@@ -26,6 +26,7 @@ type TicketTypeRow = {
   currency: string;
   capacity: number | null;
   active: boolean;
+  attendees_per_ticket: number | null;
 };
 
 type ClientRow = {
@@ -93,6 +94,71 @@ function normalizePaymentMethod(value: string) {
 
 function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
+}
+
+function ticketCode() {
+  return `DF-${randomUUID().replaceAll("-", "").slice(0, 10).toUpperCase()}`;
+}
+
+function ticketToken() {
+  return randomUUID().replaceAll("-", "");
+}
+
+function getSlotValue(formData: FormData, baseKey: string, slot: number) {
+  if (slot <= 1) {
+    return getString(formData, baseKey);
+  }
+
+  return (
+    getString(formData, `${baseKey}_${slot}`) ||
+    getString(formData, `${baseKey}${slot}`)
+  );
+}
+
+function buildAttendeeRows(params: {
+  formData: FormData;
+  registration: InsertedRegistrationRow;
+  ticketTypeId: string;
+  quantity: number;
+  attendeesPerTicket: number;
+}) {
+  const { formData, registration, ticketTypeId, quantity, attendeesPerTicket } =
+    params;
+  const totalAttendees = Math.max(1, quantity * Math.max(1, attendeesPerTicket));
+  const rows = [];
+
+  for (let index = 1; index <= totalAttendees; index += 1) {
+    const firstName =
+      getSlotValue(formData, "attendeeFirstName", index) ||
+      (index === 1 ? registration.attendee_first_name : `Guest`);
+    const lastName =
+      getSlotValue(formData, "attendeeLastName", index) ||
+      (index === 1 ? registration.attendee_last_name : `${index}`);
+    const email =
+      normalizeEmail(getSlotValue(formData, "attendeeEmail", index)) ||
+      registration.attendee_email;
+    const phone =
+      getSlotValue(formData, "attendeePhone", index) ||
+      registration.attendee_phone ||
+      null;
+
+    rows.push({
+      registration_id: registration.id,
+      event_id: registration.event_id,
+      ticket_type_id: ticketTypeId,
+      first_name: firstName,
+      last_name: lastName,
+      email,
+      phone,
+      attendee_role: "attendee",
+      sort_order: index,
+      ticket_code: ticketCode(),
+      ticket_token: ticketToken(),
+      ticket_issued_at: new Date().toISOString(),
+    });
+  }
+
+  return rows;
 }
 
 function isCancelledLikeStatus(value: string | null | undefined) {
@@ -216,15 +282,46 @@ async function insertAttendanceRecord(params: {
   }
 }
 
-async function insertManualTicketRecords(params: {
+async function logManualEventPayment(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  registration: InsertedRegistrationRow;
+  amount: number;
+  currency: string;
+  paymentMethod: string;
+}) {
+  const { supabase, registration, amount, currency, paymentMethod } = params;
+
+  if (amount <= 0 && paymentMethod === "comp") {
+    return;
+  }
+
+  const { error } = await supabase.from("event_payments").insert({
+    event_id: registration.event_id,
+    registration_id: registration.id,
+    amount,
+    currency,
+    payment_method: paymentMethod,
+    status: "paid",
+    source: "manual_ticket_sale",
+    stripe_payment_intent_id: null,
+  });
+
+  if (error) {
+    throw new Error(`Registration was created, but payment logging failed: ${error.message}`);
+  }
+}
+
+
+async function createRegistrationTicketRecords(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   registration: InsertedRegistrationRow;
   ticket: TicketTypeRow;
   quantity: number;
+  formData: FormData;
   unitPrice: number;
   totalPrice: number;
 }) {
-  const { supabase, registration, ticket, quantity, unitPrice, totalPrice } =
+  const { supabase, registration, ticket, quantity, formData, unitPrice, totalPrice } =
     params;
 
   const { error: itemError } = await supabase
@@ -240,30 +337,17 @@ async function insertManualTicketRecords(params: {
 
   if (itemError) {
     throw new Error(
-      `Registration was created, but ticket item setup failed: ${itemError.message}`
+      `Registration was created, but ticket item setup failed: ${itemError.message}`,
     );
   }
 
-  const attendeeRows = Array.from({ length: quantity }, (_, index) => {
-    const suffix = randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase();
-
-    return {
-      registration_id: registration.id,
-      event_id: registration.event_id,
-      ticket_type_id: ticket.id,
-      first_name: registration.attendee_first_name,
-      last_name:
-        quantity === 1
-          ? registration.attendee_last_name
-          : `${registration.attendee_last_name} ${index + 1}`.trim(),
-      email: index === 0 ? registration.attendee_email : null,
-      phone: index === 0 ? registration.attendee_phone ?? null : null,
-      attendee_role: "attendee",
-      sort_order: index + 1,
-      ticket_code: `MAN-${suffix}`,
-      ticket_token: randomUUID(),
-      ticket_issued_at: new Date().toISOString(),
-    };
+  const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1));
+  const attendeeRows = buildAttendeeRows({
+    formData,
+    registration,
+    ticketTypeId: ticket.id,
+    quantity,
+    attendeesPerTicket,
   });
 
   const { error: attendeeError } = await supabase
@@ -272,45 +356,8 @@ async function insertManualTicketRecords(params: {
 
   if (attendeeError) {
     throw new Error(
-      `Registration was created, but QR ticket setup failed: ${attendeeError.message}`
+      `Registration was created, but QR ticket setup failed: ${attendeeError.message}`,
     );
-  }
-}
-
-async function logManualEventPayment(params: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
-  registration: InsertedRegistrationRow;
-  amount: number;
-  currency: string;
-  paymentMethod: string;
-  notes?: string;
-}) {
-  const { supabase, registration, amount, currency, paymentMethod, notes } =
-    params;
-
-  if (amount <= 0 && paymentMethod === "comp") {
-    return;
-  }
-
-  const paymentLog: Record<string, string | number | null> = {
-    event_id: registration.event_id,
-    registration_id: registration.id,
-    amount,
-    currency,
-    payment_method: paymentMethod,
-    status: "paid",
-    source: "manual_ticket_sale",
-    stripe_payment_intent_id: null,
-  };
-
-  if (notes) {
-    paymentLog.notes = notes;
-  }
-
-  const { error } = await supabase.from("event_payments").insert(paymentLog);
-
-  if (error) {
-    throw new Error(`Registration was created, but payment logging failed: ${error.message}`);
   }
 }
 
@@ -380,7 +427,7 @@ export async function sellTicketsAction(
 
     const { data: ticket, error: ticketError } = await supabase
       .from("event_ticket_types")
-      .select("id, event_id, name, price, currency, capacity, active")
+      .select("id, event_id, name, price, currency, capacity, active, attendees_per_ticket")
       .eq("id", ticketTypeId)
       .eq("event_id", event.id)
       .maybeSingle<TicketTypeRow>();
@@ -504,24 +551,22 @@ export async function sellTicketsAction(
       };
     }
 
-    await insertManualTicketRecords({
-      supabase,
-      registration,
-      ticket,
-      quantity,
-      unitPrice,
-      totalPrice,
-    });
-
     await logManualEventPayment({
       supabase,
       registration,
       amount: totalPrice,
       currency,
       paymentMethod,
-      notes:
-        notes ||
-        `Manual ticket sale created from workspace by user ${userId}. Payment method: ${paymentMethod}.`,
+    });
+
+    await createRegistrationTicketRecords({
+      supabase,
+      registration,
+      ticket,
+      quantity,
+      formData,
+      unitPrice,
+      totalPrice,
     });
 
     await insertAttendanceRecord({

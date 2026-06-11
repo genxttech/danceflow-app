@@ -1204,3 +1204,121 @@ export async function retryDelinquentMembershipBillingAction(
     redirect(addQueryParam(returnTo, "error", message));
   }
 }
+
+
+export async function archiveMembershipPlanAction(formData: FormData) {
+  const supabase = await createClient();
+  const context = await getCurrentStudioContext();
+  const studioId = context.studioId;
+
+  const membershipPlanId = getString(formData, "membershipPlanId");
+  const returnTo = getString(formData, "returnTo") || "/app/memberships";
+
+  if (!membershipPlanId) {
+    throw new Error("Missing membership plan ID.");
+  }
+
+  const { error } = await supabase
+    .from("membership_plans")
+    .update({
+      active: false,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", membershipPlanId)
+    .eq("studio_id", studioId);
+
+  if (error) {
+    throw new Error(`Archive membership plan failed: ${error.message}`);
+  }
+
+  redirect(returnTo);
+}
+
+export async function reactivateMembershipPlanAction(formData: FormData) {
+  const supabase = await createClient();
+  const context = await getCurrentStudioContext();
+  const studioId = context.studioId;
+
+  const membershipPlanId = getString(formData, "membershipPlanId");
+  const returnTo = getString(formData, "returnTo") || "/app/memberships";
+
+  if (!membershipPlanId) {
+    throw new Error("Missing membership plan ID.");
+  }
+
+  const { error } = await supabase
+    .from("membership_plans")
+    .update({
+      active: true,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", membershipPlanId)
+    .eq("studio_id", studioId);
+
+  if (error) {
+    throw new Error(`Restore membership plan failed: ${error.message}`);
+  }
+
+  redirect(returnTo);
+}
+
+export async function deleteMembershipPlanAction(formData: FormData) {
+  const supabase = await createClient();
+  const context = await getCurrentStudioContext();
+  const studioId = context.studioId;
+
+  const membershipPlanId = getString(formData, "membershipPlanId");
+
+  if (!membershipPlanId) {
+    throw new Error("Missing membership plan ID.");
+  }
+
+  const { data: usedMemberships, error: usedMembershipsError } = await supabase
+    .from("client_memberships")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("membership_plan_id", membershipPlanId)
+    .limit(1);
+
+  if (usedMembershipsError) {
+    throw new Error(`Membership usage check failed: ${usedMembershipsError.message}`);
+  }
+
+  if ((usedMemberships ?? []).length > 0) {
+    const { error: archiveError } = await supabase
+      .from("membership_plans")
+      .update({
+        active: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", membershipPlanId)
+      .eq("studio_id", studioId);
+
+    if (archiveError) {
+      throw new Error(`Membership plan archive failed: ${archiveError.message}`);
+    }
+
+    redirect("/app/memberships");
+  }
+
+  const { error: benefitsError } = await supabase
+    .from("membership_plan_benefits")
+    .delete()
+    .eq("membership_plan_id", membershipPlanId);
+
+  if (benefitsError) {
+    throw new Error(`Membership benefits delete failed: ${benefitsError.message}`);
+  }
+
+  const { error: deleteError } = await supabase
+    .from("membership_plans")
+    .delete()
+    .eq("id", membershipPlanId)
+    .eq("studio_id", studioId);
+
+  if (deleteError) {
+    throw new Error(`Membership plan delete failed: ${deleteError.message}`);
+  }
+
+  redirect("/app/memberships");
+}

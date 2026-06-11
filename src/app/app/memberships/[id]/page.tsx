@@ -2,6 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import {
+  archiveMembershipPlanAction,
+  deleteMembershipPlanAction,
+  reactivateMembershipPlanAction,
+} from "../actions";
 
 type Params = Promise<{
   id: string;
@@ -473,6 +478,50 @@ export default async function MembershipPlanDetailPage({
           </div>
         </div>
       </div>
+
+      <div className="rounded-[28px] border border-amber-200 bg-amber-50/50 p-6 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-950">Plan cleanup</h2>
+        <p className="mt-2 max-w-3xl text-sm text-slate-700">
+          Archive plans that should no longer be sold. Delete is only safe when a plan has never been assigned; if it has membership history, DanceFlow archives it instead.
+        </p>
+
+        <div className="mt-5 flex flex-wrap gap-3">
+          {typedPlan.active ? (
+            <form action={archiveMembershipPlanAction}>
+              <input type="hidden" name="membershipPlanId" value={typedPlan.id} />
+              <input type="hidden" name="returnTo" value={`/app/memberships/${typedPlan.id}`} />
+              <button
+                type="submit"
+                className="rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+              >
+                Archive Plan
+              </button>
+            </form>
+          ) : (
+            <form action={reactivateMembershipPlanAction}>
+              <input type="hidden" name="membershipPlanId" value={typedPlan.id} />
+              <input type="hidden" name="returnTo" value={`/app/memberships/${typedPlan.id}`} />
+              <button
+                type="submit"
+                className="rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-50"
+              >
+                Restore Plan
+              </button>
+            </form>
+          )}
+
+          <form action={deleteMembershipPlanAction}>
+            <input type="hidden" name="membershipPlanId" value={typedPlan.id} />
+            <button
+              type="submit"
+              className="rounded-xl border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+            >
+              Delete if Unused
+            </button>
+          </form>
+        </div>
+      </div>
+
     </div>
   );
 }

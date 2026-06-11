@@ -40,6 +40,7 @@ type RegistrationRow = {
   attendee_last_name: string;
   attendee_email: string;
   attendee_phone: string | null;
+  quantity: number | null;
   status: string;
   payment_status: string | null;
   total_amount: number | null;
@@ -53,8 +54,8 @@ type RegistrationRow = {
     | { id: string; first_name: string | null; last_name: string | null }[]
     | null;
   event_ticket_types:
-    | { name: string; ticket_kind: string }
-    | { name: string; ticket_kind: string }[]
+    | { name: string; ticket_kind: string; attendees_per_ticket: number | null }
+    | { name: string; ticket_kind: string; attendees_per_ticket: number | null }[]
     | null;
   event_registration_attendees:
     | {
@@ -157,8 +158,8 @@ function getClientName(
 
 function getTicketTypeName(
   value:
-    | { name: string; ticket_kind: string }
-    | { name: string; ticket_kind: string }[]
+    | { name: string; ticket_kind: string; attendees_per_ticket: number | null }
+    | { name: string; ticket_kind: string; attendees_per_ticket: number | null }[]
     | null,
 ) {
   const ticket = Array.isArray(value) ? value[0] : value;
@@ -167,13 +168,24 @@ function getTicketTypeName(
 
 function getTicketKind(
   value:
-    | { name: string; ticket_kind: string }
-    | { name: string; ticket_kind: string }[]
+    | { name: string; ticket_kind: string; attendees_per_ticket: number | null }
+    | { name: string; ticket_kind: string; attendees_per_ticket: number | null }[]
     | null,
 ) {
   const ticket = Array.isArray(value) ? value[0] : value;
   return ticket?.ticket_kind ?? "other";
 }
+
+function getTicketAdmitsPerTicket(
+  value:
+    | { name: string; ticket_kind: string; attendees_per_ticket: number | null }
+    | { name: string; ticket_kind: string; attendees_per_ticket: number | null }[]
+    | null,
+) {
+  const ticket = Array.isArray(value) ? value[0] : value;
+  return Math.max(1, Number(ticket?.attendees_per_ticket ?? 1));
+}
+
 
 function getRequirementTitle(
   value: EventDocumentRequirementRow["document_templates"],
@@ -470,6 +482,7 @@ export default async function EventRegistrationsPage({
         attendee_last_name,
         attendee_email,
         attendee_phone,
+        quantity,
         status,
         payment_status,
         total_amount,
@@ -479,7 +492,7 @@ export default async function EventRegistrationsPage({
         notes,
         created_at,
         clients ( id, first_name, last_name ),
-        event_ticket_types ( name, ticket_kind )
+        event_ticket_types ( name, ticket_kind, attendees_per_ticket )
       `,
       )
       .eq("event_id", id)
@@ -969,6 +982,20 @@ export default async function EventRegistrationsPage({
             ].sort(
               (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0),
             );
+            const ticketsPurchased = Math.max(
+              1,
+              Number(registration.quantity ?? 1),
+            );
+            const admitsPerTicket = getTicketAdmitsPerTicket(
+              registration.event_ticket_types,
+            );
+            const expectedAttendees = Math.max(
+              1,
+              ticketsPurchased * admitsPerTicket,
+            );
+            const issuedTicketCount = attendeeRows.filter(
+              (attendee) => Boolean(attendee.ticket_code),
+            ).length;
             const ticketCodesAreActive =
               isRegistrationActiveForCheckIn(registration);
             const ticketCodeStatusText = ticketCodesAreActive
@@ -1014,6 +1041,11 @@ export default async function EventRegistrationsPage({
                           )}
                         </span>
 
+                        <span className="inline-flex rounded-full bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 ring-1 ring-violet-200">
+                          {ticketsPurchased} ticket{ticketsPurchased === 1 ? "" : "s"} •{" "}
+                          admits {expectedAttendees}
+                        </span>
+
                         {requiredDocumentRows.length ? (
                           <span
                             className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
@@ -1042,10 +1074,7 @@ export default async function EventRegistrationsPage({
                           open={attendeeRows.length === 1}
                         >
                           <summary className="cursor-pointer text-sm font-medium text-slate-700">
-                            Ticket codes & QR codes
-                            {attendeeRows.length > 1
-                              ? ` • ${attendeeRows.length} attendees`
-                              : ""}
+                            Ticket codes & QR codes • {issuedTicketCount}/{expectedAttendees} issued
                           </summary>
                           <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                             {attendeeRows.map((attendee, index) => {
@@ -1133,7 +1162,15 @@ export default async function EventRegistrationsPage({
                             })}
                           </div>
                         </details>
-                      ) : null}
+                      ) : (
+                        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                          No QR attendee tickets have been issued yet. Expected{" "}
+                          {expectedAttendees} attendee
+                          {expectedAttendees === 1 ? "" : "s"} for{" "}
+                          {ticketsPurchased} purchased ticket
+                          {ticketsPurchased === 1 ? "" : "s"}.
+                        </div>
+                      )}
                     </div>
 
                     <div className="text-left lg:text-right">
@@ -1169,7 +1206,10 @@ export default async function EventRegistrationsPage({
                       }`}
                     >
                       <p className="text-sm text-slate-600">Ticket Codes</p>
-                      <p className="mt-1 font-mono text-sm font-semibold tracking-wide text-slate-900">
+                      <p className="mt-1 text-sm font-semibold text-slate-900">
+                        {issuedTicketCount}/{expectedAttendees} QR tickets issued
+                      </p>
+                      <p className="mt-2 font-mono text-xs font-semibold tracking-wide text-slate-700">
                         {attendeeRows
                           .map((attendee) => attendee.ticket_code)
                           .filter(Boolean)

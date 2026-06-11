@@ -21,6 +21,7 @@ type TicketTypeRow = {
   currency: string;
   capacity: number | null;
   active: boolean;
+  attendees_per_ticket: number | null;
   sort_order: number;
 };
 
@@ -117,7 +118,7 @@ export default async function SellTicketsPage() {
 
     supabase
       .from("event_ticket_types")
-      .select("id, event_id, name, price, currency, capacity, active, sort_order")
+      .select("id, event_id, name, price, currency, capacity, active, attendees_per_ticket, sort_order")
       .eq("active", true)
       .order("sort_order", { ascending: true })
       .order("created_at", { ascending: true }),
@@ -300,8 +301,8 @@ export default async function SellTicketsPage() {
           <div className="rounded-2xl bg-slate-50 p-4">
             <p className="font-semibold text-slate-950">3. Confirm registration</p>
             <p className="mt-1">
-              The sale creates a confirmed registration and sends you to the
-              event registrations page.
+              The sale creates a confirmed registration, issues attendee QR codes,
+              and sends you to the event registrations page.
             </p>
           </div>
         </div>

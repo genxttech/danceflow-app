@@ -286,3 +286,107 @@ export async function deactivatePackageTemplateAction(formData: FormData) {
 
   redirect("/app/packages");
 }
+
+
+export async function archivePackageTemplateAction(formData: FormData) {
+  const { supabase, studioId } = await requirePackageManageAccess();
+
+  const packageTemplateId = getString(formData, "packageTemplateId");
+  const returnTo = getString(formData, "returnTo") || "/app/packages";
+
+  if (!packageTemplateId) {
+    throw new Error("Missing package template ID.");
+  }
+
+  const { error } = await supabase
+    .from("package_templates")
+    .update({ active: false })
+    .eq("id", packageTemplateId)
+    .eq("studio_id", studioId);
+
+  if (error) {
+    throw new Error(`Archive package template failed: ${error.message}`);
+  }
+
+  redirect(returnTo);
+}
+
+export async function reactivatePackageTemplateAction(formData: FormData) {
+  const { supabase, studioId } = await requirePackageManageAccess();
+
+  const packageTemplateId = getString(formData, "packageTemplateId");
+  const returnTo = getString(formData, "returnTo") || "/app/packages";
+
+  if (!packageTemplateId) {
+    throw new Error("Missing package template ID.");
+  }
+
+  const { error } = await supabase
+    .from("package_templates")
+    .update({ active: true })
+    .eq("id", packageTemplateId)
+    .eq("studio_id", studioId);
+
+  if (error) {
+    throw new Error(`Restore package template failed: ${error.message}`);
+  }
+
+  redirect(returnTo);
+}
+
+export async function deletePackageTemplateAction(formData: FormData) {
+  const { supabase, studioId } = await requirePackageManageAccess();
+
+  const packageTemplateId = getString(formData, "packageTemplateId");
+
+  if (!packageTemplateId) {
+    throw new Error("Missing package template ID.");
+  }
+
+  const { data: usedPackages, error: usedPackagesError } = await supabase
+    .from("client_packages")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("package_template_id", packageTemplateId)
+    .limit(1);
+
+  if (usedPackagesError) {
+    throw new Error(`Package usage check failed: ${usedPackagesError.message}`);
+  }
+
+  if ((usedPackages ?? []).length > 0) {
+    const { error: archiveError } = await supabase
+      .from("package_templates")
+      .update({ active: false })
+      .eq("id", packageTemplateId)
+      .eq("studio_id", studioId);
+
+    if (archiveError) {
+      throw new Error(`Package template archive failed: ${archiveError.message}`);
+    }
+
+    redirect("/app/packages");
+  }
+
+  const { error: itemsError } = await supabase
+    .from("package_template_items")
+    .delete()
+    .eq("package_template_id", packageTemplateId)
+    .eq("studio_id", studioId);
+
+  if (itemsError) {
+    throw new Error(`Package template items delete failed: ${itemsError.message}`);
+  }
+
+  const { error: deleteError } = await supabase
+    .from("package_templates")
+    .delete()
+    .eq("id", packageTemplateId)
+    .eq("studio_id", studioId);
+
+  if (deleteError) {
+    throw new Error(`Package template delete failed: ${deleteError.message}`);
+  }
+
+  redirect("/app/packages");
+}

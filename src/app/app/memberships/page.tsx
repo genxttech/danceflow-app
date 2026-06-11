@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import {
+  archiveMembershipPlanAction,
+  deleteMembershipPlanAction,
+  reactivateMembershipPlanAction,
+} from "./actions";
 
 type SearchParams = Promise<{
   status?: string;
@@ -184,6 +189,9 @@ export default async function MembershipPlansPage({
   const typedPlans = (plans ?? []) as MembershipPlanRow[];
   const typedMemberships = (memberships ?? []) as ClientMembershipRow[];
 
+  const availablePlanCount = typedPlans.filter((plan) => plan.active).length;
+  const archivedPlanCount = typedPlans.filter((plan) => !plan.active).length;
+
   const activeMemberships = typedMemberships.filter((m) => m.status === "active");
   const cancelingMemberships = typedMemberships.filter(
     (m) => m.status === "active" && m.cancel_at_period_end
@@ -208,7 +216,7 @@ export default async function MembershipPlansPage({
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Membership Plans</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
-              Create and manage recurring membership options for clients who train consistently.
+              Create and manage recurring membership options for clients who train consistently. Archive old templates to keep new sales clean while preserving billing history.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -388,7 +396,7 @@ export default async function MembershipPlansPage({
                 Membership Plans
               </h2>
               <p className="mt-1 text-sm text-slate-600">
-                Configure the products staff can sell from the front desk.
+                Configure the products staff can sell from the front desk. Available: {availablePlanCount}. Archived: {archivedPlanCount}.
               </p>
             </div>
 
@@ -404,10 +412,9 @@ export default async function MembershipPlansPage({
               </div>
             ) : (
               typedPlans.map((plan) => (
-                <Link
+                <div
                   key={plan.id}
-                  href={`/app/memberships/${plan.id}`}
-                  className="block rounded-xl bg-slate-50 p-4 hover:bg-slate-100"
+                  className="rounded-xl bg-slate-50 p-4"
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -418,7 +425,7 @@ export default async function MembershipPlansPage({
                             plan.active
                           )}`}
                         >
-                          {plan.active ? "Active" : "Inactive"}
+                          {plan.active ? "Available" : "Archived"}
                         </span>
                       </div>
 
@@ -440,9 +447,59 @@ export default async function MembershipPlansPage({
                       </div>
                     </div>
 
-                    <span className="text-sm underline">View</span>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                      <Link
+                        href={`/app/memberships/${plan.id}`}
+                        className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
+                      >
+                        View
+                      </Link>
+
+                      <Link
+                        href={`/app/memberships/${plan.id}/edit`}
+                        className="rounded-lg px-2 py-1 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
+                      >
+                        Edit
+                      </Link>
+
+                      {plan.active ? (
+                        <form action={archiveMembershipPlanAction}>
+                          <input type="hidden" name="membershipPlanId" value={plan.id} />
+                          <input type="hidden" name="returnTo" value="/app/memberships" />
+                          <button
+                            type="submit"
+                            className="rounded-lg px-2 py-1 text-sm font-medium text-amber-700 hover:bg-amber-50"
+                          >
+                            Archive
+                          </button>
+                        </form>
+                      ) : (
+                        <form action={reactivateMembershipPlanAction}>
+                          <input type="hidden" name="membershipPlanId" value={plan.id} />
+                          <input type="hidden" name="returnTo" value="/app/memberships" />
+                          <button
+                            type="submit"
+                            className="rounded-lg px-2 py-1 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                          >
+                            Restore
+                          </button>
+                        </form>
+                      )}
+
+                      {!plan.active ? (
+                        <form action={deleteMembershipPlanAction}>
+                          <input type="hidden" name="membershipPlanId" value={plan.id} />
+                          <button
+                            type="submit"
+                            className="rounded-lg px-2 py-1 text-sm font-medium text-rose-700 hover:bg-rose-50"
+                          >
+                            Delete if Unused
+                          </button>
+                        </form>
+                      ) : null}
+                    </div>
                   </div>
-                </Link>
+                </div>
               ))
             )}
           </div>

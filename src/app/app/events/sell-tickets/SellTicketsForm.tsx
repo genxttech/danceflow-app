@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { sellTicketsAction, type SellTicketsState } from "./actions";
 
 type TicketTypeOption = {
@@ -12,6 +12,7 @@ type TicketTypeOption = {
   capacity: number | null;
   active: boolean;
   soldQuantity: number;
+  attendees_per_ticket: number | null;
 };
 
 type EventOption = {
@@ -30,6 +31,20 @@ type ClientOption = {
   email: string | null;
   phone: string | null;
 };
+
+type AttendeeDraft = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+};
+
+const emptyAttendee = (): AttendeeDraft => ({
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+});
 
 function formatMoney(value: number | string, currency: string) {
   const amount =
@@ -83,10 +98,7 @@ export default function SellTicketsForm({
   const [clientId, setClientId] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [paymentMethod, setPaymentMethod] = useState("cash");
-  const [attendeeFirstName, setAttendeeFirstName] = useState("");
-  const [attendeeLastName, setAttendeeLastName] = useState("");
-  const [attendeeEmail, setAttendeeEmail] = useState("");
-  const [attendeePhone, setAttendeePhone] = useState("");
+  const [attendees, setAttendees] = useState<AttendeeDraft[]>([emptyAttendee()]);
 
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === eventId) ?? null,
@@ -111,6 +123,35 @@ export default function SellTicketsForm({
       : 0;
 
   const total = Number.isFinite(unitPrice) ? unitPrice * quantity : 0;
+  const attendeesPerTicket = Math.max(
+    1,
+    Number(selectedTicket?.attendees_per_ticket ?? 1) || 1
+  );
+  const totalAttendees = Math.max(1, quantity * attendeesPerTicket);
+
+  useEffect(() => {
+    setAttendees((current) => {
+      const next = [...current];
+
+      while (next.length < totalAttendees) {
+        next.push(emptyAttendee());
+      }
+
+      return next.slice(0, totalAttendees);
+    });
+  }, [totalAttendees]);
+
+  function updateAttendee(
+    index: number,
+    field: keyof AttendeeDraft,
+    value: string
+  ) {
+    setAttendees((current) => {
+      const next = [...current];
+      next[index] = { ...(next[index] ?? emptyAttendee()), [field]: value };
+      return next;
+    });
+  }
 
   function applyClient(nextClientId: string) {
     setClientId(nextClientId);
@@ -119,10 +160,17 @@ export default function SellTicketsForm({
 
     if (!client) return;
 
-    setAttendeeFirstName(client.first_name ?? "");
-    setAttendeeLastName(client.last_name ?? "");
-    setAttendeeEmail(client.email ?? "");
-    setAttendeePhone(client.phone ?? "");
+    setAttendees((current) => {
+      const next = current.length > 0 ? [...current] : [emptyAttendee()];
+      next[0] = {
+        ...(next[0] ?? emptyAttendee()),
+        firstName: client.first_name ?? "",
+        lastName: client.last_name ?? "",
+        email: client.email ?? "",
+        phone: client.phone ?? "",
+      };
+      return next;
+    });
   }
 
   return (
@@ -245,7 +293,7 @@ export default function SellTicketsForm({
           </p>
           <p className="mt-1 text-sm text-violet-800">
             {selectedTicket
-              ? `${quantity} × ${formatMoney(unitPrice, selectedTicket.currency)}`
+              ? `${quantity} × ${formatMoney(unitPrice, selectedTicket.currency)} · ${attendeesPerTicket} admitted per ticket · ${totalAttendees} QR ticket${totalAttendees === 1 ? "" : "s"}`
               : "Choose a ticket to calculate the total."}
           </p>
         </div>
@@ -285,62 +333,130 @@ export default function SellTicketsForm({
           ) : null}
         </div>
 
-        <div className="mt-5 grid gap-5 md:grid-cols-2">
-          <div>
-            <label htmlFor="attendeeFirstName" className="text-sm font-medium text-slate-700">
-              First name *
-            </label>
-            <input
-              id="attendeeFirstName"
-              name="attendeeFirstName"
-              value={attendeeFirstName}
-              onChange={(event) => setAttendeeFirstName(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-violet-500"
-              required
-            />
-          </div>
+        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          {selectedTicket ? (
+            <p>
+              <span className="font-semibold">{selectedTicket.name}</span> admits {attendeesPerTicket} per ticket.
+              This sale will create <span className="font-semibold">{totalAttendees}</span> QR ticket{totalAttendees === 1 ? "" : "s"}.
+            </p>
+          ) : (
+            <p>Choose a ticket type to see how many attendee names are needed.</p>
+          )}
+        </div>
 
-          <div>
-            <label htmlFor="attendeeLastName" className="text-sm font-medium text-slate-700">
-              Last name *
-            </label>
-            <input
-              id="attendeeLastName"
-              name="attendeeLastName"
-              value={attendeeLastName}
-              onChange={(event) => setAttendeeLastName(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-violet-500"
-              required
-            />
-          </div>
+        <div className="mt-5 space-y-4">
+          {attendees.map((attendee, index) => {
+            const slot = index + 1;
+            const suffix = slot === 1 ? "" : `_${slot}`;
 
-          <div>
-            <label htmlFor="attendeeEmail" className="text-sm font-medium text-slate-700">
-              Email *
-            </label>
-            <input
-              id="attendeeEmail"
-              name="attendeeEmail"
-              type="email"
-              value={attendeeEmail}
-              onChange={(event) => setAttendeeEmail(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-violet-500"
-              required
-            />
-          </div>
+            return (
+              <div
+                key={slot}
+                className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+              >
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-950">
+                      Attendee {slot}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {slot === 1
+                        ? "Primary purchaser and first QR ticket."
+                        : "Additional admitted guest with their own QR ticket."}
+                    </p>
+                  </div>
+                  {slot > 1 ? (
+                    <span className="rounded-full bg-violet-100 px-3 py-1 text-xs font-semibold text-violet-800">
+                      Additional QR ticket
+                    </span>
+                  ) : null}
+                </div>
 
-          <div>
-            <label htmlFor="attendeePhone" className="text-sm font-medium text-slate-700">
-              Phone
-            </label>
-            <input
-              id="attendeePhone"
-              name="attendeePhone"
-              value={attendeePhone}
-              onChange={(event) => setAttendeePhone(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none focus:border-violet-500"
-            />
-          </div>
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor={`attendeeFirstName${suffix || "_1"}`}
+                      className="text-sm font-medium text-slate-700"
+                    >
+                      First name *
+                    </label>
+                    <input
+                      id={`attendeeFirstName${suffix || "_1"}`}
+                      name={`attendeeFirstName${suffix}`}
+                      value={attendee.firstName}
+                      onChange={(event) =>
+                        updateAttendee(index, "firstName", event.target.value)
+                      }
+                      className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-violet-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor={`attendeeLastName${suffix || "_1"}`}
+                      className="text-sm font-medium text-slate-700"
+                    >
+                      Last name *
+                    </label>
+                    <input
+                      id={`attendeeLastName${suffix || "_1"}`}
+                      name={`attendeeLastName${suffix}`}
+                      value={attendee.lastName}
+                      onChange={(event) =>
+                        updateAttendee(index, "lastName", event.target.value)
+                      }
+                      className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-violet-500"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor={`attendeeEmail${suffix || "_1"}`}
+                      className="text-sm font-medium text-slate-700"
+                    >
+                      Email {slot === 1 ? "*" : ""}
+                    </label>
+                    <input
+                      id={`attendeeEmail${suffix || "_1"}`}
+                      name={`attendeeEmail${suffix}`}
+                      type="email"
+                      value={attendee.email}
+                      onChange={(event) =>
+                        updateAttendee(index, "email", event.target.value)
+                      }
+                      className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-violet-500"
+                      required={slot === 1}
+                    />
+                    {slot > 1 ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Leave blank to use the purchaser email for delivery.
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor={`attendeePhone${suffix || "_1"}`}
+                      className="text-sm font-medium text-slate-700"
+                    >
+                      Phone
+                    </label>
+                    <input
+                      id={`attendeePhone${suffix || "_1"}`}
+                      name={`attendeePhone${suffix}`}
+                      value={attendee.phone}
+                      onChange={(event) =>
+                        updateAttendee(index, "phone", event.target.value)
+                      }
+                      className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-violet-500"
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         <div className="mt-5">
