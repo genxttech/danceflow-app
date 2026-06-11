@@ -124,7 +124,7 @@ export default async function SellMembershipPage({
                 Sell a membership
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-                Choose a plan, search for the client, and open the client record to complete the membership sale with less back-and-forth.
+                Choose a membership, pick the client, then review the sale before starting checkout or assigning the membership.
               </p>
             </div>
 
@@ -156,13 +156,13 @@ export default async function SellMembershipPage({
             <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
               <h2 className="text-lg font-semibold text-violet-950">Find the client quickly</h2>
               <p className="mt-2 text-sm leading-7 text-violet-900">
-                Search by name or email and go straight to the client record when you are ready to finish the sale.
+                Search by name or email and move into a dedicated membership sale review step.
               </p>
             </div>
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
               <h2 className="text-lg font-semibold text-amber-950">Keep the workflow simple</h2>
               <p className="mt-2 text-sm leading-7 text-amber-900">
-                This page is meant to make selling easier by guiding staff through the task in the right order.
+                No more hidden sales from the client profile. Staff can confirm the plan, client, start date, and payment path first.
               </p>
             </div>
           </div>
@@ -217,7 +217,7 @@ export default async function SellMembershipPage({
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Choose a plan and search for a client</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Narrow the page before opening the client record.
+              Choose a membership first, then select the client who should receive it.
             </p>
           </div>
         </div>
@@ -268,7 +268,7 @@ export default async function SellMembershipPage({
         <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold text-slate-950">Available membership plans</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Review plan details before choosing a client.
+            Click a plan to select it. The selected plan is highlighted and used for the client sale buttons.
           </p>
 
           <div className="mt-5 space-y-3">
@@ -277,29 +277,55 @@ export default async function SellMembershipPage({
                 No membership plans match this filter.
               </div>
             ) : (
-              visiblePlans.map((plan) => (
-                <div key={plan.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-slate-900">{plan.name}</p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {formatCurrency(plan.price)} / {billingIntervalLabel(plan.billing_interval)}
-                        {plan.signup_fee ? ` • Signup fee ${formatCurrency(plan.signup_fee)}` : ""}
-                      </p>
-                      {plan.description ? (
-                        <p className="mt-2 text-sm text-slate-500">{plan.description}</p>
-                      ) : null}
-                    </div>
+              visiblePlans.map((plan) => {
+                const isSelected = selectedPlan?.id === plan.id;
+                const chooseHref = `/app/memberships/sell?plan=${plan.id}${
+                  query ? `&q=${encodeURIComponent(query)}` : ""
+                }`;
 
-                    <Link
-                      href={`/app/memberships/sell?plan=${plan.id}`}
-                      className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    >
-                      Choose
-                    </Link>
+                return (
+                  <div
+                    key={plan.id}
+                    className={`rounded-2xl border p-4 transition ${
+                      isSelected
+                        ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)] shadow-sm ring-2 ring-[var(--brand-primary)]/15"
+                        : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="font-medium text-slate-900">{plan.name}</p>
+                          {isSelected ? (
+                            <span className="rounded-full bg-[var(--brand-primary)] px-2.5 py-1 text-xs font-semibold text-white">
+                              Selected
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {formatCurrency(plan.price)} / {billingIntervalLabel(plan.billing_interval)}
+                          {plan.signup_fee ? ` • Signup fee ${formatCurrency(plan.signup_fee)}` : ""}
+                        </p>
+                        {plan.description ? (
+                          <p className="mt-2 text-sm text-slate-500">{plan.description}</p>
+                        ) : null}
+                      </div>
+
+                      <Link
+                        href={chooseHref}
+                        aria-current={isSelected ? "true" : undefined}
+                        className={`rounded-xl px-3 py-2 text-sm font-medium transition ${
+                          isSelected
+                            ? "bg-[var(--brand-primary)] text-white"
+                            : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        {isSelected ? "Selected" : "Choose"}
+                      </Link>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </section>
@@ -307,7 +333,7 @@ export default async function SellMembershipPage({
         <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold text-slate-950">Clients ready for membership sale</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Open the client record to complete the membership sale.
+            Choose a client to review and finish the membership sale.
           </p>
 
           <div className="mt-5 space-y-3">
@@ -334,14 +360,20 @@ export default async function SellMembershipPage({
                         href={`/app/clients/${client.id}`}
                         className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
                       >
-                        Open Client
+                        View Client
                       </Link>
-                      <Link
-                        href={`/app/clients/${client.id}${selectedPlan ? `?sellMembership=${selectedPlan.id}` : ""}`}
-                        className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-medium text-white hover:opacity-95"
-                      >
-                        {selectedPlan ? "Sell Selected Membership" : "Open to Sell Membership"}
-                      </Link>
+                      {selectedPlan ? (
+                        <Link
+                          href={`/app/memberships/sell/confirm?clientId=${client.id}&membershipPlanId=${selectedPlan.id}`}
+                          className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-medium text-white hover:opacity-95"
+                        >
+                          Sell Selected Membership
+                        </Link>
+                      ) : (
+                        <span className="rounded-xl border border-slate-200 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-500">
+                          Choose a membership first
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
