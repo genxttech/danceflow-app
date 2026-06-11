@@ -1580,6 +1580,8 @@ export async function resendEventTicketConfirmationAction(formData: FormData) {
     redirect("/app/events");
   }
 
+  let resultQuery = "error=resend_ticket_failed";
+
   try {
     const { supabase, studioId } = await getStudioContext();
     await validateEventAccess(supabase, eventId, studioId);
@@ -1591,33 +1593,29 @@ export async function resendEventTicketConfirmationAction(formData: FormData) {
     });
 
     if (!registration) {
-      redirect(buildReturnUrl(eventId, "error=registration_not_found"));
+      resultQuery = "error=registration_not_found";
+    } else if (!isRegistrationActiveForCheckIn(registration.status)) {
+      resultQuery = "error=resend_not_confirmed";
+    } else if (shouldBlockAttendanceForPayment(registration.payment_status)) {
+      resultQuery = "error=resend_not_paid";
+    } else if (!registration.attendee_email) {
+      resultQuery = "error=resend_missing_email";
+    } else {
+      await ensureTicketRowsForRegistration({ supabase, registration });
+      await queueTicketConfirmationResend({
+        supabase,
+        eventId,
+        registrationId,
+      });
+
+      resultQuery = "success=ticket_confirmation_resent";
     }
-
-    if (!isRegistrationActiveForCheckIn(registration.status)) {
-      redirect(buildReturnUrl(eventId, "error=resend_not_confirmed"));
-    }
-
-    if (shouldBlockAttendanceForPayment(registration.payment_status)) {
-      redirect(buildReturnUrl(eventId, "error=resend_not_paid"));
-    }
-
-    if (!registration.attendee_email) {
-      redirect(buildReturnUrl(eventId, "error=resend_missing_email"));
-    }
-
-    await ensureTicketRowsForRegistration({ supabase, registration });
-    await queueTicketConfirmationResend({
-      supabase,
-      eventId,
-      registrationId,
-    });
-
-    redirect(buildReturnUrl(eventId, "success=ticket_confirmation_resent"));
   } catch (error) {
     console.error("resend ticket confirmation failed:", error);
-    redirect(buildReturnUrl(eventId, "error=resend_ticket_failed"));
+    resultQuery = "error=resend_ticket_failed";
   }
+
+  redirect(buildReturnUrl(eventId, resultQuery));
 }
 
 
