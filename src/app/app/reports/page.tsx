@@ -1992,6 +1992,80 @@ export default async function ReportsPage({
       ? "Use package renewal and no-upcoming-lesson follow-ups to keep lesson revenue moving."
       : "Membership revenue is playing a larger role. Review renewal timing and attendance patterns to protect recurring revenue.";
 
+  const ariaAccountingInsights = [
+    {
+      title: "Net revenue after expenses",
+      metric: fmtCurrency(profitAfterExpenses),
+      detail:
+        profitAfterExpenses >= 0
+          ? `After refunds, fees, and recorded expenses, this range is showing a positive profit preview of ${fmtCurrency(profitAfterExpenses)}.`
+          : `After refunds, fees, and recorded expenses, this range is showing a negative profit preview of ${fmtCurrency(Math.abs(profitAfterExpenses))}. Review expenses, refunds, and low-margin revenue sources before closing the period.`,
+      tone: profitAfterExpenses >= 0 ? "good" : "warning",
+    },
+    {
+      title: "Refund and fee impact",
+      metric: `${percentage(accountingSummary.refunds + accountingSummary.fees, Math.max(accountingSummary.revenue, 0))}`,
+      detail:
+        accountingSummary.revenue > 0
+          ? `Refunds and fees reduced gross revenue by ${fmtCurrency(accountingSummary.refunds + accountingSummary.fees)} for ${rangeLabel(range).toLowerCase()}.`
+          : "ARIA needs revenue activity before it can compare refund and fee impact for this range.",
+      tone:
+        accountingSummary.revenue > 0 &&
+        (accountingSummary.refunds + accountingSummary.fees) / accountingSummary.revenue > 0.12
+          ? "warning"
+          : "neutral",
+    },
+    {
+      title: "Package credit liability",
+      metric: fmtCurrency(packageOutstandingCreditValue),
+      detail:
+        packageOutstandingCreditValue > 0
+          ? `${fmtNumber(Math.round(packageCreditsRemainingPortfolio))} unused package credits remain active. Watch this balance so prepaid lesson obligations do not build up unnoticed.`
+          : "No active unused package credit value is showing in this reporting snapshot.",
+      tone: packageOutstandingCreditValue > packageCashCollected && packageOutstandingCreditValue > 0 ? "warning" : "neutral",
+    },
+    {
+      title: "Membership recurring revenue",
+      metric: fmtCurrency(monthlyRecurringRevenuePreview),
+      detail:
+        activeMemberships.length > 0
+          ? `${fmtNumber(activeMemberships.length)} active memberships are contributing to the monthly recurring revenue preview. ${pendingMemberships.length > 0 ? `${fmtNumber(pendingMemberships.length)} memberships need billing follow-up.` : "No pending membership billing issues are visible in this snapshot."}`
+          : "No active memberships are contributing to MRR yet. Consider promoting memberships to clients with consistent weekly lesson habits.",
+      tone: pendingMemberships.length > 0 || failedMembershipPayments.length > 0 ? "warning" : "good",
+    },
+    {
+      title: "Payout reconciliation",
+      metric:
+        payoutSummary.count > 0
+          ? `${fmtNumber(payoutSummary.matchedItems)} matched / ${fmtNumber(payoutSummary.unmatchedItems)} unmatched`
+          : "No payouts",
+      detail:
+        payoutSummary.unmatchedItems > 0
+          ? "Some payout items are not mapped to payments yet. Review payout reconciliation before closing this period."
+          : payoutSummary.count > 0
+            ? "Recent payout items are mapped cleanly for this range."
+            : "Payout reconciliation will appear after Stripe sends payout events for this studio.",
+      tone: payoutSummary.unmatchedItems > 0 || payoutSummary.failedCount > 0 ? "warning" : "neutral",
+    },
+    {
+      title: "Expense pressure",
+      metric: expenseToRevenueRatio,
+      detail:
+        accountingSummary.expenses > 0
+          ? `${fmtCurrency(accountingSummary.expenses)} in recorded expenses is included in the profit preview. Floor fees account for ${fmtCurrency(expenseToProfitBuckets.floorFees)}.`
+          : "No expenses are recorded for this range. Add floor fees and operating costs for a cleaner profit view.",
+      tone:
+        revenueAfterRefunds > 0 && accountingSummary.expenses / revenueAfterRefunds > 0.35
+          ? "warning"
+          : "neutral",
+    },
+  ] satisfies Array<{
+    title: string;
+    metric: string;
+    detail: string;
+    tone: "good" | "neutral" | "warning";
+  }>;
+
   const reportInsightsMetrics = {
     range: rangeLabel(range),
     plan: studioPlanCode ?? "starter",
@@ -2181,6 +2255,63 @@ export default async function ReportsPage({
         primaryAction={{ href: "/app/packages/client-balances", label: "Review balances" }}
         secondaryAction={{ href: "/app/marketing/campaigns", label: "Plan campaign" }}
       />
+
+      <section className="rounded-3xl border border-[#7C2D92]/20 bg-gradient-to-br from-white via-[#fff7fd] to-[#fff4e8] p-6 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+              ARIA Accounting Insights
+            </p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Finance signals to review before closing this period
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              Deterministic insights from the reporting data below. ARIA is not
+              changing records or making accounting decisions here — it is
+              highlighting items worth reviewing.
+            </p>
+          </div>
+          <Link
+            href={exportHref("/app/reports/export/accounting-map", range)}
+            className="inline-flex w-fit rounded-xl border border-[#7C2D92]/20 bg-white px-4 py-2 text-sm font-semibold text-[#7C2D92] hover:bg-[#FDF2F8]"
+          >
+            Export accounting map
+          </Link>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {ariaAccountingInsights.map((insight) => (
+            <div
+              key={insight.title}
+              className={`rounded-2xl border p-4 ${
+                insight.tone === "warning"
+                  ? "border-amber-200 bg-amber-50"
+                  : insight.tone === "good"
+                    ? "border-emerald-200 bg-emerald-50"
+                    : "border-white/80 bg-white/80"
+              }`}
+            >
+              <p
+                className={`text-xs font-semibold uppercase tracking-[0.16em] ${
+                  insight.tone === "warning"
+                    ? "text-amber-700"
+                    : insight.tone === "good"
+                      ? "text-emerald-700"
+                      : "text-slate-500"
+                }`}
+              >
+                {insight.title}
+              </p>
+              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                {insight.metric}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                {insight.detail}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
