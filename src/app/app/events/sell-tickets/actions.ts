@@ -1,5 +1,6 @@
 "use server";
 
+import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
@@ -215,32 +216,98 @@ async function insertAttendanceRecord(params: {
   }
 }
 
+async function insertManualTicketRecords(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  registration: InsertedRegistrationRow;
+  ticket: TicketTypeRow;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+}) {
+  const { supabase, registration, ticket, quantity, unitPrice, totalPrice } =
+    params;
+
+  const { error: itemError } = await supabase
+    .from("event_registration_items")
+    .insert({
+      registration_id: registration.id,
+      ticket_type_id: ticket.id,
+      ticket_name_snapshot: ticket.name,
+      quantity,
+      unit_price: unitPrice,
+      line_total: totalPrice,
+    });
+
+  if (itemError) {
+    throw new Error(
+      `Registration was created, but ticket item setup failed: ${itemError.message}`
+    );
+  }
+
+  const attendeeRows = Array.from({ length: quantity }, (_, index) => {
+    const suffix = randomUUID().replace(/-/g, "").slice(0, 12).toUpperCase();
+
+    return {
+      registration_id: registration.id,
+      event_id: registration.event_id,
+      ticket_type_id: ticket.id,
+      first_name: registration.attendee_first_name,
+      last_name:
+        quantity === 1
+          ? registration.attendee_last_name
+          : `${registration.attendee_last_name} ${index + 1}`.trim(),
+      email: index === 0 ? registration.attendee_email : null,
+      phone: index === 0 ? registration.attendee_phone ?? null : null,
+      attendee_role: "attendee",
+      sort_order: index + 1,
+      ticket_code: `MAN-${suffix}`,
+      ticket_token: randomUUID(),
+      ticket_issued_at: new Date().toISOString(),
+    };
+  });
+
+  const { error: attendeeError } = await supabase
+    .from("event_registration_attendees")
+    .insert(attendeeRows);
+
+  if (attendeeError) {
+    throw new Error(
+      `Registration was created, but QR ticket setup failed: ${attendeeError.message}`
+    );
+  }
+}
+
 async function logManualEventPayment(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
-  studioId: string;
   registration: InsertedRegistrationRow;
   amount: number;
   currency: string;
   paymentMethod: string;
+  notes?: string;
 }) {
-  const { supabase, studioId, registration, amount, currency, paymentMethod } =
+  const { supabase, registration, amount, currency, paymentMethod, notes } =
     params;
 
   if (amount <= 0 && paymentMethod === "comp") {
     return;
   }
 
-  const { error } = await supabase.from("event_payments").insert({
+  const paymentLog: Record<string, string | number | null> = {
     event_id: registration.event_id,
     registration_id: registration.id,
-    studio_id: studioId,
     amount,
     currency,
     payment_method: paymentMethod,
     status: "paid",
     source: "manual_ticket_sale",
     stripe_payment_intent_id: null,
-  });
+  };
+
+  if (notes) {
+    paymentLog.notes = notes;
+  }
+
+  const { error } = await supabase.from("event_payments").insert(paymentLog);
 
   if (error) {
     throw new Error(`Registration was created, but payment logging failed: ${error.message}`);
@@ -437,13 +504,24 @@ export async function sellTicketsAction(
       };
     }
 
+    await insertManualTicketRecords({
+      supabase,
+      registration,
+      ticket,
+      quantity,
+      unitPrice,
+      totalPrice,
+    });
+
     await logManualEventPayment({
       supabase,
-      studioId,
       registration,
       amount: totalPrice,
       currency,
       paymentMethod,
+      notes:
+        notes ||
+        `Manual ticket sale created from workspace by user ${userId}. Payment method: ${paymentMethod}.`,
     });
 
     await insertAttendanceRecord({
