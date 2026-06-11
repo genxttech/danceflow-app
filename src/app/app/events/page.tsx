@@ -1156,6 +1156,13 @@ export default async function EventsPage() {
                         Manage Tickets
                       </Link>
 
+                      <Link
+                        href={`/app/events/${event.id}/private-lessons`}
+                        className="inline-flex items-center justify-center rounded-xl border border-purple-200 bg-purple-50 px-4 py-2 text-sm font-medium text-purple-800 hover:bg-purple-100"
+                      >
+                        Manage Coach Slots
+                      </Link>
+
                       <div className="grid grid-cols-2 gap-2">
                         <Link
                           href={`/app/events/${event.id}/registrations`}

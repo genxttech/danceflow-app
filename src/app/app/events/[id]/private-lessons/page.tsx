@@ -525,10 +525,10 @@ export default async function EventPrivateLessonsPage({
               DanceFlow
             </div>
             <p className="mt-4 text-xs font-semibold uppercase tracking-[0.28em] text-[#F3D7FF]">
-              Guest coach private lessons
+              Guest coach slot management
             </p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight md:text-4xl">
-              Manage private lesson slots
+              Manage coach lesson slots
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-white/85 md:text-base">
               Book offline sales, block unavailable times, and release slots when plans change.
@@ -542,6 +542,12 @@ export default async function EventPrivateLessonsPage({
               className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
             >
               Back to Events
+            </Link>
+            <Link
+              href={`/app/events/${typedEvent.id}`}
+              className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+            >
+              Event Details
             </Link>
             <Link
               href={`/app/events/${typedEvent.id}/edit`}
