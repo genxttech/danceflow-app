@@ -23,6 +23,10 @@ type PaymentRow = {
   payment_method: string | null;
   payment_type: string | null;
   source: string | null;
+  client_package_id?: string | null;
+  client_membership_id?: string | null;
+  refunded_amount?: number | null;
+  refund_amount?: number | null;
   created_at: string;
   clients:
     | { first_name: string | null; last_name: string | null }
@@ -53,8 +57,13 @@ type ClientPackageRow = {
   active: boolean | null;
   created_at: string;
   name_snapshot: string | null;
-  price_snapshot: number | null;
-  sold_price: number | null;
+  lesson_count_snapshot?: number | string | null;
+  price_snapshot: number | string | null;
+  lessons_used?: number | string | null;
+  lessons_remaining?: number | string | null;
+  purchase_date?: string | null;
+  expiration_date?: string | null;
+  sold_price: number | string | null;
 };
 
 type ClientMembershipRow = {
@@ -65,6 +74,9 @@ type ClientMembershipRow = {
   price_snapshot: number | null;
   signup_fee_snapshot: number | null;
   billing_interval_snapshot: string | null;
+  current_period_end?: string | null;
+  auto_renew?: boolean | null;
+  cancel_at_period_end?: boolean | null;
 };
 
 type EventRegistrationRevenueRow = {
@@ -139,6 +151,7 @@ type ExpenseRow = {
   amount: number | null;
   currency: string | null;
   payment_method: string | null;
+  related_event_id?: string | null;
   notes: string | null;
   created_at: string;
 };
@@ -493,6 +506,56 @@ function percentage(part: number, total: number) {
   return `${Math.round((part / total) * 100)}%`;
 }
 
+function monthlyMembershipAmount(
+  amount: number,
+  interval: string | null | undefined,
+) {
+  const normalized = (interval ?? "month").toLowerCase();
+
+  if (normalized.includes("week")) return amount * 4.333;
+  if (normalized.includes("quarter")) return amount / 3;
+  if (normalized.includes("year") || normalized.includes("annual")) {
+    return amount / 12;
+  }
+
+  return amount;
+}
+
+function isMembershipPayment(payment: PaymentRow) {
+  const paymentType = (payment.payment_type ?? "").toLowerCase();
+  const source = (payment.source ?? "").toLowerCase();
+
+  return (
+    Boolean(payment.client_membership_id) ||
+    paymentType.includes("membership") ||
+    source.includes("membership")
+  );
+}
+
+function isPackagePayment(payment: PaymentRow) {
+  const paymentType = (payment.payment_type ?? "").toLowerCase();
+  const source = (payment.source ?? "").toLowerCase();
+
+  return (
+    Boolean(payment.client_package_id) ||
+    paymentType.includes("package") ||
+    source.includes("package")
+  );
+}
+
+function packageUnitCreditValue(pkg: ClientPackageRow) {
+  const soldPrice = moneyValue(pkg.sold_price ?? pkg.price_snapshot);
+  const creditCount = moneyValue(pkg.lesson_count_snapshot);
+
+  if (soldPrice <= 0 || creditCount <= 0) return 0;
+
+  return soldPrice / creditCount;
+}
+
+function packageOutstandingValue(pkg: ClientPackageRow) {
+  return packageUnitCreditValue(pkg) * Math.max(0, moneyValue(pkg.lessons_remaining));
+}
+
 function organizerContactName(contact: OrganizerContactReportRow) {
   const name = [contact.first_name, contact.last_name]
     .filter(Boolean)
@@ -577,7 +640,9 @@ export default async function ReportsPage({
     { data: leads, error: leadsError },
     { data: appointments, error: appointmentsError },
     { data: packages, error: packagesError },
+    { data: packagePortfolio, error: packagePortfolioError },
     { data: memberships, error: membershipsError },
+    { data: membershipPortfolio, error: membershipPortfolioError },
     { data: eventRegistrations, error: eventRegistrationsError },
     { data: expenses, error: expensesError },
     { data: instructors, error: instructorsError },
@@ -593,6 +658,10 @@ export default async function ReportsPage({
           payment_method,
           payment_type,
           source,
+          client_package_id,
+          client_membership_id,
+          refunded_amount,
+          refund_amount,
           created_at,
           clients (
             first_name,
@@ -627,7 +696,26 @@ export default async function ReportsPage({
     supabase
       .from("client_packages")
       .select(
-        "id, active, created_at, name_snapshot, price_snapshot, sold_price",
+        "id, active, created_at, name_snapshot, lesson_count_snapshot, price_snapshot, lessons_used, lessons_remaining, purchase_date, expiration_date, sold_price",
+      )
+      .eq("studio_id", studioId)
+      .gte("created_at", rangeStart)
+      .order("created_at", { ascending: false })
+      .limit(500),
+
+    supabase
+      .from("client_packages")
+      .select(
+        "id, active, created_at, name_snapshot, lesson_count_snapshot, price_snapshot, lessons_used, lessons_remaining, purchase_date, expiration_date, sold_price",
+      )
+      .eq("studio_id", studioId)
+      .order("created_at", { ascending: false })
+      .limit(1000),
+
+    supabase
+      .from("client_memberships")
+      .select(
+        "id, status, created_at, name_snapshot, price_snapshot, signup_fee_snapshot, billing_interval_snapshot, current_period_end, auto_renew, cancel_at_period_end",
       )
       .eq("studio_id", studioId)
       .gte("created_at", rangeStart)
@@ -637,12 +725,11 @@ export default async function ReportsPage({
     supabase
       .from("client_memberships")
       .select(
-        "id, status, created_at, name_snapshot, price_snapshot, signup_fee_snapshot, billing_interval_snapshot",
+        "id, status, created_at, name_snapshot, price_snapshot, signup_fee_snapshot, billing_interval_snapshot, current_period_end, auto_renew, cancel_at_period_end",
       )
       .eq("studio_id", studioId)
-      .gte("created_at", rangeStart)
       .order("created_at", { ascending: false })
-      .limit(500),
+      .limit(1000),
 
     supabase
       .from("event_registrations")
@@ -672,7 +759,7 @@ export default async function ReportsPage({
     supabase
       .from("expenses")
       .select(
-        "id, expense_date, vendor_name, category, amount, currency, payment_method, notes, created_at",
+        "id, expense_date, vendor_name, category, amount, currency, payment_method, related_event_id, notes, created_at",
       )
       .eq("studio_id", studioId)
       .gte("expense_date", rangeStartDateOnly)
@@ -713,9 +800,19 @@ export default async function ReportsPage({
       `Failed to load package report data: ${packagesError.message}`,
     );
   }
+  if (packagePortfolioError) {
+    throw new Error(
+      `Failed to load package portfolio report data: ${packagePortfolioError.message}`,
+    );
+  }
   if (membershipsError) {
     throw new Error(
       `Failed to load membership report data: ${membershipsError.message}`,
+    );
+  }
+  if (membershipPortfolioError) {
+    throw new Error(
+      `Failed to load membership portfolio report data: ${membershipPortfolioError.message}`,
     );
   }
   if (eventRegistrationsError) {
@@ -1001,7 +1098,10 @@ export default async function ReportsPage({
   const typedLeads = (leads ?? []) as ClientRow[];
   const typedAppointments = (appointments ?? []) as AppointmentRow[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
+  const typedPackagePortfolio = (packagePortfolio ?? []) as ClientPackageRow[];
   const typedMemberships = (memberships ?? []) as ClientMembershipRow[];
+  const typedMembershipPortfolio = (membershipPortfolio ??
+    []) as ClientMembershipRow[];
   const typedEventRegistrations = (eventRegistrations ??
     []) as EventRegistrationRevenueRow[];
 
@@ -1337,6 +1437,41 @@ export default async function ReportsPage({
       .values(),
   ).sort((a, b) => b.total - a.total);
 
+  const expenseToProfitBuckets = typedExpenses.reduce(
+    (summary, expense) => {
+      const category = (expense.category ?? "").toLowerCase();
+      const amount = moneyValue(expense.amount);
+
+      if (category === "floor_fee" || category === "floor_fees") {
+        summary.floorFees += amount;
+      } else if (
+        Boolean(expense.related_event_id) ||
+        category === "event_expense" ||
+        category.includes("event")
+      ) {
+        summary.eventRelated += amount;
+      } else {
+        summary.studioOperating += amount;
+      }
+
+      return summary;
+    },
+    {
+      floorFees: 0,
+      eventRelated: 0,
+      studioOperating: 0,
+    },
+  );
+
+  const revenueAfterRefunds =
+    accountingSummary.revenue - accountingSummary.refunds;
+  const netAfterFees = revenueAfterRefunds - accountingSummary.fees;
+  const profitAfterExpenses = accountingSummary.net;
+  const expenseToRevenueRatio = percentage(
+    accountingSummary.expenses,
+    Math.max(revenueAfterRefunds, 0),
+  );
+
   const revenueBreakdown: CategorySummary[] = [
     {
       key: "studio_payments",
@@ -1396,9 +1531,102 @@ export default async function ReportsPage({
     paidPayments.length + paidEventRegistrations.length;
 
   const packageRevenueSnapshot = typedPackages.reduce(
-    (sum, item) => sum + Number(item.sold_price ?? item.price_snapshot ?? 0),
+    (sum, item) => sum + moneyValue(item.sold_price ?? item.price_snapshot),
     0,
   );
+
+  const packagePaymentRows = typedPayments.filter(isPackagePayment);
+  const paidPackagePayments = packagePaymentRows.filter((payment) =>
+    ["completed", "paid", "succeeded"].includes(
+      (payment.status ?? "").toLowerCase(),
+    ),
+  );
+  const failedPackagePayments = packagePaymentRows.filter((payment) =>
+    ["failed", "declined", "canceled", "cancelled"].includes(
+      (payment.status ?? "").toLowerCase(),
+    ),
+  );
+  const refundedPackagePayments = packagePaymentRows.filter((payment) => {
+    const status = (payment.status ?? "").toLowerCase();
+    return (
+      status.includes("refund") ||
+      moneyValue(payment.refunded_amount) > 0 ||
+      moneyValue(payment.refund_amount) > 0
+    );
+  });
+
+  const packageCashCollected = paidPackagePayments.reduce(
+    (sum, payment) => sum + moneyValue(payment.amount),
+    0,
+  );
+  const packageRefundTotal = refundedPackagePayments.reduce(
+    (sum, payment) =>
+      sum +
+      Math.max(
+        moneyValue(payment.refunded_amount),
+        moneyValue(payment.refund_amount),
+      ),
+    0,
+  );
+
+  const activePackagePortfolio = typedPackagePortfolio.filter(
+    (pkg) => pkg.active !== false,
+  );
+  const inactivePackagePortfolio = typedPackagePortfolio.filter(
+    (pkg) => pkg.active === false,
+  );
+  const packageCreditsSoldThisPeriod = typedPackages.reduce(
+    (sum, pkg) => sum + moneyValue(pkg.lesson_count_snapshot),
+    0,
+  );
+  const packageCreditsUsedPortfolio = activePackagePortfolio.reduce(
+    (sum, pkg) => sum + moneyValue(pkg.lessons_used),
+    0,
+  );
+  const packageCreditsRemainingPortfolio = activePackagePortfolio.reduce(
+    (sum, pkg) => sum + Math.max(0, moneyValue(pkg.lessons_remaining)),
+    0,
+  );
+  const packageOutstandingCreditValue = activePackagePortfolio.reduce(
+    (sum, pkg) => sum + packageOutstandingValue(pkg),
+    0,
+  );
+  const inactivePackageOutstandingValue = inactivePackagePortfolio.reduce(
+    (sum, pkg) => sum + packageOutstandingValue(pkg),
+    0,
+  );
+  const lowCreditPackages = activePackagePortfolio.filter((pkg) => {
+    const remaining = moneyValue(pkg.lessons_remaining);
+    return remaining > 0 && remaining <= 2;
+  });
+  const zeroCreditPackages = activePackagePortfolio.filter(
+    (pkg) => moneyValue(pkg.lessons_remaining) <= 0,
+  );
+
+  const packagePlanLiabilityCounts = new Map<
+    string,
+    { name: string; count: number; remainingCredits: number; outstandingValue: number }
+  >();
+
+  for (const pkg of activePackagePortfolio) {
+    const name = pkg.name_snapshot?.trim() || "Unnamed Package";
+    const existing = packagePlanLiabilityCounts.get(name) ?? {
+      name,
+      count: 0,
+      remainingCredits: 0,
+      outstandingValue: 0,
+    };
+
+    existing.count += 1;
+    existing.remainingCredits += Math.max(0, moneyValue(pkg.lessons_remaining));
+    existing.outstandingValue += packageOutstandingValue(pkg);
+
+    packagePlanLiabilityCounts.set(name, existing);
+  }
+
+  const topPackageLiabilityPlans = Array.from(packagePlanLiabilityCounts.values())
+    .sort((a, b) => b.outstandingValue - a.outstandingValue)
+    .slice(0, 5);
 
   const membershipRevenueSnapshot = typedMemberships.reduce(
     (sum, item) =>
@@ -1407,6 +1635,102 @@ export default async function ReportsPage({
       Number(item.signup_fee_snapshot ?? 0),
     0,
   );
+
+  const membershipPaymentRows = typedPayments.filter(isMembershipPayment);
+  const paidMembershipPayments = membershipPaymentRows.filter((payment) =>
+    ["completed", "paid", "succeeded"].includes(
+      (payment.status ?? "").toLowerCase(),
+    ),
+  );
+  const failedMembershipPayments = membershipPaymentRows.filter((payment) =>
+    ["failed", "declined", "canceled", "cancelled"].includes(
+      (payment.status ?? "").toLowerCase(),
+    ),
+  );
+  const refundedMembershipPayments = membershipPaymentRows.filter((payment) => {
+    const status = (payment.status ?? "").toLowerCase();
+    return (
+      status.includes("refund") ||
+      Number(payment.refunded_amount ?? 0) > 0 ||
+      Number(payment.refund_amount ?? 0) > 0
+    );
+  });
+
+  const membershipPaymentRevenue = paidMembershipPayments.reduce(
+    (sum, payment) => sum + Number(payment.amount ?? 0),
+    0,
+  );
+  const membershipRefundTotal = refundedMembershipPayments.reduce(
+    (sum, payment) =>
+      sum +
+      Math.max(
+        Number(payment.refunded_amount ?? 0),
+        Number(payment.refund_amount ?? 0),
+      ),
+    0,
+  );
+
+  const membershipActiveStatuses = ["active", "trialing"];
+  const membershipPendingStatuses = ["pending", "past_due", "unpaid"];
+  const membershipCanceledStatuses = [
+    "cancelled",
+    "canceled",
+    "inactive",
+    "expired",
+    "ended",
+  ];
+
+  const activeMemberships = typedMembershipPortfolio.filter((membership) =>
+    membershipActiveStatuses.includes((membership.status ?? "").toLowerCase()),
+  );
+  const pendingMemberships = typedMembershipPortfolio.filter((membership) =>
+    membershipPendingStatuses.includes((membership.status ?? "").toLowerCase()),
+  );
+  const canceledMemberships = typedMembershipPortfolio.filter((membership) =>
+    membershipCanceledStatuses.includes(
+      (membership.status ?? "").toLowerCase(),
+    ),
+  );
+  const renewingMemberships = activeMemberships.filter(
+    (membership) => membership.auto_renew && !membership.cancel_at_period_end,
+  );
+  const endingMemberships = activeMemberships.filter(
+    (membership) => membership.cancel_at_period_end,
+  );
+  const monthlyRecurringRevenuePreview = activeMemberships.reduce(
+    (sum, membership) =>
+      sum +
+      monthlyMembershipAmount(
+        Number(membership.price_snapshot ?? 0),
+        membership.billing_interval_snapshot,
+      ),
+    0,
+  );
+
+  const membershipPlanCounts = new Map<
+    string,
+    { name: string; count: number; mrr: number }
+  >();
+
+  for (const membership of activeMemberships) {
+    const name = membership.name_snapshot?.trim() || "Unnamed Membership";
+    const existing = membershipPlanCounts.get(name) ?? {
+      name,
+      count: 0,
+      mrr: 0,
+    };
+
+    existing.count += 1;
+    existing.mrr += monthlyMembershipAmount(
+      Number(membership.price_snapshot ?? 0),
+      membership.billing_interval_snapshot,
+    );
+    membershipPlanCounts.set(name, existing);
+  }
+
+  const topMembershipPlans = Array.from(membershipPlanCounts.values())
+    .sort((a, b) => b.mrr - a.mrr)
+    .slice(0, 5);
 
   const leadsOnly = typedLeads.filter((item) => item.status === "lead");
   const convertedLeads = typedLeads.filter((item) => item.status === "active");
@@ -1858,6 +2182,72 @@ export default async function ReportsPage({
         secondaryAction={{ href: "/app/marketing/campaigns", label: "Plan campaign" }}
       />
 
+      <section>
+        {canViewProReports ? (
+          <div className="rounded-3xl border border-indigo-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">
+                  Accounting Export Mapping
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Accountant-Ready CSV
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Download a mapped accounting export that groups DanceFlow
+                  activity into revenue, refunds, Stripe fees, platform fees,
+                  expenses, packages, memberships, events, lessons, and floor
+                  rental categories.
+                </p>
+              </div>
+              <a
+                href={exportHref("/app/reports/export/accounting-map", range)}
+                className="inline-flex w-fit rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+              >
+                Download Accounting Map CSV
+              </a>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-indigo-50 p-4">
+                <p className="text-sm font-medium text-indigo-900">
+                  Bookkeeper Categories
+                </p>
+                <p className="mt-1 text-xs leading-5 text-indigo-900/70">
+                  Maps each entry into cleaner accounting types like revenue,
+                  refunds, processing fees, platform fees, and expenses.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm font-medium text-slate-800">
+                  Source Traceability
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Keeps source table, source ID, Stripe IDs, client/event IDs,
+                  status, and description attached for audit follow-up.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-900">
+                  Import-Friendly
+                </p>
+                <p className="mt-1 text-xs leading-5 text-amber-900/70">
+                  Built for accountant review and CSV import prep before a
+                  future QuickBooks or Wave integration.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Accounting Export Mapping"
+            title="Unlock accountant-ready exports"
+            description="Download mapped accounting CSVs for bookkeeping, reconciliation, and accounting tool imports with Pro."
+            requiredPlan="Pro"
+          />
+        )}
+      </section>
+
       <section className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-[#E9D5FF] bg-white p-6 shadow-sm">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2288,6 +2678,163 @@ export default async function ReportsPage({
         </div>
       </section>
 
+      <section className="rounded-3xl border border-emerald-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+              Expense-to-Profit Reporting
+            </p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Expense Impact & Profit Preview
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Connect recorded expenses to net revenue so studios can see how
+              floor fees, event costs, and operating expenses affect profit for
+              the selected range.
+            </p>
+          </div>
+          <Link
+            href="/app/expenses"
+            className="inline-flex w-fit rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
+          >
+            Manage Expenses
+          </Link>
+        </div>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-2xl bg-emerald-50 p-4">
+            <p className="text-sm font-medium text-emerald-900">
+              Revenue After Refunds
+            </p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight text-emerald-950">
+              {fmtCurrency(revenueAfterRefunds)}
+            </p>
+            <p className="mt-1 text-xs text-emerald-900/70">
+              Gross revenue minus refunds.
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-slate-50 p-4">
+            <p className="text-sm font-medium text-slate-700">After Fees</p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              {fmtCurrency(netAfterFees)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Revenue after refunds, Stripe fees, and platform fees.
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-rose-50 p-4">
+            <p className="text-sm font-medium text-rose-900">
+              Total Expenses
+            </p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight text-rose-950">
+              -{fmtCurrency(accountingSummary.expenses)}
+            </p>
+            <p className="mt-1 text-xs text-rose-900/70">
+              {fmtNumber(typedExpenses.length)} manually recorded expenses.
+            </p>
+          </div>
+
+          <div className="rounded-2xl bg-amber-50 p-4">
+            <p className="text-sm font-medium text-amber-900">
+              Expense Ratio
+            </p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight text-amber-950">
+              {expenseToRevenueRatio}
+            </p>
+            <p className="mt-1 text-xs text-amber-900/70">
+              Expenses compared to revenue after refunds.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-sm font-medium text-emerald-900">
+              Profit Preview
+            </p>
+            <p className="mt-2 text-2xl font-semibold tracking-tight text-emerald-950">
+              {fmtCurrency(profitAfterExpenses)}
+            </p>
+            <p className="mt-1 text-xs text-emerald-900/70">
+              Net after refunds, fees, and expenses.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-6 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Expense Buckets
+            </h3>
+            <div className="mt-4 space-y-3 text-sm">
+              <div className="flex items-center justify-between rounded-xl bg-white px-4 py-3">
+                <span className="font-medium text-slate-700">
+                  Floor fee expenses
+                </span>
+                <span className="font-semibold text-slate-950">
+                  -{fmtCurrency(expenseToProfitBuckets.floorFees)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-white px-4 py-3">
+                <span className="font-medium text-slate-700">
+                  Event-related expenses
+                </span>
+                <span className="font-semibold text-slate-950">
+                  -{fmtCurrency(expenseToProfitBuckets.eventRelated)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-xl bg-white px-4 py-3">
+                <span className="font-medium text-slate-700">
+                  Studio operating expenses
+                </span>
+                <span className="font-semibold text-slate-950">
+                  -{fmtCurrency(expenseToProfitBuckets.studioOperating)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Top Expense Categories
+            </h3>
+            <div className="mt-4 space-y-3">
+              {expenseCategorySummaries.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
+                  No expenses recorded in this range.
+                </p>
+              ) : (
+                expenseCategorySummaries.slice(0, 5).map((item) => (
+                  <div
+                    key={item.key}
+                    className="flex items-start justify-between gap-4 rounded-xl bg-white px-4 py-3"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-slate-950">
+                        {item.label}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {fmtNumber(item.count)} expenses
+                      </p>
+                    </div>
+                    <p className="text-sm font-semibold text-slate-950">
+                      -{fmtCurrency(item.total)}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900">
+          Profit Preview uses the accounting source-of-truth totals for revenue,
+          refunds, Stripe fees, platform fees, and expenses. Expense buckets use
+          the current expense records and categorize them by floor fee,
+          event-related, or studio operating expense.
+        </div>
+      </section>
+
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div>
@@ -2583,6 +3130,72 @@ export default async function ReportsPage({
         </div>
       </section>
 
+      <section>
+        {canViewProReports ? (
+          <div className="rounded-3xl border border-indigo-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">
+                  Accounting Export Mapping
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Accountant-Ready CSV
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Download a mapped accounting export that groups DanceFlow
+                  activity into revenue, refunds, Stripe fees, platform fees,
+                  expenses, packages, memberships, events, lessons, and floor
+                  rental categories.
+                </p>
+              </div>
+              <a
+                href={exportHref("/app/reports/export/accounting-map", range)}
+                className="inline-flex w-fit rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+              >
+                Download Accounting Map CSV
+              </a>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-indigo-50 p-4">
+                <p className="text-sm font-medium text-indigo-900">
+                  Bookkeeper Categories
+                </p>
+                <p className="mt-1 text-xs leading-5 text-indigo-900/70">
+                  Maps each entry into cleaner accounting types like revenue,
+                  refunds, processing fees, platform fees, and expenses.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm font-medium text-slate-800">
+                  Source Traceability
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Keeps source table, source ID, Stripe IDs, client/event IDs,
+                  status, and description attached for audit follow-up.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-900">
+                  Import-Friendly
+                </p>
+                <p className="mt-1 text-xs leading-5 text-amber-900/70">
+                  Built for accountant review and CSV import prep before a
+                  future QuickBooks or Wave integration.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Accounting Export Mapping"
+            title="Unlock accountant-ready exports"
+            description="Download mapped accounting CSVs for bookkeeping, reconciliation, and accounting tool imports with Pro."
+            requiredPlan="Pro"
+          />
+        )}
+      </section>
+
       <section className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
@@ -2829,6 +3442,72 @@ export default async function ReportsPage({
         </div>
       </section>
 
+      <section>
+        {canViewProReports ? (
+          <div className="rounded-3xl border border-indigo-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">
+                  Accounting Export Mapping
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Accountant-Ready CSV
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Download a mapped accounting export that groups DanceFlow
+                  activity into revenue, refunds, Stripe fees, platform fees,
+                  expenses, packages, memberships, events, lessons, and floor
+                  rental categories.
+                </p>
+              </div>
+              <a
+                href={exportHref("/app/reports/export/accounting-map", range)}
+                className="inline-flex w-fit rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+              >
+                Download Accounting Map CSV
+              </a>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-indigo-50 p-4">
+                <p className="text-sm font-medium text-indigo-900">
+                  Bookkeeper Categories
+                </p>
+                <p className="mt-1 text-xs leading-5 text-indigo-900/70">
+                  Maps each entry into cleaner accounting types like revenue,
+                  refunds, processing fees, platform fees, and expenses.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm font-medium text-slate-800">
+                  Source Traceability
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Keeps source table, source ID, Stripe IDs, client/event IDs,
+                  status, and description attached for audit follow-up.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-900">
+                  Import-Friendly
+                </p>
+                <p className="mt-1 text-xs leading-5 text-amber-900/70">
+                  Built for accountant review and CSV import prep before a
+                  future QuickBooks or Wave integration.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Accounting Export Mapping"
+            title="Unlock accountant-ready exports"
+            description="Download mapped accounting CSVs for bookkeeping, reconciliation, and accounting tool imports with Pro."
+            requiredPlan="Pro"
+          />
+        )}
+      </section>
+
       <section className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
@@ -3007,6 +3686,72 @@ export default async function ReportsPage({
         )}
       </section>
 
+      <section>
+        {canViewProReports ? (
+          <div className="rounded-3xl border border-indigo-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">
+                  Accounting Export Mapping
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Accountant-Ready CSV
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Download a mapped accounting export that groups DanceFlow
+                  activity into revenue, refunds, Stripe fees, platform fees,
+                  expenses, packages, memberships, events, lessons, and floor
+                  rental categories.
+                </p>
+              </div>
+              <a
+                href={exportHref("/app/reports/export/accounting-map", range)}
+                className="inline-flex w-fit rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+              >
+                Download Accounting Map CSV
+              </a>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-indigo-50 p-4">
+                <p className="text-sm font-medium text-indigo-900">
+                  Bookkeeper Categories
+                </p>
+                <p className="mt-1 text-xs leading-5 text-indigo-900/70">
+                  Maps each entry into cleaner accounting types like revenue,
+                  refunds, processing fees, platform fees, and expenses.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm font-medium text-slate-800">
+                  Source Traceability
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Keeps source table, source ID, Stripe IDs, client/event IDs,
+                  status, and description attached for audit follow-up.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-900">
+                  Import-Friendly
+                </p>
+                <p className="mt-1 text-xs leading-5 text-amber-900/70">
+                  Built for accountant review and CSV import prep before a
+                  future QuickBooks or Wave integration.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Accounting Export Mapping"
+            title="Unlock accountant-ready exports"
+            description="Download mapped accounting CSVs for bookkeeping, reconciliation, and accounting tool imports with Pro."
+            requiredPlan="Pro"
+          />
+        )}
+      </section>
+
       <section className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold tracking-tight text-slate-950">
@@ -3075,56 +3820,193 @@ export default async function ReportsPage({
         </div>
 
         {canViewGrowthReports ? (
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-              Packages snapshot
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Package activity and top-selling package names.
-            </p>
+          <div className="rounded-3xl border border-[#BAE6FD] bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#0369A1]">
+                  Package Liability & Credits
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Package Sales, Usage & Unused Credit Value
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Monitor cash collected from package sales, remaining lesson credits,
+                  estimated unused credit value, and clients approaching zero credits.
+                </p>
+              </div>
+              <Link
+                href="/app/packages/sell"
+                className="inline-flex w-fit rounded-xl border border-sky-200 px-4 py-2 text-sm font-semibold text-sky-700 hover:bg-sky-50"
+              >
+                Sell Packages
+              </Link>
+            </div>
 
-            <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Packages Sold</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {fmtNumber(typedPackages.length)}
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl bg-sky-50 p-4">
+                <p className="text-sm font-medium text-sky-800">
+                  Package Cash Collected
+                </p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {fmtCurrency(packageCashCollected)}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Paid package payments in this range.
                 </p>
               </div>
 
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">
-                  Package Revenue Snapshot
+              <div className="rounded-2xl bg-cyan-50 p-4">
+                <p className="text-sm font-medium text-cyan-800">
+                  Unused Credit Value
                 </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {fmtCurrency(packageRevenueSnapshot)}
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {fmtCurrency(packageOutstandingCreditValue)}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Estimated value of remaining active package credits.
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-emerald-50 p-4">
+                <p className="text-sm font-medium text-emerald-800">
+                  Credits Remaining
+                </p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {fmtNumber(packageCreditsRemainingPortfolio)}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Active unused package lessons.
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-800">
+                  Low / Zero Credit Packages
+                </p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {fmtNumber(lowCreditPackages.length + zeroCreditPackages.length)}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Clients needing renewal follow-up.
                 </p>
               </div>
             </div>
 
-            <div className="mt-6">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-                Top Packages
-              </h3>
-              <div className="mt-3 space-y-3">
-                {topPackages.length === 0 ? (
-                  <p className="text-sm text-slate-500">
-                    No package sales in this range.
-                  </p>
-                ) : (
-                  topPackages.map(([name, count]) => (
-                    <div
-                      key={name}
-                      className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
-                    >
-                      <span className="text-sm font-medium text-slate-700">
-                        {name}
-                      </span>
-                      <span className="text-sm font-semibold text-slate-950">
-                        {fmtNumber(count)}
-                      </span>
-                    </div>
-                  ))
-                )}
+            <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Packages Sold</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(typedPackages.length)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {fmtNumber(packageCreditsSoldThisPeriod)} credits sold this range.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Package Revenue Snapshot</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtCurrency(packageRevenueSnapshot)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Uses package sold price snapshots.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Credits Used</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtNumber(packageCreditsUsedPortfolio)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Consumed credits across active packages.
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Package Refunds / Failed</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  {fmtCurrency(packageRefundTotal)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {fmtNumber(failedPackagePayments.length)} failed package payments.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-dashed border-sky-200 bg-sky-50/70 p-4">
+              <p className="text-sm font-semibold text-sky-900">
+                Management reporting preview
+              </p>
+              <p className="mt-1 text-sm leading-6 text-sky-900/80">
+                Unused credit value estimates remaining lesson value from package
+                sold price divided by original lesson count. It is designed for
+                operational visibility and is not formal deferred-revenue accounting.
+              </p>
+              <p className="mt-2 text-xs text-sky-900/70">
+                Inactive package remaining value: {fmtCurrency(inactivePackageOutstandingValue)}
+              </p>
+            </div>
+
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  Top Packages Sold
+                </h3>
+                <div className="mt-3 space-y-3">
+                  {topPackages.length === 0 ? (
+                    <p className="text-sm text-slate-500">
+                      No package sales in this range.
+                    </p>
+                  ) : (
+                    topPackages.map(([name, count]) => (
+                      <div
+                        key={name}
+                        className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                      >
+                        <span className="text-sm font-medium text-slate-700">
+                          {name}
+                        </span>
+                        <span className="text-sm font-semibold text-slate-950">
+                          {fmtNumber(count)}
+                        </span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  Top Unused Credit Value
+                </h3>
+                <div className="mt-3 space-y-3">
+                  {topPackageLiabilityPlans.length === 0 ? (
+                    <p className="text-sm text-slate-500">
+                      No active unused package balances yet.
+                    </p>
+                  ) : (
+                    topPackageLiabilityPlans.map((plan) => (
+                      <div
+                        key={plan.name}
+                        className="rounded-xl bg-slate-50 px-4 py-3"
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-sm font-medium text-slate-700">
+                            {plan.name}
+                          </span>
+                          <span className="text-sm font-semibold text-slate-950">
+                            {fmtCurrency(plan.outstandingValue)}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {fmtNumber(plan.count)} active packages ·{" "}
+                          {fmtNumber(plan.remainingCredits)} credits remaining
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -3138,37 +4020,234 @@ export default async function ReportsPage({
         )}
       </section>
 
+      <section>
+        {canViewProReports ? (
+          <div className="rounded-3xl border border-indigo-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">
+                  Accounting Export Mapping
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Accountant-Ready CSV
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Download a mapped accounting export that groups DanceFlow
+                  activity into revenue, refunds, Stripe fees, platform fees,
+                  expenses, packages, memberships, events, lessons, and floor
+                  rental categories.
+                </p>
+              </div>
+              <a
+                href={exportHref("/app/reports/export/accounting-map", range)}
+                className="inline-flex w-fit rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+              >
+                Download Accounting Map CSV
+              </a>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-indigo-50 p-4">
+                <p className="text-sm font-medium text-indigo-900">
+                  Bookkeeper Categories
+                </p>
+                <p className="mt-1 text-xs leading-5 text-indigo-900/70">
+                  Maps each entry into cleaner accounting types like revenue,
+                  refunds, processing fees, platform fees, and expenses.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm font-medium text-slate-800">
+                  Source Traceability
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Keeps source table, source ID, Stripe IDs, client/event IDs,
+                  status, and description attached for audit follow-up.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-900">
+                  Import-Friendly
+                </p>
+                <p className="mt-1 text-xs leading-5 text-amber-900/70">
+                  Built for accountant review and CSV import prep before a
+                  future QuickBooks or Wave integration.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Accounting Export Mapping"
+            title="Unlock accountant-ready exports"
+            description="Download mapped accounting CSVs for bookkeeping, reconciliation, and accounting tool imports with Pro."
+            requiredPlan="Pro"
+          />
+        )}
+      </section>
+
       <section className="grid gap-6 xl:grid-cols-2">
         {canViewGrowthReports ? (
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-semibold tracking-tight text-slate-950">
-              Membership snapshot
-            </h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Membership activity recorded for the selected date range.
-            </p>
+          <div className="rounded-3xl border border-[#D8B4FE] bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                  Membership Accounting
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Membership Revenue & Recurring Income
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Track active memberships, new memberships, payments, failed billing,
+                  refunds, and monthly recurring revenue preview.
+                </p>
+              </div>
+              <Link
+                href="/app/memberships"
+                className="inline-flex w-fit rounded-xl border border-[#E9D5FF] px-4 py-2 text-sm font-semibold text-[#6B21A8] hover:bg-[#F3E8FF]"
+              >
+                Manage Memberships
+              </Link>
+            </div>
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">Memberships Started</p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {fmtNumber(typedMemberships.length)}
+              <div className="rounded-2xl bg-[#FAF5FF] p-4">
+                <p className="text-sm font-medium text-[#6B21A8]">MRR Preview</p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {fmtCurrency(monthlyRecurringRevenuePreview)}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Based on active memberships and billing interval snapshots.
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-emerald-50 p-4">
+                <p className="text-sm font-medium text-emerald-800">
+                  Active Memberships
+                </p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {fmtNumber(activeMemberships.length)}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  {fmtNumber(renewingMemberships.length)} set to auto-renew.
                 </p>
               </div>
 
               <div className="rounded-2xl bg-slate-50 p-4">
-                <p className="text-sm text-slate-500">
-                  Membership Revenue Snapshot
+                <p className="text-sm font-medium text-slate-700">
+                  New This Period
                 </p>
-                <p className="mt-2 text-2xl font-semibold text-slate-950">
-                  {fmtCurrency(membershipRevenueSnapshot)}
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {fmtNumber(typedMemberships.length)}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Snapshot value {fmtCurrency(membershipRevenueSnapshot)}.
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-800">
+                  Needs Attention
+                </p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {fmtNumber(pendingMemberships.length + failedMembershipPayments.length)}
+                </p>
+                <p className="mt-1 text-xs text-slate-600">
+                  Pending/past-due memberships plus failed membership payments.
                 </p>
               </div>
             </div>
 
-            <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-              Use this section to review membership starts and recorded
-              membership revenue for the selected range.
+            <div className="mt-6 grid gap-4 lg:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-950">
+                  Payments This Period
+                </p>
+                <div className="mt-3 space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Paid membership payments</span>
+                    <span className="font-semibold text-slate-950">
+                      {fmtCurrency(membershipPaymentRevenue)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Payment records</span>
+                    <span className="font-semibold text-slate-950">
+                      {fmtNumber(paidMembershipPayments.length)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-600">Refunds</span>
+                    <span className="font-semibold text-slate-950">
+                      -{fmtCurrency(membershipRefundTotal)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-950">
+                  Portfolio Status
+                </p>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-lg font-semibold text-slate-950">
+                      {fmtNumber(activeMemberships.length)}
+                    </p>
+                    <p className="text-xs text-slate-500">Active</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-lg font-semibold text-slate-950">
+                      {fmtNumber(pendingMemberships.length)}
+                    </p>
+                    <p className="text-xs text-slate-500">Pending / past due</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-lg font-semibold text-slate-950">
+                      {fmtNumber(endingMemberships.length)}
+                    </p>
+                    <p className="text-xs text-slate-500">Ending</p>
+                  </div>
+                  <div className="rounded-xl bg-white p-3">
+                    <p className="text-lg font-semibold text-slate-950">
+                      {fmtNumber(canceledMemberships.length)}
+                    </p>
+                    <p className="text-xs text-slate-500">Canceled / inactive</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-950">
+                  Top Active Plans
+                </p>
+                <div className="mt-3 space-y-2">
+                  {topMembershipPlans.length === 0 ? (
+                    <p className="rounded-xl bg-white p-3 text-sm text-slate-500">
+                      No active membership plans yet.
+                    </p>
+                  ) : (
+                    topMembershipPlans.map((plan) => (
+                      <div
+                        key={plan.name}
+                        className="flex items-center justify-between gap-3 rounded-xl bg-white p-3"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">
+                            {plan.name}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {fmtNumber(plan.count)} active
+                          </p>
+                        </div>
+                        <p className="text-sm font-semibold text-slate-950">
+                          {fmtCurrency(plan.mrr)}
+                        </p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         ) : (
@@ -3538,6 +4617,72 @@ export default async function ReportsPage({
         </section>
       ) : null}
 
+      <section>
+        {canViewProReports ? (
+          <div className="rounded-3xl border border-indigo-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">
+                  Accounting Export Mapping
+                </p>
+                <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                  Accountant-Ready CSV
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Download a mapped accounting export that groups DanceFlow
+                  activity into revenue, refunds, Stripe fees, platform fees,
+                  expenses, packages, memberships, events, lessons, and floor
+                  rental categories.
+                </p>
+              </div>
+              <a
+                href={exportHref("/app/reports/export/accounting-map", range)}
+                className="inline-flex w-fit rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2 text-sm font-semibold text-indigo-800 hover:bg-indigo-100"
+              >
+                Download Accounting Map CSV
+              </a>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl bg-indigo-50 p-4">
+                <p className="text-sm font-medium text-indigo-900">
+                  Bookkeeper Categories
+                </p>
+                <p className="mt-1 text-xs leading-5 text-indigo-900/70">
+                  Maps each entry into cleaner accounting types like revenue,
+                  refunds, processing fees, platform fees, and expenses.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm font-medium text-slate-800">
+                  Source Traceability
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Keeps source table, source ID, Stripe IDs, client/event IDs,
+                  status, and description attached for audit follow-up.
+                </p>
+              </div>
+              <div className="rounded-2xl bg-amber-50 p-4">
+                <p className="text-sm font-medium text-amber-900">
+                  Import-Friendly
+                </p>
+                <p className="mt-1 text-xs leading-5 text-amber-900/70">
+                  Built for accountant review and CSV import prep before a
+                  future QuickBooks or Wave integration.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <LockedReportCard
+            eyebrow="Accounting Export Mapping"
+            title="Unlock accountant-ready exports"
+            description="Download mapped accounting CSVs for bookkeeping, reconciliation, and accounting tool imports with Pro."
+            requiredPlan="Pro"
+          />
+        )}
+      </section>
+
       <section className="grid gap-6 xl:grid-cols-2">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex items-center justify-between gap-4">
@@ -3642,6 +4787,12 @@ export default async function ReportsPage({
                 className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium text-slate-700 hover:bg-slate-100"
               >
                 Export Expenses CSV
+              </a>
+              <a
+                href={exportHref("/app/reports/export/accounting-map", range)}
+                className="rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-4 text-sm font-medium text-indigo-800 hover:bg-indigo-100"
+              >
+                Export Accountant-Ready Accounting Map CSV
               </a>
               <a
                 href={exportHref(
