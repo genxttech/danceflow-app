@@ -5,6 +5,7 @@ import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   resendEventTicketConfirmationAction,
+  updateEventRegistrationAttendeeAction,
   upsertEventAttendanceAction,
 } from "./actions";
 
@@ -297,6 +298,13 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.success === "attendee_updated") {
+    return {
+      kind: "success" as const,
+      message: "Attendee details updated.",
+    };
+  }
+
   if (search.success === "registration_confirmed") {
     return {
       kind: "success" as const,
@@ -420,6 +428,27 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "Could not queue the ticket confirmation email.",
+    };
+  }
+
+  if (search.error === "attendee_not_found") {
+    return {
+      kind: "error" as const,
+      message: "Attendee record not found for this registration.",
+    };
+  }
+
+  if (search.error === "attendee_name_required") {
+    return {
+      kind: "error" as const,
+      message: "Attendee first and last name are required.",
+    };
+  }
+
+  if (search.error === "attendee_update_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not update attendee details.",
     };
   }
 
@@ -1144,6 +1173,82 @@ export default async function EventRegistrationsPage({
                                           ? ` • ${attendee.phone}`
                                           : ""}
                                       </p>
+                                      <details className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                                        <summary className="cursor-pointer text-xs font-semibold text-slate-700">
+                                          Edit attendee details
+                                        </summary>
+                                        <form
+                                          action={updateEventRegistrationAttendeeAction}
+                                          className="mt-3 grid gap-3 md:grid-cols-2"
+                                        >
+                                          <input
+                                            type="hidden"
+                                            name="eventId"
+                                            value={typedEvent.id}
+                                          />
+                                          <input
+                                            type="hidden"
+                                            name="registrationId"
+                                            value={registration.id}
+                                          />
+                                          <input
+                                            type="hidden"
+                                            name="attendeeId"
+                                            value={attendee.id}
+                                          />
+
+                                          <label className="text-xs font-medium text-slate-700">
+                                            First name
+                                            <input
+                                              name="firstName"
+                                              defaultValue={attendee.first_name ?? ""}
+                                              required
+                                              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                          </label>
+
+                                          <label className="text-xs font-medium text-slate-700">
+                                            Last name
+                                            <input
+                                              name="lastName"
+                                              defaultValue={attendee.last_name ?? ""}
+                                              required
+                                              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                          </label>
+
+                                          <label className="text-xs font-medium text-slate-700">
+                                            Email
+                                            <input
+                                              name="email"
+                                              type="email"
+                                              defaultValue={attendee.email ?? ""}
+                                              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                          </label>
+
+                                          <label className="text-xs font-medium text-slate-700">
+                                            Phone
+                                            <input
+                                              name="phone"
+                                              defaultValue={attendee.phone ?? ""}
+                                              className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                                            />
+                                          </label>
+
+                                          <div className="md:col-span-2">
+                                            <button
+                                              type="submit"
+                                              className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                                            >
+                                              Save attendee
+                                            </button>
+                                            <p className="mt-2 text-xs text-slate-500">
+                                              This updates the attendee name/contact only. QR code and check-in status stay unchanged.
+                                            </p>
+                                          </div>
+                                        </form>
+                                      </details>
                                     </div>
                                   </div>
 

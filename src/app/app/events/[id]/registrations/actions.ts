@@ -1621,6 +1621,102 @@ export async function resendEventTicketConfirmationAction(formData: FormData) {
 }
 
 
+export async function updateEventRegistrationAttendeeAction(formData: FormData) {
+  const eventId = getString(formData, "eventId");
+  const registrationId = getString(formData, "registrationId");
+  const attendeeId = getString(formData, "attendeeId");
+  const firstName = getString(formData, "firstName");
+  const lastName = getString(formData, "lastName");
+  const email = getString(formData, "email");
+  const phone = getString(formData, "phone");
+
+  if (!eventId || !registrationId || !attendeeId) {
+    redirect("/app/events");
+  }
+
+  if (!firstName || !lastName) {
+    redirect(buildReturnUrl(eventId, "error=attendee_name_required"));
+  }
+
+  try {
+    const { supabase, studioId } = await getStudioContext();
+    await validateEventAccess(supabase, eventId, studioId);
+
+    const registration = await getRegistrationForEvent({
+      supabase,
+      eventId,
+      registrationId,
+    });
+
+    if (!registration) {
+      redirect(buildReturnUrl(eventId, "error=registration_not_found"));
+    }
+
+    const { data: attendee, error: attendeeLookupError } = await supabase
+      .from("event_registration_attendees")
+      .select("id, registration_id, event_id, sort_order")
+      .eq("id", attendeeId)
+      .eq("registration_id", registrationId)
+      .eq("event_id", eventId)
+      .maybeSingle<{
+        id: string;
+        registration_id: string;
+        event_id: string | null;
+        sort_order: number | null;
+      }>();
+
+    if (attendeeLookupError) {
+      throw new Error(attendeeLookupError.message);
+    }
+
+    if (!attendee) {
+      redirect(buildReturnUrl(eventId, "error=attendee_not_found"));
+    }
+
+    const payload = {
+      first_name: firstName,
+      last_name: lastName,
+      email: email || null,
+      phone: phone || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error: attendeeUpdateError } = await supabase
+      .from("event_registration_attendees")
+      .update(payload)
+      .eq("id", attendeeId)
+      .eq("registration_id", registrationId)
+      .eq("event_id", eventId);
+
+    if (attendeeUpdateError) {
+      throw new Error(attendeeUpdateError.message);
+    }
+
+    if (Number(attendee.sort_order ?? 1) === 1) {
+      const { error: registrationUpdateError } = await supabase
+        .from("event_registrations")
+        .update({
+          attendee_first_name: firstName,
+          attendee_last_name: lastName,
+          attendee_email: email || registration.attendee_email,
+          attendee_phone: phone || null,
+        })
+        .eq("id", registrationId)
+        .eq("event_id", eventId);
+
+      if (registrationUpdateError) {
+        throw new Error(registrationUpdateError.message);
+      }
+    }
+
+    redirect(buildReturnUrl(eventId, "success=attendee_updated"));
+  } catch (error) {
+    console.error("update event registration attendee failed:", error);
+    redirect(buildReturnUrl(eventId, "error=attendee_update_failed"));
+  }
+}
+
+
 export async function refundEventRegistrationAction(formData: FormData) {
   const eventId = getString(formData, "eventId");
   const registrationId = getString(formData, "registrationId");
