@@ -1506,6 +1506,12 @@ export default async function EventRegistrationsPage({
                       <p className="mt-1 text-lg font-semibold text-slate-900">
                         {formatCurrency(amount, currency)}
                       </p>
+                      <Link
+                        href={`/app/events/${typedEvent.id}/registrations/${registration.id}`}
+                        className="mt-3 inline-flex rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                      >
+                        View details
+                      </Link>
                     </div>
                   </div>
 
