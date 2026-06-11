@@ -6,6 +6,8 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import ReportInsightsCard from "./ReportInsightsCard";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
+import AriaAccountingInsightsSection from "@/components/app/reports/AriaAccountingInsightsSection";
+import ReportReadinessCard from "@/components/app/reports/ReportReadinessCard";
 import {
   accountingCategoryLabel,
   getStudioAccountingEntries,
@@ -2256,121 +2258,33 @@ export default async function ReportsPage({
         secondaryAction={{ href: "/app/marketing/campaigns", label: "Plan campaign" }}
       />
 
-      <section className="rounded-3xl border border-[#7C2D92]/20 bg-gradient-to-br from-white via-[#fff7fd] to-[#fff4e8] p-6 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
-              ARIA Accounting Insights
-            </p>
-            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-              Finance signals to review before closing this period
-            </h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-              Deterministic insights from the reporting data below. ARIA is not
-              changing records or making accounting decisions here — it is
-              highlighting items worth reviewing.
-            </p>
-          </div>
-          <Link
-            href={exportHref("/app/reports/export/accounting-map", range)}
-            className="inline-flex w-fit rounded-xl border border-[#7C2D92]/20 bg-white px-4 py-2 text-sm font-semibold text-[#7C2D92] hover:bg-[#FDF2F8]"
-          >
-            Export accounting map
-          </Link>
-        </div>
+      <AriaAccountingInsightsSection
+        insights={ariaAccountingInsights}
+        exportHref={exportHref("/app/reports/export/accounting-map", range)}
+      />
 
-        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {ariaAccountingInsights.map((insight) => (
-            <div
-              key={insight.title}
-              className={`rounded-2xl border p-4 ${
-                insight.tone === "warning"
-                  ? "border-amber-200 bg-amber-50"
-                  : insight.tone === "good"
-                    ? "border-emerald-200 bg-emerald-50"
-                    : "border-white/80 bg-white/80"
-              }`}
-            >
-              <p
-                className={`text-xs font-semibold uppercase tracking-[0.16em] ${
-                  insight.tone === "warning"
-                    ? "text-amber-700"
-                    : insight.tone === "good"
-                      ? "text-emerald-700"
-                      : "text-slate-500"
-                }`}
-              >
-                {insight.title}
-              </p>
-              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                {insight.metric}
-              </p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
-                {insight.detail}
-              </p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-              Report Readiness
-            </p>
-            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-              Data health for this reporting period
-            </h2>
-            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-              These reports are management previews. They become more useful as
-              payments, refunds, fees, expenses, memberships, packages, payouts,
-              and client profile data are recorded consistently in DanceFlow.
-            </p>
-          </div>
-          <Link
-            href="/app/expenses"
-            className="inline-flex w-fit rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-          >
-            Review expenses
-          </Link>
-        </div>
-
-        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-            <p className="text-sm font-semibold text-emerald-950">Revenue data</p>
-            <p className="mt-1 text-xs leading-5 text-emerald-900/75">
-              {revenueTotal > 0
-                ? `${fmtNumber(paidRevenueItemsCount)} paid records are included for ${rangeLabel(range).toLowerCase()}.`
-                : "No paid revenue is recorded for this period yet."}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
-            <p className="text-sm font-semibold text-amber-950">Expense data</p>
-            <p className="mt-1 text-xs leading-5 text-amber-900/75">
-              {manualExpensesTotal > 0
-                ? `${fmtCurrency(manualExpensesTotal)} in expenses are included in profit previews.`
-                : "No expenses are recorded for this period. Add expenses to improve profit previews."}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-indigo-100 bg-indigo-50 p-4">
-            <p className="text-sm font-semibold text-indigo-950">Accounting depth</p>
-            <p className="mt-1 text-xs leading-5 text-indigo-900/75">
-              {accountingEntries.length > 0
-                ? `${fmtNumber(accountingEntries.length)} normalized accounting entries support this view.`
-                : "No normalized accounting entries were found for this period."}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-950">Operational coverage</p>
-            <p className="mt-1 text-xs leading-5 text-slate-600">
-              {payoutSummary.count > 0 || activeMemberships.length > 0 || topPackageLiabilityPlans.length > 0
-                ? "Payout, membership, and package sections will display when matching data exists."
-                : "Payouts, memberships, and package balances will appear here after activity is recorded."}
-            </p>
-          </div>
-        </div>
-      </section>
+      <ReportReadinessCard
+        revenueDataMessage={
+          revenueTotal > 0
+            ? `${fmtNumber(paidRevenueItemsCount)} paid records are included for ${rangeLabel(range).toLowerCase()}.`
+            : "No paid revenue is recorded for this period yet."
+        }
+        expenseDataMessage={
+          manualExpensesTotal > 0
+            ? `${fmtCurrency(manualExpensesTotal)} in expenses are included in profit previews.`
+            : "No expenses are recorded for this period. Add expenses to improve profit previews."
+        }
+        accountingDepthMessage={
+          accountingEntries.length > 0
+            ? `${fmtNumber(accountingEntries.length)} normalized accounting entries support this view.`
+            : "No normalized accounting entries were found for this period."
+        }
+        operationalCoverageMessage={
+          payoutSummary.count > 0 || activeMemberships.length > 0 || topPackageLiabilityPlans.length > 0
+            ? "Payout, membership, and package sections will display when matching data exists."
+            : "Payouts, memberships, and package balances will appear here after activity is recorded."
+        }
+      />
 
       <section>
         {canViewProReports ? (

@@ -54,6 +54,47 @@ export function isActivePath(pathname: string, href: string) {
 function normalizeNavLabel(item: NavItem) {
   const lower = item.label.trim().toLowerCase();
 
+  if (item.href === "/app/aria" || lower === "aria") {
+    return "Consult with ARIA";
+  }
+
+  if (item.href === "/app/reports" || lower === "reports") {
+    return "Reports & Accounting";
+  }
+
+  if (item.href === "/app/packages") {
+    return "Package Templates";
+  }
+
+  if (item.href === "/app/packages/sell") {
+    return "Sell a Package";
+  }
+
+  if (item.href === "/app/memberships") {
+    return "Membership Templates";
+  }
+
+  if (item.href === "/app/memberships/sell") {
+    return "Sell a Membership";
+  }
+
+  if (item.href === "/app/events/sell-tickets") {
+    return "Sell Event Tickets";
+  }
+
+  if (item.href === "/app/events/checkin" || item.href === "/app/events/check-in") {
+    return "Event Check-In";
+  }
+
+  if (item.href === "/app/documents") {
+    return "Waivers & Documents";
+  }
+
+  if (item.href === "/app/marketing" || item.href === "/app/campaigns") {
+    return "Email Marketing";
+  }
+
+
   if (
     item.href === "/app/settings/billing" ||
     lower === "billing" ||
@@ -626,7 +667,7 @@ function injectAriaLink(sections: NavSectionType[]): NavSectionType[] {
   }
 
   const ariaItem: NavItem = {
-    label: "ARIA",
+    label: "Consult with ARIA",
     href: "/app/aria",
     icon: "aria",
   };
@@ -767,6 +808,203 @@ function injectAutomationsLink(sections: NavSectionType[]): NavSectionType[] {
   ];
 }
 
+function injectDirectTaskLinks(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const hasHref = (href: string) => flatItems.some((item) => item.href === href);
+
+  const additions: NavItem[] = [];
+
+  if (hasHref("/app/clients") && !hasHref("/app/clients/new")) {
+    additions.push({
+      label: "Add Client",
+      href: "/app/clients/new",
+      icon: "clients",
+    });
+  }
+
+  if (hasHref("/app/packages") && !hasHref("/app/packages/sell")) {
+    additions.push({
+      label: "Sell a Package",
+      href: "/app/packages/sell",
+      icon: "packages",
+    });
+  }
+
+  if (hasHref("/app/memberships") && !hasHref("/app/memberships/sell")) {
+    additions.push({
+      label: "Sell a Membership",
+      href: "/app/memberships/sell",
+      icon: "memberships",
+    });
+  }
+
+  if (hasHref("/app/reports") && !hasHref("/app/reports/client-birthdays")) {
+    additions.push({
+      label: "Birthday Outreach",
+      href: "/app/reports/client-birthdays",
+      icon: "reports",
+    });
+  }
+
+  if (additions.length === 0) {
+    return sections;
+  }
+
+  return [
+    ...sections,
+    {
+      title: "Quick Actions",
+      items: additions,
+    },
+  ];
+}
+
+function routeKey(href: string) {
+  return href.replace(/\/$/, "");
+}
+
+function uniqueNavItems(items: NavItem[]) {
+  const seen = new Set<string>();
+  const unique: NavItem[] = [];
+
+  for (const item of items) {
+    const key = routeKey(item.href);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push({
+      ...item,
+      label: normalizeNavLabel(item),
+    });
+  }
+
+  return unique;
+}
+
+function pickItems(
+  available: Map<string, NavItem>,
+  used: Set<string>,
+  hrefs: string[],
+) {
+  const picked: NavItem[] = [];
+
+  for (const href of hrefs) {
+    const key = routeKey(href);
+    const item = available.get(key);
+
+    if (!item || used.has(key)) continue;
+
+    picked.push(item);
+    used.add(key);
+  }
+
+  return picked;
+}
+
+function makeSection(
+  title: string,
+  available: Map<string, NavItem>,
+  used: Set<string>,
+  hrefs: string[],
+): NavSectionType | null {
+  const items = pickItems(available, used, hrefs);
+  return items.length > 0 ? { title, items } : null;
+}
+
+function optimizeNavigationForTasks(sections: NavSectionType[]): NavSectionType[] {
+  const originalItems = uniqueNavItems(sections.flatMap((section) => section.items));
+  const available = new Map(originalItems.map((item) => [routeKey(item.href), item]));
+  const used = new Set<string>();
+  const optimized: NavSectionType[] = [];
+
+  const orderedSections = [
+    makeSection("Home", available, used, [
+      "/app",
+    ]),
+    makeSection("Daily Operations", available, used, [
+      "/app/schedule",
+      "/app/calendar",
+      "/app/clients",
+      "/app/clients/new",
+      "/app/attendance",
+      "/app/check-in",
+      "/app/packages/sell",
+      "/app/memberships/sell",
+      "/app/events/sell-tickets",
+      "/app/events/checkin",
+      "/app/events/check-in",
+    ]),
+    makeSection("Events", available, used, [
+      "/app/events",
+      "/app/events/new",
+      "/app/events/tickets",
+      "/app/events/registrations",
+      "/app/organizers",
+      "/app/organizer-contacts",
+    ]),
+    makeSection("Revenue", available, used, [
+      "/app/payments",
+      "/app/packages",
+      "/app/memberships",
+      "/app/expenses",
+      "/app/balances",
+      "/app/settings/billing",
+    ]),
+    makeSection("Growth", available, used, [
+      "/app/leads",
+      "/app/marketing",
+      "/app/campaigns",
+      "/app/organizer-campaigns",
+      "/app/automations",
+      "/app/reports/client-birthdays",
+      "/app/discovery-profile",
+      "/app/public-profile",
+      "/app/profile",
+      "/app/discover",
+      "/app/discovery",
+    ]),
+    makeSection("Insights", available, used, [
+      "/app/reports",
+      "/app/aria",
+    ]),
+    makeSection("Studio Tools", available, used, [
+      "/app/documents",
+      "/app/syllabus",
+      "/app/instructors",
+      "/app/rooms",
+      "/app/notifications",
+      "/app/settings",
+      "/app/support",
+      "/app/knowledgebase",
+    ]),
+  ].filter((section): section is NavSectionType => Boolean(section));
+
+  optimized.push(...orderedSections);
+
+  const remainingByOriginalSection: NavSectionType[] = [];
+  for (const section of sections) {
+    const remainingItems = section.items.filter((item) => {
+      const key = routeKey(item.href);
+      if (used.has(key)) return false;
+      used.add(key);
+      return true;
+    });
+
+    if (remainingItems.length > 0) {
+      remainingByOriginalSection.push({
+        title: section.title,
+        items: remainingItems,
+      });
+    }
+  }
+
+  if (remainingByOriginalSection.length > 0) {
+    optimized.push(...remainingByOriginalSection);
+  }
+
+  return optimized;
+}
+
+
 export function normalizeSections(input: unknown): NavSectionType[] {
   if (!Array.isArray(input)) return [];
 
@@ -826,8 +1064,10 @@ export function normalizeSections(input: unknown): NavSectionType[] {
   );
   const withSyllabusLink = injectSyllabusLink(withOrganizerCampaignsLink);
   const withDocumentsLink = injectDocumentsLink(withSyllabusLink);
+  const withAutomationsLink = injectAutomationsLink(withDocumentsLink);
+  const withDirectTaskLinks = injectDirectTaskLinks(withAutomationsLink);
 
-  return injectAutomationsLink(withDocumentsLink);
+  return optimizeNavigationForTasks(withDirectTaskLinks);
 }
 
 export function prettyRole(role: string) {
