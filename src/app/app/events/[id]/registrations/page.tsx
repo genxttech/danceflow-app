@@ -266,6 +266,44 @@ function isRegistrationActiveForCheckIn(
   return statusIsActive && !shouldBlockAttendanceForPayment(registration.payment_status);
 }
 
+function isAbandonedRegistration(
+  registration: Pick<RegistrationRow, "status" | "payment_status">,
+) {
+  const status = (registration.status ?? "").toLowerCase();
+  const paymentStatus = (registration.payment_status ?? "").toLowerCase();
+
+  return (
+    status === "cancelled" ||
+    status === "canceled" ||
+    paymentStatus === "failed" ||
+    paymentStatus === "cancelled" ||
+    paymentStatus === "canceled"
+  );
+}
+
+function isPendingRegistration(
+  registration: Pick<RegistrationRow, "status" | "payment_status">,
+) {
+  if (isAbandonedRegistration(registration)) return false;
+
+  const status = (registration.status ?? "").toLowerCase();
+  const paymentStatus = (registration.payment_status ?? "").toLowerCase();
+
+  return (
+    status === "pending" ||
+    status === "waitlisted" ||
+    paymentStatus === "pending" ||
+    paymentStatus === "unpaid" ||
+    paymentStatus === "partial"
+  );
+}
+
+function isConfirmedPaidRegistration(
+  registration: Pick<RegistrationRow, "status" | "payment_status">,
+) {
+  return isRegistrationActiveForCheckIn(registration);
+}
+
 function formatDateTime(value: string | null) {
   if (!value) return "—";
   return new Intl.DateTimeFormat("en-US", {
@@ -506,7 +544,7 @@ export default async function EventRegistrationsPage({
     ],
   });
   const search = await searchParams;
-  const activeFilter = (search.filter ?? "all").trim().toLowerCase();
+  const activeFilter = (search.filter ?? "active").trim().toLowerCase();
   const banner = getBanner(search);
   const supabase = await createClient();
 
@@ -847,23 +885,40 @@ export default async function EventRegistrationsPage({
     return registration.status;
   };
 
+  const confirmedPaidRegistrations = typedRegistrations.filter(
+    isConfirmedPaidRegistration,
+  );
+  const pendingRegistrations = typedRegistrations.filter(isPendingRegistration);
+  const abandonedRegistrations = typedRegistrations.filter(
+    isAbandonedRegistration,
+  );
+
   const filteredRegistrations = typedRegistrations.filter((registration) => {
     const status = getEffectiveStatus(registration);
 
-    if (activeFilter === "all") return true;
+    if (activeFilter === "active") return isConfirmedPaidRegistration(registration);
+    if (activeFilter === "all") return !isAbandonedRegistration(registration);
+    if (activeFilter === "pending") return isPendingRegistration(registration);
+    if (activeFilter === "abandoned") return isAbandonedRegistration(registration);
     if (activeFilter === "registered") return status === "registered";
     if (activeFilter === "checked_in")
       return status === "checked_in" || status === "attended";
     if (activeFilter === "waitlisted") return status === "waitlisted";
-    if (activeFilter === "cancelled") return status === "cancelled";
+    if (activeFilter === "cancelled") return isAbandonedRegistration(registration);
     if (activeFilter === "crm_linked") {
       const attendance = attendanceByRegistrationId.get(registration.id);
       return Boolean(attendance?.client_id ?? registration.client_id);
     }
-    return true;
+    return !isAbandonedRegistration(registration);
   });
 
   const totalRegistrations = typedRegistrations.length;
+  const operationalRegistrations = typedRegistrations.filter(
+    (registration) => !isAbandonedRegistration(registration),
+  );
+  const activeRegistrationCount = confirmedPaidRegistrations.length;
+  const pendingRegistrationCount = pendingRegistrations.length;
+  const abandonedRegistrationCount = abandonedRegistrations.length;
   const confirmedCount = typedRegistrations.filter(
     (registration) => getEffectiveStatus(registration) === "registered",
   ).length;
@@ -961,9 +1016,12 @@ export default async function EventRegistrationsPage({
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Registrations</p>
+          <p className="text-sm text-slate-500">Active / Pending</p>
           <p className="mt-2 text-3xl font-semibold text-slate-950">
-            {totalRegistrations}
+            {operationalRegistrations.length}
+          </p>
+          <p className="mt-2 text-sm text-slate-500">
+            {abandonedRegistrationCount} abandoned / failed
           </p>
         </div>
 
@@ -1011,6 +1069,26 @@ export default async function EventRegistrationsPage({
 
       <div className="flex flex-wrap gap-3">
         <Link
+          href={registrationsHref(typedEvent.id, "active")}
+          className={`rounded-full px-4 py-2 text-sm ${
+            activeFilter === "active"
+              ? "bg-slate-900 text-white"
+              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          Confirmed / Paid ({activeRegistrationCount})
+        </Link>
+        <Link
+          href={registrationsHref(typedEvent.id, "pending")}
+          className={`rounded-full px-4 py-2 text-sm ${
+            activeFilter === "pending"
+              ? "bg-slate-900 text-white"
+              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          Pending / Incomplete ({pendingRegistrationCount})
+        </Link>
+        <Link
           href={registrationsHref(typedEvent.id, "all")}
           className={`rounded-full px-4 py-2 text-sm ${
             activeFilter === "all"
@@ -1018,7 +1096,17 @@ export default async function EventRegistrationsPage({
               : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
           }`}
         >
-          All
+          Active + Pending
+        </Link>
+        <Link
+          href={registrationsHref(typedEvent.id, "abandoned")}
+          className={`rounded-full px-4 py-2 text-sm ${
+            activeFilter === "abandoned"
+              ? "bg-slate-900 text-white"
+              : "border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
+          }`}
+        >
+          Abandoned / Failed ({abandonedRegistrationCount})
         </Link>
         <Link
           href={registrationsHref(typedEvent.id, "registered")}
@@ -1061,6 +1149,42 @@ export default async function EventRegistrationsPage({
           CRM Linked
         </Link>
       </div>
+
+      {abandonedRegistrationCount > 0 && activeFilter !== "abandoned" ? (
+        <details className="rounded-[28px] border border-red-200 bg-red-50/70 p-5 shadow-sm">
+          <summary className="cursor-pointer text-sm font-semibold text-red-900">
+            {abandonedRegistrationCount} abandoned / failed checkout attempt
+            {abandonedRegistrationCount === 1 ? "" : "s"} hidden from the main list
+          </summary>
+          <p className="mt-2 text-sm leading-6 text-red-800">
+            These records are kept for troubleshooting, but they are not active
+            registrations and should not be used for check-in unless a payment is
+            confirmed and the registration is repaired.
+          </p>
+          <div className="mt-4 space-y-2">
+            {abandonedRegistrations.slice(0, 8).map((registration) => (
+              <div
+                key={registration.id}
+                className="flex flex-col gap-1 rounded-xl border border-red-100 bg-white px-3 py-2 text-sm text-red-950 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <span>
+                  {`${registration.attendee_first_name} ${registration.attendee_last_name}`.trim() ||
+                    registration.attendee_email}
+                </span>
+                <span className="text-xs text-red-700">
+                  {registration.status} / {registration.payment_status ?? "unknown"} • {formatCurrency(Number(registration.total_amount ?? registration.total_price ?? 0), registration.currency ?? "USD")}
+                </span>
+              </div>
+            ))}
+          </div>
+          <Link
+            href={registrationsHref(typedEvent.id, "abandoned")}
+            className="mt-4 inline-flex rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800"
+          >
+            Review abandoned checkouts
+          </Link>
+        </details>
+      ) : null}
 
       <div className="space-y-4">
         {filteredRegistrations.length === 0 ? (
@@ -1181,6 +1305,12 @@ export default async function EventRegistrationsPage({
                           </span>
                         ) : null}
                       </div>
+
+                      {isAbandonedRegistration(registration) ? (
+                        <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
+                          Abandoned or failed checkout attempt. This row is kept for audit/troubleshooting and is not active for check-in.
+                        </div>
+                      ) : null}
 
                       <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">
                         <span>{registration.attendee_email}</span>
