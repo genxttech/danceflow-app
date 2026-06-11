@@ -134,6 +134,7 @@ function buildLoginRedirectPath(params: {
     | "check-email"
     | "verify-email"
     | "reset-sent"
+    | "password-updated"
     | "default";
 }) {
   const search = new URLSearchParams();
@@ -502,8 +503,16 @@ export async function requestPasswordResetAction(formData: FormData) {
   const supabase = await createClient();
   const baseUrl = await getBaseUrl();
 
-  const redirectTo = `${baseUrl}/login?intent=${encodeURIComponent(
-    loginIntent
+  const resetSearch = new URLSearchParams({
+    intent: loginIntent,
+  });
+
+  if (next) {
+    resetSearch.set("next", next);
+  }
+
+  const redirectTo = `${baseUrl}/callback?next=${encodeURIComponent(
+    `/reset-password?${resetSearch.toString()}`
   )}`;
 
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -522,6 +531,72 @@ export async function requestPasswordResetAction(formData: FormData) {
       mode: "reset-sent",
     })
   );
+}
+
+export async function updatePasswordAction(formData: FormData) {
+  const password = getString(formData, "password");
+  const confirmPassword = getString(formData, "confirmPassword");
+  const loginIntent = getString(formData, "loginIntent") || "studio";
+  const next = normalizeLocalNextPath(getString(formData, "next"));
+
+  const errorSearch = new URLSearchParams({
+    intent: loginIntent,
+  });
+
+  if (next) {
+    errorSearch.set("next", next);
+  }
+
+  function redirectWithError(message: string): never {
+    errorSearch.set("error", message);
+    redirect(`/reset-password?${errorSearch.toString()}`);
+  }
+
+  if (!password) {
+    redirectWithError("Password is required.");
+  }
+
+  if (password.length < 8) {
+    redirectWithError("Password must be at least 8 characters.");
+  }
+
+  if (password !== confirmPassword) {
+    redirectWithError("Passwords do not match.");
+  }
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    redirectWithError("Your reset link expired. Please request a new password reset email.");
+  }
+
+  const { error } = await supabase.auth.updateUser({
+    password,
+  });
+
+  if (error) {
+    redirectWithError(error.message);
+  }
+
+  const loginSearch = new URLSearchParams({
+    mode: "password-updated",
+    intent: loginIntent,
+  });
+
+  if (user.email) {
+    loginSearch.set("email", user.email);
+  }
+
+  if (next) {
+    loginSearch.set("next", next);
+  }
+
+  redirect(`/login?${loginSearch.toString()}`);
 }
 
 export async function logoutAction() {

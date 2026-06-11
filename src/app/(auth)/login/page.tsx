@@ -26,7 +26,8 @@ function normalizeMode(value: string | undefined) {
     value === "resume-signup" ||
     value === "check-email" ||
     value === "verify-email" ||
-    value === "reset-sent"
+    value === "reset-sent" ||
+    value === "password-updated"
   ) {
     return value;
   }
@@ -205,6 +206,20 @@ export default async function LoginPage({
                   </h2>
                   <p className="mt-3 text-sm leading-7 text-slate-700">
                     We sent reset instructions to {emailHint || "your email address"}.
+                  </p>
+                </div>
+              ) : null}
+
+              {mode === "password-updated" ? (
+                <div className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                    Password updated
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-slate-950">
+                    You can sign in with your new password.
+                  </h2>
+                  <p className="mt-3 text-sm leading-7 text-slate-700">
+                    Use your email and new password to continue to DanceFlow.
                   </p>
                 </div>
               ) : null}
