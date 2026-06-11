@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import { ensurePortalProfileAndClientLinks, getAuthUserFullName } from "@/lib/auth/portal-linking";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
@@ -160,55 +161,6 @@ async function getPortalRedirectPath(params: {
   }
 
   return `/portal/${studio.slug}`;
-}
-
-async function upsertProfile(params: {
-  supabase: ReturnType<typeof createServerClient>;
-  userId: string;
-  email: string;
-  fullName?: string | null;
-}) {
-  const { supabase, userId, email, fullName } = params;
-
-  const payload: {
-    id: string;
-    email: string;
-    full_name?: string;
-  } = {
-    id: userId,
-    email,
-  };
-
-  if (fullName?.trim()) {
-    payload.full_name = fullName.trim();
-  }
-
-  const { error } = await supabase.from("profiles").upsert(payload, {
-    onConflict: "id",
-  });
-
-  if (error) {
-    throw new Error(`Profile creation failed: ${error.message}`);
-  }
-}
-
-async function attachPortalAccessForEmail(params: {
-  supabase: ReturnType<typeof createServerClient>;
-  userId: string;
-  email: string;
-}) {
-  const { supabase, userId, email } = params;
-
-  if (!email) return;
-
-  const { error } = await supabase.rpc("link_portal_client_by_email", {
-    p_user_id: userId,
-    p_email: email,
-  });
-
-  if (error) {
-    throw new Error(`Portal auto-link failed: ${error.message}`);
-  }
 }
 
 async function acceptTeamInvitationsForEmail(params: {
@@ -399,22 +351,10 @@ export async function GET(request: NextRequest) {
   let acceptedTeamInvitationCount = 0;
 
   try {
-    await upsertProfile({
-      supabase,
+    await ensurePortalProfileAndClientLinks({
       userId: user.id,
       email,
-      fullName:
-        typeof user.user_metadata?.full_name === "string"
-          ? user.user_metadata.full_name
-          : typeof user.user_metadata?.name === "string"
-            ? user.user_metadata.name
-            : null,
-    });
-
-    await attachPortalAccessForEmail({
-      supabase,
-      userId: user.id,
-      email,
+      fullName: getAuthUserFullName(user),
     });
 
     acceptedTeamInvitationCount = await acceptTeamInvitationsForEmail({

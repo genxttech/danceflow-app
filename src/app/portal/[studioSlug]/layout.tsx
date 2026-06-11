@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { ensurePortalProfileAndClientLinks, getAuthUserFullName } from "@/lib/auth/portal-linking";
 
 type PortalStudioLayoutProps = {
   children: ReactNode;
@@ -63,30 +64,26 @@ export default async function PortalStudioLayout({
   if (linkedClient) {
     portalClient = linkedClient as ClientRow;
   } else if (user.email) {
-    const { data: emailMatchedClient, error: emailMatchedClientError } = await supabase
+    await ensurePortalProfileAndClientLinks({
+      userId: user.id,
+      email: user.email,
+      fullName: getAuthUserFullName(user),
+      studioId: studio.id,
+    });
+
+    const { data: repairedClient, error: repairedClientError } = await supabase
       .from("clients")
       .select("id, first_name, last_name, email, is_independent_instructor")
       .eq("studio_id", studio.id)
-      .eq("email", user.email)
-      .eq("is_independent_instructor", true)
+      .eq("portal_user_id", user.id)
       .maybeSingle();
 
-    if (emailMatchedClientError) {
-      throw emailMatchedClientError;
+    if (repairedClientError) {
+      throw repairedClientError;
     }
 
-    if (emailMatchedClient) {
-      const { error: linkError } = await supabase
-        .from("clients")
-        .update({ portal_user_id: user.id })
-        .eq("id", emailMatchedClient.id)
-        .eq("studio_id", studio.id);
-
-      if (linkError) {
-        throw linkError;
-      }
-
-      portalClient = emailMatchedClient as ClientRow;
+    if (repairedClient) {
+      portalClient = repairedClient as ClientRow;
     }
   }
 

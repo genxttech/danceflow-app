@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { ensurePortalProfileAndClientLinks, getAuthUserFullName } from "@/lib/auth/portal-linking";
 
 type Params = Promise<{
   studioSlug: string;
@@ -328,31 +329,26 @@ export default async function PortalHomePage({ params }: { params: Params }) {
   if (linkedClient) {
     typedClient = linkedClient as ClientRow;
   } else if (user.email) {
-    const { data: emailMatchedClient, error: emailMatchedClientError } =
-      await supabase
-        .from("clients")
-        .select("id, first_name, last_name, email, is_independent_instructor")
-        .eq("studio_id", typedStudio.id)
-        .eq("email", user.email)
-        .eq("is_independent_instructor", true)
-        .maybeSingle();
+    await ensurePortalProfileAndClientLinks({
+      userId: user.id,
+      email: user.email,
+      fullName: getAuthUserFullName(user),
+      studioId: typedStudio.id,
+    });
 
-    if (emailMatchedClientError) {
-      throw emailMatchedClientError;
+    const { data: repairedClient, error: repairedClientError } = await supabase
+      .from("clients")
+      .select("id, first_name, last_name, email, is_independent_instructor")
+      .eq("studio_id", typedStudio.id)
+      .eq("portal_user_id", user.id)
+      .maybeSingle();
+
+    if (repairedClientError) {
+      throw repairedClientError;
     }
 
-    if (emailMatchedClient) {
-      const { error: linkError } = await supabase
-        .from("clients")
-        .update({ portal_user_id: user.id })
-        .eq("id", emailMatchedClient.id)
-        .eq("studio_id", typedStudio.id);
-
-      if (linkError) {
-        throw linkError;
-      }
-
-      typedClient = emailMatchedClient as ClientRow;
+    if (repairedClient) {
+      typedClient = repairedClient as ClientRow;
     }
   }
 
