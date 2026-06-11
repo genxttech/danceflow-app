@@ -98,6 +98,17 @@ type PaymentRow = {
   source: string | null;
 };
 
+type TicketEmailAuditRow = {
+  id: string;
+  related_id: string | null;
+  template_key: string | null;
+  recipient_email: string | null;
+  status: string | null;
+  sent_at: string | null;
+  error_message: string | null;
+  created_at: string;
+};
+
 type ClientOption = {
   id: string;
   first_name: string | null;
@@ -599,6 +610,7 @@ export default async function EventRegistrationsPage({
     { data: attendeeRows, error: attendeesError },
     { data: attendanceRows, error: attendanceError },
     { data: paymentRows, error: paymentError },
+    { data: ticketEmailRows, error: ticketEmailError },
     { data: documentRequirementRows, error: documentRequirementsError },
     { data: documentSignatureRows, error: documentSignaturesError },
   ] = registrationIds.length
@@ -620,7 +632,8 @@ export default async function EventRegistrationsPage({
             ticket_issued_at
           `,
           )
-          .in("registration_id", registrationIds)
+          .eq("event_id", id)
+          .order("registration_id", { ascending: true })
           .order("sort_order", { ascending: true }),
 
         supabase
@@ -653,6 +666,29 @@ export default async function EventRegistrationsPage({
           `,
           )
           .in("registration_id", registrationIds),
+
+        supabase
+          .from("outbound_deliveries")
+          .select(
+            `
+            id,
+            related_id,
+            template_key,
+            recipient_email,
+            status,
+            sent_at,
+            error_message,
+            created_at
+          `,
+          )
+          .eq("related_table", "event_registrations")
+          .in("related_id", registrationIds)
+          .in("template_key", [
+            "event_ticket_confirmation",
+            "event_registration_ticket_confirmation",
+            "event_registration_ticket_confirmation_resend",
+          ])
+          .order("created_at", { ascending: false }),
 
         supabase
           .from("event_document_requirements")
@@ -689,6 +725,7 @@ export default async function EventRegistrationsPage({
         { data: [], error: null },
         { data: [], error: null },
         { data: [], error: null },
+        { data: [], error: null },
       ];
 
   if (attendeesError) {
@@ -707,6 +744,12 @@ export default async function EventRegistrationsPage({
     throw new Error(`Failed to load payments: ${paymentError.message}`);
   }
 
+  if (ticketEmailError) {
+    throw new Error(
+      `Failed to load ticket email audit: ${ticketEmailError.message}`,
+    );
+  }
+
   if (documentRequirementsError) {
     throw new Error(
       `Failed to load event document requirements: ${documentRequirementsError.message}`,
@@ -722,6 +765,7 @@ export default async function EventRegistrationsPage({
   const typedEvent = event as EventRow;
   const typedAttendanceRows = (attendanceRows ?? []) as AttendanceRow[];
   const typedPaymentRows = (paymentRows ?? []) as PaymentRow[];
+  const typedTicketEmailRows = (ticketEmailRows ?? []) as TicketEmailAuditRow[];
   const typedClients = (clients ?? []) as ClientOption[];
 
   type AttendeeRow = NonNullable<
@@ -755,6 +799,14 @@ export default async function EventRegistrationsPage({
     const current = paymentsByRegistrationId.get(payment.registration_id) ?? [];
     current.push(payment);
     paymentsByRegistrationId.set(payment.registration_id, current);
+  }
+
+  const ticketEmailsByRegistrationId = new Map<string, TicketEmailAuditRow[]>();
+  for (const ticketEmail of typedTicketEmailRows) {
+    if (!ticketEmail.related_id) continue;
+    const current = ticketEmailsByRegistrationId.get(ticketEmail.related_id) ?? [];
+    current.push(ticketEmail);
+    ticketEmailsByRegistrationId.set(ticketEmail.related_id, current);
   }
 
   const requiredDocumentRows = (documentRequirementRows ??
@@ -1031,6 +1083,9 @@ export default async function EventRegistrationsPage({
               attendance?.client_id ?? registration.client_id;
             const linkedPayments =
               paymentsByRegistrationId.get(registration.id) ?? [];
+            const ticketEmailAudit =
+              ticketEmailsByRegistrationId.get(registration.id) ?? [];
+            const latestTicketEmail = ticketEmailAudit[0] ?? null;
             const documentStatus = getDocumentStatus(registration.id);
             const latestSignature =
               [...documentStatus.signatures].sort(
@@ -1362,6 +1417,30 @@ export default async function EventRegistrationsPage({
                         {attendeeRows.some((attendee) => attendee.ticket_code)
                           ? ticketCodeStatusText
                           : "Codes are issued automatically."}
+                      </p>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <p className="text-sm text-slate-500">Ticket Email</p>
+                      <p className="mt-1 font-medium text-slate-900">
+                        {latestTicketEmail
+                          ? latestTicketEmail.status === "sent" && latestTicketEmail.sent_at
+                            ? `Sent ${formatDateTime(latestTicketEmail.sent_at)}`
+                            : `${latestTicketEmail.status ?? "queued"} ${formatDateTime(latestTicketEmail.created_at)}`
+                          : "Not sent from DanceFlow"}
+                      </p>
+                      {latestTicketEmail?.error_message ? (
+                        <p className="mt-2 text-xs text-red-600">
+                          {latestTicketEmail.error_message}
+                        </p>
+                      ) : latestTicketEmail?.recipient_email ? (
+                        <p className="mt-2 text-xs text-slate-500">
+                          To {latestTicketEmail.recipient_email}
+                        </p>
+                      ) : null}
+                      <p className="mt-2 text-xs text-slate-500">
+                        {ticketEmailAudit.length} attempt
+                        {ticketEmailAudit.length === 1 ? "" : "s"} recorded
                       </p>
                     </div>
 
