@@ -2682,6 +2682,14 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "not_pay_as_you_go"));
     }
 
+    if ((appointment.payment_status ?? "").toLowerCase() === "paid") {
+      redirect(getErrorRedirect(formData, fallback, "lesson_already_paid"));
+    }
+
+    if (paymentMethod === "account_credit" && paymentAmount > 0) {
+      redirect(getErrorRedirect(formData, fallback, "invalid_payment_method"));
+    }
+
     const existingPrice = Number(appointment.price_amount ?? 0);
     const lessonPrice =
       lessonPriceFromForm != null && lessonPriceFromForm > 0
@@ -2722,8 +2730,16 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
     }
 
     const paidAt = new Date().toISOString();
+    const paymentSourceLabel =
+      paymentSource === "client_record"
+        ? "client billing record"
+        : paymentSource === "appointment_detail"
+          ? "lesson detail"
+          : paymentSource === "schedule_closeout"
+            ? "daily closeout"
+            : "lesson payment workflow";
     const paymentNotes = [
-      notes || "Pay-as-you-go lesson payment recorded from daily closeout.",
+      notes || `Pay-as-you-go lesson payment recorded from ${paymentSourceLabel}.`,
       accountCreditToApply > 0
         ? `Account credit applied: $${accountCreditToApply.toFixed(2)}`
         : null,
@@ -2795,6 +2811,8 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
     revalidatePath(`/app/clients/${clientId}`);
+    revalidatePath("/app/payments");
+    revalidatePath("/app/reports");
     revalidatePath("/account");
 
     const redirectUrl = selectedDate

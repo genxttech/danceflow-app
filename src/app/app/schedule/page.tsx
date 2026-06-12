@@ -566,6 +566,13 @@ function getBanner(search: {
     };
   }
 
+  if (search.success === "payment_recorded") {
+    return {
+      kind: "success" as const,
+      message: "Lesson payment recorded and linked to the lesson.",
+    };
+  }
+
   if (search.success === "bulk_attended") {
     const marked = Number(search.bulkMarked ?? 0);
     const skipped = Number(search.bulkSkipped ?? 0);
@@ -625,6 +632,55 @@ function getBanner(search: {
       kind: "error" as const,
       message:
         "Payment, package credit, membership coverage, or a comped status is needed before this lesson can be marked attended.",
+    };
+  }
+
+  if (search.error === "invalid_payment_amount") {
+    return {
+      kind: "error" as const,
+      message: "Enter a payment amount, account credit amount, or both before recording the lesson payment.",
+    };
+  }
+
+  if (search.error === "payment_still_short") {
+    return {
+      kind: "error" as const,
+      message: "The payment and account credit applied do not cover the lesson price yet.",
+    };
+  }
+
+  if (search.error === "credit_exceeds_available") {
+    return {
+      kind: "error" as const,
+      message: "The account credit applied is higher than the available client credit.",
+    };
+  }
+
+  if (search.error === "credit_exceeds_lesson_price") {
+    return {
+      kind: "error" as const,
+      message: "The account credit applied cannot be more than the lesson price.",
+    };
+  }
+
+  if (search.error === "invalid_payment_method") {
+    return {
+      kind: "error" as const,
+      message: "Use the account credit field for credit-only payments. Choose a collection method only for money collected today.",
+    };
+  }
+
+  if (search.error === "lesson_already_paid") {
+    return {
+      kind: "error" as const,
+      message: "This lesson is already marked paid. Open the lesson or payment history to review it.",
+    };
+  }
+
+  if (search.error === "payment_record_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not record the lesson payment. Please review the amount and try again.",
     };
   }
 
@@ -1342,8 +1398,7 @@ export default async function SchedulePage({
                                 </span>
                               </div>
                               <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                                Apply credit first, then record any remaining payment
-                                collected today.
+                                Apply credit first, then record only the remaining money collected today.
                               </p>
                             </div>
 
@@ -1377,7 +1432,7 @@ export default async function SchedulePage({
                               </label>
 
                               <label className="block text-xs font-medium text-slate-600">
-                                Payment collected
+                                Money collected today
                                 <input
                                   name="amount"
                                   type="number"
@@ -1391,7 +1446,7 @@ export default async function SchedulePage({
                               </label>
 
                               <label className="block text-xs font-medium text-slate-600">
-                                Method
+                                Collection method
                                 <select
                                   name="paymentMethod"
                                   defaultValue="cash"
@@ -1402,7 +1457,6 @@ export default async function SchedulePage({
                                   <option value="check">Check</option>
                                   <option value="venmo">Venmo</option>
                                   <option value="zelle">Zelle</option>
-                                  <option value="account_credit">Account credit only</option>
                                   <option value="other">Other</option>
                                 </select>
                               </label>
@@ -1411,7 +1465,7 @@ export default async function SchedulePage({
                                 type="submit"
                                 className="sm:col-span-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
                               >
-                                Pay now / apply credit
+                                Record Lesson Payment
                               </button>
                             </div>
                           </form>

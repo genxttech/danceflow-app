@@ -983,6 +983,13 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.success === "payment_recorded") {
+    return {
+      kind: "success" as const,
+      message: "Lesson payment recorded and linked to the lesson.",
+    };
+  }
+
   if (search.success === "membership_assigned") {
     return {
       kind: "success" as const,
@@ -1100,6 +1107,48 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "Missing client selection.",
+    };
+  }
+
+  if (search.error === "invalid_payment_amount") {
+    return {
+      kind: "error" as const,
+      message: "Enter a payment amount, account credit amount, or both before recording the lesson payment.",
+    };
+  }
+
+  if (search.error === "payment_still_short") {
+    return {
+      kind: "error" as const,
+      message: "The payment and account credit applied do not cover the lesson price yet.",
+    };
+  }
+
+  if (search.error === "credit_exceeds_available") {
+    return {
+      kind: "error" as const,
+      message: "The account credit applied is higher than the available client credit.",
+    };
+  }
+
+  if (search.error === "credit_exceeds_lesson_price") {
+    return {
+      kind: "error" as const,
+      message: "The account credit applied cannot be more than the lesson price.",
+    };
+  }
+
+  if (search.error === "lesson_already_paid") {
+    return {
+      kind: "error" as const,
+      message: "This lesson is already marked paid. Open the lesson or payment history to review it.",
+    };
+  }
+
+  if (search.error === "payment_record_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not record the lesson payment. Please review the amount and try again.",
     };
   }
 
@@ -4025,7 +4074,7 @@ export default async function ClientDetailPage({
                               {fmtShortDateTime(appointment.starts_at)} · {getInstructorName(appointment.instructors)}
                             </p>
                             <p className="mt-1 text-xs text-slate-600">
-                              This payment will be attached to this lesson and will mark it paid.
+                              This records money and/or account credit directly against this lesson.
                             </p>
                           </div>
 
@@ -4055,7 +4104,7 @@ export default async function ClientDetailPage({
 
                           <div>
                             <label className="mb-1 block text-xs font-medium text-slate-700">
-                              Payment amount
+                              Money collected today
                             </label>
                             <input
                               name="amount"
@@ -4085,7 +4134,7 @@ export default async function ClientDetailPage({
 
                           <div>
                             <label className="mb-1 block text-xs font-medium text-slate-700">
-                              Payment method
+                              Collection method
                             </label>
                             <select
                               name="paymentMethod"

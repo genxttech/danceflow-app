@@ -1123,7 +1123,7 @@ export default async function AppointmentDetailPage({
                         htmlFor="paygoAmount"
                         className="text-sm font-medium text-slate-900"
                       >
-                        Payment amount
+                        Money collected today
                       </label>
                       <input
                         id="paygoAmount"
@@ -1165,7 +1165,7 @@ export default async function AppointmentDetailPage({
                         htmlFor="paygoPaymentMethod"
                         className="text-sm font-medium text-slate-900"
                       >
-                        Payment method
+                        Collection method
                       </label>
                       <select
                         id="paygoPaymentMethod"
