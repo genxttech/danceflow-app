@@ -58,6 +58,18 @@ type ClientRecord = {
   portal_user_id: string | null;
 };
 
+type ClientPortalInviteDeliveryRow = {
+  id: string;
+  template_key: string | null;
+  recipient_email: string | null;
+  subject: string | null;
+  status: string | null;
+  provider_message_id: string | null;
+  error_message: string | null;
+  sent_at: string | null;
+  created_at: string | null;
+};
+
 type ClientPortalAdminStatus = {
   lookupError: string | null;
   linkedProfile: {
@@ -88,6 +100,7 @@ type ClientPortalAdminStatus = {
     last_sign_in_at: string | null;
     created_at: string | null;
   } | null;
+  inviteDeliveries: ClientPortalInviteDeliveryRow[];
 };
 
 type StudioRecord = {
@@ -495,7 +508,8 @@ function fmtPortalDateTime(value: string | null | undefined) {
 }
 
 async function loadClientPortalAdminStatus(
-  client: ClientRecord
+  client: ClientRecord,
+  studioId: string
 ): Promise<ClientPortalAdminStatus> {
   const emptyStatus: ClientPortalAdminStatus = {
     lookupError: null,
@@ -503,6 +517,7 @@ async function loadClientPortalAdminStatus(
     matchingProfile: null,
     matchingAuthUser: null,
     linkedAuthUser: null,
+    inviteDeliveries: [],
   };
 
   const email = client.email?.trim().toLowerCase();
@@ -514,7 +529,7 @@ async function loadClientPortalAdminStatus(
   try {
     const adminSupabase = createAdminClient();
 
-    const [linkedProfileResult, matchingProfileResult, matchingAuthResult] =
+    const [linkedProfileResult, matchingProfileResult, matchingAuthResult, inviteDeliveryResult] =
       await Promise.all([
         client.portal_user_id
           ? adminSupabase
@@ -538,11 +553,21 @@ async function loadClientPortalAdminStatus(
               .ilike("email", email)
               .limit(1)
           : Promise.resolve({ data: null, error: null }),
+        adminSupabase
+          .from("outbound_deliveries")
+          .select("id, template_key, recipient_email, subject, status, provider_message_id, error_message, sent_at, created_at")
+          .eq("studio_id", studioId)
+          .eq("related_table", "clients")
+          .eq("related_id", client.id)
+          .in("template_key", ["client_portal_invite", "portal_invite", "client_portal_access_invite"])
+          .order("created_at", { ascending: false })
+          .limit(5),
       ]);
 
     if (linkedProfileResult.error) throw linkedProfileResult.error;
     if (matchingProfileResult.error) throw matchingProfileResult.error;
     if (matchingAuthResult.error) throw matchingAuthResult.error;
+    if (inviteDeliveryResult.error) throw inviteDeliveryResult.error;
 
     let linkedAuthUser = null;
 
@@ -577,6 +602,7 @@ async function loadClientPortalAdminStatus(
       matchingProfile: matchingProfiles[0] ?? null,
       matchingAuthUser: matchingAuthUsers[0] ?? null,
       linkedAuthUser,
+      inviteDeliveries: (inviteDeliveryResult.data ?? []) as ClientPortalInviteDeliveryRow[],
     };
   } catch (error) {
     return {
@@ -1866,12 +1892,28 @@ export default async function ClientDetailPage({
   const typedSyllabusAssignments = (syllabusAssignments ?? []) as ClientSyllabusAssignmentRow[];
 
   const portalAdminStatus = canEditClients(role)
-    ? await loadClientPortalAdminStatus(typedClient)
+    ? await loadClientPortalAdminStatus(typedClient, studioId)
     : null;
   const portalAuthUser = portalAdminStatus?.linkedAuthUser ?? portalAdminStatus?.matchingAuthUser ?? null;
   const portalProfile = portalAdminStatus?.linkedProfile ?? portalAdminStatus?.matchingProfile ?? null;
   const hasConfirmedPortalEmail = !!portalAuthUser?.email_confirmed_at;
   const hasSignedIntoPortal = !!portalAuthUser?.last_sign_in_at;
+  const portalInviteDeliveries = portalAdminStatus?.inviteDeliveries ?? [];
+  const latestPortalInviteDelivery = portalInviteDeliveries[0] ?? null;
+  const hasPortalInviteDelivery = portalInviteDeliveries.length > 0;
+  const hasSuccessfulPortalInviteDelivery = portalInviteDeliveries.some(
+    (delivery) => delivery.status === "sent" || !!delivery.sent_at || !!delivery.provider_message_id
+  );
+  const hasFailedPortalInviteDelivery = latestPortalInviteDelivery?.status === "failed";
+  const portalInviteDeliveryLabel = !typedClient.email
+    ? "No Client Email"
+    : hasFailedPortalInviteDelivery
+      ? "Last Invite Failed"
+      : hasSuccessfulPortalInviteDelivery
+        ? "Invite Sent"
+        : hasPortalInviteDelivery
+          ? "Invite Queued"
+          : "No Invite Recorded";
   const hasAuthForClientEmail = !!portalAdminStatus?.matchingAuthUser;
   const hasProfileForClientEmail = !!portalAdminStatus?.matchingProfile;
   const hasUnlinkedAuthUser = !typedClient.portal_user_id && hasAuthForClientEmail;
@@ -3492,63 +3534,61 @@ export default async function ClientDetailPage({
           {activeTab === "portal" ? (
           <SectionCard
   title="Portal Access"
-  subtitle="Connect this client to their login account so they can use the client portal. Independent instructors will also see floor-rental tools when that option is enabled on their client profile."
+  subtitle="Invite this client to their student portal and confirm whether they can sign in."
   action={
     canEditClients(role) ? (
       <span className="rounded-full bg-[var(--brand-accent-soft)] px-3 py-1 text-xs font-medium text-[var(--brand-accent-dark)]">
-        Admin Managed
+        Staff Managed
       </span>
     ) : null
   }
 >
   <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
     <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-      <p className="text-sm text-slate-500">Portal Link Status</p>
+      <p className="text-sm text-slate-500">Portal Status</p>
       <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
-        {hasPortalLogin ? "Linked" : hasUnlinkedAuthUser || hasUnlinkedProfile ? "Ready to Link" : "Not Linked"}
+        {hasPortalLogin ? "Connected" : hasUnlinkedAuthUser || hasUnlinkedProfile ? "Needs Attention" : "Not Connected"}
       </p>
       <p className="mt-1 text-xs text-slate-500">
         {hasPortalLogin
-          ? "Client record is connected to a portal profile"
+          ? "This client can use the student portal."
           : hasUnlinkedAuthUser || hasUnlinkedProfile
-            ? "A matching account exists but is not connected yet"
-            : "No linked portal account yet"}
+            ? "A portal sign-in exists for this email and can be connected."
+            : "Send an invite so the student can access the portal."}
       </p>
     </div>
 
     <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-      <p className="text-sm text-slate-500">Auth Account</p>
-      <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
-        {portalAuthUser ? "Found" : "Not Found"}
+      <p className="text-sm text-slate-500">Student Email</p>
+      <p className="mt-2 break-all text-base font-semibold text-[var(--brand-text)]">
+        {typedClient.email || "No email on file"}
       </p>
       <p className="mt-1 text-xs text-slate-500">
-        {portalAuthUser
-          ? hasConfirmedPortalEmail
-            ? "Email verified"
-            : "Email not verified yet"
-          : "Student has not completed magic-link sign-in"}
+        Students must use this same email address when signing in.
       </p>
     </div>
 
     <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-      <p className="text-sm text-slate-500">Last Sign-In</p>
+      <p className="text-sm text-slate-500">Last Portal Sign-In</p>
       <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
-        {hasSignedIntoPortal ? fmtPortalDateTime(portalAuthUser?.last_sign_in_at) : "Never"}
+        {hasSignedIntoPortal ? fmtPortalDateTime(portalAuthUser?.last_sign_in_at) : "Not yet"}
       </p>
       <p className="mt-1 text-xs text-slate-500">
-        {hasSignedIntoPortal ? "Student has accessed the portal" : "No completed portal login recorded"}
+        {hasSignedIntoPortal ? "The student has accessed the portal." : "No completed portal login is recorded."}
       </p>
     </div>
 
     <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-      <p className="text-sm text-slate-500">Client Type</p>
+      <p className="text-sm text-slate-500">Invite Email</p>
       <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
-        {isIndependentInstructor ? "Independent Instructor" : "Standard Client"}
+        {portalInviteDeliveryLabel}
       </p>
       <p className="mt-1 text-xs text-slate-500">
-        {isIndependentInstructor
-          ? "Floor-rental tools are available in the portal"
-          : "Client uses the standard portal experience"}
+        {latestPortalInviteDelivery?.created_at
+          ? `Last attempt ${fmtPortalDateTime(latestPortalInviteDelivery.created_at)}`
+          : typedClient.email
+            ? "No portal invite email is recorded yet."
+            : "Add an email before sending a portal invite."}
       </p>
     </div>
   </div>
@@ -3557,9 +3597,9 @@ export default async function ClientDetailPage({
     <div className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-white p-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-[var(--brand-text)]">Portal Admin Visibility</p>
+          <p className="text-sm font-semibold text-[var(--brand-text)]">Portal Support Summary</p>
           <p className="mt-1 text-sm text-slate-600">
-            Use this to confirm whether the student has an auth account, a profile row, and a linked client record.
+            Use this panel to confirm whether the student can access the portal and whether their invite email was delivered.
           </p>
         </div>
         <span
@@ -3572,83 +3612,131 @@ export default async function ClientDetailPage({
           }`}
         >
           {hasPortalLogin && hasConfirmedPortalEmail
-            ? "Portal ready"
+            ? "Ready"
             : hasUnlinkedAuthUser || hasUnlinkedProfile
-              ? "Needs linking"
-              : "Invite pending"}
+              ? "Action needed"
+              : "Invite needed"}
         </span>
       </div>
 
       {portalAdminStatus?.lookupError ? (
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-          Portal status lookup was incomplete: {portalAdminStatus.lookupError}
+          Portal status could not be fully checked. Try refreshing the page or contact DanceFlow support if this continues.
         </div>
       ) : null}
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Client Email</p>
-          <p className="mt-1 break-all text-sm font-medium text-[var(--brand-text)]">
-            {typedClient.email || "No email on file"}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Linked Profile</p>
-          <p className="mt-1 break-all text-sm font-medium text-[var(--brand-text)]">
-            {typedClient.portal_user_id || "Not linked"}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            {portalProfile?.email ? `Profile email: ${portalProfile.email}` : "No matching profile found yet"}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Auth User</p>
-          <p className="mt-1 break-all text-sm font-medium text-[var(--brand-text)]">
-            {portalAuthUser?.id || "No auth user found"}
-          </p>
-          <p className="mt-1 text-xs text-slate-500">
-            {portalAuthUser?.email ? `Auth email: ${portalAuthUser.email}` : "Student has not used the magic-link flow yet"}
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
-          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Email Verification</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Connection</p>
           <p className="mt-1 text-sm font-medium text-[var(--brand-text)]">
-            {hasConfirmedPortalEmail ? "Verified" : portalAuthUser ? "Not verified yet" : "No auth account yet"}
+            {hasPortalLogin
+              ? "Connected to the student portal"
+              : hasUnlinkedAuthUser || hasUnlinkedProfile
+                ? "Ready to connect"
+                : "Not connected yet"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {hasPortalLogin
+              ? "The student can sign in using the email on this client record."
+              : hasUnlinkedAuthUser || hasUnlinkedProfile
+                ? "Use Link Existing Account below to finish connecting portal access."
+                : "Send a portal invite to start access."}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Sign-In Email</p>
+          <p className="mt-1 text-sm font-medium text-[var(--brand-text)]">
+            {hasConfirmedPortalEmail ? "Verified" : portalAuthUser ? "Waiting for student confirmation" : "No sign-in completed yet"}
           </p>
           <p className="mt-1 text-xs text-slate-500">
             {hasConfirmedPortalEmail
               ? `Verified ${fmtPortalDateTime(portalAuthUser?.email_confirmed_at)}`
-              : "The student must open the newest secure sign-in email."}
+              : "The student should open the newest secure sign-in email."}
           </p>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:col-span-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Recent Portal Email</p>
+          <p className="mt-1 text-sm font-medium text-[var(--brand-text)]">
+            {portalInviteDeliveryLabel}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {latestPortalInviteDelivery
+              ? `${latestPortalInviteDelivery.recipient_email || "No recipient"} · ${latestPortalInviteDelivery.status || "unknown"} · ${fmtPortalDateTime(latestPortalInviteDelivery.created_at)}`
+              : "No portal invite email attempt has been recorded for this client yet."}
+          </p>
+          {latestPortalInviteDelivery?.error_message ? (
+            <p className="mt-2 rounded-xl border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+              The last invite email failed. Check the student's email address and resend the invite.
+            </p>
+          ) : null}
         </div>
       </div>
 
+      {portalInviteDeliveries.length > 0 ? (
+        <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-white p-3">
+          <p className="text-sm font-semibold text-[var(--brand-text)]">Recent Portal Emails</p>
+          <div className="mt-3 space-y-2">
+            {portalInviteDeliveries.map((delivery) => (
+              <div
+                key={delivery.id}
+                className="flex flex-col gap-2 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 sm:flex-row sm:items-start sm:justify-between"
+              >
+                <div>
+                  <p className="text-sm font-medium text-[var(--brand-text)]">
+                    {delivery.subject || "Portal invite email"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {delivery.recipient_email || "No recipient"} · {fmtPortalDateTime(delivery.created_at)}
+                  </p>
+                  {delivery.error_message ? (
+                    <p className="mt-1 text-xs text-red-600">Delivery failed. Check the email address and resend.</p>
+                  ) : null}
+                </div>
+                <span
+                  className={`inline-flex w-fit rounded-full px-2 py-1 text-xs font-semibold ${
+                    delivery.status === "sent" || delivery.sent_at
+                      ? "bg-emerald-50 text-emerald-700"
+                      : delivery.status === "failed"
+                        ? "bg-red-50 text-red-700"
+                        : "bg-amber-50 text-amber-700"
+                  }`}
+                >
+                  {delivery.status === "sent" || delivery.sent_at
+                    ? "Sent"
+                    : delivery.status === "failed"
+                      ? "Failed"
+                      : "Pending"}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       {hasUnlinkedAuthUser || hasUnlinkedProfile ? (
         <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          A matching portal account exists for this email, but this client is not linked yet. Use
-          <span className="font-semibold"> Link Existing Account</span> below to connect the client record.
+          This student has started portal sign-in with this email, but this client record is not connected yet. Use
+          <span className="font-semibold"> Link Existing Account</span> below to finish connecting portal access.
         </div>
       ) : null}
 
       {hasLinkedProfileMismatch ? (
         <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          The linked profile email does not match the client email. Review before sending another invite.
+          The connected portal email does not match this client email. Review the email address before sending another invite.
         </div>
       ) : null}
     </div>
   ) : null}
 
   <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
-    <p className="text-sm font-medium text-blue-800">Portal Link</p>
+    <p className="text-sm font-medium text-blue-800">Student Portal Link</p>
     <p className="mt-1 break-all text-sm text-blue-900">
-      Portal home: /portal/{typedStudio.slug}
+      /portal/{typedStudio.slug}
     </p>
     <p className="mt-2 text-xs leading-6 text-blue-700">
-      Use portal access to connect this client to an existing login account or
-      invite them to create one. Students should use the same email address saved on this client record.
+      Share this only with students who should access this studio portal. Students should sign in with the same email saved on their client record.
     </p>
   </div>
 

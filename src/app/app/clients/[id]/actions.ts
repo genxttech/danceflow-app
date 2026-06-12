@@ -349,6 +349,40 @@ async function sendClientPortalInviteEmail(params: {
   if (response.error) {
     throw new Error(response.error.message || "Portal invite email send failed.");
   }
+
+  return {
+    providerMessageId: response.data?.id ?? null,
+    subject,
+  };
+}
+
+async function recordPortalInviteDelivery(params: {
+  studioId: string;
+  clientId: string;
+  recipientEmail: string;
+  subject: string;
+  status: "sent" | "failed";
+  providerMessageId?: string | null;
+  errorMessage?: string | null;
+}) {
+  const adminSupabase = createAdminClient();
+  const now = new Date().toISOString();
+
+  await adminSupabase.from("outbound_deliveries").insert({
+    studio_id: params.studioId,
+    channel: "email",
+    template_key: "client_portal_invite",
+    recipient_email: params.recipientEmail,
+    subject: params.subject,
+    body_text: "Client portal invite email.",
+    related_table: "clients",
+    related_id: params.clientId,
+    status: params.status,
+    provider_message_id: params.providerMessageId ?? null,
+    error_message: params.errorMessage ?? null,
+    sent_at: params.status === "sent" ? now : null,
+    updated_at: now,
+  });
 }
 
 export async function updateIndependentInstructorSettingsAction(
@@ -705,16 +739,38 @@ export async function sendPortalInviteAction(formData: FormData) {
       throw new Error("Supabase did not return a portal invite action link.");
     }
 
-    await sendClientPortalInviteEmail({
-  to: email,
-  actionLink,
-  clientName: fullName,
-  studioName: studio.public_name || studio.name,
-  studioLogoUrl: studio.public_logo_url,
-  portalUrl,
-  isIndependentInstructor: client.is_independent_instructor === true,
-});
-  } catch {
+    const inviteResult = await sendClientPortalInviteEmail({
+      to: email,
+      actionLink,
+      clientName: fullName,
+      studioName: studio.public_name || studio.name,
+      studioLogoUrl: studio.public_logo_url,
+      portalUrl,
+      isIndependentInstructor: client.is_independent_instructor === true,
+    });
+
+    await recordPortalInviteDelivery({
+      studioId,
+      clientId: client.id,
+      recipientEmail: email,
+      subject: inviteResult.subject,
+      status: "sent",
+      providerMessageId: inviteResult.providerMessageId,
+    }).catch((deliveryError) => {
+      console.error("Failed to record portal invite delivery", deliveryError);
+    });
+  } catch (error) {
+    await recordPortalInviteDelivery({
+      studioId,
+      clientId: client.id,
+      recipientEmail: email,
+      subject: `DanceFlow portal invite for ${fullName || email}`,
+      status: "failed",
+      errorMessage: error instanceof Error ? error.message : "Portal invite email send failed.",
+    }).catch((deliveryError) => {
+      console.error("Failed to record portal invite delivery failure", deliveryError);
+    });
+
     redirectWithResult(returnTo, "error", "portal_invite_failed");
   }
 
