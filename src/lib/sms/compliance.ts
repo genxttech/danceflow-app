@@ -1,5 +1,10 @@
 export type SmsConsentStatus = "unknown" | "opted_in" | "opted_out";
 
+export const SMS_CONSENT_DISCLOSURE =
+  "I agree to receive text messages from my dance studio through DanceFlow, including appointment reminders, schedule updates, event reminders, ticket notifications, and client service messages. Message frequency varies. Message and data rates may apply. Reply HELP for help. Reply STOP to unsubscribe. Consent is not required to purchase or use services.";
+
+export const SMS_CONSENT_REVIEW_URL = "https://idanceflow.com/sms-consent";
+
 export type SmsWorkspaceRef =
   | { studioId: string; organizerId?: null }
   | { studioId?: null; organizerId: string };
@@ -88,14 +93,14 @@ export function smsConsentLabel(status: SmsConsentStatus): string {
 
 export function smsConsentTip(status: SmsConsentStatus): string {
   if (status === "opted_in") {
-    return "This contact has agreed to receive texts from this workspace.";
+    return "This contact has agreed to receive service-related text messages from this studio through DanceFlow.";
   }
 
   if (status === "opted_out") {
     return "This contact has opted out of texts. Do not send SMS unless they opt back in.";
   }
 
-  return "Get permission before texting this contact. Email or call first if consent is unclear.";
+  return "Use SMS only after the student has given clear permission. Consent should be optional, documented, and based on the same disclosure shown in DanceFlow.";
 }
 
 export async function upsertSmsConsent(
@@ -209,7 +214,7 @@ export function smsSendStatusLabel(status: SmsMessageLogRow["status"] | string |
 
 export function getSmsOptOutFooter(studioName?: string | null) {
   const sender = studioName?.trim() ? studioName.trim() : "your studio";
-  return `Reply STOP to opt out. Msg & data rates may apply.`;
+  return `Reply STOP to opt out. Reply HELP for help. Msg & data rates may apply.`;
 }
 
 

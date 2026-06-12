@@ -94,7 +94,7 @@ export async function updateClientSmsConsentAction(formData: FormData) {
     clientId,
     phoneRaw,
     consentStatus,
-    consentSource: "manual",
+    consentSource: "studio_staff_manual",
     consentNote: consentNote || null,
   });
 

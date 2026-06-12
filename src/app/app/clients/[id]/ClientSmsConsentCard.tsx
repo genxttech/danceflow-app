@@ -2,6 +2,7 @@ import {
   type SmsConsentStatus,
   type SmsPermissionRow,
   normalizeSmsPhone,
+  SMS_CONSENT_DISCLOSURE,
   smsConsentLabel,
   smsConsentTip,
 } from "@/lib/sms/compliance";
@@ -43,7 +44,7 @@ export function ClientSmsConsentCard({
           </p>
           <h2 className="mt-2 text-xl font-bold text-[var(--brand-text)]">SMS consent</h2>
           <p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">
-            Track whether this contact has agreed to receive text messages from your studio.
+            Track whether this student has agreed to receive service-related text messages from your studio through DanceFlow.
           </p>
         </div>
 
@@ -70,6 +71,14 @@ export function ClientSmsConsentCard({
         <p className="mt-3 text-sm leading-6 text-[var(--brand-muted)]">{smsConsentTip(status)}</p>
       </div>
 
+      <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50 p-4">
+        <p className="text-sm font-semibold text-blue-950">Required consent language</p>
+        <p className="mt-2 text-sm leading-6 text-blue-900">{SMS_CONSENT_DISCLOSURE}</p>
+        <p className="mt-3 text-xs leading-5 text-blue-800">
+          Consent must be optional and should only be marked opted in after the student has agreed to this disclosure.
+        </p>
+      </div>
+
       {canManage ? (
         <form action={updateClientSmsConsentAction} className="mt-5 space-y-4">
           <input type="hidden" name="clientId" value={clientId} />
@@ -93,7 +102,7 @@ export function ClientSmsConsentCard({
             <textarea
               name="consentNote"
               rows={3}
-              placeholder="Example: Client confirmed by phone that texts are okay."
+              placeholder="Example: Student agreed to the DanceFlow SMS disclosure during intake on June 12."
               className="mt-2 w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm"
             />
           </label>
@@ -108,7 +117,7 @@ export function ClientSmsConsentCard({
         </form>
       ) : (
         <p className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-page-bg)] px-4 py-3 text-sm text-[var(--brand-muted)]">
-          Ask a studio owner, admin, or front desk user to update SMS consent.
+          Ask a studio owner, admin, or front desk user to update SMS consent after the student gives permission.
         </p>
       )}
     </section>

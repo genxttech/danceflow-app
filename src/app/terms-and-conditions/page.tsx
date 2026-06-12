@@ -258,7 +258,8 @@ export default function TermsAndConditionsPage() {
     SMS consent is optional and is not required to create an account, register for
     an event, buy a ticket, or receive services. Message frequency varies.
     Message and data rates may apply. You can opt out at any time by replying
-    STOP, and you can reply HELP for help.
+    STOP, and you can reply HELP for help. Our SMS consent process is described
+    at /sms-consent.
   </p>
   <p>
     Mobile information and SMS consent are not shared with third parties or

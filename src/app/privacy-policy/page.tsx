@@ -130,12 +130,14 @@ export default function PrivacyPolicyPage() {
               compliance records can be maintained.
             </p>
             <p>
-              End users opt in before any SMS is sent. Consent may be collected by
-              the dance studio or event organizer during a direct client relationship,
-              such as scheduling a lesson, asking about classes, registering for an
-              event, buying a ticket, or requesting studio communication. Studio or
-              organizer staff must mark the contact as opted in inside DanceFlow
-              before SMS messages are sent from the platform.
+              End users opt in before any SMS is sent. Consent may be collected when
+              a user provides a mobile number and agrees to receive service-related
+              text messages through a clear SMS consent disclosure. Consent may be
+              collected in the client portal, public booking or request forms, event
+              registration flows, or by studio or organizer staff after the user gives
+              permission during a direct client relationship. Studio or organizer
+              staff must mark the contact as opted in inside DanceFlow before SMS
+              messages are sent from the platform.
             </p>
             <p>SMS messages may include:</p>
             <ul className="list-disc space-y-2 pl-6">
@@ -156,7 +158,8 @@ export default function PrivacyPolicyPage() {
             </p>
             <p>
               You can opt out of SMS messages at any time by replying <strong>STOP</strong>.
-              For help, reply <strong>HELP</strong>.
+              For help, reply <strong>HELP</strong>. You can review our SMS consent
+              process at <a className="font-semibold text-slate-900 underline" href="/sms-consent">/sms-consent</a>.
             </p>
             <p className="font-medium text-slate-900">
               Mobile information, including phone numbers and SMS consent records,
