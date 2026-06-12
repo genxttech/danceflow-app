@@ -71,6 +71,73 @@ async function getStudioClientOrRedirect(params: {
   return client;
 }
 
+type PortalProfileLink = {
+  id: string;
+  email: string | null;
+};
+
+async function findOrCreatePortalProfileByEmail(params: {
+  email: string;
+  fullName?: string | null;
+}) {
+  const email = params.email.trim().toLowerCase();
+  const fullName = params.fullName?.trim() || null;
+  const adminSupabase = createAdminClient();
+
+  const { data: existingProfiles, error: profileLookupError } = await adminSupabase
+    .from("profiles")
+    .select("id, email")
+    .ilike("email", email)
+    .limit(1);
+
+  if (profileLookupError) {
+    throw profileLookupError;
+  }
+
+  const existingProfile = (existingProfiles?.[0] as PortalProfileLink | undefined) ?? null;
+
+  if (existingProfile?.id) {
+    return existingProfile;
+  }
+
+  const { data: authUsers, error: authLookupError } = await adminSupabase
+    .schema("auth")
+    .from("users")
+    .select("id, email")
+    .ilike("email", email)
+    .limit(1);
+
+  if (authLookupError) {
+    throw authLookupError;
+  }
+
+  const authUser = (authUsers?.[0] as { id: string; email: string | null } | undefined) ?? null;
+
+  if (!authUser?.id) {
+    return null;
+  }
+
+  const { data: createdProfile, error: profileUpsertError } = await adminSupabase
+    .from("profiles")
+    .upsert(
+      {
+        id: authUser.id,
+        email: authUser.email ?? email,
+        full_name: fullName,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    )
+    .select("id, email")
+    .single();
+
+  if (profileUpsertError) {
+    throw profileUpsertError;
+  }
+
+  return createdProfile as PortalProfileLink;
+}
+
 async function deactivateHostWorkspaceIndependentInstructorRole(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
@@ -463,13 +530,16 @@ export async function linkPortalAccessAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "portal_email_required");
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("id, email")
-    .eq("email", email)
-    .maybeSingle();
+  const fullName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
 
-  if (profileError) {
+  let profile: PortalProfileLink | null = null;
+
+  try {
+    profile = await findOrCreatePortalProfileByEmail({
+      email,
+      fullName,
+    });
+  } catch {
     redirectWithResult(returnTo, "error", "portal_lookup_failed");
   }
 

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
@@ -55,6 +56,38 @@ type ClientRecord = {
   is_independent_instructor: boolean | null;
   linked_instructor_id: string | null;
   portal_user_id: string | null;
+};
+
+type ClientPortalAdminStatus = {
+  lookupError: string | null;
+  linkedProfile: {
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+  } | null;
+  matchingProfile: {
+    id: string;
+    email: string | null;
+    full_name: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+  } | null;
+  matchingAuthUser: {
+    id: string;
+    email: string | null;
+    email_confirmed_at: string | null;
+    last_sign_in_at: string | null;
+    created_at: string | null;
+  } | null;
+  linkedAuthUser: {
+    id: string;
+    email: string | null;
+    email_confirmed_at: string | null;
+    last_sign_in_at: string | null;
+    created_at: string | null;
+  } | null;
 };
 
 type StudioRecord = {
@@ -454,6 +487,103 @@ function fmtShortDate(value: string | null) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function fmtPortalDateTime(value: string | null | undefined) {
+  if (!value) return "Not recorded";
+  return fmtShortDateTime(value);
+}
+
+async function loadClientPortalAdminStatus(
+  client: ClientRecord
+): Promise<ClientPortalAdminStatus> {
+  const emptyStatus: ClientPortalAdminStatus = {
+    lookupError: null,
+    linkedProfile: null,
+    matchingProfile: null,
+    matchingAuthUser: null,
+    linkedAuthUser: null,
+  };
+
+  const email = client.email?.trim().toLowerCase();
+
+  if (!email && !client.portal_user_id) {
+    return emptyStatus;
+  }
+
+  try {
+    const adminSupabase = createAdminClient();
+
+    const [linkedProfileResult, matchingProfileResult, matchingAuthResult] =
+      await Promise.all([
+        client.portal_user_id
+          ? adminSupabase
+              .from("profiles")
+              .select("id, email, full_name, created_at, updated_at")
+              .eq("id", client.portal_user_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+        email
+          ? adminSupabase
+              .from("profiles")
+              .select("id, email, full_name, created_at, updated_at")
+              .ilike("email", email)
+              .limit(1)
+          : Promise.resolve({ data: null, error: null }),
+        email
+          ? adminSupabase
+              .schema("auth")
+              .from("users")
+              .select("id, email, email_confirmed_at, last_sign_in_at, created_at")
+              .ilike("email", email)
+              .limit(1)
+          : Promise.resolve({ data: null, error: null }),
+      ]);
+
+    if (linkedProfileResult.error) throw linkedProfileResult.error;
+    if (matchingProfileResult.error) throw matchingProfileResult.error;
+    if (matchingAuthResult.error) throw matchingAuthResult.error;
+
+    let linkedAuthUser = null;
+
+    if (client.portal_user_id) {
+      const { data: linkedAuthData, error: linkedAuthError } =
+        await adminSupabase.auth.admin.getUserById(client.portal_user_id);
+
+      if (!linkedAuthError) {
+        const user = linkedAuthData.user;
+        linkedAuthUser = user
+          ? {
+              id: user.id,
+              email: user.email ?? null,
+              email_confirmed_at: user.email_confirmed_at ?? null,
+              last_sign_in_at: user.last_sign_in_at ?? null,
+              created_at: user.created_at ?? null,
+            }
+          : null;
+      }
+    }
+
+    const matchingProfiles = Array.isArray(matchingProfileResult.data)
+      ? matchingProfileResult.data
+      : [];
+    const matchingAuthUsers = Array.isArray(matchingAuthResult.data)
+      ? matchingAuthResult.data
+      : [];
+
+    return {
+      lookupError: null,
+      linkedProfile: linkedProfileResult.data ?? null,
+      matchingProfile: matchingProfiles[0] ?? null,
+      matchingAuthUser: matchingAuthUsers[0] ?? null,
+      linkedAuthUser,
+    };
+  } catch (error) {
+    return {
+      ...emptyStatus,
+      lookupError: error instanceof Error ? error.message : "Portal account lookup failed.",
+    };
+  }
 }
 
 function fmtCurrency(value: number, currency = "USD") {
@@ -1734,6 +1864,23 @@ export default async function ClientDetailPage({
   const typedSmsMessages = (smsMessages ?? []) as SmsMessageLogRow[];
   const typedSyllabusTemplates = (syllabusTemplates ?? []) as SyllabusTemplateRow[];
   const typedSyllabusAssignments = (syllabusAssignments ?? []) as ClientSyllabusAssignmentRow[];
+
+  const portalAdminStatus = canEditClients(role)
+    ? await loadClientPortalAdminStatus(typedClient)
+    : null;
+  const portalAuthUser = portalAdminStatus?.linkedAuthUser ?? portalAdminStatus?.matchingAuthUser ?? null;
+  const portalProfile = portalAdminStatus?.linkedProfile ?? portalAdminStatus?.matchingProfile ?? null;
+  const hasConfirmedPortalEmail = !!portalAuthUser?.email_confirmed_at;
+  const hasSignedIntoPortal = !!portalAuthUser?.last_sign_in_at;
+  const hasAuthForClientEmail = !!portalAdminStatus?.matchingAuthUser;
+  const hasProfileForClientEmail = !!portalAdminStatus?.matchingProfile;
+  const hasUnlinkedAuthUser = !typedClient.portal_user_id && hasAuthForClientEmail;
+  const hasUnlinkedProfile = !typedClient.portal_user_id && hasProfileForClientEmail;
+  const hasLinkedProfileMismatch =
+    !!typedClient.portal_user_id &&
+    !!portalProfile?.email &&
+    !!typedClient.email &&
+    portalProfile.email.toLowerCase() !== typedClient.email.toLowerCase();
 
   const { data: linkedRelationship, error: linkedRelationshipError } = await supabase
     .from("client_relationships")
@@ -3354,14 +3501,42 @@ export default async function ClientDetailPage({
     ) : null
   }
 >
-  <div className="grid gap-4 sm:grid-cols-3">
+  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
     <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-      <p className="text-sm text-slate-500">Portal Account</p>
+      <p className="text-sm text-slate-500">Portal Link Status</p>
       <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
-        {hasPortalLogin ? "Linked" : "Not Linked"}
+        {hasPortalLogin ? "Linked" : hasUnlinkedAuthUser || hasUnlinkedProfile ? "Ready to Link" : "Not Linked"}
       </p>
       <p className="mt-1 text-xs text-slate-500">
-        {hasPortalLogin ? "Client has login access" : "No linked portal account"}
+        {hasPortalLogin
+          ? "Client record is connected to a portal profile"
+          : hasUnlinkedAuthUser || hasUnlinkedProfile
+            ? "A matching account exists but is not connected yet"
+            : "No linked portal account yet"}
+      </p>
+    </div>
+
+    <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
+      <p className="text-sm text-slate-500">Auth Account</p>
+      <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
+        {portalAuthUser ? "Found" : "Not Found"}
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        {portalAuthUser
+          ? hasConfirmedPortalEmail
+            ? "Email verified"
+            : "Email not verified yet"
+          : "Student has not completed magic-link sign-in"}
+      </p>
+    </div>
+
+    <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
+      <p className="text-sm text-slate-500">Last Sign-In</p>
+      <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
+        {hasSignedIntoPortal ? fmtPortalDateTime(portalAuthUser?.last_sign_in_at) : "Never"}
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        {hasSignedIntoPortal ? "Student has accessed the portal" : "No completed portal login recorded"}
       </p>
     </div>
 
@@ -3376,19 +3551,95 @@ export default async function ClientDetailPage({
           : "Client uses the standard portal experience"}
       </p>
     </div>
-
-    <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-      <p className="text-sm text-slate-500">Teaching Profile</p>
-      <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
-        {linkedInstructorName}
-      </p>
-      <p className="mt-1 text-xs text-slate-500">
-        {isIndependentInstructor
-          ? "Used for rental and schedule tracking"
-          : "No teaching profile required for standard clients"}
-      </p>
-    </div>
   </div>
+
+  {canEditClients(role) ? (
+    <div className="mt-5 rounded-2xl border border-[var(--brand-border)] bg-white p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-[var(--brand-text)]">Portal Admin Visibility</p>
+          <p className="mt-1 text-sm text-slate-600">
+            Use this to confirm whether the student has an auth account, a profile row, and a linked client record.
+          </p>
+        </div>
+        <span
+          className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-semibold ${
+            hasPortalLogin && hasConfirmedPortalEmail
+              ? "bg-emerald-50 text-emerald-700"
+              : hasUnlinkedAuthUser || hasUnlinkedProfile
+                ? "bg-amber-50 text-amber-700"
+                : "bg-slate-100 text-slate-700"
+          }`}
+        >
+          {hasPortalLogin && hasConfirmedPortalEmail
+            ? "Portal ready"
+            : hasUnlinkedAuthUser || hasUnlinkedProfile
+              ? "Needs linking"
+              : "Invite pending"}
+        </span>
+      </div>
+
+      {portalAdminStatus?.lookupError ? (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+          Portal status lookup was incomplete: {portalAdminStatus.lookupError}
+        </div>
+      ) : null}
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Client Email</p>
+          <p className="mt-1 break-all text-sm font-medium text-[var(--brand-text)]">
+            {typedClient.email || "No email on file"}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Linked Profile</p>
+          <p className="mt-1 break-all text-sm font-medium text-[var(--brand-text)]">
+            {typedClient.portal_user_id || "Not linked"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {portalProfile?.email ? `Profile email: ${portalProfile.email}` : "No matching profile found yet"}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Auth User</p>
+          <p className="mt-1 break-all text-sm font-medium text-[var(--brand-text)]">
+            {portalAuthUser?.id || "No auth user found"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {portalAuthUser?.email ? `Auth email: ${portalAuthUser.email}` : "Student has not used the magic-link flow yet"}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Email Verification</p>
+          <p className="mt-1 text-sm font-medium text-[var(--brand-text)]">
+            {hasConfirmedPortalEmail ? "Verified" : portalAuthUser ? "Not verified yet" : "No auth account yet"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {hasConfirmedPortalEmail
+              ? `Verified ${fmtPortalDateTime(portalAuthUser?.email_confirmed_at)}`
+              : "The student must open the newest secure sign-in email."}
+          </p>
+        </div>
+      </div>
+
+      {hasUnlinkedAuthUser || hasUnlinkedProfile ? (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          A matching portal account exists for this email, but this client is not linked yet. Use
+          <span className="font-semibold"> Link Existing Account</span> below to connect the client record.
+        </div>
+      ) : null}
+
+      {hasLinkedProfileMismatch ? (
+        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+          The linked profile email does not match the client email. Review before sending another invite.
+        </div>
+      ) : null}
+    </div>
+  ) : null}
 
   <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 p-4">
     <p className="text-sm font-medium text-blue-800">Portal Link</p>
@@ -3397,9 +3648,7 @@ export default async function ClientDetailPage({
     </p>
     <p className="mt-2 text-xs leading-6 text-blue-700">
       Use portal access to connect this client to an existing login account or
-      invite them to create one. If this client is marked as an independent
-      instructor, their portal includes floor-space booking, rental history, and
-      rental payment tools.
+      invite them to create one. Students should use the same email address saved on this client record.
     </p>
   </div>
 
