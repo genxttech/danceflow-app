@@ -44,6 +44,16 @@ type EventRow = {
   public_directory_enabled: boolean;
 };
 
+type RegistrationSummaryRow = {
+  id: string;
+  event_id: string;
+  payment_status: string | null;
+  total_price: number | string | null;
+  total_amount: number | string | null;
+  currency: string | null;
+};
+
+
 function activeBadgeClass(active: boolean) {
   return active
     ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
@@ -103,6 +113,24 @@ function formatDateTime(value: string) {
     minute: "2-digit",
   }).format(new Date(value));
 }
+
+function formatCurrency(value: number, currency = "USD") {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: currency || "USD",
+  }).format(Number.isFinite(value) ? value : 0);
+}
+
+function isPaidRegistration(row: RegistrationSummaryRow) {
+  const status = (row.payment_status ?? "").trim().toLowerCase();
+  return status === "paid" || status === "partial";
+}
+
+function needsPaymentReview(row: RegistrationSummaryRow) {
+  const status = (row.payment_status ?? "").trim().toLowerCase();
+  return status === "pending" || status === "unpaid" || status === "partial";
+}
+
 
 function canManageOrganizers(role: string | null | undefined, isPlatformAdminRole: boolean) {
   if (isPlatformAdminRole) return true;
@@ -210,6 +238,39 @@ export default async function OrganizerDetailPage({
   }
 
   const typedEvents = (linkedEvents ?? []) as EventRow[];
+  const eventIds = typedEvents.map((event) => event.id);
+
+  const { data: registrationSummary, error: registrationSummaryError } =
+    eventIds.length > 0
+      ? await supabase
+          .from("event_registrations")
+          .select("id, event_id, payment_status, total_price, total_amount, currency")
+          .eq("studio_id", context.studioId)
+          .in("event_id", eventIds)
+      : { data: [], error: null };
+
+  if (registrationSummaryError) {
+    throw new Error(
+      `Failed to load organizer registration summary: ${registrationSummaryError.message}`,
+    );
+  }
+
+  const registrationsByEventId = new Map<string, RegistrationSummaryRow[]>();
+  for (const registration of (registrationSummary ?? []) as RegistrationSummaryRow[]) {
+    const registrations = registrationsByEventId.get(registration.event_id) ?? [];
+    registrations.push(registration);
+    registrationsByEventId.set(registration.event_id, registrations);
+  }
+
+  const organizerRegistrations = Array.from(registrationsByEventId.values()).flat();
+  const organizerPaidRegistrations = organizerRegistrations.filter(isPaidRegistration);
+  const organizerNeedsPaymentReview = organizerRegistrations.filter(needsPaymentReview);
+  const organizerCurrency =
+    organizerRegistrations.find((row) => row.currency)?.currency ?? "USD";
+  const organizerGrossRevenue = organizerPaidRegistrations.reduce((sum, row) => {
+    return sum + Number(row.total_amount ?? row.total_price ?? 0);
+  }, 0);
+
   const publicEvents = typedEvents.filter((event) => event.visibility === "public").length;
   const publishedEvents = typedEvents.filter(
     (event) => event.status === "published" || event.status === "open"
@@ -284,9 +345,12 @@ export default async function OrganizerDetailPage({
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <StatCard label="Linked Events" value={typedEvents.length} />
-            <StatCard label="Published / Open" value={publishedEvents} />
-            <StatCard label="Public Events" value={publicEvents} />
-            <StatCard label="Discovery Ready" value={discoveryReadyEvents} />
+            <StatCard label="Registrations" value={organizerRegistrations.length} />
+            <StatCard label="Needs Payment Review" value={organizerNeedsPaymentReview.length} />
+            <StatCard
+              label="Ticket Revenue"
+              value={formatCurrency(organizerGrossRevenue, organizerCurrency)}
+            />
           </div>
         </div>
       </section>
@@ -411,7 +475,7 @@ export default async function OrganizerDetailPage({
           <div className="border-b border-slate-200 px-6 py-4">
             <h2 className="text-lg font-semibold text-slate-900">Linked Events</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Events currently assigned to this organizer profile.
+              Events currently assigned to this organizer profile, with quick links into ticket sales, registrations, check-in, and payment review.
             </p>
           </div>
 
@@ -439,7 +503,17 @@ export default async function OrganizerDetailPage({
             </div>
           ) : (
             <div className="divide-y divide-slate-200">
-              {typedEvents.map((event) => (
+              {typedEvents.map((event) => {
+                const eventRegistrations = registrationsByEventId.get(event.id) ?? [];
+                const eventPaidRegistrations = eventRegistrations.filter(isPaidRegistration);
+                const eventNeedsPaymentReview = eventRegistrations.filter(needsPaymentReview);
+                const eventCurrency =
+                  eventRegistrations.find((row) => row.currency)?.currency ?? "USD";
+                const eventGrossRevenue = eventPaidRegistrations.reduce((sum, row) => {
+                  return sum + Number(row.total_amount ?? row.total_price ?? 0);
+                }, 0);
+
+                return (
                 <div key={event.id} className="px-6 py-5">
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
@@ -475,19 +549,73 @@ export default async function OrganizerDetailPage({
                         <span>{formatDateRange(event.start_date, event.end_date)}</span>
                         <span>{event.visibility}</span>
                       </div>
+
+                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Registrations</p>
+                          <p className="mt-1 text-lg font-semibold text-slate-900">
+                            {eventRegistrations.length}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Needs Payment Review</p>
+                          <p className="mt-1 text-lg font-semibold text-slate-900">
+                            {eventNeedsPaymentReview.length}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Ticket Revenue</p>
+                          <p className="mt-1 text-lg font-semibold text-slate-900">
+                            {formatCurrency(eventGrossRevenue, eventCurrency)}
+                          </p>
+                        </div>
+                      </div>
                     </div>
 
-                    <div className="shrink-0">
+                    <div className="grid shrink-0 gap-2 sm:min-w-48">
                       <Link
                         href={`/app/events/${event.id}`}
-                        className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                        className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
                       >
                         View Event
+                      </Link>
+
+                      <Link
+                        href={`/app/events/${event.id}/registrations`}
+                        className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        Registrations
+                      </Link>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        <Link
+                          href="/app/events/sell-tickets"
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          Sell Tickets
+                        </Link>
+
+                        <Link
+                          href={`/app/events/${event.id}/check-in`}
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          Check-In
+                        </Link>
+                      </div>
+
+                      <Link
+                        href={`/app/events/${event.id}/tickets`}
+                        className="inline-flex items-center justify-center rounded-xl border border-[var(--brand-primary)]/20 bg-[var(--brand-primary-soft)] px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]/80"
+                      >
+                        Ticket Setup
                       </Link>
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
