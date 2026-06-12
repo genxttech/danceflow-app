@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import {
   createPlatformAdminAction,
   enterStudioContextAction,
   setStudioWorkspaceActiveAction,
+  repairStudioPortalLinksAction,
 } from "@/app/platform/actions";
 import { getBillingPlan } from "@/lib/billing/plans";
 
@@ -83,6 +85,43 @@ type RegistrationRow = {
   created_at: string;
 };
 
+type ClientPortalDiagnosticRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  portal_user_id: string | null;
+  updated_at: string | null;
+};
+
+type ProfileDiagnosticRow = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  platform_role: string | null;
+};
+
+type PortalInviteDeliveryRow = {
+  id: string;
+  recipient_email: string | null;
+  related_id: string | null;
+  status: string | null;
+  error_message: string | null;
+  provider_message_id: string | null;
+  sent_at: string | null;
+  created_at: string;
+};
+
+type AuthUserDiagnosticRow = {
+  id: string;
+  email?: string | null;
+  email_confirmed_at?: string | null;
+  last_sign_in_at?: string | null;
+  created_at?: string | null;
+};
+
 function getPlan(
   value:
     | { code: string; name: string }
@@ -118,6 +157,34 @@ function formatMoney(value: number, currency = "USD") {
     currency,
     maximumFractionDigits: 0,
   }).format(value);
+}
+
+function normalizeEmail(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function fullName(firstName: string | null, lastName: string | null) {
+  const name = [firstName, lastName].filter(Boolean).join(" ").trim();
+  return name || "Unnamed client";
+}
+
+function shortId(value: string | null | undefined) {
+  if (!value) return "—";
+  return value.length > 12 ? `${value.slice(0, 8)}…${value.slice(-4)}` : value;
+}
+
+function deliveryBadgeClass(status: string | null | undefined) {
+  if (status === "sent") return "bg-green-50 text-green-700 ring-1 ring-green-200";
+  if (status === "failed") return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  if (status === "pending" || status === "queued") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function diagnosticBadgeClass(status: "ok" | "warning" | "danger" | "neutral") {
+  if (status === "ok") return "bg-green-50 text-green-700 ring-1 ring-green-200";
+  if (status === "warning") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (status === "danger") return "bg-red-50 text-red-700 ring-1 ring-red-200";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function statusBadgeClass(status: string) {
@@ -197,6 +264,8 @@ export default async function PlatformStudioDetailPage({
     { data: events, error: eventsError },
     { data: registrations, error: registrationsError },
     { data: adminActions, error: adminActionsError },
+    { data: portalClients, error: portalClientsError },
+    { data: portalInviteDeliveries, error: portalInviteDeliveriesError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -248,6 +317,22 @@ export default async function PlatformStudioDetailPage({
       .eq("target_id", id)
       .order("created_at", { ascending: false })
       .limit(25),
+
+    supabase
+      .from("clients")
+      .select("id, first_name, last_name, email, portal_user_id, updated_at")
+      .eq("studio_id", id)
+      .or("email.not.is.null,portal_user_id.not.is.null")
+      .order("updated_at", { ascending: false })
+      .limit(150),
+
+    supabase
+      .from("outbound_deliveries")
+      .select("id, recipient_email, related_id, status, error_message, provider_message_id, sent_at, created_at")
+      .eq("template_key", "client_portal_invite")
+      .eq("related_table", "clients")
+      .order("created_at", { ascending: false })
+      .limit(150),
   ]);
 
   if (studioError) {
@@ -278,12 +363,168 @@ export default async function PlatformStudioDetailPage({
     throw new Error(`Failed to load admin actions: ${adminActionsError.message}`);
   }
 
+  if (portalClientsError) {
+    throw new Error(`Failed to load portal diagnostic clients: ${portalClientsError.message}`);
+  }
+
+  if (portalInviteDeliveriesError) {
+    throw new Error(`Failed to load portal invite deliveries: ${portalInviteDeliveriesError.message}`);
+  }
+
   const typedStudio = studio as StudioRow;
   const typedSubscription = (subscription ?? null) as SubscriptionRow | null;
   const typedOrganizers = (organizers ?? []) as OrganizerRow[];
   const typedEvents = (events ?? []) as EventRow[];
   const typedRegistrations = (registrations ?? []) as RegistrationRow[];
   const typedAdminActions = (adminActions ?? []) as PlatformAdminActionRow[];
+  const typedPortalClients = (portalClients ?? []) as ClientPortalDiagnosticRow[];
+  const typedPortalInviteDeliveries = (portalInviteDeliveries ?? []) as PortalInviteDeliveryRow[];
+
+  const portalClientIds = new Set(typedPortalClients.map((client) => client.id));
+  const filteredPortalInviteDeliveries = typedPortalInviteDeliveries.filter((delivery) =>
+    delivery.related_id ? portalClientIds.has(delivery.related_id) : false
+  );
+
+  const adminSupabase = createAdminClient();
+  const portalEmails = Array.from(
+    new Set(typedPortalClients.map((client) => normalizeEmail(client.email)).filter(Boolean))
+  );
+  const portalProfileIds = Array.from(
+    new Set(typedPortalClients.map((client) => client.portal_user_id).filter(Boolean))
+  ) as string[];
+
+  let portalProfiles: ProfileDiagnosticRow[] = [];
+  let portalAuthUsers: AuthUserDiagnosticRow[] = [];
+  let portalAuthLookupError: string | null = null;
+
+  if (portalProfileIds.length > 0 || portalEmails.length > 0) {
+    const profileRowsById = new Map<string, ProfileDiagnosticRow>();
+
+    if (portalProfileIds.length > 0) {
+      const { data: profilesById, error: profilesByIdError } = await adminSupabase
+        .from("profiles")
+        .select("id, full_name, email, created_at, updated_at, platform_role")
+        .in("id", portalProfileIds);
+
+      if (profilesByIdError) {
+        throw new Error(`Failed to load portal diagnostic profiles: ${profilesByIdError.message}`);
+      }
+
+      for (const profile of (profilesById ?? []) as ProfileDiagnosticRow[]) {
+        profileRowsById.set(profile.id, profile);
+      }
+    }
+
+    if (portalEmails.length > 0) {
+      const { data: profilesByEmail, error: profilesByEmailError } = await adminSupabase
+        .from("profiles")
+        .select("id, full_name, email, created_at, updated_at, platform_role")
+        .in("email", portalEmails);
+
+      if (profilesByEmailError) {
+        throw new Error(`Failed to load portal diagnostic profiles: ${profilesByEmailError.message}`);
+      }
+
+      for (const profile of (profilesByEmail ?? []) as ProfileDiagnosticRow[]) {
+        profileRowsById.set(profile.id, profile);
+      }
+    }
+
+    portalProfiles = Array.from(profileRowsById.values());
+  }
+
+  try {
+    const { data: authUsersData, error: authUsersError } =
+      await adminSupabase.auth.admin.listUsers({ page: 1, perPage: 1000 });
+
+    if (authUsersError) {
+      portalAuthLookupError = authUsersError.message;
+    } else {
+      const emailSet = new Set(portalEmails);
+      const profileIdSet = new Set(portalProfileIds);
+      portalAuthUsers = (authUsersData.users ?? [])
+        .filter((user) => profileIdSet.has(user.id) || emailSet.has(normalizeEmail(user.email)))
+        .map((user) => ({
+          id: user.id,
+          email: user.email,
+          email_confirmed_at: user.email_confirmed_at ?? null,
+          last_sign_in_at: user.last_sign_in_at ?? null,
+          created_at: user.created_at ?? null,
+        }));
+    }
+  } catch (error) {
+    portalAuthLookupError =
+      error instanceof Error ? error.message : "Unable to load auth users for portal diagnostics.";
+  }
+
+  const profileById = new Map(portalProfiles.map((profile) => [profile.id, profile]));
+  const profileByEmail = new Map(
+    portalProfiles
+      .map((profile) => [normalizeEmail(profile.email), profile] as const)
+      .filter(([email]) => Boolean(email))
+  );
+  const authById = new Map(portalAuthUsers.map((user) => [user.id, user]));
+  const authByEmail = new Map(
+    portalAuthUsers
+      .map((user) => [normalizeEmail(user.email), user] as const)
+      .filter(([email]) => Boolean(email))
+  );
+  const deliveriesByClientId = new Map<string, PortalInviteDeliveryRow[]>();
+
+  for (const delivery of filteredPortalInviteDeliveries) {
+    if (!delivery.related_id) continue;
+    const existing = deliveriesByClientId.get(delivery.related_id) ?? [];
+    existing.push(delivery);
+    deliveriesByClientId.set(delivery.related_id, existing);
+  }
+
+  const portalDiagnostics = typedPortalClients.map((client) => {
+    const email = normalizeEmail(client.email);
+    const linkedProfile = client.portal_user_id ? profileById.get(client.portal_user_id) ?? null : null;
+    const matchingProfile = email ? profileByEmail.get(email) ?? null : null;
+    const linkedAuthUser = client.portal_user_id ? authById.get(client.portal_user_id) ?? null : null;
+    const matchingAuthUser = email ? authByEmail.get(email) ?? null : null;
+    const recentDeliveries = deliveriesByClientId.get(client.id) ?? [];
+    const latestDelivery = recentDeliveries[0] ?? null;
+
+    let status: "ok" | "warning" | "danger" | "neutral" = "neutral";
+    let label = "No portal activity";
+
+    if (client.portal_user_id && linkedProfile && linkedAuthUser) {
+      status = "ok";
+      label = "Linked";
+    } else if (client.portal_user_id && (!linkedProfile || !linkedAuthUser)) {
+      status = "danger";
+      label = "Broken link";
+    } else if (matchingAuthUser || matchingProfile) {
+      status = "warning";
+      label = "Repair available";
+    } else if (latestDelivery?.status === "failed") {
+      status = "danger";
+      label = "Invite failed";
+    } else if (latestDelivery) {
+      status = "neutral";
+      label = "Invite sent";
+    }
+
+    return {
+      client,
+      email,
+      linkedProfile,
+      matchingProfile,
+      linkedAuthUser,
+      matchingAuthUser,
+      latestDelivery,
+      recentDeliveries,
+      status,
+      label,
+    };
+  });
+
+  const portalLinkedCount = portalDiagnostics.filter((item) => item.status === "ok").length;
+  const portalRepairCount = portalDiagnostics.filter((item) => item.label === "Repair available").length;
+  const portalBrokenCount = portalDiagnostics.filter((item) => item.status === "danger").length;
+  const portalInviteFailedCount = filteredPortalInviteDeliveries.filter((delivery) => delivery.status === "failed").length;
 
   const workspaceType = isOrganizerWorkspace({
     studioName: typedStudio.name,
@@ -578,6 +819,147 @@ export default async function PlatformStudioDetailPage({
           </div>
         </div>
       </div>
+
+      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Platform Diagnostics</p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">Portal account diagnostics</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Internal support view for portal auth/profile/client linking. These implementation details are platform-admin-only and should not be exposed to studio-facing pages.
+            </p>
+          </div>
+
+          <form action={repairStudioPortalLinksAction}>
+            <input type="hidden" name="studioId" value={typedStudio.id} />
+            <input type="hidden" name="returnTo" value={`/platform/studios/${typedStudio.id}`} />
+            <button
+              type="submit"
+              className="rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Repair matching portal links
+            </button>
+          </form>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Clients checked</p>
+            <p className="mt-1 text-3xl font-semibold text-slate-950">{portalDiagnostics.length}</p>
+          </div>
+          <div className="rounded-2xl border border-green-200 bg-green-50 p-4">
+            <p className="text-sm text-green-700">Linked</p>
+            <p className="mt-1 text-3xl font-semibold text-green-950">{portalLinkedCount}</p>
+          </div>
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm text-amber-700">Repair available</p>
+            <p className="mt-1 text-3xl font-semibold text-amber-950">{portalRepairCount}</p>
+          </div>
+          <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+            <p className="text-sm text-red-700">Broken / failed</p>
+            <p className="mt-1 text-3xl font-semibold text-red-950">{portalBrokenCount}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm text-slate-500">Invite failures</p>
+            <p className="mt-1 text-3xl font-semibold text-slate-950">{portalInviteFailedCount}</p>
+          </div>
+        </div>
+
+        {portalAuthLookupError ? (
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            Auth lookup warning: {portalAuthLookupError}. The profile/client link diagnostics still loaded, but auth-user visibility may be incomplete.
+          </div>
+        ) : null}
+
+        {portalDiagnostics.length === 0 ? (
+          <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-10 text-sm text-slate-500">
+            No clients with portal email or portal account links were found for this workspace.
+          </div>
+        ) : (
+          <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
+            <div className="grid grid-cols-12 gap-3 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              <div className="col-span-3">Client</div>
+              <div className="col-span-2">Status</div>
+              <div className="col-span-2">Auth / Profile</div>
+              <div className="col-span-2">Client Link</div>
+              <div className="col-span-3">Latest Invite</div>
+            </div>
+
+            <div className="divide-y divide-slate-200">
+              {portalDiagnostics.slice(0, 30).map((item) => (
+                <div key={item.client.id} className="grid grid-cols-12 gap-3 px-4 py-4 text-sm">
+                  <div className="col-span-3">
+                    <p className="font-semibold text-slate-950">
+                      {fullName(item.client.first_name, item.client.last_name)}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">{item.client.email ?? "No email"}</p>
+                    <p className="mt-1 font-mono text-[11px] text-slate-400">client {shortId(item.client.id)}</p>
+                  </div>
+
+                  <div className="col-span-2">
+                    <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${diagnosticBadgeClass(item.status)}`}>
+                      {item.label}
+                    </span>
+                    <p className="mt-2 text-xs leading-5 text-slate-500">
+                      {item.label === "Repair available"
+                        ? "Matching auth/profile data exists but the client link is missing."
+                        : item.label === "Broken link"
+                          ? "Client link points to a missing profile or auth user."
+                          : item.label === "Invite failed"
+                            ? "Most recent portal invite failed to send."
+                            : item.label === "Linked"
+                              ? "Client, profile, and auth user are aligned."
+                              : "No confirmed portal linkage found yet."}
+                    </p>
+                  </div>
+
+                  <div className="col-span-2 space-y-1 text-xs text-slate-600">
+                    <p>Auth: {item.linkedAuthUser || item.matchingAuthUser ? "found" : "missing"}</p>
+                    <p>Profile: {item.linkedProfile || item.matchingProfile ? "found" : "missing"}</p>
+                    <p>Confirmed: {(item.linkedAuthUser ?? item.matchingAuthUser)?.email_confirmed_at ? "yes" : "no"}</p>
+                    <p>Last sign-in: {formatDateTime((item.linkedAuthUser ?? item.matchingAuthUser)?.last_sign_in_at ?? null)}</p>
+                  </div>
+
+                  <div className="col-span-2 space-y-1 text-xs text-slate-600">
+                    <p>portal_user_id</p>
+                    <p className="font-mono text-slate-500">{shortId(item.client.portal_user_id)}</p>
+                    <p>auth.users</p>
+                    <p className="font-mono text-slate-500">{shortId((item.linkedAuthUser ?? item.matchingAuthUser)?.id)}</p>
+                    <p>profiles</p>
+                    <p className="font-mono text-slate-500">{shortId((item.linkedProfile ?? item.matchingProfile)?.id)}</p>
+                  </div>
+
+                  <div className="col-span-3">
+                    {item.latestDelivery ? (
+                      <div className="space-y-1 text-xs text-slate-600">
+                        <span className={`inline-flex rounded-full px-2.5 py-1 font-medium ${deliveryBadgeClass(item.latestDelivery.status)}`}>
+                          {item.latestDelivery.status ?? "unknown"}
+                        </span>
+                        <p>{formatDateTime(item.latestDelivery.sent_at ?? item.latestDelivery.created_at)}</p>
+                        <p>{item.latestDelivery.recipient_email ?? "No recipient"}</p>
+                        {item.latestDelivery.provider_message_id ? (
+                          <p className="font-mono text-slate-500">provider {shortId(item.latestDelivery.provider_message_id)}</p>
+                        ) : null}
+                        {item.latestDelivery.error_message ? (
+                          <p className="text-red-700">{item.latestDelivery.error_message}</p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-slate-500">No portal invite delivery record found.</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {portalDiagnostics.length > 30 ? (
+          <p className="mt-3 text-xs text-slate-500">
+            Showing the 30 most recently updated portal-related clients. Use SQL diagnostics for full workspace exports.
+          </p>
+        ) : null}
+      </section>
 
       <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
         <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">

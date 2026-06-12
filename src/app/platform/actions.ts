@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 
 const PLATFORM_STUDIO_COOKIE = "platform_selected_studio_id";
@@ -396,4 +397,136 @@ export async function resetInstructorCredentialAction(formData: FormData) {
 
   revalidatePath("/platform/credentials");
   credentialReviewRedirect("submitted");
+}
+
+
+export async function repairStudioPortalLinksAction(formData: FormData) {
+  await requirePlatformAdmin();
+
+  const studioId = String(formData.get("studioId") ?? "").trim();
+  const returnTo = safeReturnPath(
+    formData.get("returnTo"),
+    studioId ? `/platform/studios/${studioId}` : "/platform/studios"
+  );
+
+  if (!studioId) {
+    redirect(returnTo);
+  }
+
+  const supabase = await createClient();
+  const adminSupabase = createAdminClient();
+  const {
+    data: { user: adminUser },
+  } = await supabase.auth.getUser();
+
+  const { data: clients, error: clientsError } = await adminSupabase
+    .from("clients")
+    .select("id, first_name, last_name, email, portal_user_id")
+    .eq("studio_id", studioId)
+    .not("email", "is", null);
+
+  if (clientsError) {
+    throw new Error(`Failed to load clients for portal repair: ${clientsError.message}`);
+  }
+
+  const clientRows = (clients ?? []) as Array<{
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+    portal_user_id: string | null;
+  }>;
+
+  const { data: authUsersData, error: authUsersError } = await adminSupabase.auth.admin.listUsers({
+    page: 1,
+    perPage: 1000,
+  });
+
+  if (authUsersError) {
+    throw new Error(`Failed to load auth users for portal repair: ${authUsersError.message}`);
+  }
+
+  const authByEmail = new Map(
+    (authUsersData.users ?? [])
+      .filter((authUser) => authUser.email)
+      .map((authUser) => [String(authUser.email).trim().toLowerCase(), authUser] as const)
+  );
+
+  let profilesUpserted = 0;
+  let clientsLinked = 0;
+  let skippedAlreadyLinked = 0;
+  let skippedNoAuthUser = 0;
+  let skippedMismatchedLink = 0;
+
+  for (const client of clientRows) {
+    const normalizedEmail = String(client.email ?? "").trim().toLowerCase();
+    if (!normalizedEmail) continue;
+
+    const matchingAuthUser = authByEmail.get(normalizedEmail);
+    if (!matchingAuthUser) {
+      skippedNoAuthUser += 1;
+      continue;
+    }
+
+    const displayName = [client.first_name, client.last_name].filter(Boolean).join(" ").trim();
+
+    const { error: profileError } = await adminSupabase.from("profiles").upsert(
+      {
+        id: matchingAuthUser.id,
+        full_name: displayName || matchingAuthUser.user_metadata?.full_name || null,
+        email: matchingAuthUser.email ?? client.email,
+        platform_role: null,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "id" }
+    );
+
+    if (profileError) {
+      throw new Error(`Failed to upsert portal profile for ${client.email}: ${profileError.message}`);
+    }
+
+    profilesUpserted += 1;
+
+    if (client.portal_user_id === matchingAuthUser.id) {
+      skippedAlreadyLinked += 1;
+      continue;
+    }
+
+    if (client.portal_user_id && client.portal_user_id !== matchingAuthUser.id) {
+      skippedMismatchedLink += 1;
+      continue;
+    }
+
+    const { error: updateError } = await adminSupabase
+      .from("clients")
+      .update({ portal_user_id: matchingAuthUser.id, updated_at: new Date().toISOString() })
+      .eq("id", client.id)
+      .is("portal_user_id", null);
+
+    if (updateError) {
+      throw new Error(`Failed to link portal client ${client.id}: ${updateError.message}`);
+    }
+
+    clientsLinked += 1;
+  }
+
+  const note = [
+    `Portal link repair completed for studio ${studioId}.`,
+    `Profiles upserted: ${profilesUpserted}.`,
+    `Clients linked: ${clientsLinked}.`,
+    `Already linked: ${skippedAlreadyLinked}.`,
+    `No auth user: ${skippedNoAuthUser}.`,
+    `Mismatched existing links skipped: ${skippedMismatchedLink}.`,
+  ].join(" ");
+
+  await supabase.from("platform_admin_actions").insert({
+    target_type: "workspace",
+    target_id: studioId,
+    action_type: "resolved",
+    note,
+    created_by: adminUser?.id ?? null,
+  });
+
+  revalidatePath(`/platform/studios/${studioId}`);
+  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}portal_repair=1`);
 }
