@@ -808,6 +808,88 @@ function injectAutomationsLink(sections: NavSectionType[]): NavSectionType[] {
   ];
 }
 
+
+function injectInstructorPayLink(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const hasInstructorPay = flatItems.some((item) => item.href === "/app/instructor-pay");
+
+  if (hasInstructorPay) {
+    return sections;
+  }
+
+  const instructorPayItem: NavItem = {
+    label: "Instructor Pay",
+    href: "/app/instructor-pay",
+    icon: "payments",
+  };
+
+  const revenueSectionIndex = sections.findIndex((section) => {
+    const title = section.title.trim().toLowerCase();
+
+    return (
+      title === "revenue" ||
+      title === "billing" ||
+      section.items.some(
+        (item) =>
+          item.href === "/app/payments" ||
+          item.href === "/app/expenses" ||
+          item.href === "/app/reports",
+      )
+    );
+  });
+
+  if (revenueSectionIndex >= 0) {
+    return sections.map((section, index) => {
+      if (index !== revenueSectionIndex) {
+        return section;
+      }
+
+      const expensesIndex = section.items.findIndex((item) => item.href === "/app/expenses");
+      const paymentsIndex = section.items.findIndex((item) => item.href === "/app/payments");
+      const insertAfterIndex = expensesIndex >= 0 ? expensesIndex : paymentsIndex;
+
+      if (insertAfterIndex >= 0) {
+        return {
+          ...section,
+          items: [
+            ...section.items.slice(0, insertAfterIndex + 1),
+            instructorPayItem,
+            ...section.items.slice(insertAfterIndex + 1),
+          ],
+        };
+      }
+
+      return {
+        ...section,
+        items: [...section.items, instructorPayItem],
+      };
+    });
+  }
+
+  const dashboardIndex = sections.findIndex((section) =>
+    section.items.some((item) => item.href === "/app"),
+  );
+
+  if (dashboardIndex >= 0) {
+    return [
+      ...sections.slice(0, dashboardIndex + 1),
+      {
+        title: "Revenue",
+        items: [instructorPayItem],
+      },
+      ...sections.slice(dashboardIndex + 1),
+    ];
+  }
+
+  return [
+    {
+      title: "Revenue",
+      items: [instructorPayItem],
+    },
+    ...sections,
+  ];
+}
+
 function injectDirectTaskLinks(sections: NavSectionType[]): NavSectionType[] {
   const flatItems = sections.flatMap((section) => section.items);
   const hasHref = (href: string) => flatItems.some((item) => item.href === href);
@@ -946,6 +1028,7 @@ function optimizeNavigationForTasks(sections: NavSectionType[]): NavSectionType[
       "/app/packages",
       "/app/memberships",
       "/app/expenses",
+      "/app/instructor-pay",
       "/app/balances",
       "/app/settings/billing",
     ]),
@@ -1065,7 +1148,8 @@ export function normalizeSections(input: unknown): NavSectionType[] {
   const withSyllabusLink = injectSyllabusLink(withOrganizerCampaignsLink);
   const withDocumentsLink = injectDocumentsLink(withSyllabusLink);
   const withAutomationsLink = injectAutomationsLink(withDocumentsLink);
-  const withDirectTaskLinks = injectDirectTaskLinks(withAutomationsLink);
+  const withInstructorPayLink = injectInstructorPayLink(withAutomationsLink);
+  const withDirectTaskLinks = injectDirectTaskLinks(withInstructorPayLink);
 
   return optimizeNavigationForTasks(withDirectTaskLinks);
 }

@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
 import { generateWeeklyOccurrenceDates } from "@/lib/utils/recurrence";
+import { stageInstructorEarningForAppointment } from "@/lib/compensation/earnings";
 import {
   requireAppointmentCreateAccess,
   requireAppointmentEditAccess,
@@ -2168,6 +2169,7 @@ export async function cancelAppointmentAction(formData: FormData) {
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
     revalidatePath(`/app/clients/${appointment.client_id}`);
+    revalidatePath("/app/instructor-pay");
     redirect(getSuccessRedirect(formData, fallback, "appointment_cancelled"));
   } catch (error) {
     rethrowIfRedirect(error);
@@ -2353,7 +2355,7 @@ export async function markAppointmentAttendedAction(formData: FormData) {
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")
       .select(
-        "id, client_id, appointment_type, starts_at, client_package_id, price_amount, payment_status, billing_type",
+        "id, client_id, instructor_id, appointment_type, starts_at, client_package_id, price_amount, payment_status, billing_type",
       )
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
@@ -2422,6 +2424,16 @@ export async function markAppointmentAttendedAction(formData: FormData) {
       console.error("Attendance was marked, but usage sync failed.", syncError);
     }
 
+    try {
+      await stageInstructorEarningForAppointment({
+        supabase,
+        studioId,
+        appointmentId,
+      });
+    } catch (earningError) {
+      console.error("Attendance was marked, but instructor earning staging failed.", earningError);
+    }
+
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
     revalidatePath(`/app/clients/${appointment.client_id}`);
@@ -2449,7 +2461,7 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
     const { data: appointments, error: appointmentsError } = await supabase
       .from("appointments")
       .select(
-        "id, client_id, appointment_type, starts_at, client_package_id, price_amount, payment_status, billing_type, status",
+        "id, client_id, instructor_id, appointment_type, starts_at, client_package_id, price_amount, payment_status, billing_type, status",
       )
       .eq("studio_id", studioId)
 .gte("starts_at", startsAtMin)
@@ -2543,6 +2555,19 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
             syncError,
           );
         }
+
+        try {
+          await stageInstructorEarningForAppointment({
+            supabase,
+            studioId,
+            appointmentId: appointment.id,
+          });
+        } catch (earningError) {
+          console.error(
+            "Bulk attendance marked an appointment, but instructor earning staging failed.",
+            earningError,
+          );
+        }
       } catch {
         skippedCount += 1;
         failedCount += 1;
@@ -2550,6 +2575,7 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
     }
 
     revalidatePath("/app/schedule");
+    revalidatePath("/app/instructor-pay");
 
     let redirectUrl = getSuccessRedirect(formData, fallback, "bulk_attended");
     redirectUrl = appendQueryParam(
@@ -2665,7 +2691,7 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
 
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")
-      .select("id, appointment_type, client_id, billing_type, payment_status, price_amount")
+      .select("id, appointment_type, client_id, instructor_id, starts_at, status, billing_type, payment_status, price_amount")
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
       .single();
@@ -2808,11 +2834,23 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
       );
     }
 
+    try {
+      await stageInstructorEarningForAppointment({
+        supabase,
+        studioId,
+        appointmentId,
+        createdBy: user.id,
+      });
+    } catch (earningError) {
+      console.error("Lesson payment was recorded, but instructor earning staging failed.", earningError);
+    }
+
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
     revalidatePath(`/app/clients/${clientId}`);
     revalidatePath("/app/payments");
     revalidatePath("/app/reports");
+    revalidatePath("/app/instructor-pay");
     revalidatePath("/account");
 
     const redirectUrl = selectedDate
