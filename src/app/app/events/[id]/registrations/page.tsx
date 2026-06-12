@@ -249,6 +249,61 @@ function paymentBadgeClass(status: string | null) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
+function friendlyEventValue(value: string | null | undefined) {
+  const normalized = (value ?? "").trim();
+  if (!normalized) return "Not recorded";
+
+  return normalized
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function paymentMethodLabel(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (!normalized) return "Payment method not recorded";
+  if (normalized === "card") return "Card";
+  if (normalized === "stripe") return "Stripe";
+  if (normalized === "external_card") return "External card";
+  if (normalized === "cash") return "Cash";
+  if (normalized === "check") return "Check";
+  if (normalized === "venmo") return "Venmo";
+  if (normalized === "zelle") return "Zelle";
+  if (normalized === "comp" || normalized === "comped") return "Comp";
+
+  return friendlyEventValue(value);
+}
+
+function paymentSourceLabel(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (!normalized) return "No source recorded";
+  if (normalized === "stripe_checkout" || normalized === "checkout") return "Stripe checkout";
+  if (normalized === "manual" || normalized === "admin") return "Manual entry";
+  if (normalized === "external") return "External payment";
+  if (normalized === "event") return "Event payment";
+
+  return friendlyEventValue(value);
+}
+
+function ticketEmailStatusText(email: TicketEmailAuditRow | null) {
+  if (!email) return "Not sent from DanceFlow";
+  if (email.error_message || email.status === "failed") return "Failed";
+  if (email.status === "sent" && email.sent_at) {
+    return `Sent ${formatDateTime(email.sent_at)}`;
+  }
+
+  return `${friendlyEventValue(email.status ?? "queued")} ${formatDateTime(email.created_at)}`;
+}
+
+function attentionCardClass(needsAttention: boolean) {
+  return needsAttention
+    ? "border-amber-200 bg-amber-50 text-amber-950"
+    : "border-emerald-200 bg-emerald-50 text-emerald-950";
+}
+
+function attentionTextClass(needsAttention: boolean) {
+  return needsAttention ? "text-amber-800" : "text-emerald-800";
+}
+
 function shouldBlockAttendanceForPayment(paymentStatus: string | null) {
   return ["pending", "unpaid", "failed", "refunded"].includes(paymentStatus ?? "");
 }
@@ -264,44 +319,6 @@ function isRegistrationActiveForCheckIn(
   ].includes(registration.status ?? "");
 
   return statusIsActive && !shouldBlockAttendanceForPayment(registration.payment_status);
-}
-
-function isAbandonedRegistration(
-  registration: Pick<RegistrationRow, "status" | "payment_status">,
-) {
-  const status = (registration.status ?? "").toLowerCase();
-  const paymentStatus = (registration.payment_status ?? "").toLowerCase();
-
-  return (
-    status === "cancelled" ||
-    status === "canceled" ||
-    paymentStatus === "failed" ||
-    paymentStatus === "cancelled" ||
-    paymentStatus === "canceled"
-  );
-}
-
-function isPendingRegistration(
-  registration: Pick<RegistrationRow, "status" | "payment_status">,
-) {
-  if (isAbandonedRegistration(registration)) return false;
-
-  const status = (registration.status ?? "").toLowerCase();
-  const paymentStatus = (registration.payment_status ?? "").toLowerCase();
-
-  return (
-    status === "pending" ||
-    status === "waitlisted" ||
-    paymentStatus === "pending" ||
-    paymentStatus === "unpaid" ||
-    paymentStatus === "partial"
-  );
-}
-
-function isConfirmedPaidRegistration(
-  registration: Pick<RegistrationRow, "status" | "payment_status">,
-) {
-  return isRegistrationActiveForCheckIn(registration);
 }
 
 function formatDateTime(value: string | null) {
@@ -544,7 +561,7 @@ export default async function EventRegistrationsPage({
     ],
   });
   const search = await searchParams;
-  const activeFilter = (search.filter ?? "active").trim().toLowerCase();
+  const activeFilter = (search.filter ?? "all").trim().toLowerCase();
   const banner = getBanner(search);
   const supabase = await createClient();
 
@@ -885,40 +902,43 @@ export default async function EventRegistrationsPage({
     return registration.status;
   };
 
-  const confirmedPaidRegistrations = typedRegistrations.filter(
-    isConfirmedPaidRegistration,
-  );
-  const pendingRegistrations = typedRegistrations.filter(isPendingRegistration);
-  const abandonedRegistrations = typedRegistrations.filter(
-    isAbandonedRegistration,
-  );
-
   const filteredRegistrations = typedRegistrations.filter((registration) => {
     const status = getEffectiveStatus(registration);
 
-    if (activeFilter === "active") return isConfirmedPaidRegistration(registration);
-    if (activeFilter === "all") return !isAbandonedRegistration(registration);
-    if (activeFilter === "pending") return isPendingRegistration(registration);
-    if (activeFilter === "abandoned") return isAbandonedRegistration(registration);
+    if (activeFilter === "all") return true;
     if (activeFilter === "registered") return status === "registered";
     if (activeFilter === "checked_in")
       return status === "checked_in" || status === "attended";
     if (activeFilter === "waitlisted") return status === "waitlisted";
-    if (activeFilter === "cancelled") return isAbandonedRegistration(registration);
+    if (activeFilter === "cancelled") return status === "cancelled";
     if (activeFilter === "crm_linked") {
       const attendance = attendanceByRegistrationId.get(registration.id);
       return Boolean(attendance?.client_id ?? registration.client_id);
     }
-    return !isAbandonedRegistration(registration);
+    if (activeFilter === "payment_attention") {
+      const amount = Number(registration.total_amount ?? registration.total_price ?? 0);
+      const linkedPayments = paymentsByRegistrationId.get(registration.id) ?? [];
+      return registration.payment_status !== "paid" || (amount > 0 && linkedPayments.length === 0);
+    }
+    if (activeFilter === "email_attention") {
+      const latestEmail = (ticketEmailsByRegistrationId.get(registration.id) ?? [])[0] ?? null;
+      return !latestEmail || latestEmail.status === "failed" || Boolean(latestEmail.error_message);
+    }
+    if (activeFilter === "ticket_attention") {
+      const attendeeRows = registration.event_registration_attendees ?? [];
+      const ticketsPurchased = Math.max(1, Number(registration.quantity ?? 1));
+      const admitsPerTicket = getTicketAdmitsPerTicket(registration.event_ticket_types);
+      const expectedAttendees = Math.max(1, ticketsPurchased * admitsPerTicket);
+      const issuedTicketCount = attendeeRows.filter((attendee) => Boolean(attendee.ticket_code)).length;
+      return issuedTicketCount < expectedAttendees || !isRegistrationActiveForCheckIn(registration);
+    }
+    if (activeFilter === "document_attention") {
+      return !getDocumentStatus(registration.id).isComplete;
+    }
+    return true;
   });
 
   const totalRegistrations = typedRegistrations.length;
-  const operationalRegistrations = typedRegistrations.filter(
-    (registration) => !isAbandonedRegistration(registration),
-  );
-  const activeRegistrationCount = confirmedPaidRegistrations.length;
-  const pendingRegistrationCount = pendingRegistrations.length;
-  const abandonedRegistrationCount = abandonedRegistrations.length;
   const confirmedCount = typedRegistrations.filter(
     (registration) => getEffectiveStatus(registration) === "registered",
   ).length;
@@ -941,6 +961,23 @@ export default async function EventRegistrationsPage({
         (registration) => !getDocumentStatus(registration.id).isComplete,
       ).length
     : 0;
+  const paymentAttentionCount = typedRegistrations.filter((registration) => {
+    const amount = Number(registration.total_amount ?? registration.total_price ?? 0);
+    const linkedPayments = paymentsByRegistrationId.get(registration.id) ?? [];
+    return registration.payment_status !== "paid" || (amount > 0 && linkedPayments.length === 0);
+  }).length;
+  const ticketAttentionCount = typedRegistrations.filter((registration) => {
+    const attendeeRows = registration.event_registration_attendees ?? [];
+    const ticketsPurchased = Math.max(1, Number(registration.quantity ?? 1));
+    const admitsPerTicket = getTicketAdmitsPerTicket(registration.event_ticket_types);
+    const expectedAttendees = Math.max(1, ticketsPurchased * admitsPerTicket);
+    const issuedTicketCount = attendeeRows.filter((attendee) => Boolean(attendee.ticket_code)).length;
+    return issuedTicketCount < expectedAttendees || !isRegistrationActiveForCheckIn(registration);
+  }).length;
+  const emailAttentionCount = typedRegistrations.filter((registration) => {
+    const latestEmail = (ticketEmailsByRegistrationId.get(registration.id) ?? [])[0] ?? null;
+    return !latestEmail || latestEmail.status === "failed" || Boolean(latestEmail.error_message);
+  }).length;
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -1016,12 +1053,9 @@ export default async function EventRegistrationsPage({
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-sm text-slate-500">Active / Pending</p>
+          <p className="text-sm text-slate-500">Registrations</p>
           <p className="mt-2 text-3xl font-semibold text-slate-950">
-            {operationalRegistrations.length}
-          </p>
-          <p className="mt-2 text-sm text-slate-500">
-            {abandonedRegistrationCount} abandoned / failed
+            {totalRegistrations}
           </p>
         </div>
 
@@ -1067,27 +1101,70 @@ export default async function EventRegistrationsPage({
         </div>
       </div>
 
+      <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-950">Event ops visibility</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Review payments, ticket emails, QR ticket issuance, and required documents before event day.
+            </p>
+          </div>
+          <Link
+            href={`/app/events/${typedEvent.id}/check-in`}
+            className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Open Check-In
+          </Link>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <Link
+            href={registrationsHref(typedEvent.id, "payment_attention")}
+            className={`rounded-2xl border p-4 ${attentionCardClass(paymentAttentionCount > 0)}`}
+          >
+            <p className="text-sm font-semibold">Payment review</p>
+            <p className="mt-2 text-3xl font-bold">{paymentAttentionCount}</p>
+            <p className={`mt-2 text-xs ${attentionTextClass(paymentAttentionCount > 0)}`}>
+              unpaid, refunded, failed, or paid without a logged payment row
+            </p>
+          </Link>
+
+          <Link
+            href={registrationsHref(typedEvent.id, "email_attention")}
+            className={`rounded-2xl border p-4 ${attentionCardClass(emailAttentionCount > 0)}`}
+          >
+            <p className="text-sm font-semibold">Ticket email review</p>
+            <p className="mt-2 text-3xl font-bold">{emailAttentionCount}</p>
+            <p className={`mt-2 text-xs ${attentionTextClass(emailAttentionCount > 0)}`}>
+              missing or failed confirmation email attempts
+            </p>
+          </Link>
+
+          <Link
+            href={registrationsHref(typedEvent.id, "ticket_attention")}
+            className={`rounded-2xl border p-4 ${attentionCardClass(ticketAttentionCount > 0)}`}
+          >
+            <p className="text-sm font-semibold">QR ticket review</p>
+            <p className="mt-2 text-3xl font-bold">{ticketAttentionCount}</p>
+            <p className={`mt-2 text-xs ${attentionTextClass(ticketAttentionCount > 0)}`}>
+              missing QR rows or tickets not active for check-in
+            </p>
+          </Link>
+
+          <Link
+            href={registrationsHref(typedEvent.id, "document_attention")}
+            className={`rounded-2xl border p-4 ${attentionCardClass(missingWaiverCount > 0)}`}
+          >
+            <p className="text-sm font-semibold">Document review</p>
+            <p className="mt-2 text-3xl font-bold">{missingWaiverCount}</p>
+            <p className={`mt-2 text-xs ${attentionTextClass(missingWaiverCount > 0)}`}>
+              required waivers or documents still missing
+            </p>
+          </Link>
+        </div>
+      </div>
+
       <div className="flex flex-wrap gap-3">
-        <Link
-          href={registrationsHref(typedEvent.id, "active")}
-          className={`rounded-full px-4 py-2 text-sm ${
-            activeFilter === "active"
-              ? "bg-slate-900 text-white"
-              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-          }`}
-        >
-          Confirmed / Paid ({activeRegistrationCount})
-        </Link>
-        <Link
-          href={registrationsHref(typedEvent.id, "pending")}
-          className={`rounded-full px-4 py-2 text-sm ${
-            activeFilter === "pending"
-              ? "bg-slate-900 text-white"
-              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-          }`}
-        >
-          Pending / Incomplete ({pendingRegistrationCount})
-        </Link>
         <Link
           href={registrationsHref(typedEvent.id, "all")}
           className={`rounded-full px-4 py-2 text-sm ${
@@ -1096,17 +1173,7 @@ export default async function EventRegistrationsPage({
               : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
           }`}
         >
-          Active + Pending
-        </Link>
-        <Link
-          href={registrationsHref(typedEvent.id, "abandoned")}
-          className={`rounded-full px-4 py-2 text-sm ${
-            activeFilter === "abandoned"
-              ? "bg-slate-900 text-white"
-              : "border border-red-200 bg-red-50 text-red-700 hover:bg-red-100"
-          }`}
-        >
-          Abandoned / Failed ({abandonedRegistrationCount})
+          All
         </Link>
         <Link
           href={registrationsHref(typedEvent.id, "registered")}
@@ -1148,43 +1215,47 @@ export default async function EventRegistrationsPage({
         >
           CRM Linked
         </Link>
+        <Link
+          href={registrationsHref(typedEvent.id, "payment_attention")}
+          className={`rounded-full px-4 py-2 text-sm ${
+            activeFilter === "payment_attention"
+              ? "bg-slate-900 text-white"
+              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          Payment Review
+        </Link>
+        <Link
+          href={registrationsHref(typedEvent.id, "email_attention")}
+          className={`rounded-full px-4 py-2 text-sm ${
+            activeFilter === "email_attention"
+              ? "bg-slate-900 text-white"
+              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          Email Review
+        </Link>
+        <Link
+          href={registrationsHref(typedEvent.id, "ticket_attention")}
+          className={`rounded-full px-4 py-2 text-sm ${
+            activeFilter === "ticket_attention"
+              ? "bg-slate-900 text-white"
+              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          QR Review
+        </Link>
+        <Link
+          href={registrationsHref(typedEvent.id, "document_attention")}
+          className={`rounded-full px-4 py-2 text-sm ${
+            activeFilter === "document_attention"
+              ? "bg-slate-900 text-white"
+              : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+          }`}
+        >
+          Document Review
+        </Link>
       </div>
-
-      {abandonedRegistrationCount > 0 && activeFilter !== "abandoned" ? (
-        <details className="rounded-[28px] border border-red-200 bg-red-50/70 p-5 shadow-sm">
-          <summary className="cursor-pointer text-sm font-semibold text-red-900">
-            {abandonedRegistrationCount} abandoned / failed checkout attempt
-            {abandonedRegistrationCount === 1 ? "" : "s"} hidden from the main list
-          </summary>
-          <p className="mt-2 text-sm leading-6 text-red-800">
-            These records are kept for troubleshooting, but they are not active
-            registrations and should not be used for check-in unless a payment is
-            confirmed and the registration is repaired.
-          </p>
-          <div className="mt-4 space-y-2">
-            {abandonedRegistrations.slice(0, 8).map((registration) => (
-              <div
-                key={registration.id}
-                className="flex flex-col gap-1 rounded-xl border border-red-100 bg-white px-3 py-2 text-sm text-red-950 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <span>
-                  {`${registration.attendee_first_name} ${registration.attendee_last_name}`.trim() ||
-                    registration.attendee_email}
-                </span>
-                <span className="text-xs text-red-700">
-                  {registration.status} / {registration.payment_status ?? "unknown"} • {formatCurrency(Number(registration.total_amount ?? registration.total_price ?? 0), registration.currency ?? "USD")}
-                </span>
-              </div>
-            ))}
-          </div>
-          <Link
-            href={registrationsHref(typedEvent.id, "abandoned")}
-            className="mt-4 inline-flex rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800"
-          >
-            Review abandoned checkouts
-          </Link>
-        </details>
-      ) : null}
 
       <div className="space-y-4">
         {filteredRegistrations.length === 0 ? (
@@ -1247,6 +1318,17 @@ export default async function EventRegistrationsPage({
             const ticketCodeStatusText = ticketCodesAreActive
               ? "Active for check-in"
               : "Not active for check-in yet";
+            const latestPayment = linkedPayments[0] ?? null;
+            const paymentNeedsAttention =
+              registration.payment_status !== "paid" || (amount > 0 && linkedPayments.length === 0);
+            const emailNeedsAttention =
+              !latestTicketEmail ||
+              latestTicketEmail.status === "failed" ||
+              Boolean(latestTicketEmail.error_message);
+            const ticketNeedsAttention =
+              issuedTicketCount < expectedAttendees || !ticketCodesAreActive;
+            const documentNeedsAttention =
+              requiredDocumentRows.length > 0 && !documentStatus.isComplete;
 
             return (
               <div
@@ -1277,6 +1359,24 @@ export default async function EventRegistrationsPage({
                           {registration.payment_status ?? "unknown"}
                         </span>
 
+                        {paymentNeedsAttention ? (
+                          <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+                            Payment review
+                          </span>
+                        ) : null}
+
+                        {emailNeedsAttention ? (
+                          <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+                            Email review
+                          </span>
+                        ) : null}
+
+                        {ticketNeedsAttention ? (
+                          <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200">
+                            QR review
+                          </span>
+                        ) : null}
+
                         <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
                           {getTicketTypeName(registration.event_ticket_types)}
                         </span>
@@ -1305,12 +1405,6 @@ export default async function EventRegistrationsPage({
                           </span>
                         ) : null}
                       </div>
-
-                      {isAbandonedRegistration(registration) ? (
-                        <div className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">
-                          Abandoned or failed checkout attempt. This row is kept for audit/troubleshooting and is not active for check-in.
-                        </div>
-                      ) : null}
 
                       <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">
                         <span>{registration.attendee_email}</span>
@@ -1506,12 +1600,6 @@ export default async function EventRegistrationsPage({
                       <p className="mt-1 text-lg font-semibold text-slate-900">
                         {formatCurrency(amount, currency)}
                       </p>
-                      <Link
-                        href={`/app/events/${typedEvent.id}/registrations/${registration.id}`}
-                        className="mt-3 inline-flex rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
-                      >
-                        View details
-                      </Link>
                     </div>
                   </div>
 
@@ -1556,14 +1644,16 @@ export default async function EventRegistrationsPage({
                       </p>
                     </div>
 
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Ticket Email</p>
+                    <div
+                      className={`rounded-xl border p-4 ${
+                        emailNeedsAttention
+                          ? "border-amber-200 bg-amber-50"
+                          : "border-emerald-200 bg-emerald-50"
+                      }`}
+                    >
+                      <p className="text-sm text-slate-600">Ticket Email</p>
                       <p className="mt-1 font-medium text-slate-900">
-                        {latestTicketEmail
-                          ? latestTicketEmail.status === "sent" && latestTicketEmail.sent_at
-                            ? `Sent ${formatDateTime(latestTicketEmail.sent_at)}`
-                            : `${latestTicketEmail.status ?? "queued"} ${formatDateTime(latestTicketEmail.created_at)}`
-                          : "Not sent from DanceFlow"}
+                        {ticketEmailStatusText(latestTicketEmail)}
                       </p>
                       {latestTicketEmail?.error_message ? (
                         <p className="mt-2 text-xs text-red-600">
@@ -1580,10 +1670,24 @@ export default async function EventRegistrationsPage({
                       </p>
                     </div>
 
-                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-sm text-slate-500">Payments Logged</p>
+                    <div
+                      className={`rounded-xl border p-4 ${
+                        paymentNeedsAttention
+                          ? "border-amber-200 bg-amber-50"
+                          : "border-emerald-200 bg-emerald-50"
+                      }`}
+                    >
+                      <p className="text-sm text-slate-600">Payment Source</p>
                       <p className="mt-1 font-medium text-slate-900">
-                        {linkedPayments.length}
+                        {latestPayment
+                          ? `${paymentMethodLabel(latestPayment.payment_method)} • ${paymentSourceLabel(latestPayment.source)}`
+                          : registration.payment_status === "paid"
+                            ? "Paid, no payment row"
+                            : "No payment logged"}
+                      </p>
+                      <p className="mt-2 text-xs text-slate-600">
+                        {linkedPayments.length} payment row
+                        {linkedPayments.length === 1 ? "" : "s"} recorded
                       </p>
                     </div>
 

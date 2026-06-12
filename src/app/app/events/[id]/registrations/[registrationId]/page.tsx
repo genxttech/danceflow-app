@@ -175,6 +175,57 @@ function paymentBadgeClass(status: string | null) {
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
+function friendlyEventValue(value: string | null | undefined) {
+  const normalized = (value ?? "").trim();
+  if (!normalized) return "Not recorded";
+
+  return normalized
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function paymentMethodLabel(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (!normalized) return "Payment method not recorded";
+  if (normalized === "card") return "Card";
+  if (normalized === "stripe") return "Stripe";
+  if (normalized === "external_card") return "External card";
+  if (normalized === "cash") return "Cash";
+  if (normalized === "check") return "Check";
+  if (normalized === "venmo") return "Venmo";
+  if (normalized === "zelle") return "Zelle";
+  if (normalized === "comp" || normalized === "comped") return "Comp";
+
+  return friendlyEventValue(value);
+}
+
+function paymentSourceLabel(value: string | null | undefined) {
+  const normalized = (value ?? "").trim().toLowerCase();
+  if (!normalized) return "No source recorded";
+  if (normalized === "stripe_checkout" || normalized === "checkout") return "Stripe checkout";
+  if (normalized === "manual" || normalized === "admin") return "Manual entry";
+  if (normalized === "external") return "External payment";
+  if (normalized === "event") return "Event payment";
+
+  return friendlyEventValue(value);
+}
+
+function ticketEmailStatusText(email: TicketEmailAuditRow | null) {
+  if (!email) return "Not sent from DanceFlow";
+  if (email.error_message || email.status === "failed") return "Failed";
+  if (email.status === "sent" && email.sent_at) {
+    return `Sent ${formatDateTime(email.sent_at)}`;
+  }
+
+  return `${friendlyEventValue(email.status ?? "queued")} ${formatDateTime(email.created_at)}`;
+}
+
+function visibilityPanelClass(needsAttention: boolean) {
+  return needsAttention
+    ? "border-amber-200 bg-amber-50"
+    : "border-emerald-200 bg-emerald-50";
+}
+
 function shouldBlockAttendanceForPayment(paymentStatus: string | null) {
   return ["pending", "unpaid", "failed", "refunded"].includes(paymentStatus ?? "");
 }
@@ -395,6 +446,14 @@ export default async function EventRegistrationDetailPage({
     isRegistrationActiveForCheckIn(typedRegistration) &&
     !shouldBlockAttendanceForPayment(typedRegistration.payment_status) &&
     Boolean(typedRegistration.attendee_email);
+  const latestPayment = paymentRows[0] ?? null;
+  const paymentNeedsAttention =
+    typedRegistration.payment_status !== "paid" || (amount > 0 && paymentRows.length === 0);
+  const ticketNeedsAttention =
+    issuedTicketCount < expectedAttendees || !isRegistrationActiveForCheckIn(typedRegistration);
+  const emailNeedsAttention =
+    !latestEmail || latestEmail.status === "failed" || Boolean(latestEmail.error_message);
+  const documentNeedsAttention = requirementRows.length > 0 && !documentsComplete;
 
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-6 text-slate-950 sm:px-6 lg:px-8">
@@ -441,6 +500,78 @@ export default async function EventRegistrationDetailPage({
             {banner.message}
           </div>
         ) : null}
+
+        <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-950">Registration payment visibility</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Confirm payment source, ticket email delivery, QR ticket issuance, and required documents before check-in.
+              </p>
+            </div>
+            <Link
+              href={`/app/events/${id}/check-in`}
+              className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Open Check-In
+            </Link>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className={`rounded-2xl border p-4 ${visibilityPanelClass(paymentNeedsAttention)}`}>
+              <p className="text-sm font-semibold text-slate-900">Payment</p>
+              <p className="mt-2 text-sm font-medium text-slate-950">
+                {latestPayment
+                  ? `${paymentMethodLabel(latestPayment.payment_method)} • ${paymentSourceLabel(latestPayment.source)}`
+                  : typedRegistration.payment_status === "paid"
+                    ? "Paid, no payment row"
+                    : "No payment logged"}
+              </p>
+              <p className="mt-2 text-xs text-slate-600">
+                Status: {typedRegistration.payment_status ?? "unknown"} • {paymentRows.length} row
+                {paymentRows.length === 1 ? "" : "s"}
+              </p>
+            </div>
+
+            <div className={`rounded-2xl border p-4 ${visibilityPanelClass(emailNeedsAttention)}`}>
+              <p className="text-sm font-semibold text-slate-900">Ticket Email</p>
+              <p className="mt-2 text-sm font-medium text-slate-950">
+                {ticketEmailStatusText(latestEmail)}
+              </p>
+              <p className="mt-2 text-xs text-slate-600">
+                {emailRows.length} attempt{emailRows.length === 1 ? "" : "s"} recorded
+              </p>
+            </div>
+
+            <div className={`rounded-2xl border p-4 ${visibilityPanelClass(ticketNeedsAttention)}`}>
+              <p className="text-sm font-semibold text-slate-900">QR Tickets</p>
+              <p className="mt-2 text-sm font-medium text-slate-950">
+                {issuedTicketCount}/{expectedAttendees} issued
+              </p>
+              <p className="mt-2 text-xs text-slate-600">
+                {isRegistrationActiveForCheckIn(typedRegistration)
+                  ? "Active for check-in"
+                  : "Not active for check-in yet"}
+              </p>
+            </div>
+
+            <div className={`rounded-2xl border p-4 ${visibilityPanelClass(documentNeedsAttention)}`}>
+              <p className="text-sm font-semibold text-slate-900">Documents</p>
+              <p className="mt-2 text-sm font-medium text-slate-950">
+                {requirementRows.length === 0
+                  ? "None required"
+                  : documentsComplete
+                    ? "Complete"
+                    : "Missing waiver"}
+              </p>
+              <p className="mt-2 text-xs text-slate-600">
+                {requirementRows.length === 0
+                  ? "No required documents for this event"
+                  : `${requirementRows.length - missingRequirements.length}/${requirementRows.length} required complete`}
+              </p>
+            </div>
+          </div>
+        </section>
 
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -576,7 +707,7 @@ export default async function EventRegistrationDetailPage({
                   emailRows.map((email) => (
                     <div key={email.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
                       <div className="flex items-center justify-between gap-3">
-                        <span className="font-semibold text-slate-900">{email.status ?? "queued"}</span>
+                        <span className="font-semibold text-slate-900">{ticketEmailStatusText(email)}</span>
                         <span className="text-xs text-slate-500">{formatDateTime(email.sent_at ?? email.created_at)}</span>
                       </div>
                       <p className="mt-1 text-slate-600">To {email.recipient_email ?? "unknown recipient"}</p>
@@ -599,7 +730,9 @@ export default async function EventRegistrationDetailPage({
                         <span className="font-semibold text-slate-900">{formatCurrency(Number(payment.amount ?? 0), payment.currency ?? "USD")}</span>
                         <span className={`rounded-full px-2 py-1 text-xs font-semibold ${paymentBadgeClass(payment.status)}`}>{payment.status}</span>
                       </div>
-                      <p className="mt-1 text-slate-600">{payment.payment_method} • {payment.source ?? "event payment"}</p>
+                      <p className="mt-1 text-slate-600">
+                        {paymentMethodLabel(payment.payment_method)} • {paymentSourceLabel(payment.source)}
+                      </p>
                       {Number(payment.refund_amount ?? 0) > 0 ? (
                         <p className="mt-2 text-red-600">Refunded {formatCurrency(Number(payment.refund_amount ?? 0), payment.currency ?? "USD")} {payment.refunded_at ? `on ${formatDateTime(payment.refunded_at)}` : ""}</p>
                       ) : null}
