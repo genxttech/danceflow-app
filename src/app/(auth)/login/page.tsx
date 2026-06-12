@@ -35,6 +35,28 @@ function normalizeMode(value: string | undefined) {
   return "default";
 }
 
+function normalizeErrorMessage(value: string | undefined) {
+  if (!value) return "";
+
+  if (value === "portal-access-not-found") {
+    return "We could not find a portal record for that email at this studio. Use the same email your studio has on file, or ask the studio to resend your portal invite.";
+  }
+
+  if (value === "portal-studio-not-found") {
+    return "That studio portal link could not be found. Ask the studio to resend the portal invite.";
+  }
+
+  if (value === "missing-code") {
+    return "That sign-in link was missing its verification code. Request a fresh sign-in link and use the newest email.";
+  }
+
+  if (value === "missing-user-after-callback") {
+    return "The sign-in link was accepted, but we could not finish loading the account. Request a fresh sign-in link and try again.";
+  }
+
+  return value;
+}
+
 function buildLoginHref(params: {
   intent: LoginIntent;
   nextPath: string;
@@ -83,6 +105,9 @@ export default async function LoginPage({
   const selectedPlan = getSingleSearchParam(resolvedSearchParams.plan) ?? "";
   const emailHint = getSingleSearchParam(resolvedSearchParams.email) ?? "";
   const mode = normalizeMode(getSingleSearchParam(resolvedSearchParams.mode));
+  const errorMessage = normalizeErrorMessage(
+    getSingleSearchParam(resolvedSearchParams.error)
+  );
 
   async function submitLogin(formData: FormData) {
     "use server";
@@ -95,8 +120,9 @@ export default async function LoginPage({
   }
 
   const isPublic = loginIntent === "public";
+  const isPortalAccess = isPublic && nextPath.startsWith("/portal/");
   const effectiveNext = nextPath || (isPublic ? "/account" : "/app");
-  const selectedLabel = intentLabel(loginIntent);
+  const selectedLabel = isPortalAccess ? "Studio Portal" : intentLabel(loginIntent);
 
   return (
     <>
@@ -111,12 +137,14 @@ export default async function LoginPage({
                   DanceFlow Login
                 </p>
                 <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
-                  One sign-in page. DanceFlow routes you where you belong.
+                  {isPortalAccess
+                    ? "Access your studio portal."
+                    : "One sign-in page. DanceFlow routes you where you belong."}
                 </h1>
                 <p className="mt-5 text-base leading-7 text-white/85">
-                  Studio teams, organizers, instructors, students, and dancers can
-                  all start here. Choose the account type that best matches what
-                  you are trying to access.
+                  {isPortalAccess
+                    ? "Use the same email address your studio has on file. We will email you a secure sign-in link and bring you back to your portal."
+                    : "Studio teams, organizers, instructors, students, and dancers can all start here. Choose the account type that best matches what you are trying to access."}
                 </p>
               </div>
 
@@ -181,17 +209,34 @@ export default async function LoginPage({
             </div>
 
             <div className="space-y-5">
+              {errorMessage ? (
+                <div className="rounded-[2rem] border border-rose-200 bg-rose-50 p-6 shadow-sm">
+                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-rose-700">
+                    Sign-in needs attention
+                  </p>
+                  <h2 className="mt-3 text-2xl font-semibold text-slate-950">
+                    We could not complete that sign-in.
+                  </h2>
+                  <p className="mt-3 text-sm leading-7 text-slate-700">
+                    {errorMessage}
+                  </p>
+                </div>
+              ) : null}
+
               {mode === "check-email" ? (
                 <div className="rounded-[2rem] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
                   <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">
                     Check your email
                   </p>
                   <h2 className="mt-3 text-2xl font-semibold text-slate-950">
-                    We sent your sign-in link.
+                    {isPortalAccess
+                      ? "Your secure portal link is on the way."
+                      : "We sent your sign-in link."}
                   </h2>
                   <p className="mt-3 text-sm leading-7 text-slate-700">
                     Open the email sent to {emailHint || "your email address"} to
-                    continue. You can safely close this page after using that link.
+                    continue. Use the newest email link, and make sure it is the
+                    same email your studio has on file.
                   </p>
                 </div>
               ) : null}
@@ -245,10 +290,16 @@ export default async function LoginPage({
                       {selectedLabel} Access
                     </p>
                     <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
-                      {isPublic ? "Email me a secure sign-in link" : "Sign in with email and password"}
+                      {isPortalAccess
+                        ? "Email me a secure portal link"
+                        : isPublic
+                          ? "Email me a secure sign-in link"
+                          : "Sign in with email and password"}
                     </h2>
                     <p className="mt-3 text-sm leading-7 text-slate-600">
-                      {intentDescription(loginIntent)}
+                      {isPortalAccess
+                        ? "Enter the same email address your studio used when inviting you to the portal. We will send a secure link and return you to the portal after sign-in."
+                        : intentDescription(loginIntent)}
                     </p>
                   </div>
 
@@ -286,13 +337,13 @@ export default async function LoginPage({
                       type="submit"
                       className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
                     >
-                      Email My Sign-In Link
+                      {isPortalAccess ? "Email My Portal Link" : "Email My Sign-In Link"}
                     </button>
 
                     <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-slate-700">
-                      Student/client portal access usually starts from a studio invite
-                      or event confirmation email. Use the same email address your
-                      studio has on file.
+                      {isPortalAccess
+                        ? "This portal invite is tied to the email on your studio client record. If you use another email, DanceFlow will not be able to connect you to the studio portal."
+                        : "Student/client portal access usually starts from a studio invite or event confirmation email. Use the same email address your studio has on file."}
                     </div>
                   </form>
                 ) : (
@@ -387,41 +438,49 @@ export default async function LoginPage({
 
               <section className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm">
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
-                  Need an account first?
+                  {isPortalAccess ? "Having trouble?" : "Need an account first?"}
                 </p>
 
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <Link
-                    href={
-                      loginIntent === "studio" || loginIntent === "organizer"
-                        ? `/signup?intent=${encodeURIComponent(loginIntent)}${
-                            selectedPlan
-                              ? `&plan=${encodeURIComponent(selectedPlan)}`
-                              : ""
-                          }${
-                            nextPath ? `&next=${encodeURIComponent(nextPath)}` : ""
-                          }`
-                        : "/signup"
-                    }
-                    className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
-                  >
-                    Create Account
-                  </Link>
+                {isPortalAccess ? (
+                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+                    Ask your studio to confirm the email on your client record and
+                    resend the portal invite. Portal access is created from the
+                    studio client record, not from a self-created public account.
+                  </div>
+                ) : (
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <Link
+                      href={
+                        loginIntent === "studio" || loginIntent === "organizer"
+                          ? `/signup?intent=${encodeURIComponent(loginIntent)}${
+                              selectedPlan
+                                ? `&plan=${encodeURIComponent(selectedPlan)}`
+                                : ""
+                            }${
+                              nextPath ? `&next=${encodeURIComponent(nextPath)}` : ""
+                            }`
+                          : "/signup"
+                      }
+                      className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
+                    >
+                      Create Account
+                    </Link>
 
-                  <Link
-                    href="/get-started"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    View Plans
-                  </Link>
+                    <Link
+                      href="/get-started"
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      View Plans
+                    </Link>
 
-                  <Link
-                    href="/knowledgebase"
-                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                  >
-                    Help Center
-                  </Link>
-                </div>
+                    <Link
+                      href="/knowledgebase"
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    >
+                      Help Center
+                    </Link>
+                  </div>
+                )}
               </section>
             </div>
           </div>

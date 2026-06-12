@@ -14,6 +14,19 @@ type StudioRow = {
   public_name: string | null;
 };
 
+function buildPortalLoginPath(studioSlug: string, error?: string) {
+  const search = new URLSearchParams({
+    intent: "public",
+    next: `/portal/${studioSlug}`,
+  });
+
+  if (error) {
+    search.set("error", error);
+  }
+
+  return `/login?${search.toString()}`;
+}
+
 type ClientRow = {
   id: string;
   first_name: string | null;
@@ -297,7 +310,7 @@ export default async function PortalHomePage({ params }: { params: Params }) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect(`/login?studio=${encodeURIComponent(studioSlug)}`);
+    redirect(buildPortalLoginPath(studioSlug));
   }
 
   const { data: studio, error: studioError } = await supabase
@@ -307,7 +320,7 @@ export default async function PortalHomePage({ params }: { params: Params }) {
     .single();
 
   if (studioError || !studio) {
-    redirect("/login");
+    redirect(buildPortalLoginPath(studioSlug, "portal-studio-not-found"));
   }
 
   const typedStudio = studio as StudioRow;
@@ -353,7 +366,7 @@ export default async function PortalHomePage({ params }: { params: Params }) {
   }
 
   if (!typedClient) {
-    redirect(`/login?studio=${encodeURIComponent(studioSlug)}`);
+    redirect(buildPortalLoginPath(studioSlug, "portal-access-not-found"));
   }
 
   const { data: workspaceRole, error: workspaceRoleError } = await supabase
