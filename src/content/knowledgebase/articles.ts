@@ -3256,6 +3256,225 @@ Before allowing participation in activities that require a waiver, confirm the d
 `,
   },
 
+  {
+    slug: "student-portal-access-and-sign-in-links",
+    title: "How Students Access the Portal",
+    category: "Client Portal",
+    audience: "app",
+    description:
+      "Help students and clients sign in to their studio portal using the correct email address and secure sign-in link.",
+    content: `
+## Overview
+
+Students and clients access their portal with a secure email sign-in link. They do not need a traditional password unless they have created one separately.
+
+Portal access is tied to the email address saved on the client record. The student should use the same email address the studio has on file.
+
+## How to invite a student to the portal
+
+Open the client record, confirm the email address is correct, then use the portal invite option from the client profile.
+
+The student should receive an email or portal link that brings them to the student portal sign-in flow.
+
+## What the student sees
+
+When the student opens a portal link, they may be asked to enter their email address and request a secure sign-in link.
+
+They should enter the same email address listed on their client record.
+
+After they request the link, they should open the newest email and click the secure sign-in link. Older links may expire or stop working after a newer link is requested.
+
+## If the student cannot get in
+
+Check the following:
+
+- The client record has the correct email address.
+- The student is entering that exact email address.
+- The student is using the newest sign-in email.
+- The email did not go to spam or junk.
+- The student is opening the link on the same browser/device when possible.
+
+## If the portal still does not open
+
+If the student can sign in but does not see the correct portal, confirm that the client record is linked to the portal user. In normal use, DanceFlow attempts to link the portal account automatically after sign-in when the email matches the client record.
+`,
+  },
+  {
+    slug: "resetting-your-password",
+    title: "How to Reset Your Password",
+    category: "Account Access",
+    audience: "both",
+    description:
+      "Learn how to use the forgot-password flow and create a new password for your DanceFlow account.",
+    content: `
+## Overview
+
+Use the forgot-password flow when you need to create a new password or cannot access your account.
+
+DanceFlow sends a secure reset email. The newest reset email should be used because older reset links may expire or become invalid.
+
+## Reset your password
+
+From the login page, choose the forgot-password option and enter your account email address.
+
+Open the reset email and click the secure link. You should be taken to the reset password page.
+
+Enter your new password, confirm it, and submit the form.
+
+After the password is updated, return to the login page and sign in with the new password.
+
+## Tips
+
+- Use the newest reset email if you requested more than one.
+- Check spam or junk folders if the email does not arrive.
+- Make sure you are using the email address connected to your DanceFlow account.
+- Reset links are time-sensitive and may only work once.
+
+## If the reset link opens the login page
+
+Request a fresh password reset email and use the newest link. If the issue continues, contact support so the account can be checked.
+`,
+  },
+  {
+    slug: "resend-event-ticket-confirmation",
+    title: "How to Resend a Ticket Confirmation",
+    category: "Events & Ticketing",
+    audience: "app",
+    description:
+      "Resend an event ticket confirmation email when an attendee cannot find their tickets or QR codes.",
+    content: `
+## Overview
+
+Ticket confirmations help attendees find their event details, ticket information, and QR codes.
+
+Use resend when an attendee says they did not receive the email, deleted it, or needs the ticket confirmation sent again.
+
+## Resend a ticket confirmation
+
+Open the event, then go to the event registrations area.
+
+Find the registration and open the registration detail page.
+
+Use the resend ticket confirmation action.
+
+After resending, review the ticket email status on the registration detail page or the registration list.
+
+## Before resending
+
+Confirm:
+
+- The attendee email address is correct.
+- The registration is confirmed or paid, unless your workflow allows otherwise.
+- QR tickets have been issued for the registration.
+- The attendee is checking the correct inbox.
+
+## If resend fails
+
+Check the registration detail page for ticket email status. Also review notification or outbound delivery history if available.
+
+Common causes include a missing recipient email, invalid email address, missing ticket records, or an email delivery failure.
+`,
+  },
+  {
+    slug: "review-event-registration-payment-status",
+    title: "How to Review Event Registration Payment Status",
+    category: "Events & Ticketing",
+    audience: "app",
+    description:
+      "Use event registration visibility tools to review payment, ticket email, QR ticket, and document status.",
+    content: `
+## Overview
+
+The event registration pages help staff quickly answer key event operations questions:
+
+- Who registered?
+- Who paid?
+- How did they pay?
+- Were ticket emails sent?
+- Were QR tickets issued?
+- Are required documents or waivers complete?
+
+## Use the registration list
+
+Open the event and go to Registrations.
+
+Use the visibility sections and filters to review registrations that may need attention.
+
+Common review buckets include:
+
+- Payment review
+- Ticket email review
+- QR ticket review
+- Document review
+
+## Open the registration detail page
+
+Use the detail page when you need more information about one registration.
+
+The detail page shows payment source, payment method, ticket email status, QR ticket status, and document or waiver status.
+
+## Payment source examples
+
+Payment records may show different sources depending on how the registration was collected:
+
+- Stripe checkout
+- Manual entry
+- External card
+- Cash
+- Comp
+
+## Best practice
+
+Before the event, review registrations that are unpaid, missing QR tickets, missing ticket emails, or missing required documents.
+
+This helps reduce check-in delays and avoids last-minute registration confusion.
+`,
+  },
+  {
+    slug: "manage-guest-coach-lesson-slots",
+    title: "How to Manage Guest Coach Lesson Slots",
+    category: "Events & Ticketing",
+    audience: "app",
+    description:
+      "Manage guest coach private lesson availability, including blocking and unblocking lesson slots.",
+    content: `
+## Overview
+
+Guest coach lesson slots let event staff manage private lesson availability connected to an event.
+
+Staff can use coach slot management to block unavailable times, mark offline bookings, and keep coach availability accurate.
+
+## Open coach slot management
+
+From the Events page, choose Manage Coach Slots for the event.
+
+You can also open an event detail page and choose Manage Coach Slots from there.
+
+## Blocking lesson slots
+
+Use blocking when a coach is unavailable, a time is reserved offline, or the event schedule needs a break.
+
+Common reasons include:
+
+- Coach break
+- Group class
+- Offline/private booking
+- Schedule hold
+- Unavailable time
+
+## Unblocking slots
+
+If a blocked time becomes available again, return to Manage Coach Slots and unblock the slot.
+
+After unblocking, confirm the public or staff-facing schedule reflects the change.
+
+## Best practice
+
+Review coach slots before publishing or sharing the coach schedule. Recheck availability after offline bookings or schedule changes so attendees do not book unavailable times.
+`,
+  },
+
+
 ];
 
 export function getPublicKnowledgebaseArticles() {
