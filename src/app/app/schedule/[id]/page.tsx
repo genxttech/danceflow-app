@@ -1092,6 +1092,7 @@ export default async function AppointmentDetailPage({
                   />
                   <input type="hidden" name="clientId" value={clientId ?? ""} />
                   <input type="hidden" name="returnTo" value={returnTo} />
+                  <input type="hidden" name="paymentSource" value="appointment_detail" />
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
@@ -1172,9 +1173,11 @@ export default async function AppointmentDetailPage({
                         defaultValue="card"
                         className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
                       >
-                        <option value="card">Card</option>
+                        <option value="card">Card outside DanceFlow</option>
                         <option value="cash">Cash</option>
                         <option value="check">Check</option>
+                        <option value="venmo">Venmo</option>
+                        <option value="zelle">Zelle</option>
                         <option value="ach">ACH</option>
                         <option value="other">Other</option>
                       </select>

@@ -2647,6 +2647,9 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
     const paymentMethod = getString(formData, "paymentMethod") || "other";
     const notes = getString(formData, "notes");
     const selectedDate = getString(formData, "date");
+    const paymentSource =
+      getString(formData, "paymentSource") ||
+      (selectedDate ? "schedule_closeout" : "lesson_payment");
 
     if (!appointmentId || !clientId) {
       redirect(getErrorRedirect(formData, fallback, "missing_payment_target"));
@@ -2739,7 +2742,7 @@ export async function recordPayAsYouGoLessonPaymentAction(formData: FormData) {
         paid_at: paidAt,
         created_by: user.id,
         payment_type: "pay_as_you_go_lesson",
-        source: "schedule_closeout",
+        source: paymentSource,
         external_reference: appointmentId,
       });
 

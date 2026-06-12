@@ -108,12 +108,17 @@ function paymentTypeBadgeClass(type: string) {
   if (type === "package_sale") return "bg-cyan-50 text-cyan-700";
   if (type === "event_registration") return "bg-rose-50 text-rose-700";
   if (type === "floor_rental") return "bg-amber-50 text-amber-700";
+  if (type === "pay_as_you_go_lesson") return "bg-emerald-50 text-emerald-700";
   return "bg-slate-100 text-slate-700";
 }
 
 function sourceLabel(source: string | null) {
   if (source === "stripe") return "Stripe";
   if (source === "manual") return "Manual";
+  if (source === "schedule_closeout") return "Daily Closeout";
+  if (source === "appointment_detail") return "Lesson Detail";
+  if (source === "client_record") return "Client Record";
+  if (source === "lesson_payment") return "Lesson Payment";
   return "Unknown";
 }
 
@@ -122,6 +127,7 @@ function paymentTypeLabel(type: string | null) {
   if (type === "package_sale") return "Package Sale";
   if (type === "event_registration") return "Event Registration";
   if (type === "floor_rental") return "Floor Rental";
+  if (type === "pay_as_you_go_lesson") return "Lesson Payment";
   if (type === "other") return "Other";
   return "General";
 }
@@ -657,30 +663,32 @@ export default async function PaymentsPage({
 
                       <div className="min-w-0">
                         <p className="text-xs uppercase tracking-wide text-slate-400">
-                          Stripe Invoice
+                          Linked Record
                         </p>
-                        <p className="mt-1 break-all text-sm font-medium text-slate-900">
-                          {payment.stripe_invoice_id ?? "—"}
-                        </p>
-                      </div>
-
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-wide text-slate-400">
-                          Payment Intent
-                        </p>
-                        <p className="mt-1 break-all text-sm font-medium text-slate-900">
-                          {payment.stripe_payment_intent_id ?? "—"}
-                        </p>
-                      </div>
-
-                      <div className="min-w-0">
-                        <p className="text-xs uppercase tracking-wide text-slate-400">
-                          External Reference
-                        </p>
-                        <p className="mt-1 break-all text-sm font-medium text-slate-900">
-                          {payment.external_reference ??
-                            payment.stripe_charge_id ??
-                            "—"}
+                        <p className="mt-1 text-sm font-medium text-slate-900">
+                          {payment.payment_type === "pay_as_you_go_lesson" &&
+                          payment.external_reference ? (
+                            <Link
+                              href={`/app/schedule/${payment.external_reference}`}
+                              className="text-[var(--brand-primary)] hover:underline"
+                            >
+                              Open linked lesson
+                            </Link>
+                          ) : payment.payment_type === "membership" ? (
+                            "Membership billing"
+                          ) : payment.payment_type === "package_sale" ? (
+                            "Package sale"
+                          ) : payment.payment_type === "event_registration" ? (
+                            "Event registration"
+                          ) : payment.stripe_invoice_id ||
+                            payment.stripe_payment_intent_id ||
+                            payment.stripe_charge_id ? (
+                            "Stripe payment"
+                          ) : payment.external_reference ? (
+                            "Linked record"
+                          ) : (
+                            "—"
+                          )}
                         </p>
                       </div>
                     </div>

@@ -34,6 +34,7 @@ import {
   collectReplacementPaymentMethodAction,
   retryDelinquentMembershipBillingAction,
 } from "@/app/app/memberships/actions";
+import { recordPayAsYouGoLessonPaymentAction } from "@/app/app/schedule/actions";
 
 type ClientRecord = {
   id: string;
@@ -153,6 +154,9 @@ type AppointmentRow = {
   status: string;
   starts_at: string;
   ends_at: string;
+  billing_type: string | null;
+  payment_status: string | null;
+  price_amount: number | null;
   instructors:
     | { first_name: string; last_name: string }
     | { first_name: string; last_name: string }[]
@@ -1503,6 +1507,9 @@ export default async function ClientDetailPage({
         status,
         starts_at,
         ends_at,
+        billing_type,
+        payment_status,
+        price_amount,
         instructors ( first_name, last_name ),
         rooms ( name )
       `)
@@ -1521,6 +1528,9 @@ export default async function ClientDetailPage({
         status,
         starts_at,
         ends_at,
+        billing_type,
+        payment_status,
+        price_amount,
         instructors ( first_name, last_name ),
         rooms ( name )
       `)
@@ -1864,6 +1874,22 @@ export default async function ClientDetailPage({
   const typedPackages = (packages ?? []) as ClientPackageRow[];
   const typedUpcoming = (upcomingAppointments ?? []) as AppointmentRow[];
   const typedRecent = (recentAppointments ?? []) as AppointmentRow[];
+  const unpaidPayAsYouGoLessons = [...typedUpcoming, ...typedRecent]
+    .filter((appointment) => {
+      const paymentStatus = (appointment.payment_status ?? "unpaid").toLowerCase();
+      return (
+        appointment.billing_type === "pay_as_you_go" &&
+        paymentStatus !== "paid" &&
+        paymentStatus !== "waived" &&
+        appointment.status !== "cancelled" &&
+        appointment.status !== "canceled"
+      );
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime(),
+    )
+    .slice(0, 8);
   const typedPayments = (payments ?? []) as PaymentRow[];
   const typedLedger = (ledger ?? []) as LedgerRow[];
   const typedAccountLedger = (accountLedger ?? []) as ClientAccountLedgerRow[];
@@ -3961,6 +3987,151 @@ export default async function ClientDetailPage({
         </div>
 
         <div className="space-y-6">
+          {activeTab === "billing" ? (
+            <div id="pay-as-you-go-lessons">
+              <QuickActionPanel
+              title="Pay-as-you-go Lessons"
+              description="Collect payment for lessons that need to be paid individually. These payments are linked directly to the lesson."
+              defaultOpen={unpaidPayAsYouGoLessons.length > 0}
+            >
+              {unpaidPayAsYouGoLessons.length > 0 ? (
+                <div className="space-y-4">
+                  {unpaidPayAsYouGoLessons.map((appointment) => {
+                    const lessonAmount = Number(appointment.price_amount ?? 0);
+                    const lessonTitle =
+                      appointment.title?.trim() ||
+                      appointment.appointment_type
+                        .replaceAll("_", " ")
+                        .replace(/\b\w/g, (letter) => letter.toUpperCase());
+                    const lessonReturnTo = `/app/clients/${typedClient.id}?tab=billing#pay-as-you-go-lessons`;
+
+                    return (
+                      <form
+                        key={appointment.id}
+                        action={recordPayAsYouGoLessonPaymentAction}
+                        className="rounded-2xl border border-amber-200 bg-amber-50 p-4"
+                      >
+                        <input type="hidden" name="appointmentId" value={appointment.id} />
+                        <input type="hidden" name="clientId" value={typedClient.id} />
+                        <input type="hidden" name="returnTo" value={lessonReturnTo} />
+                        <input type="hidden" name="paymentSource" value="client_record" />
+
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-950">
+                              {lessonTitle}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-600">
+                              {fmtShortDateTime(appointment.starts_at)} · {getInstructorName(appointment.instructors)}
+                            </p>
+                            <p className="mt-1 text-xs text-slate-600">
+                              This payment will be attached to this lesson and will mark it paid.
+                            </p>
+                          </div>
+
+                          <Link
+                            href={`/app/schedule/${appointment.id}`}
+                            className="text-sm font-medium text-[var(--brand-primary)] hover:underline"
+                          >
+                            Open lesson
+                          </Link>
+                        </div>
+
+                        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-700">
+                              Lesson price
+                            </label>
+                            <input
+                              name="lessonPrice"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              defaultValue={lessonAmount > 0 ? String(lessonAmount) : ""}
+                              className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                              placeholder="0.00"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-700">
+                              Payment amount
+                            </label>
+                            <input
+                              name="amount"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              defaultValue={lessonAmount > 0 ? String(lessonAmount) : ""}
+                              className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                              placeholder="0.00"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-700">
+                              Account credit to apply
+                            </label>
+                            <input
+                              name="accountCreditToApply"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              defaultValue="0"
+                              className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                              placeholder="0.00"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-700">
+                              Payment method
+                            </label>
+                            <select
+                              name="paymentMethod"
+                              defaultValue="card"
+                              className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                            >
+                              <option value="card">Card outside DanceFlow</option>
+                              <option value="cash">Cash</option>
+                              <option value="check">Check</option>
+                              <option value="venmo">Venmo</option>
+                              <option value="zelle">Zelle</option>
+                              <option value="ach">ACH</option>
+                              <option value="other">Other</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <label className="mt-3 block text-xs font-medium text-slate-700">
+                          Payment notes
+                          <textarea
+                            name="notes"
+                            rows={2}
+                            className="mt-1 w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                            placeholder="Optional note for this lesson payment."
+                          />
+                        </label>
+
+                        <button
+                          type="submit"
+                          className="mt-4 rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                        >
+                          Record Lesson Payment
+                        </button>
+                      </form>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                  No unpaid pay-as-you-go lessons were found for this client.
+                </div>
+              )}
+              </QuickActionPanel>
+            </div>
+          ) : null}
+
           {activeTab === "billing" ? (
           <div id="quick-sale-payment">
             <QuickActionPanel
