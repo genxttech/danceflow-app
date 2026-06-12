@@ -1325,6 +1325,15 @@ export default async function SchedulePage({
                               value={lessonPriceDefault}
                             />
 
+                            <div className="mb-3">
+                              <p className="text-sm font-semibold text-slate-900">
+                                Pay now for this lesson
+                              </p>
+                              <p className="mt-1 text-xs leading-5 text-slate-500">
+                                This records a payment directly against the selected pay-as-you-go lesson.
+                              </p>
+                            </div>
+
                             <div className="mb-3 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <span>Available account credit</span>
@@ -1389,7 +1398,7 @@ export default async function SchedulePage({
                                   className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                                 >
                                   <option value="cash">Cash</option>
-                                  <option value="card">Card</option>
+                                  <option value="card">Card outside DanceFlow</option>
                                   <option value="check">Check</option>
                                   <option value="venmo">Venmo</option>
                                   <option value="zelle">Zelle</option>
@@ -1402,7 +1411,7 @@ export default async function SchedulePage({
                                 type="submit"
                                 className="sm:col-span-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white hover:bg-amber-700"
                               >
-                                Record payment / apply credit
+                                Pay now / apply credit
                               </button>
                             </div>
                           </form>

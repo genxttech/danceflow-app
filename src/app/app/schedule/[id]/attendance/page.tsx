@@ -328,7 +328,17 @@ export default async function ScheduleAttendancePage({
               : "border-red-200 bg-red-50 text-red-700"
           }`}
         >
-          {banner.message}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{banner.message}</span>
+            {query.error === "payment_required" ? (
+              <Link
+                href={`/app/schedule/${typedAppointment.id}`}
+                className="inline-flex shrink-0 items-center justify-center rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+              >
+                Open lesson payment
+              </Link>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
