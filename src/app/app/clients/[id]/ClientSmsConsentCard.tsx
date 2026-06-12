@@ -3,6 +3,7 @@ import {
   type SmsPermissionRow,
   normalizeSmsPhone,
   SMS_CONSENT_DISCLOSURE,
+  getSmsPlatformReadiness,
   smsConsentLabel,
   smsConsentTip,
 } from "@/lib/sms/compliance";
@@ -32,6 +33,7 @@ export function ClientSmsConsentCard({
   error,
 }: ClientSmsConsentCardProps) {
   const status = (permission?.consent_status ?? "unknown") as SmsConsentStatus;
+  const smsReadiness = getSmsPlatformReadiness();
   const normalizedPhone = phone ? normalizeSmsPhone(phone) : null;
   const displayPhone = permission?.phone_e164 ?? normalizedPhone ?? phone ?? "No phone number saved";
 
@@ -52,6 +54,15 @@ export function ClientSmsConsentCard({
           {smsConsentLabel(status)}
         </div>
       </div>
+
+      {!smsReadiness.canSend ? (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+          <p className="font-semibold">Text messaging is not active yet.</p>
+          <p className="mt-1">
+            {smsReadiness.studioMessage} You can still record consent now so this student is ready once texting is available.
+          </p>
+        </div>
+      ) : null}
 
       {message ? (
         <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">

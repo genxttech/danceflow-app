@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { getSmsPlatformReadiness } from "@/lib/sms/compliance";
 
 type SmsMessageLogRow = {
   id: string;
@@ -172,6 +173,7 @@ export default async function PlatformSmsPage() {
   );
 
   const callbackConfigured = Boolean(process.env.TWILIO_STATUS_CALLBACK_SECRET);
+  const smsReadiness = getSmsPlatformReadiness();
 
   const deliveredCount = countByStatus(logs, "delivered");
   const sentCount = countByStatus(logs, "sent");
@@ -216,7 +218,13 @@ export default async function PlatformSmsPage() {
           </div>
         </div>
 
-        <div className="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 p-6 sm:grid-cols-2 lg:grid-cols-5">
+          <StatCard
+            label="Sending status"
+            value={smsReadiness.label}
+            helper={smsReadiness.platformMessage}
+            tone={smsReadiness.canSend ? "emerald" : smsReadiness.status === "rejected" ? "rose" : "amber"}
+          />
           <StatCard
             label="Recent messages"
             value={logs.length}
@@ -274,6 +282,12 @@ export default async function PlatformSmsPage() {
           <p className="mt-4 rounded-2xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
             Keep carrier registration details in Twilio. This page verifies whether DanceFlow can send and track platform SMS activity.
           </p>
+          <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+            <p className="font-semibold">Safe activation</p>
+            <p className="mt-1">
+              Production SMS sends are blocked unless <code>DANCEFLOW_SMS_STATUS=approved</code> or <code>SMS_PLATFORM_STATUS=approved</code>. Current status: <span className="font-semibold">{smsReadiness.label}</span>.
+            </p>
+          </div>
         </div>
 
         <div className="rounded-[1.5rem] border border-slate-200 bg-white p-5 shadow-sm">
@@ -296,7 +310,7 @@ export default async function PlatformSmsPage() {
             </div>
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-600">
-            SMS sends remain blocked unless a contact is opted in. Consent history is stored separately for audit review.
+            SMS sends remain blocked unless the platform is approved and the contact is opted in. Consent history is stored separately for audit review.
           </p>
         </div>
 

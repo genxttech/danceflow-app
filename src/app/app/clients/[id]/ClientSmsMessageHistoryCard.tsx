@@ -58,7 +58,7 @@ export function ClientSmsMessageHistoryCard({
             Recent text messages
           </h3>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Review recent texts, delivery status, and any carrier/provider errors for this client.
+            Review recent texts and delivery status for this client.
           </p>
         </div>
 
@@ -98,19 +98,14 @@ export function ClientSmsMessageHistoryCard({
 
                   {message.provider_error_message ? (
                     <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs leading-5 text-rose-800">
-                      <span className="font-semibold">Provider error:</span>{" "}
-                      {message.provider_error_message}
+                      <span className="font-semibold">Delivery issue:</span>{" "}
+                      This text could not be completed. Check the student's phone number or try again later.
                     </div>
                   ) : null}
                 </div>
 
                 <div className="shrink-0 text-left text-xs leading-5 text-slate-500 sm:text-right">
                   <p>{formatSmsDate(messageTimestamp(message))}</p>
-                  {message.provider_message_id ? (
-                    <p className="mt-1 font-mono text-[11px] text-slate-400">
-                      {message.provider_message_id.slice(0, 10)}…
-                    </p>
-                  ) : null}
                 </div>
               </div>
             </div>
@@ -125,7 +120,7 @@ export function ClientSmsMessageHistoryCard({
       ) : null}
 
       <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-        Tip: During carrier approval, messages may remain queued longer than usual. Once approval and callbacks are active, this history will update with sent, delivered, or failed statuses.
+        Tip: Text messaging may be unavailable while carrier approval is pending. Once texting is active, this history will update with sent, delivered, or failed statuses.
       </div>
     </section>
   );

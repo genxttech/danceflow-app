@@ -1,4 +1,8 @@
-import { normalizeSmsPhone } from "@/lib/sms/compliance";
+import {
+  getSmsSendingUnavailableMessage,
+  isSmsSendingApproved,
+  normalizeSmsPhone,
+} from "@/lib/sms/compliance";
 
 export type TwilioSendSmsInput = {
   to: string;
@@ -37,8 +41,8 @@ export function getTwilioMissingConfigKeys() {
   if (!config.accountSid) missing.push("TWILIO_ACCOUNT_SID");
   if (!config.authToken) missing.push("TWILIO_AUTH_TOKEN");
   if (!config.messagingServiceSid) {
-  missing.push("TWILIO_MESSAGING_SERVICE_SID or TWILIO_MESSAGE_SERVICE_SID");
-}
+    missing.push("TWILIO_MESSAGING_SERVICE_SID or TWILIO_MESSAGE_SERVICE_SID");
+  }
 
   return missing;
 }
@@ -75,6 +79,14 @@ export async function sendTwilioSms(input: TwilioSendSmsInput): Promise<TwilioSe
       ok: false,
       error: `Text messaging is not configured yet. Missing: ${missingConfigKeys.join(", ")}`,
       errorCode: "twilio_config_missing",
+    };
+  }
+
+  if (!isSmsSendingApproved()) {
+    return {
+      ok: false,
+      error: getSmsSendingUnavailableMessage(),
+      errorCode: "sms_not_approved",
     };
   }
 

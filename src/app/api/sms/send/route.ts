@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   appendSmsOptOutFooter,
   canSendSms,
+  getSmsPlatformReadiness,
   normalizeSmsPhone,
 } from "@/lib/sms/compliance";
 import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
@@ -110,6 +111,15 @@ export async function POST(request: Request) {
       );
     }
 
+    const smsReadiness = getSmsPlatformReadiness();
+
+    if (!smsReadiness.canSend) {
+      return NextResponse.json(
+        { ok: false, error: smsReadiness.studioMessage },
+        { status: 503 },
+      );
+    }
+
     const finalBody = appendSmsOptOutFooter(requestedBody, studio.name);
     const segmentCount = Math.max(1, estimateSmsSegments(finalBody));
 
@@ -189,7 +199,6 @@ export async function POST(request: Request) {
       ok: true,
       message: "Text queued for sending.",
       id: logRow.id,
-      providerMessageId: sendResult.sid ?? null,
     });
   } catch (error) {
     console.error("Unhandled SMS send route error", error);

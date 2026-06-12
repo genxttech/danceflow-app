@@ -212,6 +212,82 @@ export function smsSendStatusLabel(status: SmsMessageLogRow["status"] | string |
   return "Queued";
 }
 
+
+export type SmsPlatformStatus = "disabled" | "pending_review" | "approved" | "rejected";
+
+export type SmsPlatformReadiness = {
+  status: SmsPlatformStatus;
+  label: string;
+  canSend: boolean;
+  studioMessage: string;
+  platformMessage: string;
+};
+
+function normalizeSmsPlatformStatus(value: string | null | undefined): SmsPlatformStatus {
+  const normalized = String(value ?? "").trim().toLowerCase();
+
+  if (normalized === "approved") return "approved";
+  if (normalized === "rejected") return "rejected";
+  if (normalized === "disabled") return "disabled";
+  if (normalized === "pending" || normalized === "pending_review" || normalized === "review") {
+    return "pending_review";
+  }
+
+  return "pending_review";
+}
+
+export function getSmsPlatformReadiness(): SmsPlatformReadiness {
+  const status = normalizeSmsPlatformStatus(
+    process.env.DANCEFLOW_SMS_STATUS ?? process.env.SMS_PLATFORM_STATUS,
+  );
+
+  if (status === "approved") {
+    return {
+      status,
+      label: "Approved",
+      canSend: true,
+      studioMessage: "Text messaging is available for opted-in students.",
+      platformMessage: "Carrier approval is marked approved. Production SMS sending is enabled.",
+    };
+  }
+
+  if (status === "rejected") {
+    return {
+      status,
+      label: "Needs resubmission",
+      canSend: false,
+      studioMessage: "Text messaging is temporarily unavailable while carrier approval is being corrected.",
+      platformMessage: "Carrier approval is marked rejected. Production SMS sending is blocked until the status is changed to approved.",
+    };
+  }
+
+  if (status === "disabled") {
+    return {
+      status,
+      label: "Disabled",
+      canSend: false,
+      studioMessage: "Text messaging is currently unavailable.",
+      platformMessage: "Production SMS sending is disabled by platform configuration.",
+    };
+  }
+
+  return {
+    status,
+    label: "Pending approval",
+    canSend: false,
+    studioMessage: "Text messaging is waiting on carrier approval before messages can be sent.",
+    platformMessage: "Carrier approval is pending review. Production SMS sending is blocked until the status is changed to approved.",
+  };
+}
+
+export function isSmsSendingApproved() {
+  return getSmsPlatformReadiness().canSend;
+}
+
+export function getSmsSendingUnavailableMessage() {
+  return getSmsPlatformReadiness().studioMessage;
+}
+
 export function getSmsOptOutFooter(studioName?: string | null) {
   const sender = studioName?.trim() ? studioName.trim() : "your studio";
   return `Reply STOP to opt out. Reply HELP for help. Msg & data rates may apply.`;
