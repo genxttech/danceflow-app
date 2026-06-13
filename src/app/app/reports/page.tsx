@@ -906,6 +906,13 @@ export default async function ReportsPage({
       .values(),
   ).sort((a, b) => b.total - a.total);
 
+  const eventTicketAccountingEntries = accountingEntries.filter(
+    (entry) =>
+      entry.sourceTable === "event_payments" &&
+      entry.entryType === "revenue" &&
+      entry.category === "event_ticket_revenue",
+  );
+
   const accountingExpenseCategories = Array.from(
     accountingEntries
       .filter((entry) => entry.entryType === "expense")
@@ -1371,19 +1378,57 @@ export default async function ReportsPage({
       item.payment_status === "paid" || item.payment_status === "partial",
   );
 
-  const refundedEventRegistrations = typedEventRegistrations.filter(
-    (item) => item.payment_status === "refunded",
-  );
-
-  const eventRevenueTotal = paidEventRegistrations.reduce(
-    (sum, item) => sum + Number(item.total_amount ?? item.total_price ?? 0),
+  const eventRevenueTotal = eventTicketAccountingEntries.reduce(
+    (sum, entry) => sum + entry.grossAmount,
     0,
   );
 
-  const eventRefundedTotal = refundedEventRegistrations.reduce(
-    (sum, item) => sum + Number(item.total_amount ?? item.total_price ?? 0),
+  const eventRefundedTotal = eventTicketAccountingEntries.reduce(
+    (sum, entry) => sum + Math.abs(entry.refundAmount),
     0,
   );
+
+  const eventFeesTotal = eventTicketAccountingEntries.reduce(
+    (sum, entry) => sum + Math.abs(entry.feeAmount),
+    0,
+  );
+
+  const eventRevenueByEventId = eventTicketAccountingEntries.reduce(
+    (map, entry) => {
+      const eventId = entry.eventId ?? "unknown";
+      map.set(eventId, (map.get(eventId) ?? 0) + entry.grossAmount);
+      return map;
+    },
+    new Map<string, number>(),
+  );
+
+  const registrationRevenueByEventId = paidEventRegistrations.reduce(
+    (map, registration) => {
+      const eventId = registration.event_id ?? "unknown";
+      const amount = Number(
+        registration.total_amount ?? registration.total_price ?? 0,
+      );
+      map.set(eventId, (map.get(eventId) ?? 0) + amount);
+      return map;
+    },
+    new Map<string, number>(),
+  );
+
+  const ledgerAllocatedRegistrationRevenue = (
+    registration: EventRegistrationRevenueRow,
+  ) => {
+    const eventId = registration.event_id ?? "unknown";
+    const registrationAmount = Number(
+      registration.total_amount ?? registration.total_price ?? 0,
+    );
+    const eventRegistrationTotal = registrationRevenueByEventId.get(eventId) ?? 0;
+    const eventLedgerTotal = eventRevenueByEventId.get(eventId) ?? 0;
+
+    if (eventLedgerTotal <= 0) return 0;
+    if (eventRegistrationTotal <= 0) return eventLedgerTotal;
+
+    return eventLedgerTotal * (registrationAmount / eventRegistrationTotal);
+  };
 
   const checkedInAttendeeRegistrationIds = new Set(
     typedEventAttendees
@@ -1413,9 +1458,7 @@ export default async function ReportsPage({
     const eventInfo = getEventInfo(registration.events);
     const ticketInfo = getTicketInfo(registration.event_ticket_types);
     const eventId = registration.event_id ?? "unknown";
-    const amount = Number(
-      registration.total_amount ?? registration.total_price ?? 0,
-    );
+    const amount = ledgerAllocatedRegistrationRevenue(registration);
     const quantity = Number(registration.quantity ?? 1);
     const isCheckedIn =
       Boolean(registration.checked_in_at) ||
@@ -1548,8 +1591,8 @@ export default async function ReportsPage({
     },
     {
       key: "event_ticket_revenue",
-      label: "Event / ticket registrations",
-      count: paidEventRegistrations.length,
+      label: "Event / ticket revenue",
+      count: eventTicketAccountingEntries.length,
       total: eventRevenueTotal,
     },
     {
@@ -1589,7 +1632,7 @@ export default async function ReportsPage({
     refundedPayments.reduce((sum, item) => sum + Number(item.amount ?? 0), 0) +
     eventRefundedTotal;
 
-  const knownFeesTotal = 0;
+  const knownFeesTotal = eventFeesTotal;
 
   const estimatedNetIncome =
     revenueTotal -
@@ -1599,7 +1642,7 @@ export default async function ReportsPage({
     instructorCompensationExpense;
 
   const paidRevenueItemsCount =
-    paidPayments.length + paidEventRegistrations.length;
+    paidPayments.length + eventTicketAccountingEntries.length;
 
   const packageRevenueSnapshot = typedPackages.reduce(
     (sum, item) => sum + moneyValue(item.sold_price ?? item.price_snapshot),
@@ -2538,7 +2581,7 @@ export default async function ReportsPage({
 
             <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3">
               <span className="text-sm font-medium text-slate-700">
-                Event / ticket registrations
+                Event / ticket revenue
               </span>
               <span className="text-sm font-semibold text-slate-950">
                 {fmtCurrency(eventRevenueTotal)}
@@ -4755,7 +4798,7 @@ export default async function ReportsPage({
             </div>
 
             <div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-orange-900">
-              Event reporting uses paid event registrations for revenue and
+              Event reporting uses the accounting ledger for revenue totals and
               check-in records to estimate attendance and no-shows.
             </div>
           </div>

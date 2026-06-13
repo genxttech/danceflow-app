@@ -125,6 +125,33 @@ export type AccountingEntry = {
   createdAt: string;
 };
 
+type AccountingEntryDbRow = {
+  id: string;
+  studio_id: string | null;
+  organizer_id: string | null;
+  entry_date: string;
+  entry_type: AccountingEntryType;
+  category: string;
+  direction: "credit" | "debit";
+  gross_amount: number | string | null;
+  fee_amount: number | string | null;
+  refund_amount: number | string | null;
+  net_amount: number | string | null;
+  currency: string | null;
+  payment_method: string | null;
+  source_table: string;
+  source_id: string;
+  client_id: string | null;
+  event_id: string | null;
+  appointment_id: string | null;
+  external_reference: string | null;
+  stripe_payment_intent_id: string | null;
+  stripe_charge_id: string | null;
+  stripe_invoice_id: string | null;
+  description: string | null;
+  created_at: string;
+};
+
 function toNumber(value: number | string | null | undefined) {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -181,6 +208,37 @@ export function accountingCategoryLabel(category: string) {
   };
 
   return labels[category] ?? category.replaceAll("_", " ");
+}
+
+function dbAccountingEntryToEntry(row: AccountingEntryDbRow): AccountingEntry {
+  return {
+    id: row.id,
+    studioId: row.studio_id,
+    organizerId: row.organizer_id,
+    entryDate: row.entry_date,
+    entryType: row.entry_type,
+    category: row.category,
+    categoryLabel: accountingCategoryLabel(row.category),
+    direction: row.direction,
+    grossAmount: toNumber(row.gross_amount),
+    feeAmount: toNumber(row.fee_amount),
+    refundAmount: toNumber(row.refund_amount),
+    netAmount: toNumber(row.net_amount),
+    currency: toCurrency(row.currency),
+    paymentMethod: row.payment_method,
+    sourceTable: row.source_table,
+    sourceId: row.source_id,
+    clientId: row.client_id,
+    eventId: row.event_id,
+    appointmentId: row.appointment_id,
+    externalReference: row.external_reference,
+    stripePaymentIntentId: row.stripe_payment_intent_id,
+    stripeChargeId: row.stripe_charge_id,
+    stripeInvoiceId: row.stripe_invoice_id,
+    description: row.description || accountingCategoryLabel(row.category),
+    status: null,
+    createdAt: row.created_at,
+  };
 }
 
 function paymentCategory(payment: PaymentRow) {
@@ -611,7 +669,7 @@ export async function getStudioAccountingEntries({
   startDate: string;
   endDate: string;
 }) {
-  const [paymentsResult, eventPaymentsResult, expensesResult] = await Promise.all([
+  const [paymentsResult, eventAccountingEntriesResult, expensesResult] = await Promise.all([
     supabase
       .from("payments")
       .select(
@@ -622,24 +680,16 @@ export async function getStudioAccountingEntries({
       .lte("created_at", endDate)
       .limit(5000),
     supabase
-      .from("event_payments")
+      .from("accounting_entries")
       .select(
-        `id, registration_id, amount, currency, payment_method, status, source, notes, created_at, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_invoice_id, stripe_processing_fee_amount, stripe_application_fee_amount, platform_fee_amount, stripe_balance_transaction_id, refund_amount, refunded_at, stripe_refund_id,
-        event_registrations!inner (
-          id,
-          studio_id,
-          event_id,
-          client_id,
-          events (
-            id,
-            name,
-            organizer_id
-          )
-        )`,
+        "id, studio_id, organizer_id, entry_date, entry_type, category, direction, gross_amount, fee_amount, refund_amount, net_amount, currency, payment_method, source_table, source_id, client_id, event_id, appointment_id, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_invoice_id, description, created_at",
       )
-      .eq("event_registrations.studio_id", studioId)
-      .gte("created_at", startDate)
-      .lte("created_at", endDate)
+      .eq("studio_id", studioId)
+      .eq("source_table", "event_payments")
+      .eq("entry_type", "revenue")
+      .eq("category", "event_ticket_revenue")
+      .gte("entry_date", startDate.slice(0, 10))
+      .lte("entry_date", endDate.slice(0, 10))
       .limit(5000),
     supabase
       .from("expenses")
@@ -654,9 +704,9 @@ export async function getStudioAccountingEntries({
     throw new Error(`Accounting payments lookup failed: ${paymentsResult.error.message}`);
   }
 
-  if (eventPaymentsResult.error) {
+  if (eventAccountingEntriesResult.error) {
     throw new Error(
-      `Accounting event payments lookup failed: ${eventPaymentsResult.error.message}`,
+      `Accounting event payment ledger lookup failed: ${eventAccountingEntriesResult.error.message}`,
     );
   }
 
@@ -673,14 +723,9 @@ export async function getStudioAccountingEntries({
       ].filter((entry): entry is AccountingEntry => Boolean(entry)),
   );
 
-  const eventPaymentEntries = ((eventPaymentsResult.data ?? []) as EventPaymentRow[]).flatMap(
-    (payment) =>
-      [
-        eventPaymentRevenueEntry(payment),
-        eventPaymentRefundEntry(payment),
-        ...eventPaymentFeeEntries(payment),
-      ].filter((entry): entry is AccountingEntry => Boolean(entry)),
-  );
+  const eventPaymentEntries = (
+    (eventAccountingEntriesResult.data ?? []) as AccountingEntryDbRow[]
+  ).map(dbAccountingEntryToEntry);
 
   const entries = [
     ...paymentEntries,
@@ -699,6 +744,20 @@ export function summarizeAccountingEntries(entries: AccountingEntry[]) {
     (current, entry) => {
       if (entry.entryType === "revenue") {
         current.revenue += entry.grossAmount;
+
+        // Some persisted accounting rows, including event ticket revenue, carry
+        // refund and fee amounts on the revenue row itself so the row can remain
+        // idempotent by source payment. Count those embedded deductions here;
+        // legacy virtual payment entries still use separate refund/fee rows.
+        current.refunds += Math.abs(entry.refundAmount);
+
+        const embeddedFeeAmount = Math.abs(entry.feeAmount);
+        current.fees += embeddedFeeAmount;
+
+        if (embeddedFeeAmount > 0 && entry.sourceTable === "event_payments") {
+          current.processingFees += embeddedFeeAmount;
+          current.stripeProcessingFees += embeddedFeeAmount;
+        }
       }
 
       if (entry.entryType === "refund") {

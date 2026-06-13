@@ -2139,37 +2139,53 @@ async function handleStripeRefundUpdated(
 ) {
   const paymentIntentId = stripeObjectId(refund.payment_intent);
   const chargeId = stripeObjectId(refund.charge);
-  const refundAmount = centsToDollars(refund.amount ?? 0);
   const stripeRefundId = refund.id ?? null;
 
   let resolvedPaymentIntentId = paymentIntentId;
+  let cumulativeRefundAmount = centsToDollars(refund.amount ?? 0);
+  let resolvedCharge: Stripe.Charge | null = null;
 
-  if (!resolvedPaymentIntentId && chargeId) {
+  if (chargeId) {
     try {
-      const charge = await stripe.charges.retrieve(chargeId);
-      resolvedPaymentIntentId = stripeObjectId(charge.payment_intent);
+      resolvedCharge = await stripe.charges.retrieve(chargeId, {
+        expand: ["balance_transaction"],
+      });
+      resolvedPaymentIntentId =
+        resolvedPaymentIntentId ?? stripeObjectId(resolvedCharge.payment_intent);
+
+      // Stripe Refund.amount is the amount for this single refund event.
+      // Charge.amount_refunded is cumulative across multiple partial refunds,
+      // which is what event_payments.refund_amount and accounting_entries need.
+      const chargeRefundAmount = centsToDollars(resolvedCharge.amount_refunded ?? 0);
+      if (chargeRefundAmount > 0) {
+        cumulativeRefundAmount = chargeRefundAmount;
+      }
     } catch (error) {
       console.warn("Unable to retrieve Stripe charge for refund sync.", error);
     }
   }
 
-  if (!resolvedPaymentIntentId || refundAmount <= 0) return false;
+  if (!resolvedPaymentIntentId || cumulativeRefundAmount <= 0) return false;
 
   const paymentUpdated = await updatePaymentRefundByPaymentIntent(
     supabase,
     resolvedPaymentIntentId,
-    refundAmount,
+    cumulativeRefundAmount,
     stripeRefundId,
   );
 
   const eventPaymentUpdated = await updateEventPaymentRefundByPaymentIntent(
     supabase,
     resolvedPaymentIntentId,
-    refundAmount,
+    cumulativeRefundAmount,
     stripeRefundId,
   );
 
-  await syncFeeDetailsForPaymentIntent(supabase, stripe, resolvedPaymentIntentId);
+  if (resolvedCharge) {
+    await syncFeeDetailsForCharge(supabase, stripe, resolvedCharge);
+  } else {
+    await syncFeeDetailsForPaymentIntent(supabase, stripe, resolvedPaymentIntentId);
+  }
 
   return paymentUpdated || eventPaymentUpdated;
 }
@@ -2181,6 +2197,7 @@ async function handleChargeRefunded(
 ) {
   const paymentIntentId = stripeObjectId(charge.payment_intent);
   const refundAmount = centsToDollars(charge.amount_refunded ?? 0);
+  const latestRefundId = charge.refunds?.data?.[0]?.id ?? null;
 
   if (!paymentIntentId || refundAmount <= 0) return false;
 
@@ -2188,14 +2205,14 @@ async function handleChargeRefunded(
     supabase,
     paymentIntentId,
     refundAmount,
-    null,
+    latestRefundId,
   );
 
   const eventPaymentUpdated = await updateEventPaymentRefundByPaymentIntent(
     supabase,
     paymentIntentId,
     refundAmount,
-    null,
+    latestRefundId,
   );
 
   await syncFeeDetailsForCharge(supabase, stripe, charge);
@@ -3281,8 +3298,7 @@ export async function POST(request: Request) {
         break;
       }
 
-      case "charge.succeeded":
-      case "charge.updated": {
+      case "charge.succeeded": {
         await syncFeeDetailsForCharge(
           supabase,
           stripe,
@@ -3291,8 +3307,18 @@ export async function POST(request: Request) {
         break;
       }
 
+      case "charge.updated": {
+        const charge = event.data.object as Stripe.Charge;
+        await syncFeeDetailsForCharge(supabase, stripe, charge);
+        if ((charge.amount_refunded ?? 0) > 0) {
+          await handleChargeRefunded(supabase, stripe, charge);
+        }
+        break;
+      }
+
       case "refund.created":
-      case "refund.updated": {
+      case "refund.updated":
+      case "charge.refund.updated": {
         await handleStripeRefundUpdated(
           supabase,
           stripe,
