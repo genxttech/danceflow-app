@@ -549,6 +549,13 @@ function formatTimeRange(startTime: string | null, endTime: string | null) {
   return start || end;
 }
 
+function formatTimeZoneLabel(timeZone?: string | null) {
+  if (!timeZone) return "Event timezone";
+
+  return timeZone.replaceAll("_", " ");
+}
+
+
 function weekdayPlural(startDate: string) {
   const date = new Date(`${startDate}T00:00:00`);
   return `${date.toLocaleDateString([], { weekday: "long" })}s`;
@@ -605,15 +612,21 @@ function formatEventSchedule(event: EventRow) {
     .join(" · ");
 }
 
-function formatDateTime(value: string | null) {
+function formatDateTime(value: string | null, timeZone?: string | null) {
   if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
   return new Intl.DateTimeFormat("en-US", {
+    ...(timeZone ? { timeZone } : {}),
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(value));
+    timeZoneName: "short",
+  }).format(date);
 }
 
 function formatSessionDate(value: string | null) {
@@ -1781,7 +1794,9 @@ export default async function PublicEventDetailPage({
                     formatTimeRange(
                       typedEvent.start_time,
                       typedEvent.end_time,
-                    ) || typedEvent.timezone
+                    )
+                      ? formatTimeZoneLabel(typedEvent.timezone)
+                      : `All times shown in ${formatTimeZoneLabel(typedEvent.timezone)}`
                   }
                 />
                 <InfoCard
@@ -2329,7 +2344,7 @@ export default async function PublicEventDetailPage({
                                 ) : null}
                                 {ticket.sale_ends_at ? (
                                   <span className="rounded-full bg-white px-2.5 py-1 ring-1 ring-slate-200">
-                                    Ends {formatDateTime(ticket.sale_ends_at)}
+                                    Ends {formatDateTime(ticket.sale_ends_at, typedEvent.timezone)}
                                   </span>
                                 ) : null}
                               </div>
@@ -2454,7 +2469,7 @@ export default async function PublicEventDetailPage({
                           Opens
                         </p>
                         <p className="mt-1 font-medium text-slate-900">
-                          {formatDateTime(typedEvent.registration_opens_at)}
+                          {formatDateTime(typedEvent.registration_opens_at, typedEvent.timezone)}
                         </p>
                       </div>
                       <div>
@@ -2462,7 +2477,15 @@ export default async function PublicEventDetailPage({
                           Closes
                         </p>
                         <p className="mt-1 font-medium text-slate-900">
-                          {formatDateTime(typedEvent.registration_closes_at)}
+                          {formatDateTime(typedEvent.registration_closes_at, typedEvent.timezone)}
+                        </p>
+                      </div>
+                      <div className="sm:col-span-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Timezone
+                        </p>
+                        <p className="mt-1 font-medium text-slate-900">
+                          All registration times are shown in {formatTimeZoneLabel(typedEvent.timezone)}.
                         </p>
                       </div>
                       <div>

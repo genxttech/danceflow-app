@@ -62,10 +62,20 @@ function formatDateOnly(value: string) {
 
 function formatDateTime(date: string, time: string | null | undefined) {
   const safeTime = time || "00:00:00";
-  const normalizedTime =
-    safeTime.length === 5 ? `${safeTime}:00` : safeTime;
+  const normalizedTime = safeTime.length === 5 ? `${safeTime}:00` : safeTime;
 
   return `${date.replaceAll("-", "")}T${normalizedTime.replaceAll(":", "")}`;
+}
+
+function safeIcsTimeZone(value: string | null | undefined) {
+  const candidate = value?.trim() || "America/New_York";
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch {
+    return "America/New_York";
+  }
 }
 
 function addOneDay(date: string) {
@@ -136,6 +146,7 @@ function buildEventIcs(event: EventRow, studioName: string) {
 
   const uid = `event-${event.id}@idanceflow.com`;
   const stamp = nowUtcStamp();
+  const eventTimeZone = safeIcsTimeZone(event.timezone);
   const location = locationText(event);
   const description = eventDescription(event, studioName);
   const eventUrl = event.slug ? `${siteUrl}/events/${event.slug}` : siteUrl;
@@ -152,11 +163,11 @@ function buildEventIcs(event: EventRow, studioName: string) {
   ];
 
   if (event.start_time) {
-    lines.push(`DTSTART:${formatDateTime(event.start_date, event.start_time)}`);
+    lines.push(`DTSTART;TZID=${eventTimeZone}:${formatDateTime(event.start_date, event.start_time)}`);
 
     if (event.end_date || event.end_time) {
       lines.push(
-        `DTEND:${formatDateTime(
+        `DTEND;TZID=${eventTimeZone}:${formatDateTime(
           event.end_date || event.start_date,
           event.end_time || event.start_time
         )}`

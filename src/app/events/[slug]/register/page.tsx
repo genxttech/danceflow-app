@@ -22,6 +22,7 @@ type EventRow = {
   status: string;
   visibility: string;
   short_description: string | null;
+  timezone: string | null;
   start_date: string;
   end_date: string;
   account_required_for_registration: boolean;
@@ -98,15 +99,27 @@ function formatDateRange(startDate: string, endDate: string) {
   return startDate === endDate ? startText : `${startText} - ${endText}`;
 }
 
-function formatDateTime(value: string | null) {
+function formatDateTime(value: string | null, timeZone?: string | null) {
   if (!value) return "—";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+
   return new Intl.DateTimeFormat("en-US", {
+    ...(timeZone ? { timeZone } : {}),
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(value));
+    timeZoneName: "short",
+  }).format(date);
+}
+
+function formatTimeZoneLabel(timeZone?: string | null) {
+  if (!timeZone) return "event timezone";
+
+  return timeZone.replaceAll("_", " ");
 }
 
 function formatCurrency(value: number, currency: string) {
@@ -230,6 +243,7 @@ export default async function PublicEventRegisterPage({
           status,
           visibility,
           short_description,
+          timezone,
           start_date,
           end_date,
           account_required_for_registration,
@@ -384,8 +398,9 @@ export default async function PublicEventRegisterPage({
 
             <div className="mt-4 space-y-1 text-sm text-slate-600">
               <p>{formatDateRange(typedEvent.start_date, typedEvent.end_date)}</p>
-              <p>Registration opens: {formatDateTime(typedEvent.registration_opens_at)}</p>
-              <p>Registration closes: {formatDateTime(typedEvent.registration_closes_at)}</p>
+              <p>Registration opens: {formatDateTime(typedEvent.registration_opens_at, typedEvent.timezone)}</p>
+              <p>Registration closes: {formatDateTime(typedEvent.registration_closes_at, typedEvent.timezone)}</p>
+              <p>All times are shown in {formatTimeZoneLabel(typedEvent.timezone)}.</p>
             </div>
           </div>
 

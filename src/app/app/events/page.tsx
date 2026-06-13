@@ -25,6 +25,7 @@ type EventRow = {
   event_type: string;
   city: string | null;
   state: string | null;
+  timezone: string | null;
   start_date: string;
   end_date: string | null;
   start_time: string | null;
@@ -273,6 +274,13 @@ function formatTimeRange(startTime: string | null, endTime: string | null) {
   return `${startText} - ${endText}`;
 }
 
+function formatTimeZoneLabel(timeZone?: string | null) {
+  if (!timeZone) return "Event timezone";
+
+  return timeZone.replaceAll("_", " ");
+}
+
+
 function weekdayPlural(startDate: string) {
   const date = new Date(`${startDate}T00:00:00`);
   return `${date.toLocaleDateString([], { weekday: "long" })}s`;
@@ -300,11 +308,21 @@ function seriesWeekCount(startDate: string, endDate: string | null) {
 }
 
 function formatEventSchedule(event: EventRow) {
-  if (event.event_type !== "group_class") {
-    return formatDateRange(event.start_date, event.end_date);
-  }
+  const timeRange =
+    event.start_time || event.end_time
+      ? formatTimeRange(event.start_time, event.end_time)
+      : "";
+  const timeZoneLabel = timeRange ? formatTimeZoneLabel(event.timezone) : "";
 
-  const timeRange = formatTimeRange(event.start_time, event.end_time);
+  if (event.event_type !== "group_class") {
+    return [
+      formatDateRange(event.start_date, event.end_date),
+      timeRange,
+      timeZoneLabel,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
 
   if (event.end_date) {
     const weeks = seriesWeekCount(event.start_date, event.end_date);
@@ -313,6 +331,7 @@ function formatEventSchedule(event: EventRow) {
       weekdayPlural(event.start_date),
       formatDateRange(event.start_date, event.end_date),
       timeRange,
+      timeZoneLabel,
       weeks ? `${weeks}-week series` : null,
     ]
       .filter(Boolean)
@@ -323,6 +342,7 @@ function formatEventSchedule(event: EventRow) {
     weekdayPlural(event.start_date),
     `Starts ${formatDateRange(event.start_date, event.start_date)}`,
     timeRange,
+    timeZoneLabel,
     "Ongoing weekly class",
   ]
     .filter(Boolean)
@@ -461,6 +481,7 @@ export default async function EventsPage() {
         event_type,
         city,
         state,
+        timezone,
         start_date,
         end_date,
         start_time,
