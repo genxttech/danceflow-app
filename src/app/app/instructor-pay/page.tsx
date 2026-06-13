@@ -165,6 +165,24 @@ export default async function InstructorPayPage({
 
   if (!canManageInstructors(role) || !["studio_owner", "studio_admin"].includes(role)) redirect("/app");
 
+  const statusFilter = stringParam(params, "statusFilter") ?? "all";
+  const instructorFilter = stringParam(params, "instructorId") ?? "all";
+
+  let earningsQuery = supabase
+    .from("instructor_earnings")
+    .select("id, instructor_id, appointment_id, client_id, earning_date, source_type, appointment_type, gross_revenue_basis, pay_mode, pay_rate_amount, pay_percentage, attendance_count, earning_amount, status, notes, paid_at, payment_method, instructors(first_name, last_name), clients(first_name, last_name)")
+    .eq("studio_id", studioId)
+    .order("earning_date", { ascending: false })
+    .limit(500);
+
+  if (["pending", "approved", "paid", "void"].includes(statusFilter)) {
+    earningsQuery = earningsQuery.eq("status", statusFilter);
+  }
+
+  if (instructorFilter !== "all") {
+    earningsQuery = earningsQuery.eq("instructor_id", instructorFilter);
+  }
+
   const [instructorsResult, rulesResult, earningsResult] = await Promise.all([
     supabase
       .from("instructors")
@@ -175,12 +193,7 @@ export default async function InstructorPayPage({
       .from("instructor_compensation_rules")
       .select("id, instructor_id, private_lesson_pay_mode, private_lesson_flat_amount, private_lesson_percentage, group_class_pay_mode, group_class_flat_amount, group_class_percentage, group_class_per_attendee_amount, notes")
       .eq("studio_id", studioId),
-    supabase
-      .from("instructor_earnings")
-      .select("id, instructor_id, appointment_id, client_id, earning_date, source_type, appointment_type, gross_revenue_basis, pay_mode, pay_rate_amount, pay_percentage, attendance_count, earning_amount, status, notes, paid_at, payment_method, instructors(first_name, last_name), clients(first_name, last_name)")
-      .eq("studio_id", studioId)
-      .order("earning_date", { ascending: false })
-      .limit(100),
+    earningsQuery,
   ]);
 
   if (instructorsResult.error) {
@@ -212,6 +225,14 @@ export default async function InstructorPayPage({
   const paidTotal = earnings
     .filter((earning) => earning.status === "paid")
     .reduce((sum, earning) => sum + Number(earning.earning_amount ?? 0), 0);
+  const exportParams = new URLSearchParams();
+  if (["pending", "approved", "paid", "void"].includes(statusFilter)) {
+    exportParams.set("status", statusFilter);
+  }
+  if (instructorFilter !== "all") {
+    exportParams.set("instructorId", instructorFilter);
+  }
+  const exportHref = `/app/instructor-pay/export${exportParams.toString() ? `?${exportParams.toString()}` : ""}`;
   const message = statusMessage(stringParam(params, "status"), params);
 
   return (
@@ -229,12 +250,20 @@ export default async function InstructorPayPage({
               Set instructor pay rules and stage earnings from completed lessons and group classes. This is compensation tracking and payroll prep, not payroll tax processing.
             </p>
           </div>
-          <Link
-            href="/app/instructors"
-            className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Manage instructors
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={exportHref}
+              className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-100"
+            >
+              Export CSV
+            </Link>
+            <Link
+              href="/app/instructors"
+              className="rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Manage instructors
+            </Link>
+          </div>
         </div>
 
         {message ? (
@@ -396,6 +425,33 @@ export default async function InstructorPayPage({
             </p>
           </div>
         </div>
+
+        <form className="mt-5 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[180px_1fr_auto] md:items-end">
+          <label className="text-sm font-medium text-slate-700">
+            Status
+            <select name="statusFilter" defaultValue={statusFilter} className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+              <option value="all">All statuses</option>
+              <option value="pending">Pending</option>
+              <option value="approved">Approved</option>
+              <option value="paid">Paid</option>
+              <option value="void">Voided</option>
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Instructor
+            <select name="instructorId" defaultValue={instructorFilter} className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm">
+              <option value="all">All instructors</option>
+              {instructors.map((instructor) => (
+                <option key={instructor.id} value={instructor.id}>
+                  {instructorName(instructor)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+            Apply filters
+          </button>
+        </form>
 
         <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
           {earnings.length === 0 ? (

@@ -178,6 +178,29 @@ type InstructorSummary = {
   revenue: number;
 };
 
+type InstructorEarningReportRow = {
+  id: string;
+  instructor_id: string | null;
+  earning_date: string | null;
+  source_type: string | null;
+  appointment_type: string | null;
+  gross_revenue_basis: number | string | null;
+  earning_amount: number | string | null;
+  status: string | null;
+  paid_at: string | null;
+  payment_method: string | null;
+};
+
+type InstructorPaySummary = {
+  instructorId: string;
+  name: string;
+  count: number;
+  pending: number;
+  approved: number;
+  paid: number;
+  total: number;
+};
+
 type OrganizerAccessRow = {
   organizer_id: string;
   role: string | null;
@@ -648,6 +671,7 @@ export default async function ReportsPage({
     { data: eventRegistrations, error: eventRegistrationsError },
     { data: expenses, error: expensesError },
     { data: instructors, error: instructorsError },
+    { data: instructorEarnings, error: instructorEarningsError },
     { count: activeStudentsCount, error: activeStudentsError },
   ] = await Promise.all([
     supabase
@@ -778,6 +802,17 @@ export default async function ReportsPage({
       .limit(500),
 
     supabase
+      .from("instructor_earnings")
+      .select(
+        "id, instructor_id, earning_date, source_type, appointment_type, gross_revenue_basis, earning_amount, status, paid_at, payment_method",
+      )
+      .eq("studio_id", studioId)
+      .gte("earning_date", rangeStartDateOnly)
+      .lte("earning_date", todayDateOnly)
+      .order("earning_date", { ascending: false })
+      .limit(2000),
+
+    supabase
       .from("clients")
       .select("id", { count: "exact", head: true })
       .eq("studio_id", studioId)
@@ -830,6 +865,11 @@ export default async function ReportsPage({
   if (instructorsError) {
     throw new Error(
       `Failed to load instructor report data: ${instructorsError.message}`,
+    );
+  }
+  if (instructorEarningsError) {
+    throw new Error(
+      `Failed to load instructor pay report data: ${instructorEarningsError.message}`,
     );
   }
   if (activeStudentsError) {
@@ -1265,6 +1305,29 @@ export default async function ReportsPage({
     []) as EventAttendeeReportRow[];
   const typedExpenses = (expenses ?? []) as ExpenseRow[];
   const typedInstructors = (instructors ?? []) as InstructorRow[];
+  const typedInstructorEarnings = (instructorEarnings ??
+    []) as InstructorEarningReportRow[];
+
+  const instructorPayTotals = typedInstructorEarnings.reduce(
+    (summary, earning) => {
+      const status = (earning.status ?? "pending").toLowerCase();
+      const amount = Number(earning.earning_amount ?? 0);
+
+      if (status === "pending") summary.pending += amount;
+      if (status === "approved") summary.approved += amount;
+      if (status === "paid") summary.paid += amount;
+      if (status === "void") summary.voided += amount;
+
+      return summary;
+    },
+    { pending: 0, approved: 0, paid: 0, voided: 0 },
+  );
+
+  const instructorPayOutstandingTotal =
+    instructorPayTotals.pending + instructorPayTotals.approved;
+  const instructorPayActiveTotal =
+    instructorPayTotals.pending + instructorPayTotals.approved + instructorPayTotals.paid;
+  const instructorCompensationExpense = instructorPayActiveTotal;
 
   const typedOrganizerContacts = (organizerContacts ??
     []) as OrganizerContactReportRow[];
@@ -1469,8 +1532,10 @@ export default async function ReportsPage({
     accountingSummary.revenue - accountingSummary.refunds;
   const netAfterFees = revenueAfterRefunds - accountingSummary.fees;
   const profitAfterExpenses = accountingSummary.net;
+  const profitAfterInstructorCompensation =
+    profitAfterExpenses - instructorCompensationExpense;
   const expenseToRevenueRatio = percentage(
-    accountingSummary.expenses,
+    accountingSummary.expenses + instructorCompensationExpense,
     Math.max(revenueAfterRefunds, 0),
   );
 
@@ -1527,7 +1592,11 @@ export default async function ReportsPage({
   const knownFeesTotal = 0;
 
   const estimatedNetIncome =
-    revenueTotal - refundedTotal - manualExpensesTotal - knownFeesTotal;
+    revenueTotal -
+    refundedTotal -
+    manualExpensesTotal -
+    knownFeesTotal -
+    instructorCompensationExpense;
 
   const paidRevenueItemsCount =
     paidPayments.length + paidEventRegistrations.length;
@@ -1879,6 +1948,46 @@ export default async function ReportsPage({
     ),
   );
 
+  const instructorPayToLessonRevenueRatio = percentage(
+    instructorPayActiveTotal,
+    totalInstructorRevenue,
+  );
+
+  const instructorPayByInstructor = new Map<string, InstructorPaySummary>();
+
+  for (const earning of typedInstructorEarnings) {
+    const instructorId = earning.instructor_id ?? "unassigned";
+    const existing = instructorPayByInstructor.get(instructorId) ?? {
+      instructorId,
+      name:
+        instructorId === "unassigned"
+          ? "Unassigned"
+          : (instructorNameById.get(instructorId) ??
+            `Instructor ${instructorId.slice(0, 8)}`),
+      count: 0,
+      pending: 0,
+      approved: 0,
+      paid: 0,
+      total: 0,
+    };
+    const status = (earning.status ?? "pending").toLowerCase();
+    const amount = Number(earning.earning_amount ?? 0);
+
+    existing.count += 1;
+    if (status === "pending") existing.pending += amount;
+    if (status === "approved") existing.approved += amount;
+    if (status === "paid") existing.paid += amount;
+    if (status !== "void") existing.total += amount;
+
+    instructorPayByInstructor.set(instructorId, existing);
+  }
+
+  const topInstructorPaySummaries = Array.from(
+    instructorPayByInstructor.values(),
+  )
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 5);
+
   const totalAppointmentOutcomes =
     attendedAppointments.length + cancelledAppointments.length + noShows.length;
 
@@ -1996,13 +2105,13 @@ export default async function ReportsPage({
 
   const ariaAccountingInsights = [
     {
-      title: "Net revenue after expenses",
-      metric: fmtCurrency(profitAfterExpenses),
+      title: "Net after instructor pay",
+      metric: fmtCurrency(profitAfterInstructorCompensation),
       detail:
-        profitAfterExpenses >= 0
-          ? `After refunds, fees, and recorded expenses, this range is showing a positive profit preview of ${fmtCurrency(profitAfterExpenses)}.`
-          : `After refunds, fees, and recorded expenses, this range is showing a negative profit preview of ${fmtCurrency(Math.abs(profitAfterExpenses))}. Review expenses, refunds, and low-margin revenue sources before closing the period.`,
-      tone: profitAfterExpenses >= 0 ? "good" : "warning",
+        profitAfterInstructorCompensation >= 0
+          ? `After refunds, fees, expenses, and instructor pay, this range is showing a positive profit preview of ${fmtCurrency(profitAfterInstructorCompensation)}.`
+          : `After refunds, fees, expenses, and instructor pay, this range is showing a negative profit preview of ${fmtCurrency(Math.abs(profitAfterInstructorCompensation))}. Review labor cost, expenses, refunds, and low-margin revenue sources before closing the period.`,
+      tone: profitAfterInstructorCompensation >= 0 ? "good" : "warning",
     },
     {
       title: "Refund and fee impact",
@@ -2054,12 +2163,25 @@ export default async function ReportsPage({
       metric: expenseToRevenueRatio,
       detail:
         accountingSummary.expenses > 0
-          ? `${fmtCurrency(accountingSummary.expenses)} in recorded expenses is included in the profit preview. Floor fees account for ${fmtCurrency(expenseToProfitBuckets.floorFees)}.`
-          : "No expenses are recorded for this range. Add floor fees and operating costs for a cleaner profit view.",
+          ? `${fmtCurrency(accountingSummary.expenses)} in recorded expenses and ${fmtCurrency(instructorCompensationExpense)} in instructor pay are included in the profit preview. Floor fees account for ${fmtCurrency(expenseToProfitBuckets.floorFees)}.`
+          : instructorCompensationExpense > 0
+            ? `${fmtCurrency(instructorCompensationExpense)} in instructor pay is included in the profit preview. Add operating expenses for a cleaner profit view.`
+            : "No expenses are recorded for this range. Add floor fees, operating costs, and instructor pay rules for a cleaner profit view.",
       tone:
-        revenueAfterRefunds > 0 && accountingSummary.expenses / revenueAfterRefunds > 0.35
+        revenueAfterRefunds > 0 && (accountingSummary.expenses + instructorCompensationExpense) / revenueAfterRefunds > 0.35
           ? "warning"
           : "neutral",
+    },
+    {
+      title: "Instructor pay readiness",
+      metric: fmtCurrency(instructorPayOutstandingTotal),
+      detail:
+        instructorPayOutstandingTotal > 0
+          ? `${fmtCurrency(instructorPayOutstandingTotal)} in instructor pay is pending or approved for this range. Review Instructor Pay before closing the period.`
+          : typedInstructorEarnings.length > 0
+            ? "Instructor pay entries are recorded for this range and none are currently awaiting payment."
+            : "No instructor pay entries are recorded for this range yet. Add rules to stage earnings automatically from completed lessons and classes.",
+      tone: instructorPayOutstandingTotal > 0 ? "warning" : "neutral",
     },
   ] satisfies Array<{
     title: string;
@@ -2087,6 +2209,8 @@ export default async function ReportsPage({
     },
     profitAndLoss: {
       estimatedNetIncome,
+      instructorCompensation: instructorCompensationExpense,
+      netAfterInstructorCompensation: profitAfterInstructorCompensation,
     },
     attendance: {
       rate: attendanceRate,
@@ -2133,6 +2257,13 @@ export default async function ReportsPage({
       ),
       totalRevenue: totalInstructorRevenue,
       attendanceRate: instructorActivityAttendanceRate,
+      compensation: {
+        pending: instructorPayTotals.pending,
+        approved: instructorPayTotals.approved,
+        paid: instructorPayTotals.paid,
+        outstanding: instructorPayOutstandingTotal,
+        activeTotal: instructorPayActiveTotal,
+      },
       topInstructors: instructorSummaries.slice(0, 5).map((instructor) => ({
         name: instructor.name,
         lessons: instructor.totalAppointments,
@@ -2454,6 +2585,15 @@ export default async function ReportsPage({
               </span>
             </div>
 
+            <div className="flex items-center justify-between rounded-2xl bg-purple-50 px-4 py-3">
+              <span className="text-sm font-medium text-purple-900">
+                Instructor compensation
+              </span>
+              <span className="text-sm font-semibold text-purple-950">
+                -{fmtCurrency(instructorCompensationExpense)}
+              </span>
+            </div>
+
             <div className="flex items-center justify-between rounded-2xl border border-[#D8B4FE] bg-[#FCF8FF] px-4 py-4">
               <span className="text-sm font-semibold text-slate-950">
                 Estimated net income
@@ -2465,10 +2605,10 @@ export default async function ReportsPage({
           </div>
 
           <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-            This report uses revenue, refunds, and manually recorded expenses
-            currently available in DanceFlow. Floor fees paid to outside studios
-            are treated as expenses. Floor rental fees collected by a host
-            studio are treated as revenue.
+            This report uses revenue, refunds, manually recorded expenses, and
+            instructor compensation currently available in DanceFlow. Floor fees
+            paid to outside studios and instructor pay are treated as expenses.
+            Floor rental fees collected by a host studio are treated as revenue.
           </div>
         </div>
 
@@ -2582,6 +2722,97 @@ export default async function ReportsPage({
                 ))
               )}
             </div>
+
+            <div className="mt-6 rounded-2xl border border-[#D8B4FE] bg-[#FCF8FF] p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">
+                    Instructor Pay Summary
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Review pending, approved, and paid instructor earnings for
+                    this report range. This is compensation tracking and export
+                    support, not tax or direct-deposit payroll processing.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Link
+                    href="/app/instructor-pay"
+                    className="inline-flex rounded-xl border border-[#D8B4FE] bg-white px-3 py-2 text-sm font-semibold text-[#6D28D9] hover:bg-[#F5F3FF]"
+                  >
+                    Open Instructor Pay
+                  </Link>
+                  <Link
+                    href={`/app/instructor-pay/export?range=${range}&status=all`}
+                    className="inline-flex rounded-xl bg-[#7C2D92] px-3 py-2 text-sm font-semibold text-white hover:bg-[#5B197A]"
+                  >
+                    Export Pay CSV
+                  </Link>
+                </div>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <div className="rounded-2xl bg-white p-4">
+                  <p className="text-sm text-slate-500">Pending</p>
+                  <p className="mt-2 text-xl font-semibold text-slate-950">
+                    {fmtCurrency(instructorPayTotals.pending)}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-white p-4">
+                  <p className="text-sm text-slate-500">Approved</p>
+                  <p className="mt-2 text-xl font-semibold text-slate-950">
+                    {fmtCurrency(instructorPayTotals.approved)}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-white p-4">
+                  <p className="text-sm text-slate-500">Paid</p>
+                  <p className="mt-2 text-xl font-semibold text-slate-950">
+                    {fmtCurrency(instructorPayTotals.paid)}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-white p-4">
+                  <p className="text-sm text-slate-500">Awaiting Payment</p>
+                  <p className="mt-2 text-xl font-semibold text-slate-950">
+                    {fmtCurrency(instructorPayOutstandingTotal)}
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-white p-4">
+                  <p className="text-sm text-slate-500">Pay / Revenue</p>
+                  <p className="mt-2 text-xl font-semibold text-slate-950">
+                    {instructorPayToLessonRevenueRatio}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {topInstructorPaySummaries.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-[#D8B4FE] bg-white px-4 py-5 text-center text-sm text-slate-500">
+                    No instructor pay entries are recorded for this range yet.
+                    Add compensation rules, then complete lessons or classes to
+                    stage earnings automatically.
+                  </div>
+                ) : (
+                  topInstructorPaySummaries.map((instructor) => (
+                    <div
+                      key={instructor.instructorId}
+                      className="flex flex-col gap-3 rounded-2xl bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <p className="font-semibold text-slate-950">
+                          {instructor.name}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {fmtNumber(instructor.count)} earnings · Pending {fmtCurrency(instructor.pending)} · Approved {fmtCurrency(instructor.approved)} · Paid {fmtCurrency(instructor.paid)}
+                        </p>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-950">
+                        {fmtCurrency(instructor.total)}
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         ) : (
           <LockedReportCard
@@ -2604,8 +2835,8 @@ export default async function ReportsPage({
             </h2>
             <p className="mt-1 text-sm leading-6 text-slate-600">
               This preview uses the accounting source of truth to separate gross
-              revenue, refunds, Stripe fees, platform fees, expenses, and net
-              revenue for the selected report range.
+              revenue, refunds, Stripe fees, platform fees, expenses, instructor
+              compensation, and net revenue for the selected report range.
             </p>
           </div>
           <Link
@@ -2616,7 +2847,7 @@ export default async function ReportsPage({
           </Link>
         </div>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-7">
           <div className="rounded-2xl bg-emerald-50 p-4">
             <p className="text-sm text-emerald-900/70">Gross Revenue</p>
             <p className="mt-2 text-2xl font-semibold text-emerald-950">
@@ -2652,12 +2883,19 @@ export default async function ReportsPage({
             </p>
           </div>
 
+          <div className="rounded-2xl bg-purple-50 p-4">
+            <p className="text-sm text-purple-900/70">Instructor Pay</p>
+            <p className="mt-2 text-2xl font-semibold text-purple-950">
+              -{fmtCurrency(instructorCompensationExpense)}
+            </p>
+          </div>
+
           <div className="rounded-2xl border border-[#C4B5FD] bg-[#F5F3FF] p-4">
             <p className="text-sm font-medium text-[#5B21B6]">
-              Net Revenue
+              Net After Instructor Pay
             </p>
             <p className="mt-2 text-2xl font-semibold text-[#4C1D95]">
-              {fmtCurrency(accountingSummary.net)}
+              {fmtCurrency(profitAfterInstructorCompensation)}
             </p>
           </div>
         </div>
@@ -2666,10 +2904,10 @@ export default async function ReportsPage({
           <div className="flex flex-col gap-2 text-sm text-slate-700 lg:flex-row lg:items-center lg:justify-between">
             <span>
               Net formula: gross revenue minus refunds, Stripe fees, platform
-              fees, and expenses.
+              fees, expenses, and instructor compensation.
             </span>
             <span className="font-semibold text-slate-950">
-              {fmtCurrency(accountingSummary.revenue)} - {fmtCurrency(accountingSummary.refunds)} - {fmtCurrency(accountingSummary.fees)} - {fmtCurrency(accountingSummary.expenses)} = {fmtCurrency(accountingSummary.net)}
+              {fmtCurrency(accountingSummary.revenue)} - {fmtCurrency(accountingSummary.refunds)} - {fmtCurrency(accountingSummary.fees)} - {fmtCurrency(accountingSummary.expenses)} - {fmtCurrency(instructorCompensationExpense)} = {fmtCurrency(profitAfterInstructorCompensation)}
             </span>
           </div>
         </div>
@@ -2857,10 +3095,10 @@ export default async function ReportsPage({
               Profit Preview
             </p>
             <p className="mt-2 text-2xl font-semibold tracking-tight text-emerald-950">
-              {fmtCurrency(profitAfterExpenses)}
+              {fmtCurrency(profitAfterInstructorCompensation)}
             </p>
             <p className="mt-1 text-xs text-emerald-900/70">
-              Net after refunds, fees, and expenses.
+              Net after refunds, fees, expenses, and instructor pay.
             </p>
           </div>
         </div>

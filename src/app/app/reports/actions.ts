@@ -19,6 +19,8 @@ export type ReportInsightsMetrics = {
   };
   profitAndLoss: {
     estimatedNetIncome: number;
+    instructorCompensation?: number;
+    netAfterInstructorCompensation?: number;
   };
   attendance: {
     rate: string;
@@ -59,6 +61,13 @@ export type ReportInsightsMetrics = {
     attendedLessons: number;
     totalRevenue: number;
     attendanceRate: string;
+    compensation?: {
+      pending: number;
+      approved: number;
+      paid: number;
+      outstanding: number;
+      activeTotal: number;
+    };
     topInstructors: Array<{
       name: string;
       lessons: number;
