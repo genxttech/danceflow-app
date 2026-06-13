@@ -44,6 +44,10 @@ export async function saveInstructorCompensationRuleAction(formData: FormData) {
         private_lesson_pay_mode: privateLessonPayMode,
         private_lesson_flat_amount: getNumber(formData, "privateLessonFlatAmount"),
         private_lesson_percentage: getNumber(formData, "privateLessonPercentage"),
+        private_lesson_duration_rates_enabled: getString(formData, "privateLessonDurationRatesEnabled") === "on",
+        private_lesson_30_min_flat_amount: getNumber(formData, "privateLesson30MinFlatAmount"),
+        private_lesson_45_min_flat_amount: getNumber(formData, "privateLesson45MinFlatAmount"),
+        private_lesson_60_min_flat_amount: getNumber(formData, "privateLesson60MinFlatAmount"),
         group_class_pay_mode: groupClassPayMode,
         group_class_flat_amount: getNumber(formData, "groupClassFlatAmount"),
         group_class_percentage: getNumber(formData, "groupClassPercentage"),
@@ -164,5 +168,101 @@ export async function updateInstructorEarningStatusAction(formData: FormData) {
   } catch (error) {
     if (isRedirectError(error)) throw error;
     redirectWithStatus("earning_update_failed");
+  }
+}
+
+export async function createInstructorAdjustmentAction(formData: FormData) {
+  try {
+    const { supabase, studioId, user } = await requireInstructorManageAccess();
+    const instructorId = getString(formData, "instructorId");
+    const adjustmentType = getString(formData, "adjustmentType") || "correction";
+    const earningDate = getOptionalDate(formData, "earningDate") || new Date().toISOString().slice(0, 10);
+    const rawAmount = getNumber(formData, "earningAmount");
+    const notes = getString(formData, "notes");
+
+    if (!instructorId) redirectWithStatus("missing_instructor");
+    if (!notes) redirectWithStatus("adjustment_note_required");
+    if (!["bonus", "deduction", "reimbursement", "correction"].includes(adjustmentType)) redirectWithStatus("invalid_adjustment");
+
+    const amount = adjustmentType === "deduction" ? -Math.abs(rawAmount) : Math.abs(rawAmount);
+    if (!Number.isFinite(amount) || amount === 0) redirectWithStatus("invalid_adjustment_amount");
+
+    const { error } = await supabase.from("instructor_earnings").insert({
+      studio_id: studioId,
+      instructor_id: instructorId,
+      earning_date: earningDate,
+      source_type: "manual_adjustment",
+      appointment_type: null,
+      gross_revenue_basis: 0,
+      pay_mode: "manual_adjustment",
+      pay_rate_amount: amount,
+      pay_percentage: 0,
+      attendance_count: 0,
+      earning_amount: amount,
+      status: "pending",
+      adjustment_type: adjustmentType,
+      notes: `${adjustmentType.charAt(0).toUpperCase() + adjustmentType.slice(1)}: ${notes}`,
+      created_by: user.id,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) redirectWithStatus("adjustment_failed");
+
+    revalidatePath("/app/instructor-pay");
+    revalidatePath("/app/reports");
+    redirectWithStatus("adjustment_created");
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    redirectWithStatus("adjustment_failed");
+  }
+}
+
+export async function overrideInstructorEarningAction(formData: FormData) {
+  try {
+    const { supabase, studioId, user } = await requireInstructorManageAccess();
+    const earningId = getString(formData, "earningId");
+    const overrideAmount = getNumber(formData, "overrideAmount");
+    const overrideReason = getString(formData, "overrideReason");
+
+    if (!earningId) redirectWithStatus("missing_earning");
+    if (!overrideReason) redirectWithStatus("override_reason_required");
+    if (!Number.isFinite(overrideAmount)) redirectWithStatus("invalid_override_amount");
+
+    const { data: existing, error: existingError } = await supabase
+      .from("instructor_earnings")
+      .select("id, status")
+      .eq("id", earningId)
+      .eq("studio_id", studioId)
+      .maybeSingle();
+
+    if (existingError || !existing) redirectWithStatus("override_failed");
+
+    const currentStatus = String(existing.status ?? "pending");
+    if (["paid", "void"].includes(currentStatus)) redirectWithStatus("earning_locked");
+
+    const { error } = await supabase
+      .from("instructor_earnings")
+      .update({
+        earning_amount: overrideAmount,
+        pay_mode: "manual_override",
+        pay_rate_amount: overrideAmount,
+        pay_percentage: 0,
+        adjustment_type: "override",
+        override_reason: overrideReason,
+        notes: `Manual override: ${overrideReason}`,
+        updated_at: new Date().toISOString(),
+        approved_by: currentStatus === "approved" ? user.id : null,
+      })
+      .eq("id", earningId)
+      .eq("studio_id", studioId);
+
+    if (error) redirectWithStatus("override_failed");
+
+    revalidatePath("/app/instructor-pay");
+    revalidatePath("/app/reports");
+    redirectWithStatus("override_saved");
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    redirectWithStatus("override_failed");
   }
 }

@@ -4,7 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { canManageInstructors } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
+  createInstructorAdjustmentAction,
   generateInstructorEarningsAction,
+  overrideInstructorEarningAction,
   saveInstructorCompensationRuleAction,
   updateInstructorEarningStatusAction,
 } from "./actions";
@@ -24,6 +26,10 @@ type RuleRow = {
   private_lesson_pay_mode: string;
   private_lesson_flat_amount: number | string | null;
   private_lesson_percentage: number | string | null;
+  private_lesson_duration_rates_enabled?: boolean | null;
+  private_lesson_30_min_flat_amount?: number | string | null;
+  private_lesson_45_min_flat_amount?: number | string | null;
+  private_lesson_60_min_flat_amount?: number | string | null;
   group_class_pay_mode: string;
   group_class_flat_amount: number | string | null;
   group_class_percentage: number | string | null;
@@ -49,6 +55,8 @@ type EarningRow = {
   notes: string | null;
   paid_at: string | null;
   payment_method: string | null;
+  adjustment_type?: string | null;
+  override_reason?: string | null;
   instructors?: { first_name: string | null; last_name: string | null } | { first_name: string | null; last_name: string | null }[] | null;
   clients?: { first_name: string | null; last_name: string | null } | { first_name: string | null; last_name: string | null }[] | null;
 };
@@ -85,6 +93,8 @@ function labelForPayMode(value: string) {
   if (value === "flat") return "Flat rate";
   if (value === "percentage") return "Percentage";
   if (value === "per_attendee") return "Per attendee";
+  if (value === "manual_adjustment") return "Manual adjustment";
+  if (value === "manual_override") return "Manual override";
   return "Not configured";
 }
 
@@ -101,6 +111,12 @@ function ruleIsConfigured(rule: RuleRow | undefined) {
 }
 
 function sourceSummary(earning: EarningRow) {
+  if (earning.source_type === "manual_adjustment") {
+    return earning.notes || "Manual adjustment added from Instructor Pay.";
+  }
+  if (earning.pay_mode === "manual_override") {
+    return earning.override_reason ? `Manually overridden: ${earning.override_reason}` : "This earning was manually overridden.";
+  }
   if (earning.pay_mode === "flat") {
     return `Created from a completed ${labelForAppointmentType(earning.appointment_type).toLowerCase()} using a flat-rate rule.`;
   }
@@ -137,6 +153,8 @@ function stringParam(params: Record<string, string | string[] | undefined>, key:
 function statusMessage(status: string | undefined, params: Record<string, string | string[] | undefined>) {
   if (!status) return null;
   if (status === "rule_saved") return "Instructor compensation rule saved.";
+  if (status === "adjustment_created") return "Manual adjustment added for review.";
+  if (status === "override_saved") return "Instructor earning override saved.";
   if (status === "earning_updated") return "Instructor earning updated.";
   if (status === "earning_locked") return "This earning is already paid or voided, so it cannot be changed from this page.";
   if (status === "earning_unchanged") return "This earning already has that status.";
@@ -170,7 +188,7 @@ export default async function InstructorPayPage({
 
   let earningsQuery = supabase
     .from("instructor_earnings")
-    .select("id, instructor_id, appointment_id, client_id, earning_date, source_type, appointment_type, gross_revenue_basis, pay_mode, pay_rate_amount, pay_percentage, attendance_count, earning_amount, status, notes, paid_at, payment_method, instructors(first_name, last_name), clients(first_name, last_name)")
+    .select("id, instructor_id, appointment_id, client_id, earning_date, source_type, appointment_type, gross_revenue_basis, pay_mode, pay_rate_amount, pay_percentage, attendance_count, earning_amount, status, notes, paid_at, payment_method, adjustment_type, override_reason, instructors(first_name, last_name), clients(first_name, last_name)")
     .eq("studio_id", studioId)
     .order("earning_date", { ascending: false })
     .limit(500);
@@ -191,7 +209,7 @@ export default async function InstructorPayPage({
       .order("first_name", { ascending: true }),
     supabase
       .from("instructor_compensation_rules")
-      .select("id, instructor_id, private_lesson_pay_mode, private_lesson_flat_amount, private_lesson_percentage, group_class_pay_mode, group_class_flat_amount, group_class_percentage, group_class_per_attendee_amount, notes")
+      .select("id, instructor_id, private_lesson_pay_mode, private_lesson_flat_amount, private_lesson_percentage, private_lesson_duration_rates_enabled, private_lesson_30_min_flat_amount, private_lesson_45_min_flat_amount, private_lesson_60_min_flat_amount, group_class_pay_mode, group_class_flat_amount, group_class_percentage, group_class_per_attendee_amount, notes")
       .eq("studio_id", studioId),
     earningsQuery,
   ]);
@@ -401,6 +419,11 @@ export default async function InstructorPayPage({
         </section>
       ) : null}
 
+      <section className="rounded-3xl border border-violet-100 bg-violet-50 p-5 text-sm text-violet-950 shadow-sm">
+        <p className="font-semibold">Rules and overrides</p>
+        <p className="mt-1 text-violet-900">Use duration-based private lesson rates when instructors are paid differently for 30, 45, and 60 minute lessons. Use manual adjustments for bonuses, deductions, reimbursements, or corrections. Use earning overrides only for one-off lesson exceptions.</p>
+      </section>
+
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
@@ -470,6 +493,24 @@ export default async function InstructorPayPage({
                         <input name="privateLessonPercentage" type="number" step="0.01" min="0" defaultValue={Number(rule?.private_lesson_percentage ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
                       </label>
                     </div>
+                    <label className="mt-3 flex items-start gap-2 rounded-2xl border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                      <input name="privateLessonDurationRatesEnabled" type="checkbox" defaultChecked={Boolean(rule?.private_lesson_duration_rates_enabled)} className="mt-1" />
+                      <span>Use duration rates for flat-rate private lessons</span>
+                    </label>
+                    <div className="mt-3 grid grid-cols-3 gap-3">
+                      <label className="text-sm font-medium text-slate-700">
+                        30 min $
+                        <input name="privateLesson30MinFlatAmount" type="number" step="0.01" min="0" defaultValue={Number(rule?.private_lesson_30_min_flat_amount ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
+                      </label>
+                      <label className="text-sm font-medium text-slate-700">
+                        45 min $
+                        <input name="privateLesson45MinFlatAmount" type="number" step="0.01" min="0" defaultValue={Number(rule?.private_lesson_45_min_flat_amount ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
+                      </label>
+                      <label className="text-sm font-medium text-slate-700">
+                        60 min $
+                        <input name="privateLesson60MinFlatAmount" type="number" step="0.01" min="0" defaultValue={Number(rule?.private_lesson_60_min_flat_amount ?? 0)} className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
+                      </label>
+                    </div>
                   </div>
 
                   <div className="rounded-2xl bg-slate-50 p-4">
@@ -512,6 +553,48 @@ export default async function InstructorPayPage({
             );
           })}
         </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div>
+          <h2 className="text-xl font-semibold text-slate-950">Manual adjustments</h2>
+          <p className="mt-1 text-sm text-slate-600">Add a one-off bonus, deduction, reimbursement, or correction for an instructor. Adjustments are staged as pending so they can be reviewed before being marked paid.</p>
+        </div>
+        <form action={createInstructorAdjustmentAction} className="mt-5 grid gap-3 md:grid-cols-[1fr_160px_150px_160px] md:items-end">
+          <label className="text-sm font-medium text-slate-700">
+            Instructor
+            <select name="instructorId" required className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm">
+              <option value="">Choose instructor</option>
+              {instructors.map((instructor) => (
+                <option key={instructor.id} value={instructor.id}>{instructorName(instructor)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Type
+            <select name="adjustmentType" defaultValue="bonus" className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm">
+              <option value="bonus">Bonus</option>
+              <option value="deduction">Deduction</option>
+              <option value="reimbursement">Reimbursement</option>
+              <option value="correction">Correction</option>
+            </select>
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Amount
+            <input name="earningAmount" type="number" step="0.01" min="0" required className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
+          </label>
+          <label className="text-sm font-medium text-slate-700">
+            Date
+            <input name="earningDate" type="date" className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" />
+          </label>
+          <label className="text-sm font-medium text-slate-700 md:col-span-3">
+            Reason
+            <input name="notes" required className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm" placeholder="Example: Showcase bonus, mileage reimbursement, or correction for last week" />
+          </label>
+          <button className="rounded-2xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
+            Add adjustment
+          </button>
+        </form>
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -598,6 +681,14 @@ export default async function InstructorPayPage({
                       <Link href={`/app/schedule/${earning.appointment_id}`} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                         Open lesson
                       </Link>
+                    ) : null}
+                    {earning.status !== "paid" && earning.status !== "void" ? (
+                      <form action={overrideInstructorEarningAction} className="flex flex-wrap gap-2">
+                        <input type="hidden" name="earningId" value={earning.id} />
+                        <input name="overrideAmount" type="number" step="0.01" defaultValue={Number(earning.earning_amount ?? 0)} className="w-24 rounded-xl border border-slate-200 px-2 py-2 text-xs" aria-label="Override amount" />
+                        <input name="overrideReason" className="w-44 rounded-xl border border-slate-200 px-2 py-2 text-xs" placeholder="Override reason" aria-label="Override reason" />
+                        <button className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-100">Save override</button>
+                      </form>
                     ) : null}
                     {earning.status === "pending" ? (
                       <form action={updateInstructorEarningStatusAction}>

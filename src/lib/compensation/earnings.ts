@@ -8,6 +8,8 @@ type AppointmentRow = {
   appointment_type: string;
   status: string;
   starts_at: string;
+  ends_at: string;
+  duration_minutes: number | null;
   price_amount: number | string | null;
   payment_status: string | null;
   billing_type: string | null;
@@ -18,6 +20,10 @@ type CompensationRuleRow = {
   private_lesson_pay_mode: string;
   private_lesson_flat_amount: number | string | null;
   private_lesson_percentage: number | string | null;
+  private_lesson_duration_rates_enabled?: boolean | null;
+  private_lesson_30_min_flat_amount?: number | string | null;
+  private_lesson_45_min_flat_amount?: number | string | null;
+  private_lesson_60_min_flat_amount?: number | string | null;
   group_class_pay_mode: string;
   group_class_flat_amount: number | string | null;
   group_class_percentage: number | string | null;
@@ -56,6 +62,42 @@ function numberValue(value: number | string | null | undefined) {
 
 function earningDateFromIso(value: string) {
   return value.slice(0, 10);
+}
+
+function appointmentDurationMinutes(appointment: AppointmentRow) {
+  const explicit = Number(appointment.duration_minutes ?? 0);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+
+  const start = new Date(appointment.starts_at).getTime();
+  const end = new Date(appointment.ends_at).getTime();
+  if (Number.isFinite(start) && Number.isFinite(end) && end > start) {
+    return Math.round((end - start) / 60000);
+  }
+
+  return 0;
+}
+
+function durationFlatRateForPrivateLesson(rule: CompensationRuleRow, durationMinutes: number) {
+  const defaultFlat = roundMoney(Math.max(numberValue(rule.private_lesson_flat_amount), 0));
+  if (!rule.private_lesson_duration_rates_enabled) {
+    return { amount: defaultFlat, label: null as string | null };
+  }
+
+  const rate30 = roundMoney(Math.max(numberValue(rule.private_lesson_30_min_flat_amount), 0));
+  const rate45 = roundMoney(Math.max(numberValue(rule.private_lesson_45_min_flat_amount), 0));
+  const rate60 = roundMoney(Math.max(numberValue(rule.private_lesson_60_min_flat_amount), 0));
+
+  if (durationMinutes > 0 && durationMinutes <= 35 && rate30 > 0) {
+    return { amount: rate30, label: "30-minute duration rate" };
+  }
+  if (durationMinutes > 0 && durationMinutes <= 52 && rate45 > 0) {
+    return { amount: rate45, label: "45-minute duration rate" };
+  }
+  if (durationMinutes > 0 && rate60 > 0) {
+    return { amount: rate60, label: "60-minute duration rate" };
+  }
+
+  return { amount: defaultFlat, label: defaultFlat > 0 ? "default private lesson flat rate" : null };
 }
 
 function isPrivateLessonType(appointmentType: string) {
@@ -156,17 +198,19 @@ function calculateEarning({
   }
 
   const payMode = rule.private_lesson_pay_mode || "none";
-  const flatAmount = roundMoney(Math.max(numberValue(rule.private_lesson_flat_amount), 0));
+  const durationMinutes = appointmentDurationMinutes(appointment);
+  const durationRate = durationFlatRateForPrivateLesson(rule, durationMinutes);
   const percentage = Math.max(numberValue(rule.private_lesson_percentage), 0);
 
   if (payMode === "flat") {
     return {
       payMode,
       grossRevenueBasis,
-      payRateAmount: flatAmount,
+      payRateAmount: durationRate.amount,
       payPercentage: 0,
       attendanceCount: 0,
-      earningAmount: flatAmount,
+      earningAmount: durationRate.amount,
+      ruleDetail: durationRate.label,
     };
   }
 
@@ -192,7 +236,7 @@ export async function stageInstructorEarningForAppointment({
 }: StageInstructorEarningInput) {
   const { data: appointment, error: appointmentError } = await supabase
     .from("appointments")
-    .select("id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, price_amount, payment_status, billing_type")
+    .select("id, studio_id, client_id, instructor_id, appointment_type, status, starts_at, ends_at, duration_minutes, price_amount, payment_status, billing_type")
     .eq("id", appointmentId)
     .eq("studio_id", studioId)
     .maybeSingle();
@@ -205,7 +249,7 @@ export async function stageInstructorEarningForAppointment({
 
   const { data: rule, error: ruleError } = await supabase
     .from("instructor_compensation_rules")
-    .select("id, private_lesson_pay_mode, private_lesson_flat_amount, private_lesson_percentage, group_class_pay_mode, group_class_flat_amount, group_class_percentage, group_class_per_attendee_amount, active")
+    .select("id, private_lesson_pay_mode, private_lesson_flat_amount, private_lesson_percentage, private_lesson_duration_rates_enabled, private_lesson_30_min_flat_amount, private_lesson_45_min_flat_amount, private_lesson_60_min_flat_amount, group_class_pay_mode, group_class_flat_amount, group_class_percentage, group_class_per_attendee_amount, active")
     .eq("studio_id", studioId)
     .eq("instructor_id", typedAppointment.instructor_id)
     .eq("active", true)
@@ -242,7 +286,7 @@ export async function stageInstructorEarningForAppointment({
   }
 
   const sourceNote = (() => {
-    if (calculation.payMode === "flat") return "Auto-staged from the completed lesson or class using a flat-rate instructor compensation rule.";
+    if (calculation.payMode === "flat") return calculation.ruleDetail ? `Auto-staged from the completed lesson or class using the ${calculation.ruleDetail}.` : "Auto-staged from the completed lesson or class using a flat-rate instructor compensation rule.";
     if (calculation.payMode === "percentage") return `Auto-staged from the completed lesson or class using ${calculation.payPercentage}% of the lesson or class value.`;
     if (calculation.payMode === "per_attendee") return `Auto-staged from the completed class using ${calculation.attendanceCount} attended student${calculation.attendanceCount === 1 ? "" : "s"}.`;
     return "Auto-staged from the completed lesson or class using the instructor compensation rule.";
