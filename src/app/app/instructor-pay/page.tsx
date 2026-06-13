@@ -225,6 +225,49 @@ export default async function InstructorPayPage({
   const paidTotal = earnings
     .filter((earning) => earning.status === "paid")
     .reduce((sum, earning) => sum + Number(earning.earning_amount ?? 0), 0);
+  const outstandingTotal = pendingTotal + approvedTotal;
+  const activeCompensationTotal = pendingTotal + approvedTotal + paidTotal;
+  const paidShare =
+    activeCompensationTotal > 0
+      ? `${Math.round((paidTotal / activeCompensationTotal) * 100)}%`
+      : "—";
+  const pendingCount = earnings.filter((earning) => earning.status === "pending").length;
+  const approvedCount = earnings.filter((earning) => earning.status === "approved").length;
+  const paidCount = earnings.filter((earning) => earning.status === "paid").length;
+
+  const compensationInsights = [
+    {
+      title: "Ready for payroll prep",
+      metric: formatCurrency(outstandingTotal),
+      detail:
+        outstandingTotal > 0
+          ? `${formatCurrency(outstandingTotal)} is pending or approved. Review pending earnings, approve anything ready, then export the pay file for your bookkeeper or payroll provider.`
+          : earnings.length > 0
+            ? "There are no pending or approved earnings in the current view. Paid earnings are already marked complete."
+            : "No earnings are showing in this view yet. Generate pending earnings after lessons or classes are completed.",
+      tone: outstandingTotal > 0 ? "warning" : "neutral",
+    },
+    {
+      title: "Rule coverage",
+      metric: `${configuredInstructorCount}/${activeInstructors.length}`,
+      detail:
+        missingRuleCount > 0
+          ? `${missingRuleCount} active instructor${missingRuleCount === 1 ? "" : "s"} still need compensation rules before DanceFlow can stage their earnings automatically.`
+          : activeInstructors.length > 0
+            ? "All active instructors have at least one compensation rule configured."
+            : "Add active instructors before setting compensation rules.",
+      tone: missingRuleCount > 0 ? "warning" : "good",
+    },
+    {
+      title: "Paid completion",
+      metric: paidShare,
+      detail:
+        activeCompensationTotal > 0
+          ? `${paidCount} paid, ${approvedCount} approved, and ${pendingCount} pending earnings are included in this view.`
+          : "No active earnings are included in this view yet.",
+      tone: outstandingTotal > 0 ? "neutral" : "good",
+    },
+  ];
   const exportParams = new URLSearchParams();
   if (["pending", "approved", "paid", "void"].includes(statusFilter)) {
     exportParams.set("status", statusFilter);
@@ -293,6 +336,61 @@ export default async function InstructorPayPage({
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rules ready</p>
           <p className="mt-2 text-3xl font-bold text-slate-950">{configuredInstructorCount}/{activeInstructors.length}</p>
           <p className="mt-1 text-sm text-slate-600">Active instructors with at least one pay rule.</p>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-violet-200 bg-[#FCF8FF] p-6 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
+              ARIA Compensation Insights
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-slate-950">
+              Instructor pay readiness
+            </h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              ARIA reviews instructor pay activity in this view and highlights what should be reviewed before payroll prep or bookkeeper export.
+            </p>
+          </div>
+          <Link
+            href="/app/reports"
+            className="inline-flex w-fit rounded-2xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50"
+          >
+            View reports
+          </Link>
+        </div>
+
+        <div className="mt-5 grid gap-4 md:grid-cols-3">
+          {compensationInsights.map((insight) => (
+            <div
+              key={insight.title}
+              className={`rounded-2xl border p-4 ${
+                insight.tone === "warning"
+                  ? "border-amber-200 bg-amber-50"
+                  : insight.tone === "good"
+                    ? "border-emerald-200 bg-emerald-50"
+                    : "border-violet-100 bg-white"
+              }`}
+            >
+              <p
+                className={`text-xs font-semibold uppercase tracking-wide ${
+                  insight.tone === "warning"
+                    ? "text-amber-700"
+                    : insight.tone === "good"
+                      ? "text-emerald-700"
+                      : "text-violet-700"
+                }`}
+              >
+                {insight.title}
+              </p>
+              <p className="mt-2 text-2xl font-bold text-slate-950">
+                {insight.metric}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                {insight.detail}
+              </p>
+            </div>
+          ))}
         </div>
       </section>
 

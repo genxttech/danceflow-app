@@ -2173,6 +2173,20 @@ export default async function ReportsPage({
           : "neutral",
     },
     {
+      title: "Instructor labor percentage",
+      metric: instructorPayToLessonRevenueRatio,
+      detail:
+        totalInstructorRevenue > 0
+          ? `${fmtCurrency(instructorPayActiveTotal)} in instructor pay is currently tied to ${fmtCurrency(totalInstructorRevenue)} in instructor-attributed lesson and class revenue for this range.`
+          : instructorPayActiveTotal > 0
+            ? `${fmtCurrency(instructorPayActiveTotal)} in instructor pay is recorded, but ARIA does not see instructor-attributed lesson or class revenue in this range yet.`
+            : "Instructor labor percentage will appear after lesson or class revenue and instructor pay are both recorded.",
+      tone:
+        totalInstructorRevenue > 0 && instructorPayActiveTotal / totalInstructorRevenue > 0.55
+          ? "warning"
+          : "neutral",
+    },
+    {
       title: "Instructor pay readiness",
       metric: fmtCurrency(instructorPayOutstandingTotal),
       detail:
