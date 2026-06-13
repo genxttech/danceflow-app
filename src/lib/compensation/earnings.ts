@@ -241,6 +241,13 @@ export async function stageInstructorEarningForAppointment({
     return { staged: false, reason: "no_earning_amount" };
   }
 
+  const sourceNote = (() => {
+    if (calculation.payMode === "flat") return "Auto-staged from the completed lesson or class using a flat-rate instructor compensation rule.";
+    if (calculation.payMode === "percentage") return `Auto-staged from the completed lesson or class using ${calculation.payPercentage}% of the lesson or class value.`;
+    if (calculation.payMode === "per_attendee") return `Auto-staged from the completed class using ${calculation.attendanceCount} attended student${calculation.attendanceCount === 1 ? "" : "s"}.`;
+    return "Auto-staged from the completed lesson or class using the instructor compensation rule.";
+  })();
+
   const payload = {
     studio_id: studioId,
     instructor_id: typedAppointment.instructor_id,
@@ -256,7 +263,7 @@ export async function stageInstructorEarningForAppointment({
     attendance_count: calculation.attendanceCount,
     earning_amount: calculation.earningAmount,
     status: "pending",
-    notes: "Auto-staged from the completed lesson or class using the instructor compensation rule.",
+    notes: sourceNote,
     created_by: createdBy,
     updated_at: new Date().toISOString(),
   };

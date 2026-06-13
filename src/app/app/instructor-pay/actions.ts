@@ -23,7 +23,7 @@ function getOptionalDate(formData: FormData, key: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
 }
 
-function redirectWithStatus(status: string) {
+function redirectWithStatus(status: string): never {
   redirect(`/app/instructor-pay?status=${encodeURIComponent(status)}`);
 }
 
@@ -103,6 +103,25 @@ export async function updateInstructorEarningStatusAction(formData: FormData) {
     const paymentMethod = getString(formData, "paymentMethod");
 
     if (!earningId) redirectWithStatus("missing_earning");
+
+    const { data: existing, error: existingError } = await supabase
+      .from("instructor_earnings")
+      .select("id, status")
+      .eq("id", earningId)
+      .eq("studio_id", studioId)
+      .maybeSingle();
+
+    if (existingError || !existing) redirectWithStatus("earning_update_failed");
+
+    const currentStatus = String(existing.status ?? "pending");
+
+    if (["paid", "void"].includes(currentStatus) && currentStatus !== nextStatus) {
+      redirectWithStatus("earning_locked");
+    }
+
+    if (currentStatus === nextStatus) {
+      redirectWithStatus("earning_unchanged");
+    }
 
     const now = new Date().toISOString();
     const update: Record<string, string | null> = {

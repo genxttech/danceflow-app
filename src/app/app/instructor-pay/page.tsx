@@ -95,6 +95,24 @@ function statusClass(value: string) {
   return "bg-amber-50 text-amber-700 ring-amber-200";
 }
 
+function ruleIsConfigured(rule: RuleRow | undefined) {
+  if (!rule) return false;
+  return rule.private_lesson_pay_mode !== "none" || rule.group_class_pay_mode !== "none";
+}
+
+function sourceSummary(earning: EarningRow) {
+  if (earning.pay_mode === "flat") {
+    return `Created from a completed ${labelForAppointmentType(earning.appointment_type).toLowerCase()} using a flat-rate rule.`;
+  }
+  if (earning.pay_mode === "percentage") {
+    return `Created from a completed ${labelForAppointmentType(earning.appointment_type).toLowerCase()} using ${Number(earning.pay_percentage ?? 0)}% of the lesson or class value.`;
+  }
+  if (earning.pay_mode === "per_attendee") {
+    return `Created from a completed ${labelForAppointmentType(earning.appointment_type).toLowerCase()} using ${earning.attendance_count ?? 0} attended student${Number(earning.attendance_count ?? 0) === 1 ? "" : "s"}.`;
+  }
+  return "Created from a completed lesson or class using the instructor compensation rule.";
+}
+
 function instructorName(instructor: InstructorRow | Pick<InstructorRow, "first_name" | "last_name">) {
   return `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim() || "Instructor";
 }
@@ -120,6 +138,8 @@ function statusMessage(status: string | undefined, params: Record<string, string
   if (!status) return null;
   if (status === "rule_saved") return "Instructor compensation rule saved.";
   if (status === "earning_updated") return "Instructor earning updated.";
+  if (status === "earning_locked") return "This earning is already paid or voided, so it cannot be changed from this page.";
+  if (status === "earning_unchanged") return "This earning already has that status.";
   if (status === "earnings_generated") {
     const scanned = stringParam(params, "scanned") ?? "0";
     const staged = stringParam(params, "staged") ?? "0";
@@ -179,6 +199,9 @@ export default async function InstructorPayPage({
   const rules = (rulesResult.data ?? []) as RuleRow[];
   const earnings = (earningsResult.data ?? []) as EarningRow[];
   const rulesByInstructor = new Map(rules.map((rule) => [rule.instructor_id, rule]));
+  const activeInstructors = instructors.filter((instructor) => instructor.active);
+  const configuredInstructorCount = activeInstructors.filter((instructor) => ruleIsConfigured(rulesByInstructor.get(instructor.id))).length;
+  const missingRuleCount = Math.max(activeInstructors.length - configuredInstructorCount, 0);
 
   const pendingTotal = earnings
     .filter((earning) => earning.status === "pending")
@@ -221,7 +244,7 @@ export default async function InstructorPayPage({
         ) : null}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-4">
         <div className="rounded-3xl border border-amber-100 bg-amber-50 p-5 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Pending</p>
           <p className="mt-2 text-3xl font-bold text-slate-950">{formatCurrency(pendingTotal)}</p>
@@ -237,14 +260,26 @@ export default async function InstructorPayPage({
           <p className="mt-2 text-3xl font-bold text-slate-950">{formatCurrency(paidTotal)}</p>
           <p className="mt-1 text-sm text-slate-600">Marked paid in DanceFlow.</p>
         </div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Rules ready</p>
+          <p className="mt-2 text-3xl font-bold text-slate-950">{configuredInstructorCount}/{activeInstructors.length}</p>
+          <p className="mt-1 text-sm text-slate-600">Active instructors with at least one pay rule.</p>
+        </div>
       </section>
+
+      {missingRuleCount > 0 ? (
+        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900 shadow-sm">
+          <p className="font-semibold">{missingRuleCount} active instructor{missingRuleCount === 1 ? "" : "s"} still need compensation rules.</p>
+          <p className="mt-1 text-amber-800">DanceFlow only stages earnings for instructors with configured rules. Set at least one private lesson or group class rule before generating pending earnings.</p>
+        </section>
+      ) : null}
 
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h2 className="text-xl font-semibold text-slate-950">Stage earnings from completed lessons</h2>
             <p className="mt-1 text-sm text-slate-600">
-              Scan completed lessons and group classes, then create pending earnings using each instructor&apos;s rule.
+              Scan completed lessons and group classes, then create pending earnings using each instructor&apos;s rule. DanceFlow keeps one earning per instructor and lesson to prevent duplicate pay entries.
             </p>
           </div>
           <form action={generateInstructorEarningsAction} className="grid gap-3 md:grid-cols-[150px_150px_auto] md:items-end">
@@ -365,7 +400,7 @@ export default async function InstructorPayPage({
         <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
           {earnings.length === 0 ? (
             <div className="p-6 text-sm text-slate-600">
-              No instructor earnings have been staged yet. Set rules, then generate pending earnings from completed lessons.
+              No instructor earnings have been staged yet. Set rules, then generate pending earnings from completed lessons or classes. Earnings are staged automatically from normal lesson activity once rules exist, but this review button can backfill anything completed before rules were set.
             </div>
           ) : (
             <div className="divide-y divide-slate-200">
@@ -386,6 +421,7 @@ export default async function InstructorPayPage({
                       {earning.pay_mode === "percentage" ? ` (${Number(earning.pay_percentage ?? 0)}%)` : ""}
                       {earning.pay_mode === "per_attendee" ? ` (${earning.attendance_count ?? 0} attended)` : ""}
                     </p>
+                    <p className="mt-1 text-xs text-slate-500">{sourceSummary(earning)}</p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 text-sm md:grid-cols-3">
