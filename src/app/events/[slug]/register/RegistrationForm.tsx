@@ -152,8 +152,7 @@ export default function RegistrationForm({
   isAuthenticated = true,
   requiredEventDocuments = [],
 }: RegistrationFormProps) {
-  const [selectedTicketTypeId, setSelectedTicketTypeId] = useState<string>("");
-  const [quantity, setQuantity] = useState(1);
+  const [ticketQuantities, setTicketQuantities] = useState<Record<string, number>>({});
   const [waiversAccepted, setWaiversAccepted] = useState(false);
 
   const ticketOptions = useMemo(() => {
@@ -166,16 +165,39 @@ export default function RegistrationForm({
   const blockedForAuth = accountRequiredForRegistration && !isAuthenticated;
   const allowSubmission = !blockedForAuth;
 
-  const selectedTicket = useMemo(
-    () => ticketOptions.find((ticket) => ticket.id === selectedTicketTypeId) ?? null,
-    [ticketOptions, selectedTicketTypeId],
+  const selectedTickets = useMemo(() => {
+    return ticketOptions
+      .map((ticket) => ({
+        ...ticket,
+        selectedQuantity: Math.max(0, Number(ticketQuantities[ticket.id] ?? 0) || 0),
+      }))
+      .filter((ticket) => ticket.selectedQuantity > 0);
+  }, [ticketOptions, ticketQuantities]);
+
+  const selectedTicketTotal = selectedTickets.reduce(
+    (sum, ticket) => sum + Number(ticket.price ?? 0) * ticket.selectedQuantity,
+    0,
   );
 
-  const attendeesPerTicket = selectedTicket
-    ? Math.max(1, Number(selectedTicket.attendees_per_ticket ?? 1) || 1)
-    : 1;
-  const totalAttendeeCount = selectedTicket ? Math.max(1, quantity) * attendeesPerTicket : 1;
-  const additionalAttendeeCount = selectedTicket ? Math.max(0, totalAttendeeCount - 1) : 0;
+  const selectedTicketAttendeeCount = selectedTickets.reduce((sum, ticket) => {
+    const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
+    return sum + ticket.selectedQuantity * attendeesPerTicket;
+  }, 0);
+
+  const additionalAttendeeRequests = selectedTickets.flatMap((ticket) => {
+    const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
+    const totalForTicket = ticket.selectedQuantity * attendeesPerTicket;
+    const additionalCount = Math.max(0, totalForTicket - 1);
+
+    return Array.from({ length: additionalCount }, (_, index) => ({
+      ticketId: ticket.id,
+      ticketName: ticket.name,
+      attendeeNumber: index + 2,
+    }));
+  });
+
+  const primaryCurrency =
+    selectedTickets[0]?.currency || ticketOptions.find((ticket) => ticket.currency)?.currency || "USD";
 
   const [selectedCoachSlots, setSelectedCoachSlots] = useState<SelectedCoachSlotSummary[]>([]);
 
@@ -217,11 +239,22 @@ export default function RegistrationForm({
     0,
   );
 
-  const selectedTicketTotal = selectedTicket
-    ? Number(selectedTicket.price ?? 0) * Math.max(1, quantity)
-    : 0;
-
   const estimatedTotal = selectedTicketTotal + selectedCoachSlotTotal;
+
+  const updateTicketQuantity = (ticketId: string, nextQuantity: number) => {
+    setTicketQuantities((current) => {
+      const safeQuantity = Number.isFinite(nextQuantity) && nextQuantity > 0 ? nextQuantity : 0;
+      const next = { ...current };
+
+      if (safeQuantity <= 0) {
+        delete next[ticketId];
+      } else {
+        next[ticketId] = safeQuantity;
+      }
+
+      return next;
+    });
+  };
 
   const topNotice = blockedForAuth
     ? "This event requires a free account before registration can continue."
@@ -229,7 +262,7 @@ export default function RegistrationForm({
     ? waitlistEnabled
       ? "This event is currently full. Select a ticket below to join the waitlist. You will not be charged unless a spot opens."
       : "This event is currently sold out."
-    : "Choose event tickets and any guest coach lesson slots you want, then check out once.";
+    : "Choose one or more event tickets and any guest coach lesson slots you want, then check out once.";
 
   const buttonLabel = blockedForAuth
     ? "Account Required"
@@ -245,6 +278,13 @@ export default function RegistrationForm({
       className="mt-4 space-y-4"
     >
       <input type="hidden" name="eventSlug" value={eventSlug} />
+
+      {selectedTickets.map((ticket) => (
+        <div key={ticket.id}>
+          <input type="hidden" name="ticketTypeIds" value={ticket.id} />
+          <input type="hidden" name="ticketQuantities" value={ticket.selectedQuantity} />
+        </div>
+      ))}
 
       <div
         className={`rounded-xl border px-4 py-3 text-sm ${
@@ -291,56 +331,26 @@ export default function RegistrationForm({
         <div className="flex flex-col gap-1">
           <p className="text-sm font-semibold text-slate-900">1. Choose event tickets</p>
           <p className="text-sm text-slate-600">
-            Leave ticket type blank if you only want to book guest coach lessons.
+            Select quantities for one or more ticket options. Leave all quantities at 0 if you only want to book guest coach lessons.
           </p>
-        </div>
-
-        <div className="mt-4">
-          <label htmlFor="ticketTypeId" className="mb-1 block text-sm font-medium">
-            Ticket Type
-          </label>
-
-          <select
-            id="ticketTypeId"
-            name="ticketTypeId"
-            value={selectedTicketTypeId}
-            onChange={(event) => setSelectedTicketTypeId(event.target.value)}
-            disabled={!allowSubmission}
-            className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-          >
-            <option value="">No event ticket</option>
-
-            {ticketOptions.map((ticket) => (
-              <option key={ticket.id} value={ticket.id} disabled={!ticket.meta.selectable}>
-                {ticket.name} — {formatCurrency(ticket.price, ticket.currency)}
-                {Number(ticket.attendees_per_ticket ?? 1) > 1
-                  ? ` · admits ${Number(ticket.attendees_per_ticket ?? 1)}`
-                  : ""}
-                {!ticket.meta.selectable ? ` (${ticket.meta.label})` : ""}
-              </option>
-            ))}
-          </select>
-
-          {selectedTicket ? (
-            <p className="mt-2 text-sm text-slate-600">{selectedTicket.meta.helper}</p>
-          ) : null}
         </div>
 
         {ticketOptions.length > 0 ? (
           <div className="mt-4 space-y-3">
             {ticketOptions.map((ticket) => {
-              const isSelected = ticket.id === selectedTicketTypeId;
+              const selectedQuantity = Math.max(0, Number(ticketQuantities[ticket.id] ?? 0) || 0);
+              const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
+              const selectedAttendees = selectedQuantity * attendeesPerTicket;
+              const isSelected = selectedQuantity > 0;
+              const maxQuantity = ticket.capacity == null ? undefined : Math.max(0, ticket.capacity);
 
               return (
-                <button
+                <div
                   key={ticket.id}
-                  type="button"
-                  disabled={!ticket.meta.selectable || !allowSubmission}
-                  onClick={() => setSelectedTicketTypeId(ticket.id)}
-                  className={`w-full rounded-xl border p-4 text-left transition disabled:cursor-not-allowed disabled:opacity-60 ${
+                  className={`rounded-xl border p-4 transition ${
                     isSelected
                       ? "border-slate-900 bg-white shadow-sm"
-                      : "border-slate-200 bg-white hover:border-slate-300"
+                      : "border-slate-200 bg-white"
                   }`}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
@@ -368,9 +378,15 @@ export default function RegistrationForm({
                       {ticket.description ? (
                         <p className="mt-2 text-sm text-slate-600">{ticket.description}</p>
                       ) : null}
+
+                      <div className="mt-3 space-y-1 text-xs text-slate-500">
+                        <p>{ticket.meta.helper}</p>
+                        <p>Sale starts: {formatDateTime(ticket.sale_starts_at)}</p>
+                        <p>Sale ends: {formatDateTime(ticket.sale_ends_at)}</p>
+                      </div>
                     </div>
 
-                    <div className="text-right">
+                    <div className="min-w-[170px] text-right">
                       <p className="font-semibold text-slate-900">
                         {formatCurrency(ticket.price, ticket.currency)}
                       </p>
@@ -380,20 +396,39 @@ export default function RegistrationForm({
                           : `${ticket.capacity} currently available`}
                       </p>
                       <p className="text-xs text-slate-500">
-                        Admits {Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1)}
-                        {Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1) === 1
-                          ? " attendee"
-                          : " attendees"}
+                        Admits {attendeesPerTicket}
+                        {attendeesPerTicket === 1 ? " attendee" : " attendees"}
                       </p>
+
+                      <label className="mt-3 block text-left text-xs font-semibold text-slate-600">
+                        Quantity
+                        <input
+                          name={`ticketQuantityDisplay-${ticket.id}`}
+                          type="number"
+                          min={0}
+                          max={maxQuantity}
+                          value={selectedQuantity}
+                          disabled={!ticket.meta.selectable || !allowSubmission}
+                          onChange={(event) => {
+                            const nextValue = Number.parseInt(event.target.value, 10);
+                            updateTicketQuantity(
+                              ticket.id,
+                              Number.isFinite(nextValue) ? nextValue : 0,
+                            );
+                          }}
+                          className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100"
+                        />
+                      </label>
+
+                      {selectedQuantity > 0 ? (
+                        <p className="mt-1 text-xs text-slate-500">
+                          {selectedAttendees} total{" "}
+                          {selectedAttendees === 1 ? "attendee" : "attendees"}
+                        </p>
+                      ) : null}
                     </div>
                   </div>
-
-                  <div className="mt-3 space-y-1 text-xs text-slate-500">
-                    <p>{ticket.meta.helper}</p>
-                    <p>Sale starts: {formatDateTime(ticket.sale_starts_at)}</p>
-                    <p>Sale ends: {formatDateTime(ticket.sale_ends_at)}</p>
-                  </div>
-                </button>
+                </div>
               );
             })}
           </div>
@@ -402,37 +437,7 @@ export default function RegistrationForm({
             No active ticket types are available right now.
           </div>
         )}
-
-        {selectedTicket ? (
-          <div className="mt-4">
-            <label htmlFor="quantity" className="mb-1 block text-sm font-medium">
-              Quantity
-            </label>
-
-            <input
-              id="quantity"
-              name="quantity"
-              type="number"
-              min={1}
-              value={quantity}
-              onChange={(event) => {
-                const nextValue = Number.parseInt(event.target.value, 10);
-                setQuantity(Number.isFinite(nextValue) && nextValue > 0 ? nextValue : 1);
-              }}
-              disabled={!allowSubmission}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-            />
-
-            <p className="mt-1 text-xs text-slate-500">
-              This ticket selection admits {totalAttendeeCount} total
-              {totalAttendeeCount === 1 ? " attendee" : " attendees"}.
-            </p>
-          </div>
-        ) : (
-          <input type="hidden" name="quantity" value="0" />
-        )}
       </div>
-
 
       {requiredEventDocuments.length ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
@@ -561,35 +566,30 @@ export default function RegistrationForm({
         </div>
       </div>
 
-      {selectedTicket && additionalAttendeeCount > 0 ? (
+      {additionalAttendeeRequests.length > 0 ? (
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-col gap-1">
             <p className="text-sm font-semibold text-slate-900">3. Additional attendee names</p>
             <p className="text-sm text-slate-600">
-              This ticket selection admits {totalAttendeeCount} total attendees. The buyer above is
-              Attendee 1. Add the remaining attendee names below for accurate check-in.
+              The buyer above is Attendee 1 for each selected ticket option. Add guest names for tickets that admit more than one person or multiple quantities.
             </p>
           </div>
 
           <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {Array.from({ length: additionalAttendeeCount }, (_, index) => {
-              const attendeeNumber = index + 2;
-
-              return (
-                <label key={attendeeNumber} className="space-y-1 text-sm">
-                  <span className="font-medium text-slate-700">
-                    Attendee {attendeeNumber} name
-                  </span>
-                  <input
-                    name="additionalAttendeeNames"
-                    required
-                    disabled={!allowSubmission}
-                    className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
-                    placeholder="Full name"
-                  />
-                </label>
-              );
-            })}
+            {additionalAttendeeRequests.map((request, index) => (
+              <label key={`${request.ticketId}-${index}`} className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">
+                  {request.ticketName} — attendee {request.attendeeNumber}
+                </span>
+                <input
+                  name="additionalAttendeeNames"
+                  required
+                  disabled={!allowSubmission}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
+                  placeholder="Full name"
+                />
+              </label>
+            ))}
           </div>
         </div>
       ) : null}
@@ -611,7 +611,7 @@ export default function RegistrationForm({
       <div className="rounded-2xl border border-purple-100 bg-purple-50 p-4 text-sm text-purple-900">
         <p className="font-semibold">Single checkout</p>
         <p className="mt-1">
-          Selected coach lesson slots above will be included with your event ticket in one secure Stripe payment.
+          Selected tickets and coach lesson slots will be included in one secure Stripe payment.
         </p>
       </div>
 
@@ -621,20 +621,26 @@ export default function RegistrationForm({
         </summary>
 
         <div className="mt-3 space-y-3 text-sm">
-          {selectedTicket ? (
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="font-medium text-slate-900">{selectedTicket.name}</p>
-                <p className="text-xs text-slate-500">
-                  Quantity {Math.max(1, quantity)} · {totalAttendeeCount} total{" "}
-                  {totalAttendeeCount === 1 ? "attendee" : "attendees"}
+          {selectedTickets.map((ticket) => {
+            const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
+            const ticketTotal = Number(ticket.price ?? 0) * ticket.selectedQuantity;
+            const attendeeCount = attendeesPerTicket * ticket.selectedQuantity;
+
+            return (
+              <div key={ticket.id} className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-medium text-slate-900">{ticket.name}</p>
+                  <p className="text-xs text-slate-500">
+                    Quantity {ticket.selectedQuantity} · {attendeeCount} total{" "}
+                    {attendeeCount === 1 ? "attendee" : "attendees"}
+                  </p>
+                </div>
+                <p className="font-semibold text-slate-900">
+                  {formatCurrency(ticketTotal, ticket.currency)}
                 </p>
               </div>
-              <p className="font-semibold text-slate-900">
-                {formatCurrency(selectedTicketTotal, selectedTicket.currency)}
-              </p>
-            </div>
-          ) : null}
+            );
+          })}
 
           {selectedCoachSlots.map((slot) => (
             <div key={slot.id} className="flex items-start justify-between gap-3">
@@ -645,14 +651,21 @@ export default function RegistrationForm({
                 <p className="text-xs text-slate-500">{slot.slotLabel}</p>
               </div>
               <p className="font-semibold text-slate-900">
-                {formatCurrency(slot.price, selectedTicket?.currency || "USD")}
+                {formatCurrency(slot.price, primaryCurrency)}
               </p>
             </div>
           ))}
 
-          {!selectedTicket && selectedCoachSlots.length === 0 ? (
+          {selectedTickets.length === 0 && selectedCoachSlots.length === 0 ? (
             <p className="text-slate-500">
-              Select a ticket or coach lesson to see your checkout total.
+              Select tickets or coach lessons to see your checkout total.
+            </p>
+          ) : null}
+
+          {selectedTickets.length > 0 ? (
+            <p className="rounded-xl bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200">
+              Selected tickets admit {selectedTicketAttendeeCount} total{" "}
+              {selectedTicketAttendeeCount === 1 ? "attendee" : "attendees"} across all ticket options.
             </p>
           ) : null}
 
@@ -660,7 +673,7 @@ export default function RegistrationForm({
             <div className="flex items-center justify-between gap-3">
               <p className="font-semibold text-slate-950">Estimated total</p>
               <p className="text-lg font-bold text-slate-950">
-                {formatCurrency(estimatedTotal, selectedTicket?.currency || "USD")}
+                {formatCurrency(estimatedTotal, primaryCurrency)}
               </p>
             </div>
           </div>
@@ -677,7 +690,4 @@ export default function RegistrationForm({
     </form>
   );
 }
-
-
-
 

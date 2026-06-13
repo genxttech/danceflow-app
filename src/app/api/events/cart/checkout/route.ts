@@ -149,6 +149,13 @@ type TicketTypeRow = {
   attendees_per_ticket: number | null;
 };
 
+type TicketSelection = {
+  ticket: TicketTypeRow;
+  quantity: number;
+  total: number;
+  attendeeNames: string[];
+};
+
 type SlotRow = {
   id: string;
   event_id: string;
@@ -217,8 +224,10 @@ export async function POST(request: NextRequest) {
   const buyerPhone = getString(formData, "attendeePhone") || getString(formData, "buyerPhone");
   const buyerNotes = getString(formData, "notes") || getString(formData, "buyerNotes");
 
-  const ticketTypeId = getString(formData, "ticketTypeId");
-  const quantity = getInt(formData, "quantity", ticketTypeId ? 1 : 0);
+  const legacyTicketTypeId = getString(formData, "ticketTypeId");
+  const legacyQuantity = getInt(formData, "quantity", legacyTicketTypeId ? 1 : 0);
+  const ticketTypeIds = getStringList(formData, "ticketTypeIds");
+  const ticketQuantities = getStringList(formData, "ticketQuantities");
   const additionalAttendeeNames = getStringList(formData, "additionalAttendeeNames");
   const submittedDocumentRequirementIds = getStringList(formData, "documentRequirementIds");
   const documentSignatureName = getString(formData, "documentSignatureName");
@@ -233,7 +242,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_contact_required"));
   }
 
-  if (!ticketTypeId && slotIds.length === 0) {
+  const submittedTicketSelections = ticketTypeIds
+    .map((ticketTypeId, index) => ({
+      ticketTypeId,
+      quantity: Math.max(0, Number.parseInt(ticketQuantities[index] ?? "0", 10) || 0),
+    }))
+    .filter((selection) => selection.ticketTypeId && selection.quantity > 0);
+
+  if (legacyTicketTypeId && legacyQuantity > 0 && submittedTicketSelections.length === 0) {
+    submittedTicketSelections.push({
+      ticketTypeId: legacyTicketTypeId,
+      quantity: legacyQuantity,
+    });
+  }
+
+  const dedupedSubmittedTicketSelections = Array.from(
+    submittedTicketSelections
+      .reduce((map, selection) => {
+        const existing = map.get(selection.ticketTypeId);
+        map.set(selection.ticketTypeId, {
+          ticketTypeId: selection.ticketTypeId,
+          quantity: (existing?.quantity ?? 0) + selection.quantity,
+        });
+        return map;
+      }, new Map<string, { ticketTypeId: string; quantity: number }>())
+      .values(),
+  );
+
+  if (dedupedSubmittedTicketSelections.length === 0 && slotIds.length === 0) {
     return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_empty"));
   }
 
@@ -319,18 +355,19 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  let ticketType: TicketTypeRow | null = null;
+  const ticketSelections: TicketSelection[] = [];
   let ticketTotal = 0;
   let ticketCurrency = "USD";
-  let registrationId: string | null = null;
+  const registrationIds: string[] = [];
 
-  if (ticketTypeId) {
+  if (dedupedSubmittedTicketSelections.length > 0) {
     const registrationWindowError = validateRegistrationWindow(event);
     if (registrationWindowError) {
       return NextResponse.redirect(absoluteEventUrl(request, eventSlug, `?error=${registrationWindowError}`));
     }
 
-    const { data: ticket, error: ticketError } = await supabase
+    const requestedTicketIds = dedupedSubmittedTicketSelections.map((selection) => selection.ticketTypeId);
+    const { data: tickets, error: ticketsError } = await supabase
       .from("event_ticket_types")
       .select(`
         id,
@@ -346,26 +383,63 @@ export async function POST(request: NextRequest) {
         sale_ends_at,
         attendees_per_ticket
       `)
-      .eq("id", ticketTypeId)
       .eq("event_id", event.id)
-      .maybeSingle<TicketTypeRow>();
+      .in("id", requestedTicketIds);
 
-    if (ticketError || !ticket) {
+    if (ticketsError || !tickets || tickets.length !== requestedTicketIds.length) {
       return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=ticket_unavailable"));
     }
 
-    const ticketWindowError = validateTicketWindow(ticket);
-    if (ticketWindowError) {
-      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, `?error=${ticketWindowError}`));
+    const ticketsById = new Map((tickets as TicketTypeRow[]).map((ticket) => [ticket.id, ticket]));
+    let additionalAttendeeCursor = 0;
+
+    for (const submittedSelection of dedupedSubmittedTicketSelections) {
+      const ticket = ticketsById.get(submittedSelection.ticketTypeId);
+      if (!ticket) {
+        return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=ticket_unavailable"));
+      }
+
+      const ticketWindowError = validateTicketWindow(ticket);
+      if (ticketWindowError) {
+        return NextResponse.redirect(absoluteEventUrl(request, eventSlug, `?error=${ticketWindowError}`));
+      }
+
+      const safeQuantity = Math.max(1, submittedSelection.quantity);
+      if (ticket.capacity != null && safeQuantity > Number(ticket.capacity)) {
+        return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=ticket_capacity_exceeded"));
+      }
+
+      const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
+      const expectedAttendeeCount = safeQuantity * attendeesPerTicket;
+      const additionalCount = Math.max(0, expectedAttendeeCount - 1);
+      const additionalForTicket = additionalAttendeeNames.slice(
+        additionalAttendeeCursor,
+        additionalAttendeeCursor + additionalCount,
+      );
+
+      if (additionalForTicket.length < additionalCount) {
+        return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=missing_attendees"));
+      }
+
+      additionalAttendeeCursor += additionalCount;
+
+      const unitPrice = Number(ticket.price ?? 0);
+      const selectionTotal = Number((unitPrice * safeQuantity).toFixed(2));
+
+      ticketSelections.push({
+        ticket,
+        quantity: safeQuantity,
+        total: selectionTotal,
+        attendeeNames: [buyerName, ...additionalForTicket],
+      });
+
+      ticketCurrency = ticket.currency || ticketCurrency || "USD";
+      ticketTotal = Number((ticketTotal + selectionTotal).toFixed(2));
     }
 
-    ticketType = ticket;
-    ticketCurrency = ticket.currency || "USD";
-    ticketTotal = Number((Number(ticket.price ?? 0) * quantity).toFixed(2));
-
-    // Failed cart checkout attempts can leave a pending registration behind before Stripe is reached.
-    // The active-registration unique constraint is event + ticket + email, so cancel stale pending
-    // cart registrations before creating a fresh attempt for the same buyer.
+    // Failed cart checkout attempts can leave pending registrations behind before Stripe is reached.
+    // Only stale pending cart attempts are cancelled. Prior completed purchases by the same email remain valid
+    // and should not block a new order for another class, pass, or ticket option.
     const { error: staleRegistrationCleanupError } = await supabase
       .from("event_registrations")
       .update({
@@ -374,7 +448,6 @@ export async function POST(request: NextRequest) {
         cancelled_at: new Date().toISOString(),
       })
       .eq("event_id", event.id)
-      .eq("ticket_type_id", ticket.id)
       .eq("attendee_email", buyerEmail)
       .eq("status", "pending")
       .eq("payment_status", "pending")
@@ -383,12 +456,6 @@ export async function POST(request: NextRequest) {
     if (staleRegistrationCleanupError) {
       console.error("event cart stale registration cleanup failed:", staleRegistrationCleanupError);
       return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=registration_cleanup_failed"));
-    }
-
-    const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
-    const expectedAttendeeCount = Math.max(1, quantity) * attendeesPerTicket;
-    if (additionalAttendeeNames.length < expectedAttendeeCount - 1) {
-      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=missing_attendees"));
     }
   }
 
@@ -476,15 +543,12 @@ export async function POST(request: NextRequest) {
   try {
     const orderItems = [];
 
-    if (ticketType) {
+    for (const ticketSelection of ticketSelections) {
+      const ticketType = ticketSelection.ticket;
+      const quantity = ticketSelection.quantity;
+      const ticketTotal = ticketSelection.total;
       const unitPrice = Number(ticketType.price ?? 0);
-      const attendeeNames = [
-        buyerName,
-        ...additionalAttendeeNames.slice(
-          0,
-          Math.max(0, Math.max(1, quantity) * Math.max(1, Number(ticketType.attendees_per_ticket ?? 1) || 1) - 1)
-        ),
-      ];
+      const attendeeNames = ticketSelection.attendeeNames;
 
       const { data: registration, error: registrationError } = await supabase
         .from("event_registrations")
@@ -519,7 +583,7 @@ export async function POST(request: NextRequest) {
         throw new Error(registrationError?.message ?? "Registration insert failed.");
       }
 
-      registrationId = registration.id;
+      registrationIds.push(registration.id);
 
       const { error: registrationItemError } = await supabase
         .from("event_registration_items")
@@ -547,9 +611,9 @@ export async function POST(request: NextRequest) {
         return {
           registration_id: registration.id,
           event_id: event.id,
-          ticket_type_id: ticketType!.id,
-          first_name: parsed.firstName,
-          last_name: parsed.lastName,
+          ticket_type_id: ticketType.id,
+          first_name: parsed.firstName || "Guest",
+          last_name: parsed.lastName || `${index + 1}`,
           email: index === 0 ? buyerEmail : null,
           phone: index === 0 ? buyerPhone || null : null,
           attendee_role: "attendee",
@@ -734,7 +798,8 @@ export async function POST(request: NextRequest) {
           event_id: event.id,
           event_slug: eventSlug,
           order_id: order.id,
-          registration_id: registrationId ?? "",
+          registration_id: registrationIds[0] ?? "",
+          registration_ids: registrationIds.join(","),
           connected_account_id: connectedAccountId,
         },
       },
@@ -744,7 +809,8 @@ export async function POST(request: NextRequest) {
         event_id: event.id,
         event_slug: eventSlug,
         order_id: order.id,
-        registration_id: registrationId ?? "",
+        registration_id: registrationIds[0] ?? "",
+        registration_ids: registrationIds.join(","),
         buyer_email: buyerEmail,
         connected_account_id: connectedAccountId,
       },
@@ -762,13 +828,13 @@ export async function POST(request: NextRequest) {
       throw new Error(sessionLinkError.message);
     }
 
-    if (registrationId) {
+    if (registrationIds.length > 0) {
       await supabase
         .from("event_registrations")
         .update({
           stripe_checkout_session_id: session.id,
         })
-        .eq("id", registrationId);
+        .in("id", registrationIds);
     }
 
     if (!session.url) {

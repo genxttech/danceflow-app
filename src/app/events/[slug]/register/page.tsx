@@ -297,10 +297,6 @@ export default async function PublicEventRegisterPage({
     .filter((ticket) => ticket.event_id === typedEvent.id)
     .filter((ticket) => isTicketCurrentlyAvailable(ticket));
 
-  const availableFreeTickets = typedTicketTypes.filter(
-    (ticket) => Number(ticket.price ?? 0) === 0
-  );
-
   const registrationOpen = canRegisterForEvent(typedEvent);
 
   return (
@@ -408,11 +404,6 @@ export default async function PublicEventRegisterPage({
                       Capacity: {ticket.capacity ?? "Unlimited"}
                     </div>
 
-                    {Number(ticket.price ?? 0) > 0 ? (
-                      <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                        Paid registration is coming soon. Free ticket types can be registered now.
-                      </div>
-                    ) : null}
                   </div>
                 ))}
               </div>
@@ -432,14 +423,14 @@ export default async function PublicEventRegisterPage({
               <p className="mt-4 text-sm text-slate-500">
                 Sign in to complete registration.
               </p>
-            ) : availableFreeTickets.length === 0 ? (
+            ) : typedTicketTypes.length === 0 ? (
               <p className="mt-4 text-sm text-slate-500">
-                No free ticket options are currently available.
+                No ticket options are currently available.
               </p>
             ) : (
               <RegistrationForm
                 eventSlug={typedEvent.slug}
-                ticketTypes={availableFreeTickets}
+                ticketTypes={typedTicketTypes}
                 currentUserEmail={user?.email ?? ""}
                 isSoldOut={Boolean((typedEvent as any).is_sold_out)}
                 waitlistEnabled={Boolean((typedEvent as any).waitlist_enabled)}
