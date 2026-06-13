@@ -29,7 +29,6 @@ type SlotRow = {
   ends_at: string;
   location_label: string | null;
   status: string;
-  payment_status: string;
   buyer_name: string | null;
   buyer_email: string | null;
   buyer_phone: string | null;
@@ -104,7 +103,6 @@ function buildBookedDescription(slot: SlotRow, event: EventRow, coach: CoachRow)
     slot.buyer_email ? `Email: ${slot.buyer_email}` : "",
     slot.buyer_phone ? `Phone: ${slot.buyer_phone}` : "",
     slot.buyer_notes ? `Notes: ${slot.buyer_notes}` : "",
-    `Payment: ${slot.payment_status}`,
   ].filter(Boolean);
 
   return lines.join("\\n");
@@ -178,7 +176,7 @@ export async function GET(
       supabase
         .from("event_private_lesson_slots")
         .select(
-          "id, starts_at, ends_at, location_label, status, payment_status, buyer_name, buyer_email, buyer_phone, buyer_notes, held_until, updated_at",
+          "id, starts_at, ends_at, location_label, status, buyer_name, buyer_email, buyer_phone, buyer_notes, held_until, updated_at",
         )
         .eq("coach_id", typedCoach.id)
         .or("status.eq.booked,and(status.eq.held,held_until.is.null)")

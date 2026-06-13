@@ -264,7 +264,7 @@ export default async function GuestCoachSchedulePage({
         "id, starts_at, ends_at, location_label, status, payment_status, buyer_name, buyer_email, buyer_phone, buyer_notes, held_until",
       )
       .eq("coach_id", typedCoach.id)
-      .in("status", ["available", "held", "booked"])
+      .in("status", ["held", "booked"])
       .order("starts_at", { ascending: true }),
   ]);
 
@@ -295,14 +295,17 @@ export default async function GuestCoachSchedulePage({
 
   const typedStudio = studio as StudioRow | null;
   const typedOrganizer = organizer as OrganizerRow | null;
-  const typedSlots = ((slots ?? []) as SlotRow[]).slice().sort((a, b) => {
-    return new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime();
-  });
+  const typedSlots = ((slots ?? []) as SlotRow[])
+    .filter((slot) => slot.status === "booked" || isManualBlockedSlot(slot))
+    .slice()
+    .sort((a, b) => {
+      return new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime();
+    });
 
   const groupedSlots = groupSlotsByDate(typedSlots, eventTimeZone);
   const sortedDates = Object.keys(groupedSlots).sort();
   const bookedCount = typedSlots.filter((slot) => slot.status === "booked").length;
-  const availableCount = typedSlots.filter((slot) => slot.status === "available").length;
+  const blockedCount = typedSlots.filter((slot) => isManualBlockedSlot(slot)).length;
   const hostName = typedStudio?.name || typedOrganizer?.name || "Event host";
   const eventLocation = [typedEvent.venue_name, typedEvent.city, typedEvent.state]
     .filter(Boolean)
@@ -363,8 +366,8 @@ export default async function GuestCoachSchedulePage({
                 <p className="text-xs font-medium text-slate-500">Booked</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-slate-950">{availableCount}</p>
-                <p className="text-xs font-medium text-slate-500">Open</p>
+                <p className="text-2xl font-bold text-slate-950">{blockedCount}</p>
+                <p className="text-xs font-medium text-slate-500">Blocked</p>
               </div>
             </div>
           </div>
@@ -384,7 +387,7 @@ export default async function GuestCoachSchedulePage({
                 Private Lesson Slots
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                This read-only schedule updates as dancers book available slots. All times are shown in {eventTimeZoneLabel}.
+                This read-only schedule shows booked lessons and blocked time only. Open slots are hidden. All times are shown in {eventTimeZoneLabel}.
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
@@ -412,7 +415,7 @@ export default async function GuestCoachSchedulePage({
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-900">Calendar feed</p>
             <p className="mt-1 text-xs leading-5 text-slate-600">
-              Subscribe to add booked lessons and blocked time to your phone calendar. Open slots are not added so your calendar stays clean. Times are published using the event timezone.
+              Subscribe to add booked lessons and blocked time to your phone calendar. Open slots are hidden so your calendar stays focused. Times are published using the event timezone.
             </p>
             <p className="mt-3 break-all rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
               {calendarUrl}
@@ -421,14 +424,14 @@ export default async function GuestCoachSchedulePage({
 
           {sortedDates.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
-              No private lesson slots have been created for this coach yet.
+              No booked lessons or blocked times are currently on this coach schedule.
             </div>
           ) : (
             <div className="mt-6 space-y-6">
               {sortedDates.map((dateKey) => {
                 const daySlots = groupedSlots[dateKey];
                 const dayBookedCount = daySlots.filter((slot) => slot.status === "booked").length;
-                const dayOpenCount = daySlots.filter((slot) => slot.status === "available").length;
+                const dayBlockedCount = daySlots.filter((slot) => isManualBlockedSlot(slot)).length;
 
                 return (
                   <details
@@ -441,7 +444,7 @@ export default async function GuestCoachSchedulePage({
                           {formatEventDate(dateKey, eventTimeZone)}
                         </h3>
                         <p className="mt-1 text-xs text-slate-500">
-                          {daySlots.length} slots • {dayBookedCount} booked • {dayOpenCount} open
+                          {daySlots.length} items • {dayBookedCount} booked • {dayBlockedCount} blocked
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
@@ -506,12 +509,6 @@ export default async function GuestCoachSchedulePage({
                                   </p>
                                   <p className="mt-1">{slot.buyer_notes}</p>
                                 </div>
-                              ) : null}
-
-                              {isBooked ? (
-                                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                                  Payment: {slot.payment_status}
-                                </p>
                               ) : null}
                             </div>
                           ) : null}
