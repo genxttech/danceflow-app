@@ -3,6 +3,12 @@ type TicketCodeLine = {
   code: string;
 };
 
+type TicketPurchaseLine = {
+  name: string;
+  quantity: number;
+  totalPrice?: number;
+};
+
 type EventOutboundTemplateParams = {
   eventName: string;
   attendeeFirstName: string;
@@ -13,6 +19,7 @@ type EventOutboundTemplateParams = {
   currency: string;
   eventUrl: string;
   ticketCodes?: TicketCodeLine[];
+  purchasedItems?: TicketPurchaseLine[];
 };
 
 function money(value: number, currency: string) {
@@ -76,10 +83,40 @@ function brandedEmailShell(params: {
   ticketTypeName: string;
   quantity: number;
   totalLabel: string;
+  currency: string;
   eventUrl: string;
   ticketCodes?: TicketCodeLine[];
+  purchasedItems?: TicketPurchaseLine[];
 }) {
   const ticketRows = params.ticketCodes ?? [];
+  const purchaseRows = params.purchasedItems ?? [];
+
+  const purchaseSummary = purchaseRows.length
+    ? purchaseRows
+        .map((item) => {
+          const totalLabel =
+            typeof item.totalPrice === "number" && Number.isFinite(item.totalPrice)
+              ? money(item.totalPrice, params.currency)
+              : "";
+
+          return `
+            <tr>
+              <td style="padding:10px 0;border-top:1px solid #f3e8f0;">
+                <div style="font-size:15px;font-weight:800;color:#111827;">${escapeHtml(
+                  item.name
+                )}</div>
+                <div style="font-size:13px;color:#6b7280;margin-top:2px;">Quantity: ${Number(
+                  item.quantity || 0
+                )}</div>
+              </td>
+              <td align="right" style="padding:10px 0;border-top:1px solid #f3e8f0;font-size:14px;font-weight:800;color:#111827;">${escapeHtml(
+                totalLabel
+              )}</td>
+            </tr>
+          `;
+        })
+        .join("")
+    : "";
 
   const ticketCodeCards = ticketRows.length
     ? ticketRows
@@ -157,21 +194,36 @@ function brandedEmailShell(params: {
                   )}</div>
                 </div>
 
-                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:16px;">
-                  <tr>
-                    <td style="padding:12px;border:1px solid #eee3ef;border-radius:14px;background:#ffffff;">
-                      <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;font-weight:800;color:#6b7280;">Ticket</div>
-                      <div style="font-size:16px;font-weight:700;color:#111827;margin-top:4px;">${escapeHtml(
-                        params.ticketTypeName
-                      )}</div>
-                    </td>
-                  </tr>
-                </table>
+                ${
+                  purchaseRows.length
+                    ? `
+                      <div style="margin-top:16px;border:1px solid #eee3ef;border-radius:16px;background:#ffffff;padding:14px;">
+                        <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;font-weight:800;color:#6b7280;">Tickets and options purchased</div>
+                        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:8px;">
+                          ${purchaseSummary}
+                        </table>
+                      </div>
+                    `
+                    : `
+                      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:16px;">
+                        <tr>
+                          <td style="padding:12px;border:1px solid #eee3ef;border-radius:14px;background:#ffffff;">
+                            <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;font-weight:800;color:#6b7280;">Ticket</div>
+                            <div style="font-size:16px;font-weight:700;color:#111827;margin-top:4px;">${escapeHtml(
+                              params.ticketTypeName
+                            )}</div>
+                          </td>
+                        </tr>
+                      </table>
+                    `
+                }
 
                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin-top:12px;">
                   <tr>
                     <td width="50%" style="padding:12px;border:1px solid #eee3ef;border-radius:14px;background:#ffffff;">
-                      <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;font-weight:800;color:#6b7280;">Quantity</div>
+                      <div style="font-size:12px;text-transform:uppercase;letter-spacing:0.08em;font-weight:800;color:#6b7280;">${
+                        purchaseRows.length ? "Total items" : "Quantity"
+                      }</div>
                       <div style="font-size:16px;font-weight:700;color:#111827;margin-top:4px;">${params.quantity}</div>
                     </td>
                     <td width="12"></td>
@@ -246,16 +298,30 @@ export function buildEventConfirmedEmailTemplate(
   const totalLabel =
     params.totalPrice > 0 ? money(params.totalPrice, params.currency) : "Free";
 
+  const purchaseRows = params.purchasedItems ?? [];
+  const purchaseLines = purchaseRows.length
+    ? [
+        `Tickets and options purchased:`,
+        ...purchaseRows.map((item) => {
+          const itemTotal =
+            typeof item.totalPrice === "number" && Number.isFinite(item.totalPrice)
+              ? ` — ${money(item.totalPrice, params.currency)}`
+              : "";
+          return `- ${item.name} x ${item.quantity}${itemTotal}`;
+        }),
+      ]
+    : [`Ticket: ${params.ticketTypeName}`, `Quantity: ${params.quantity}`];
+
   const bodyText = [
     `Hi ${params.attendeeFirstName || attendeeName(params)},`,
     ``,
     `Your registration is confirmed for ${params.eventName}.`,
-    `Ticket: ${params.ticketTypeName}`,
-    `Quantity: ${params.quantity}`,
+    ...purchaseLines,
     `Total: ${totalLabel}`,
     ticketCodeText(params),
     ``,
     `Event page: ${params.eventUrl}`,
+    `Need more tickets or classes? You can return to the event page and make another purchase with the same email.`,
     ``,
     `Thanks,`,
     `DanceFlow`,
@@ -271,8 +337,10 @@ export function buildEventConfirmedEmailTemplate(
     ticketTypeName: params.ticketTypeName,
     quantity: params.quantity,
     totalLabel,
+    currency: params.currency,
     eventUrl: params.eventUrl,
     ticketCodes: params.ticketCodes,
+    purchasedItems: params.purchasedItems,
   });
 
   return {

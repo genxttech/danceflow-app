@@ -25,6 +25,8 @@ type RegistrationRow = {
   currency: string | null;
   checked_in_at: string | null;
   stripe_payment_intent_id: string | null;
+  order_id?: string | null;
+  stripe_checkout_session_id?: string | null;
 };
 
 type ClientRow = {
@@ -465,6 +467,8 @@ type EventForResend = {
 
 type RegistrationForResend = RegistrationRow & {
   studio_id: string;
+  order_id: string | null;
+  stripe_checkout_session_id: string | null;
   event_ticket_types?: TicketTypeForResend | TicketTypeForResend[] | null;
   events?: EventForResend | EventForResend[] | null;
   event_registration_attendees?: Array<{
@@ -475,6 +479,17 @@ type RegistrationForResend = RegistrationRow & {
     ticket_code: string | null;
     sort_order: number | null;
   }> | null;
+};
+
+type RegistrationSiblingForResend = RegistrationForResend & {
+  order_id: string | null;
+  stripe_checkout_session_id: string | null;
+};
+
+type TicketPurchaseLineForEmail = {
+  name: string;
+  quantity: number;
+  totalPrice?: number;
 };
 
 function singleRelation<T>(value: T | T[] | null | undefined) {
@@ -628,10 +643,7 @@ async function queueTicketConfirmationResend(params: {
   eventId: string;
   registrationId: string;
 }) {
-  const { data: registration, error } = await params.supabase
-    .from("event_registrations")
-    .select(
-      `
+  const registrationSelect = `
       id,
       event_id,
       studio_id,
@@ -649,6 +661,8 @@ async function queueTicketConfirmationResend(params: {
       currency,
       checked_in_at,
       stripe_payment_intent_id,
+      order_id,
+      stripe_checkout_session_id,
       events (
         id,
         slug,
@@ -667,8 +681,11 @@ async function queueTicketConfirmationResend(params: {
         ticket_code,
         sort_order
       )
-    `,
-    )
+    `;
+
+  const { data: registration, error } = await params.supabase
+    .from("event_registrations")
+    .select(registrationSelect)
     .eq("id", params.registrationId)
     .eq("event_id", params.eventId)
     .maybeSingle<RegistrationForResend>();
@@ -678,43 +695,122 @@ async function queueTicketConfirmationResend(params: {
   }
 
   const event = singleRelation(registration.events);
-  const ticketType = singleRelation(registration.event_ticket_types);
 
   if (!event) {
     throw new Error("Event not found for registration.");
   }
 
-  const attendeeRows = [...(registration.event_registration_attendees ?? [])]
-    .sort((left, right) => Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0));
+  let relatedRegistrations: RegistrationSiblingForResend[] = [
+    registration as RegistrationSiblingForResend,
+  ];
 
-  const ticketCodes = attendeeRows
-    .map((attendee, index) => {
-      const name =
-        `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim() ||
-        `Attendee ${index + 1}`;
-      const code =
-        typeof attendee.ticket_code === "string"
-          ? attendee.ticket_code.trim()
-          : "";
+  if (registration.order_id) {
+    const { data: siblings, error: siblingsError } = await params.supabase
+      .from("event_registrations")
+      .select(registrationSelect)
+      .eq("event_id", params.eventId)
+      .eq("order_id", registration.order_id)
+      .order("created_at", { ascending: true })
+      .returns<RegistrationSiblingForResend[]>();
 
-      return code ? { name, code } : null;
-    })
-    .filter(Boolean) as Array<{ name: string; code: string }>;
+    if (siblingsError) {
+      throw new Error(siblingsError.message);
+    }
+
+    if (siblings?.length) {
+      relatedRegistrations = siblings;
+    }
+  } else if (registration.stripe_checkout_session_id) {
+    const { data: siblings, error: siblingsError } = await params.supabase
+      .from("event_registrations")
+      .select(registrationSelect)
+      .eq("event_id", params.eventId)
+      .eq("stripe_checkout_session_id", registration.stripe_checkout_session_id)
+      .order("created_at", { ascending: true })
+      .returns<RegistrationSiblingForResend[]>();
+
+    if (siblingsError) {
+      throw new Error(siblingsError.message);
+    }
+
+    if (siblings?.length) {
+      relatedRegistrations = siblings;
+    }
+  }
+
+  const ticketCodes = relatedRegistrations.flatMap((relatedRegistration) => {
+    const attendeeRows = [...(relatedRegistration.event_registration_attendees ?? [])].sort(
+      (left, right) => Number(left.sort_order ?? 0) - Number(right.sort_order ?? 0),
+    );
+
+    const ticketType = singleRelation(relatedRegistration.event_ticket_types);
+    const ticketTypeName = ticketType?.name ?? "Event ticket";
+
+    return attendeeRows
+      .map((attendee, index) => {
+        const attendeeFullName =
+          `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim() ||
+          `Attendee ${index + 1}`;
+        const code =
+          typeof attendee.ticket_code === "string" ? attendee.ticket_code.trim() : "";
+
+        return code
+          ? {
+              name:
+                relatedRegistrations.length > 1
+                  ? `${attendeeFullName} — ${ticketTypeName}`
+                  : attendeeFullName,
+              code,
+            }
+          : null;
+      })
+      .filter(Boolean) as Array<{ name: string; code: string }>;
+  });
 
   if (!ticketCodes.length) {
     throw new Error("No ticket codes were available to send.");
   }
 
+  const purchasedItems: TicketPurchaseLineForEmail[] = relatedRegistrations.map(
+    (relatedRegistration) => {
+      const ticketType = singleRelation(relatedRegistration.event_ticket_types);
+
+      return {
+        name: ticketType?.name ?? "Event ticket",
+        quantity: Number(relatedRegistration.quantity ?? 1),
+        totalPrice: Number(
+          relatedRegistration.total_price ?? relatedRegistration.total_amount ?? 0,
+        ),
+      };
+    },
+  );
+
+  const totalPrice = relatedRegistrations.reduce(
+    (sum, relatedRegistration) =>
+      sum + Number(relatedRegistration.total_price ?? relatedRegistration.total_amount ?? 0),
+    0,
+  );
+  const totalQuantity = relatedRegistrations.reduce(
+    (sum, relatedRegistration) => sum + Number(relatedRegistration.quantity ?? 1),
+    0,
+  );
+
+  const primaryTicketType = singleRelation(registration.event_ticket_types);
+
   const template = buildEventConfirmedEmailTemplate({
     eventName: event.name,
     attendeeFirstName: registration.attendee_first_name,
     attendeeLastName: registration.attendee_last_name,
-    ticketTypeName: ticketType?.name ?? "Event ticket",
-    quantity: Number(registration.quantity ?? 1),
-    totalPrice: Number(registration.total_price ?? registration.total_amount ?? 0),
+    ticketTypeName:
+      purchasedItems.length > 1
+        ? "Multiple ticket options"
+        : primaryTicketType?.name ?? "Event ticket",
+    quantity: totalQuantity,
+    totalPrice,
     currency: registration.currency || "USD",
     eventUrl: `${getAppUrl()}/events/${encodeURIComponent(event.slug)}`,
     ticketCodes,
+    purchasedItems: purchasedItems.length > 1 ? purchasedItems : undefined,
   });
 
   const result = await queueOutboundDelivery({

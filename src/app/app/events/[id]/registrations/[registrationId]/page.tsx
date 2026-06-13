@@ -658,7 +658,7 @@ export default async function EventRegistrationDetailPage({
                   disabled={!canResend}
                   className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  Resend ticket confirmation
+                  {orderSiblingRows.length > 1 ? "Resend full checkout confirmation" : "Resend ticket confirmation"}
                 </button>
               </form>
             </div>
@@ -666,7 +666,7 @@ export default async function EventRegistrationDetailPage({
             <div className="mt-5 grid gap-4 lg:grid-cols-2">
               {attendeeRows.length === 0 ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                  No attendee QR rows have been issued yet. Use resend ticket confirmation to repair missing rows, or review the registration status/payment status first.
+                  No attendee QR rows have been issued yet. Use the resend confirmation action to repair missing rows, or review the registration and payment status first.
                 </div>
               ) : (
                 attendeeRows.map((attendee, index) => {

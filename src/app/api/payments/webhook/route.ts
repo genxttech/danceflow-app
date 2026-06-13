@@ -1318,6 +1318,234 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
   }
 }
 
+
+type EventOrderItemConfirmationRow = {
+  item_type: string | null;
+  description: string | null;
+  quantity: number | null;
+  total_price: number | null;
+  currency: string | null;
+  attendee_names: unknown;
+};
+
+type EventOrderRegistrationConfirmationRow = {
+  id: string;
+  studio_id: string | null;
+  attendee_first_name: string | null;
+  attendee_last_name: string | null;
+  attendee_email: string | null;
+  attendee_phone: string | null;
+  quantity: number | null;
+  total_price: number | null;
+  total_amount: number | null;
+  currency: string | null;
+  event_ticket_types:
+    | { name: string | null }
+    | { name: string | null }[]
+    | null;
+  event_registration_attendees:
+    | Array<{
+        first_name: string | null;
+        last_name: string | null;
+        ticket_code: string | null;
+      }>
+    | null;
+};
+
+async function safeQueuePaidEventCartOrderConfirmation(params: {
+  supabase: SupabaseClient;
+  orderId: string;
+}) {
+  try {
+    const { data: order, error: orderError } = await params.supabase
+      .from("event_orders")
+      .select(
+        `
+        id,
+        studio_id,
+        buyer_name,
+        buyer_email,
+        buyer_phone,
+        total_amount,
+        currency,
+        events (
+          slug,
+          name
+        )
+      `
+      )
+      .eq("id", params.orderId)
+      .maybeSingle();
+
+    if (orderError || !order) {
+      console.error(
+        "paid event cart confirmation order lookup failed:",
+        orderError?.message ?? "Order not found"
+      );
+      return;
+    }
+
+    const eventValue = Array.isArray(order.events) ? order.events[0] : order.events;
+
+    if (!eventValue) {
+      console.error("paid event cart confirmation missing event");
+      return;
+    }
+
+    const { data: registrations, error: registrationsError } = await params.supabase
+      .from("event_registrations")
+      .select(
+        `
+        id,
+        studio_id,
+        attendee_first_name,
+        attendee_last_name,
+        attendee_email,
+        attendee_phone,
+        quantity,
+        total_price,
+        total_amount,
+        currency,
+        event_ticket_types (
+          name
+        ),
+        event_registration_attendees (
+          first_name,
+          last_name,
+          ticket_code
+        )
+      `
+      )
+      .eq("order_id", params.orderId)
+      .order("created_at", { ascending: true });
+
+    if (registrationsError) {
+      console.error("paid event cart confirmation registrations lookup failed:", registrationsError.message);
+      return;
+    }
+
+    const typedRegistrations = (registrations ?? []) as EventOrderRegistrationConfirmationRow[];
+    const primaryRegistration = typedRegistrations[0] ?? null;
+
+    if (!primaryRegistration) {
+      console.error("paid event cart confirmation missing registrations");
+      return;
+    }
+
+    const { data: orderItems, error: orderItemsError } = await params.supabase
+      .from("event_order_items")
+      .select("item_type, description, quantity, total_price, currency, attendee_names, created_at")
+      .eq("order_id", params.orderId)
+      .order("created_at", { ascending: true });
+
+    if (orderItemsError) {
+      console.error("paid event cart confirmation order items lookup failed:", orderItemsError.message);
+      return;
+    }
+
+    const typedOrderItems = (orderItems ?? []) as EventOrderItemConfirmationRow[];
+    const currency = (order.currency || primaryRegistration.currency || "USD").toUpperCase();
+    const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(eventValue.slug)}`;
+    const buyerName = String(order.buyer_name || "").trim();
+    const firstName = buyerName.split(/\s+/)[0] || primaryRegistration.attendee_first_name || "there";
+    const lastName = buyerName.split(/\s+/).slice(1).join(" ") || primaryRegistration.attendee_last_name || "";
+
+    const purchasedItems = typedOrderItems.map((item) => ({
+      name: item.description || (item.item_type === "coach_slot" ? "Private lesson" : "Event ticket"),
+      quantity: Number(item.quantity ?? 1),
+      totalPrice: Number(item.total_price ?? 0),
+    }));
+
+    const registrationItems = typedRegistrations.map((registration) => {
+      const ticketType = Array.isArray(registration.event_ticket_types)
+        ? registration.event_ticket_types[0]
+        : registration.event_ticket_types;
+
+      return {
+        name: ticketType?.name || "Event ticket",
+        quantity: Number(registration.quantity ?? 1),
+        totalPrice: Number(registration.total_price ?? registration.total_amount ?? 0),
+      };
+    });
+
+    const finalPurchasedItems = purchasedItems.length > 0 ? purchasedItems : registrationItems;
+    const ticketCodes = typedRegistrations.flatMap((registration) => {
+      const attendeeRows = Array.isArray(registration.event_registration_attendees)
+        ? registration.event_registration_attendees
+        : [];
+
+      return attendeeRows
+        .map((attendee) => {
+          const code = typeof attendee.ticket_code === "string" ? attendee.ticket_code.trim() : "";
+          if (!code) return null;
+
+          const name = `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim();
+          return { name: name || "Attendee", code };
+        })
+        .filter(Boolean) as Array<{ name: string; code: string }>;
+    });
+
+    const ticketQuantity = registrationItems.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+    const coachSlotQuantity = typedOrderItems
+      .filter((item) => item.item_type === "coach_slot")
+      .reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+    const totalQuantity = ticketQuantity + coachSlotQuantity || 1;
+    const totalPrice = Number(order.total_amount ?? 0);
+    const firstTicketName = registrationItems[0]?.name ?? "Event registration";
+
+    const emailTemplate = buildEventConfirmedEmailTemplate({
+      eventName: eventValue.name,
+      attendeeFirstName: firstName,
+      attendeeLastName: lastName,
+      ticketTypeName: firstTicketName,
+      quantity: totalQuantity,
+      totalPrice,
+      currency,
+      eventUrl,
+      ticketCodes,
+      purchasedItems: finalPurchasedItems,
+    });
+
+    const smsBody = buildEventConfirmedSmsTemplate({
+      eventName: eventValue.name,
+      attendeeFirstName: firstName,
+      attendeeLastName: lastName,
+      ticketTypeName: firstTicketName,
+      quantity: totalQuantity,
+      totalPrice,
+      currency,
+      eventUrl,
+    });
+
+    await Promise.allSettled([
+      queueOutboundDelivery({
+        studioId: order.studio_id ?? primaryRegistration.studio_id,
+        channel: "email",
+        templateKey: "event_registration_confirmed",
+        recipientEmail: order.buyer_email ?? primaryRegistration.attendee_email,
+        subject: emailTemplate.subject,
+        bodyText: emailTemplate.bodyText,
+        bodyHtml: emailTemplate.bodyHtml,
+        relatedTable: "event_registrations",
+        relatedId: primaryRegistration.id,
+        dedupeKey: `event_cart_order_confirmed:email:${order.id}`,
+      }),
+      queueOutboundDelivery({
+        studioId: order.studio_id ?? primaryRegistration.studio_id,
+        channel: "sms",
+        templateKey: "event_registration_confirmed",
+        recipientPhone: order.buyer_phone ?? primaryRegistration.attendee_phone,
+        bodyText: smsBody,
+        relatedTable: "event_registrations",
+        relatedId: primaryRegistration.id,
+        dedupeKey: `event_cart_order_confirmed:sms:${order.id}`,
+      }),
+    ]);
+  } catch (error) {
+    console.error("queue paid event cart order confirmation failed:", error);
+  }
+}
+
 async function handleEventRegistrationCheckoutCompleted(
   supabase: SupabaseClient,
   session: Stripe.Checkout.Session
@@ -1516,11 +1744,6 @@ async function handleEventCartOrderCheckoutCompleted(
       }
     }
 
-    await safeQueuePaidEventRegistrationConfirmation({
-      supabase,
-      registrationId: registration.id,
-    });
-
     await safeCaptureStudioEventRegistrationLead({
       supabase,
       registrationId: registration.id,
@@ -1531,6 +1754,11 @@ async function handleEventCartOrderCheckoutCompleted(
       registrationId: registration.id,
     });
   }
+
+  await safeQueuePaidEventCartOrderConfirmation({
+    supabase,
+    orderId,
+  });
 
   const { error: slotUpdateError } = await supabase
     .from("event_private_lesson_slots")
