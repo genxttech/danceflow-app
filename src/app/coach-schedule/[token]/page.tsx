@@ -73,37 +73,93 @@ export const metadata: Metadata = {
   },
 };
 
-function formatDate(value: string) {
+const DEFAULT_EVENT_TIME_ZONE = "America/New_York";
+
+function safeTimeZone(value: string | null | undefined) {
+  const candidate = value || DEFAULT_EVENT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch {
+    return DEFAULT_EVENT_TIME_ZONE;
+  }
+}
+
+function formatTimeZoneLabel(timeZone: string) {
+  return timeZone.replaceAll("_", " ");
+}
+
+function getDateParts(value: string, timeZone: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+
+  return {
+    year: map.get("year") ?? "",
+    month: map.get("month") ?? "",
+    day: map.get("day") ?? "",
+  };
+}
+
+function formatDate(value: string, timeZone: string) {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
     return "Date coming soon";
   }
 
-  return date.toLocaleDateString([], {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     weekday: "long",
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
+  }).format(date);
 }
 
-function formatTime(value: string) {
+function formatEventDate(value: string, timeZone: string) {
+  return formatDate(`${value}T12:00:00`, timeZone);
+}
+
+function formatTime(value: string, timeZone: string) {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
     return "Time coming soon";
   }
 
-  return date.toLocaleTimeString([], {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
-  });
+  }).format(date);
 }
 
-function groupSlotsByDate(slots: SlotRow[]) {
+function slotDateKey(value: string, timeZone: string) {
+  const parts = getDateParts(value, timeZone);
+
+  if (!parts) {
+    return "unknown";
+  }
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function groupSlotsByDate(slots: SlotRow[], timeZone: string) {
   return slots.reduce<Record<string, SlotRow[]>>((groups, slot) => {
-    const key = new Date(slot.starts_at).toISOString().slice(0, 10);
+    const key = slotDateKey(slot.starts_at, timeZone);
     groups[key] = groups[key] ?? [];
     groups[key].push(slot);
     return groups;
@@ -217,6 +273,8 @@ export default async function GuestCoachSchedulePage({
   }
 
   const typedEvent = event as EventRow;
+  const eventTimeZone = safeTimeZone(typedEvent.timezone);
+  const eventTimeZoneLabel = formatTimeZoneLabel(eventTimeZone);
 
   const [{ data: studio }, { data: organizer }] = await Promise.all([
     typedEvent.studio_id
@@ -241,7 +299,7 @@ export default async function GuestCoachSchedulePage({
     return new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime();
   });
 
-  const groupedSlots = groupSlotsByDate(typedSlots);
+  const groupedSlots = groupSlotsByDate(typedSlots, eventTimeZone);
   const sortedDates = Object.keys(groupedSlots).sort();
   const bookedCount = typedSlots.filter((slot) => slot.status === "booked").length;
   const availableCount = typedSlots.filter((slot) => slot.status === "available").length;
@@ -290,9 +348,9 @@ export default async function GuestCoachSchedulePage({
                 {eventLocation ? <p>{eventLocation}</p> : null}
                 {typedEvent.start_date ? (
                   <p>
-                    Event dates: {formatDate(`${typedEvent.start_date}T00:00:00`)}
+                    Event dates: {formatEventDate(typedEvent.start_date, eventTimeZone)}
                     {typedEvent.end_date && typedEvent.end_date !== typedEvent.start_date
-                      ? ` – ${formatDate(`${typedEvent.end_date}T00:00:00`)}`
+                      ? ` – ${formatEventDate(typedEvent.end_date, eventTimeZone)}`
                       : ""}
                   </p>
                 ) : null}
@@ -326,7 +384,7 @@ export default async function GuestCoachSchedulePage({
                 Private Lesson Slots
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                This read-only schedule updates as dancers book available slots.
+                This read-only schedule updates as dancers book available slots. All times are shown in {eventTimeZoneLabel}.
               </p>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
@@ -354,7 +412,7 @@ export default async function GuestCoachSchedulePage({
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-900">Calendar feed</p>
             <p className="mt-1 text-xs leading-5 text-slate-600">
-              Subscribe to add booked lessons and blocked time to your phone calendar. Open slots are not added so your calendar stays clean.
+              Subscribe to add booked lessons and blocked time to your phone calendar. Open slots are not added so your calendar stays clean. Times are published using the event timezone.
             </p>
             <p className="mt-3 break-all rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600">
               {calendarUrl}
@@ -380,7 +438,7 @@ export default async function GuestCoachSchedulePage({
                     <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-white px-4 py-4 transition hover:bg-slate-50 [&::-webkit-details-marker]:hidden">
                       <div className="min-w-0">
                         <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-600">
-                          {formatDate(`${dateKey}T00:00:00`)}
+                          {formatEventDate(dateKey, eventTimeZone)}
                         </h3>
                         <p className="mt-1 text-xs text-slate-500">
                           {daySlots.length} slots • {dayBookedCount} booked • {dayOpenCount} open
@@ -409,7 +467,7 @@ export default async function GuestCoachSchedulePage({
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div>
                               <p className="text-base font-semibold text-slate-950">
-                                {formatTime(slot.starts_at)} – {formatTime(slot.ends_at)}
+                                {formatTime(slot.starts_at, eventTimeZone)} – {formatTime(slot.ends_at, eventTimeZone)}
                               </p>
                               {slot.location_label ? (
                                 <p className="mt-1 text-sm text-slate-600">
@@ -473,8 +531,3 @@ export default async function GuestCoachSchedulePage({
     </div>
   );
 }
-
-
-
-
-

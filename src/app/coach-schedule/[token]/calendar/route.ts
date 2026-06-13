@@ -46,7 +46,20 @@ function escapeIcsText(value: string | null | undefined) {
     .replace(/\r?\n/g, "\\n");
 }
 
-function formatIcsDate(value: string) {
+const DEFAULT_EVENT_TIME_ZONE = "America/New_York";
+
+function safeTimeZone(value: string | null | undefined) {
+  const candidate = value || DEFAULT_EVENT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: candidate }).format(new Date());
+    return candidate;
+  } catch {
+    return DEFAULT_EVENT_TIME_ZONE;
+  }
+}
+
+function formatIcsUtcDate(value: string) {
   const date = new Date(value);
 
   if (Number.isNaN(date.getTime())) {
@@ -54,6 +67,29 @@ function formatIcsDate(value: string) {
   }
 
   return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+function formatIcsLocalDate(value: string, timeZone: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const map = new Map(parts.map((part) => [part.type, part.value]));
+
+  return `${map.get("year")}${map.get("month")}${map.get("day")}T${map.get("hour")}${map.get("minute")}${map.get("second")}`;
 }
 
 function isManualBlockedSlot(slot: SlotRow) {
@@ -154,9 +190,10 @@ export async function GET(
   }
 
   const typedEvent = event as EventRow;
+  const eventTimeZone = safeTimeZone(typedEvent.timezone);
   const typedSlots = (slots ?? []) as SlotRow[];
   const calendarName = `${typedCoach.name} - ${typedEvent.name} Private Lessons`;
-  const generatedAt = formatIcsDate(nowIso);
+  const generatedAt = formatIcsUtcDate(nowIso);
   const defaultLocation = [
     typedEvent.venue_name,
     typedEvent.city,
@@ -181,13 +218,13 @@ export async function GET(
         "BEGIN:VEVENT",
         `UID:guest-coach-slot-${slot.id}@idanceflow.com`,
         `DTSTAMP:${generatedAt}`,
-        `DTSTART:${formatIcsDate(slot.starts_at)}`,
-        `DTEND:${formatIcsDate(slot.ends_at)}`,
+        `DTSTART;TZID=${eventTimeZone}:${formatIcsLocalDate(slot.starts_at, eventTimeZone)}`,
+        `DTEND;TZID=${eventTimeZone}:${formatIcsLocalDate(slot.ends_at, eventTimeZone)}`,
         `SUMMARY:${escapeIcsText(title)}`,
         location ? `LOCATION:${escapeIcsText(location)}` : "",
         `DESCRIPTION:${escapeIcsText(description)}`,
         `STATUS:${isBlocked ? "TENTATIVE" : "CONFIRMED"}`,
-        `LAST-MODIFIED:${formatIcsDate(slot.updated_at ?? nowIso)}`,
+        `LAST-MODIFIED:${formatIcsUtcDate(slot.updated_at ?? nowIso)}`,
         "END:VEVENT",
       ]
         .filter(Boolean)
@@ -202,7 +239,7 @@ export async function GET(
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeIcsText(calendarName)}`,
-    "X-WR-TIMEZONE:UTC",
+    `X-WR-TIMEZONE:${escapeIcsText(eventTimeZone)}`,
     eventLines,
     "END:VCALENDAR",
     "",
