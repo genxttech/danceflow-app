@@ -240,6 +240,8 @@ export default function RegistrationForm({
   );
 
   const estimatedTotal = selectedTicketTotal + selectedCoachSlotTotal;
+  const hasCheckoutSelection = selectedTickets.length > 0 || selectedCoachSlots.length > 0;
+  const canSubmitCheckout = allowSubmission && hasCheckoutSelection;
 
   const updateTicketQuantity = (ticketId: string, nextQuantity: number) => {
     setTicketQuantities((current) => {
@@ -615,6 +617,12 @@ export default function RegistrationForm({
         </p>
       </div>
 
+      {!hasCheckoutSelection ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Select at least one ticket option or guest coach lesson slot before continuing to checkout.
+        </div>
+      ) : null}
+
       <details className="rounded-2xl border border-slate-200 bg-slate-50 p-4" open>
         <summary className="cursor-pointer list-none text-sm font-semibold text-slate-900">
           Your checkout
@@ -682,10 +690,10 @@ export default function RegistrationForm({
 
       <button
         type="submit"
-        disabled={!allowSubmission}
+        disabled={!canSubmitCheckout}
         className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white hover:bg-slate-800 disabled:opacity-60"
       >
-        {buttonLabel}
+        {!hasCheckoutSelection && allowSubmission ? "Select Tickets or Coach Slots" : buttonLabel}
       </button>
     </form>
   );

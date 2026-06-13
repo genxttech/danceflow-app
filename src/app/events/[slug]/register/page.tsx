@@ -10,6 +10,8 @@ type Params = Promise<{
 
 type SearchParams = Promise<{
   error?: string;
+  success?: string;
+  order?: string;
 }>;
 
 type EventRow = {
@@ -134,6 +136,71 @@ function canRegisterForEvent(event: EventRow) {
   return true;
 }
 
+
+function checkoutBanner(search: { error?: string; success?: string; order?: string }) {
+  if (search.success === "cart_paid") {
+    return {
+      kind: "success" as const,
+      title: "Registration complete",
+      message:
+        "Your checkout was completed. Your confirmation email will include your purchased ticket options and check-in details.",
+    };
+  }
+
+  const errorMessages: Record<string, { title: string; message: string }> = {
+    cart_empty: {
+      title: "Choose at least one item",
+      message: "Select one or more ticket options or guest coach lesson slots before continuing to checkout.",
+    },
+    cart_contact_required: {
+      title: "Buyer details are required",
+      message: "Enter the buyer name and email so the receipt and ticket confirmation can be sent.",
+    },
+    ticket_capacity_exceeded: {
+      title: "Ticket quantity unavailable",
+      message: "One of the selected ticket quantities is no longer available. Review the current availability and try again.",
+    },
+    ticket_unavailable: {
+      title: "Ticket unavailable",
+      message: "One of the selected ticket options is no longer available. Choose another option or adjust the quantity.",
+    },
+    ticket_not_open: {
+      title: "Ticket sales have not opened",
+      message: "One selected ticket option is not on sale yet. Review the sale dates and adjust your checkout.",
+    },
+    ticket_closed: {
+      title: "Ticket sales ended",
+      message: "One selected ticket option is no longer on sale. Choose another option if available.",
+    },
+    missing_attendees: {
+      title: "Guest names are required",
+      message: "Add the required attendee names for tickets that admit more than one person.",
+    },
+    coach_slot_unavailable: {
+      title: "Coach slot unavailable",
+      message: "One selected coach lesson slot is no longer available. Choose another slot and try again.",
+    },
+    coach_slot_already_booked: {
+      title: "Coach slot already booked",
+      message: "One selected coach lesson slot was just booked or held by someone else. Choose another slot and try again.",
+    },
+    cart_checkout_failed: {
+      title: "Checkout could not start",
+      message: "Your checkout could not be created. Review your selections and try again.",
+    },
+    waiver_required: {
+      title: "Required documents need review",
+      message: "Review and accept the required event documents before continuing to checkout.",
+    },
+  };
+
+  if (search.error && errorMessages[search.error]) {
+    return { kind: "error" as const, ...errorMessages[search.error] };
+  }
+
+  return null;
+}
+
 export default async function PublicEventRegisterPage({
   params,
   searchParams,
@@ -142,7 +209,8 @@ export default async function PublicEventRegisterPage({
   searchParams: SearchParams;
 }) {
   const { slug } = await params;
-  await searchParams;
+  const search = await searchParams;
+  const banner = checkoutBanner(search);
 
   const supabase = await createClient();
 
@@ -331,6 +399,22 @@ export default async function PublicEventRegisterPage({
           </div>
         </div>
       </div>
+
+      {banner ? (
+        <div
+          className={`rounded-2xl border px-6 py-5 ${
+            banner.kind === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+              : "border-amber-200 bg-amber-50 text-amber-900"
+          }`}
+        >
+          <p className="font-semibold">{banner.title}</p>
+          <p className="mt-1 text-sm">{banner.message}</p>
+          {search.success === "cart_paid" ? (
+            <p className="mt-2 text-sm">You can make another purchase for this event with the same email if you need additional tickets or classes.</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {!registrationOpen ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-6 py-5 text-amber-900">

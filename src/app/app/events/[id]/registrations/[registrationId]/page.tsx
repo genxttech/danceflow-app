@@ -36,6 +36,7 @@ type RegistrationRow = {
   attendee_email: string;
   attendee_phone: string | null;
   quantity: number | null;
+  order_id: string | null;
   status: string;
   payment_status: string | null;
   total_amount: number | null;
@@ -84,6 +85,21 @@ type ItemRow = {
   unit_price: number | null;
   line_total: number | null;
   created_at: string;
+};
+
+type OrderSiblingRegistrationRow = {
+  id: string;
+  ticket_type_id: string | null;
+  quantity: number | null;
+  total_amount: number | null;
+  total_price: number | null;
+  currency: string | null;
+  payment_status: string | null;
+  status: string | null;
+  event_ticket_types:
+    | { name: string | null }
+    | { name: string | null }[]
+    | null;
 };
 
 type PaymentRow = {
@@ -329,6 +345,7 @@ export default async function EventRegistrationDetailPage({
         attendee_email,
         attendee_phone,
         quantity,
+        order_id,
         status,
         payment_status,
         total_amount,
@@ -426,6 +443,27 @@ export default async function EventRegistrationDetailPage({
     (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0),
   );
   const itemRows = (items ?? []) as ItemRow[];
+  const orderSiblingRows = typedRegistration.order_id
+    ? ((
+        (await supabase
+          .from("event_registrations")
+          .select(`
+            id,
+            ticket_type_id,
+            quantity,
+            total_amount,
+            total_price,
+            currency,
+            payment_status,
+            status,
+            event_ticket_types ( name )
+          `)
+          .eq("event_id", id)
+          .eq("order_id", typedRegistration.order_id)
+          .order("created_at", { ascending: true }))
+          .data ?? []
+      ) as OrderSiblingRegistrationRow[])
+    : [];
   const paymentRows = (payments ?? []) as PaymentRow[];
   const emailRows = (ticketEmails ?? []) as TicketEmailAuditRow[];
   const requirementRows = (documentRequirements ?? []) as EventDocumentRequirementRow[];
@@ -744,12 +782,60 @@ export default async function EventRegistrationDetailPage({
           </div>
         </section>
 
+        {orderSiblingRows.length > 1 ? (
+          <section className="rounded-[28px] border border-purple-100 bg-purple-50 p-5 shadow-sm">
+            <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-950">Same Checkout</h2>
+                <p className="mt-1 text-sm text-purple-900">
+                  This purchase included multiple ticket options. Each ticket option has its own registration record so check-in and attendee details stay clear.
+                </p>
+              </div>
+              <Link href={`/app/events/${id}/registrations`} className="text-sm font-semibold text-purple-800 hover:text-purple-950">
+                View all registrations
+              </Link>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {orderSiblingRows.map((sibling) => {
+                const siblingTicket = one(sibling.event_ticket_types);
+                const siblingTotal = Number(sibling.total_amount ?? sibling.total_price ?? 0);
+                const isCurrent = sibling.id === typedRegistration.id;
+
+                return (
+                  <Link
+                    key={sibling.id}
+                    href={`/app/events/${id}/registrations/${sibling.id}`}
+                    className={`rounded-2xl border p-4 text-sm transition ${
+                      isCurrent
+                        ? "border-purple-300 bg-white shadow-sm"
+                        : "border-purple-100 bg-white/80 hover:bg-white"
+                    }`}
+                  >
+                    <p className="font-semibold text-slate-950">
+                      {siblingTicket?.name ?? "Event ticket"}
+                      {isCurrent ? " · Current" : ""}
+                    </p>
+                    <p className="mt-1 text-slate-600">Quantity {sibling.quantity ?? 1}</p>
+                    <p className="mt-2 font-semibold text-slate-950">
+                      {formatCurrency(siblingTotal, sibling.currency ?? currency)}
+                    </p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {friendlyEventValue(sibling.status)} · {friendlyEventValue(sibling.payment_status)}
+                    </p>
+                  </Link>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         <section className="grid gap-6 xl:grid-cols-2">
           <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="text-lg font-semibold text-slate-950">Ticket Items</h2>
+            <h2 className="text-lg font-semibold text-slate-950">Purchased Ticket Option</h2>
             <div className="mt-4 space-y-3">
               {itemRows.length === 0 ? (
-                <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">No ticket item rows are linked to this registration.</p>
+                <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">No purchased ticket item rows are linked to this registration.</p>
               ) : (
                 itemRows.map((item) => (
                   <div key={item.id} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
