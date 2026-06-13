@@ -1548,6 +1548,7 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
 
 async function handleEventRegistrationCheckoutCompleted(
   supabase: SupabaseClient,
+  stripe: Stripe,
   session: Stripe.Checkout.Session
 ) {
   const source = getString(session.metadata?.source);
@@ -1628,6 +1629,10 @@ async function handleEventRegistrationCheckoutCompleted(
     }
   }
 
+  if (paymentIntentId) {
+    await syncFeeDetailsForPaymentIntent(supabase, stripe, paymentIntentId);
+  }
+
   await safeQueuePaidEventRegistrationConfirmation({
     supabase,
     registrationId,
@@ -1650,6 +1655,7 @@ async function handleEventRegistrationCheckoutCompleted(
 
 async function handleEventCartOrderCheckoutCompleted(
   supabase: SupabaseClient,
+  stripe: Stripe,
   session: Stripe.Checkout.Session
 ) {
   const source = getString(session.metadata?.source);
@@ -1753,6 +1759,10 @@ async function handleEventCartOrderCheckoutCompleted(
       supabase,
       registrationId: registration.id,
     });
+  }
+
+  if (paymentIntentId) {
+    await syncFeeDetailsForPaymentIntent(supabase, stripe, paymentIntentId);
   }
 
   await safeQueuePaidEventCartOrderConfirmation({
@@ -2423,6 +2433,7 @@ async function handleCheckoutSessionCompleted(
 
   const handledEventCartOrder = await handleEventCartOrderCheckoutCompleted(
     supabase,
+    stripe,
     session
   );
 
@@ -2441,6 +2452,7 @@ async function handleCheckoutSessionCompleted(
 
     const handledEventRegistration = await handleEventRegistrationCheckoutCompleted(
     supabase,
+    stripe,
     session
   );
 
