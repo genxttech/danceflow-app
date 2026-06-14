@@ -12,15 +12,12 @@ type EventLookupRow = {
 
 type EventAccountingRow = {
   event_id: string | null;
+  source_table: string | null;
+  category: string | null;
   gross_amount: number | string | null;
   fee_amount: number | string | null;
   refund_amount: number | string | null;
   net_amount: number | string | null;
-};
-
-type ExpenseRow = {
-  related_event_id: string | null;
-  amount: number | string | null;
 };
 
 type EventExportSummary = {
@@ -30,6 +27,8 @@ type EventExportSummary = {
   processingAndPlatformFees: number;
   netTicketRevenue: number;
   eventExpenses: number;
+  eventLaborCosts: number;
+  totalEventCosts: number;
   eventProfitLoss: number;
 };
 
@@ -130,40 +129,22 @@ export async function GET(request: Request) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
-  // Match the Reports page basis: event revenue comes from accounting_entries for the selected report range,
-  // not from the event's start_date. This includes future events with tickets sold during the range.
+  // Match the Reports page basis: event revenue and event costs come from accounting_entries
+  // for the selected report range, not from the event's start_date. This includes future events
+  // with tickets sold or labor/expenses recorded during the range.
   const { data: accountingRows, error: accountingError } = await supabase
     .from("accounting_entries")
-    .select("event_id, gross_amount, fee_amount, refund_amount, net_amount")
+    .select("event_id, source_table, category, gross_amount, fee_amount, refund_amount, net_amount")
     .eq("studio_id", context.studioId)
-    .eq("source_table", "event_payments")
-    .eq("entry_type", "revenue")
-    .eq("category", "event_ticket_revenue")
-    .eq("direction", "credit")
     .not("event_id", "is", null)
     .gte("entry_date", rangeStartDateOnly)
     .lt("entry_date", rangeEndDateOnly)
+    .in("source_table", ["event_payments", "expenses", "event_labor_costs"])
     .limit(10000);
 
   if (accountingError) {
     return new NextResponse(
       `Failed to load event profitability accounting export data: ${accountingError.message}`,
-      { status: 500 },
-    );
-  }
-
-  const { data: expenseRows, error: expensesError } = await supabase
-    .from("expenses")
-    .select("related_event_id, amount")
-    .eq("studio_id", context.studioId)
-    .not("related_event_id", "is", null)
-    .gte("expense_date", rangeStartDateOnly)
-    .lt("expense_date", rangeEndDateOnly)
-    .limit(10000);
-
-  if (expensesError) {
-    return new NextResponse(
-      `Failed to load event profitability expense export data: ${expensesError.message}`,
       { status: 500 },
     );
   }
@@ -181,6 +162,8 @@ export async function GET(request: Request) {
       processingAndPlatformFees: 0,
       netTicketRevenue: 0,
       eventExpenses: 0,
+      eventLaborCosts: 0,
+      totalEventCosts: 0,
       eventProfitLoss: 0,
     };
 
@@ -192,21 +175,24 @@ export async function GET(request: Request) {
     if (!row.event_id) continue;
 
     const summary = ensureSummary(row.event_id);
-    summary.grossTicketRevenue += safeNumber(row.gross_amount);
-    summary.refunds += Math.abs(safeNumber(row.refund_amount));
-    summary.processingAndPlatformFees += Math.abs(safeNumber(row.fee_amount));
-    summary.netTicketRevenue += safeNumber(row.net_amount);
-  }
+    const sourceTable = row.source_table ?? "";
+    const category = row.category ?? "";
 
-  for (const row of (expenseRows ?? []) as ExpenseRow[]) {
-    if (!row.related_event_id) continue;
-
-    const summary = ensureSummary(row.related_event_id);
-    summary.eventExpenses += safeNumber(row.amount);
+    if (sourceTable === "event_payments" && category === "event_ticket_revenue") {
+      summary.grossTicketRevenue += safeNumber(row.gross_amount);
+      summary.refunds += Math.abs(safeNumber(row.refund_amount));
+      summary.processingAndPlatformFees += Math.abs(safeNumber(row.fee_amount));
+      summary.netTicketRevenue += safeNumber(row.net_amount);
+    } else if (sourceTable === "event_labor_costs" && category === "event_labor_expense") {
+      summary.eventLaborCosts += Math.abs(safeNumber(row.net_amount));
+    } else if (sourceTable === "expenses") {
+      summary.eventExpenses += Math.abs(safeNumber(row.net_amount));
+    }
   }
 
   for (const summary of summariesByEventId.values()) {
-    summary.eventProfitLoss = summary.netTicketRevenue - summary.eventExpenses;
+    summary.totalEventCosts = summary.eventExpenses + summary.eventLaborCosts;
+    summary.eventProfitLoss = summary.netTicketRevenue - summary.totalEventCosts;
   }
 
   const eventIds = Array.from(summariesByEventId.keys());
@@ -245,6 +231,8 @@ export async function GET(request: Request) {
         summary.processingAndPlatformFees,
         summary.netTicketRevenue,
         summary.eventExpenses,
+        summary.eventLaborCosts,
+        summary.totalEventCosts,
         summary.eventProfitLoss,
         marginPercent(summary.eventProfitLoss, summary.netTicketRevenue),
         summary.eventId,
@@ -261,6 +249,8 @@ export async function GET(request: Request) {
       "Processing and Platform Fees",
       "Net Ticket Revenue",
       "Event Expenses",
+      "Event Labor / Staff Costs",
+      "Total Event Costs",
       "Event Profit / Loss",
       "Profit Margin %",
       "Event ID",

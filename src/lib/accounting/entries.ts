@@ -205,6 +205,7 @@ export function accountingCategoryLabel(category: string) {
     software_expense: "Software Expense",
     supplies_expense: "Supplies Expense",
     event_expense: "Event Expense",
+    event_labor_expense: "Event Labor Expense",
     travel_expense: "Travel Expense",
     other_expense: "Other Expense",
     account_credit: "Account Credit",
@@ -729,7 +730,7 @@ export async function getStudioAccountingEntries({
           "id, studio_id, organizer_id, entry_date, entry_type, category, direction, gross_amount, fee_amount, refund_amount, net_amount, currency, payment_method, source_table, source_id, client_id, event_id, appointment_id, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_invoice_id, description, created_at",
         )
         .eq("studio_id", studioId)
-        .in("source_table", ["event_payments", "expenses"])
+        .in("source_table", ["event_payments", "expenses", "event_labor_costs"])
         .in("entry_type", ["revenue", "expense"])
         .gte("entry_date", startDate.slice(0, 10))
         .lte("entry_date", endDate.slice(0, 10))

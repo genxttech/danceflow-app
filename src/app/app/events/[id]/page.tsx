@@ -7,6 +7,10 @@ import {
   updateTicketTypeAction,
 } from "./tickets/actions";
 import { duplicateEventAction } from "../actions";
+import {
+  createEventLaborCostAction,
+  deleteEventLaborCostAction,
+} from "./labor/actions";
 
 type TicketTypeRow = {
   id: string;
@@ -40,6 +44,8 @@ type EventProfitLossRow = {
   processing_and_platform_fees: number | string | null;
   net_ticket_revenue: number | string | null;
   event_expenses: number | string | null;
+  event_labor_costs: number | string | null;
+  total_event_costs: number | string | null;
   event_profit_loss: number | string | null;
 };
 
@@ -55,6 +61,21 @@ type EventAttendeeCheckInRow = {
   id: string;
   registration_id: string | null;
   checked_in_at: string | null;
+};
+
+type EventLaborCostRow = {
+  id: string;
+  staff_name: string;
+  role: string;
+  pay_type: string;
+  rate_amount: number | string | null;
+  hours: number | string | null;
+  quantity: number | string | null;
+  total_amount: number | string | null;
+  currency: string | null;
+  labor_date: string | null;
+  status: string | null;
+  notes: string | null;
 };
 
 
@@ -201,6 +222,30 @@ function formatDateTime(value: string | null) {
   }).format(date);
 }
 
+function formatDate(value: string | null) {
+  if (!value) return "Not set";
+
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "Not set";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(date);
+}
+
+function todayDateInputValue() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function formatPayType(value: string | null | undefined) {
+  return String(value ?? "manual")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+
 export default async function EventTicketsPage({
   params,
 }: {
@@ -301,10 +346,10 @@ export default async function EventTicketsPage({
 
   const hasPrivateLessonSlots = Number(privateLessonSlotCount ?? 0) > 0;
 
-  const [profitabilityResult, registrationsResult, attendeesResult] = await Promise.all([
+  const [profitabilityResult, registrationsResult, attendeesResult, laborCostsResult] = await Promise.all([
     (supabase as any)
       .from("v_event_profit_loss")
-      .select("event_id, gross_ticket_revenue, refunds, processing_and_platform_fees, net_ticket_revenue, event_expenses, event_profit_loss")
+      .select("event_id, gross_ticket_revenue, refunds, processing_and_platform_fees, net_ticket_revenue, event_expenses, event_labor_costs, total_event_costs, event_profit_loss")
       .eq("event_id", typedEvent.id)
       .maybeSingle(),
     supabase
@@ -315,6 +360,13 @@ export default async function EventTicketsPage({
       .from("event_registration_attendees")
       .select("id, registration_id, checked_in_at")
       .eq("event_id", typedEvent.id),
+    (supabase as any)
+      .from("event_labor_costs")
+      .select("id, staff_name, role, pay_type, rate_amount, hours, quantity, total_amount, currency, labor_date, status, notes")
+      .eq("event_id", typedEvent.id)
+      .neq("status", "cancelled")
+      .order("labor_date", { ascending: false })
+      .order("created_at", { ascending: false }),
   ]);
 
   if (registrationsResult.error) {
@@ -325,9 +377,14 @@ export default async function EventTicketsPage({
     throw new Error(`Failed to load attendee profitability context: ${attendeesResult.error.message}`);
   }
 
+  if (laborCostsResult.error) {
+    throw new Error(`Failed to load event labor costs: ${laborCostsResult.error.message}`);
+  }
+
   const profitability = profitabilityResult.data as EventProfitLossRow | null;
   const registrationRows = (registrationsResult.data ?? []) as EventRegistrationCheckInRow[];
   const attendeeRows = (attendeesResult.data ?? []) as EventAttendeeCheckInRow[];
+  const laborCostRows = (laborCostsResult.data ?? []) as EventLaborCostRow[];
 
   const ticketRows = (tickets ?? []) as TicketTypeRow[];
   const activeCount = ticketRows.filter((ticket) => ticket.active).length;
@@ -337,6 +394,8 @@ export default async function EventTicketsPage({
   const processingAndPlatformFees = toNumber(profitability?.processing_and_platform_fees);
   const netTicketRevenue = toNumber(profitability?.net_ticket_revenue);
   const eventExpenses = toNumber(profitability?.event_expenses);
+  const eventLaborCosts = toNumber(profitability?.event_labor_costs);
+  const totalEventCosts = toNumber(profitability?.total_event_costs) || eventExpenses + eventLaborCosts;
   const eventProfitLoss = toNumber(profitability?.event_profit_loss);
   const profitMargin = netTicketRevenue > 0 ? eventProfitLoss / netTicketRevenue : null;
   const status = profitStatus(eventProfitLoss, profitMargin);
@@ -354,7 +413,8 @@ export default async function EventTicketsPage({
     refunds > 0 ||
     processingAndPlatformFees > 0 ||
     netTicketRevenue > 0 ||
-    eventExpenses > 0;
+    eventExpenses > 0 ||
+    eventLaborCosts > 0;
 
   return (
     <div className="space-y-6">
@@ -464,7 +524,7 @@ export default async function EventTicketsPage({
           </span>
         </div>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-4">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Gross revenue</p>
             <p className="mt-2 text-xl font-semibold text-slate-950">
@@ -487,6 +547,18 @@ export default async function EventTicketsPage({
             <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Event expenses</p>
             <p className="mt-2 text-xl font-semibold text-rose-700">
               -{formatPrice(eventExpenses, "USD")}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Labor / staff</p>
+            <p className="mt-2 text-xl font-semibold text-rose-700">
+              -{formatPrice(eventLaborCosts, "USD")}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Total costs</p>
+            <p className="mt-2 text-xl font-semibold text-rose-700">
+              -{formatPrice(totalEventCosts, "USD")}
             </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -536,14 +608,14 @@ export default async function EventTicketsPage({
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               <p className="font-semibold">No event expenses linked yet</p>
               <p className="mt-1 leading-6">
-                Link event-specific costs from Expenses to make this profitability view more accurate.
+                Link event-specific costs from Expenses and add staff/labor costs below to make this profitability view more accurate.
               </p>
             </div>
           ) : (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
               <p className="font-semibold text-slate-900">Event-day read</p>
               <p className="mt-1 leading-6">
-                Net ticket revenue is {formatPrice(netTicketRevenue, "USD")} after refunds and fees.
+                Net ticket revenue is {formatPrice(netTicketRevenue, "USD")} after refunds and fees. Total recorded event costs are {formatPrice(totalEventCosts, "USD")}.
               </p>
             </div>
           )}
@@ -568,6 +640,141 @@ export default async function EventTicketsPage({
           >
             Add Event Expense
           </Link>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+              Event labor / staff costs
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-slate-950">Staff costs for this event</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              Add check-in staff, DJs, guest coaches, setup teams, or other event labor. These costs post into the accounting ledger and reduce event profit immediately.
+            </p>
+          </div>
+          <div className="rounded-2xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+            <p className="font-semibold">Recorded labor</p>
+            <p className="mt-1 text-lg font-semibold">-{formatPrice(eventLaborCosts, "USD")}</p>
+          </div>
+        </div>
+
+        {canManage ? (
+          <form action={createEventLaborCostAction} className="mt-5 grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-4">
+            <input type="hidden" name="event_id" value={typedEvent.id} />
+
+            <label className="space-y-2 text-sm md:col-span-2">
+              <span className="font-medium text-slate-700">Staff / vendor name</span>
+              <input
+                name="staff_name"
+                required
+                placeholder="Front desk staff, DJ, guest coach..."
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+              />
+            </label>
+
+            <label className="space-y-2 text-sm md:col-span-2">
+              <span className="font-medium text-slate-700">Role</span>
+              <input
+                name="role"
+                required
+                placeholder="Check-in Staff, DJ, Instructor, Setup"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+              />
+            </label>
+
+            <label className="space-y-2 text-sm">
+              <span className="font-medium text-slate-700">Pay type</span>
+              <select name="pay_type" defaultValue="flat" className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0">
+                <option value="flat">Flat fee</option>
+                <option value="hourly">Hourly</option>
+                <option value="per_session">Per session</option>
+                <option value="manual">Manual total</option>
+              </select>
+            </label>
+
+            <label className="space-y-2 text-sm">
+              <span className="font-medium text-slate-700">Rate</span>
+              <input name="rate_amount" type="number" min="0" step="0.01" defaultValue="0" className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0" />
+            </label>
+
+            <label className="space-y-2 text-sm">
+              <span className="font-medium text-slate-700">Hours</span>
+              <input name="hours" type="number" min="0" step="0.25" defaultValue="0" className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0" />
+            </label>
+
+            <label className="space-y-2 text-sm">
+              <span className="font-medium text-slate-700">Qty / sessions</span>
+              <input name="quantity" type="number" min="0" step="1" defaultValue="1" className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0" />
+            </label>
+
+            <label className="space-y-2 text-sm">
+              <span className="font-medium text-slate-700">Manual total</span>
+              <input name="total_amount" type="number" min="0" step="0.01" placeholder="Optional" className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0" />
+            </label>
+
+            <label className="space-y-2 text-sm">
+              <span className="font-medium text-slate-700">Labor date</span>
+              <input name="labor_date" type="date" defaultValue={todayDateInputValue()} required className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0" />
+            </label>
+
+            <label className="space-y-2 text-sm">
+              <span className="font-medium text-slate-700">Status</span>
+              <select name="status" defaultValue="planned" className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0">
+                <option value="planned">Planned</option>
+                <option value="earned">Earned</option>
+                <option value="paid">Paid</option>
+              </select>
+            </label>
+
+            <label className="space-y-2 text-sm md:col-span-4">
+              <span className="font-medium text-slate-700">Notes</span>
+              <textarea name="notes" rows={2} placeholder="Optional details for the event ledger" className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0" />
+            </label>
+
+            <div className="md:col-span-4">
+              <button type="submit" className="rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4A1363]">
+                Add Labor Cost
+              </button>
+            </div>
+          </form>
+        ) : null}
+
+        <div className="mt-5 space-y-3">
+          {laborCostRows.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+              No event labor costs recorded yet. Add expected staff costs before the event, then update status as costs are earned or paid.
+            </div>
+          ) : (
+            laborCostRows.map((labor) => (
+              <div key={labor.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold text-slate-950">{labor.staff_name}</p>
+                    <span className="rounded-full bg-[#F3E8FF] px-2.5 py-1 text-xs font-semibold text-[#6B21A8]">{labor.role}</span>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold capitalize text-slate-700">{labor.status ?? "planned"}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-600">
+                    {formatPayType(labor.pay_type)} · Rate {formatPrice(toNumber(labor.rate_amount), labor.currency ?? "USD")} · Hours {toNumber(labor.hours)} · Qty {toNumber(labor.quantity)} · {formatDate(labor.labor_date)}
+                  </p>
+                  {labor.notes ? <p className="mt-1 text-sm text-slate-500">{labor.notes}</p> : null}
+                </div>
+                <div className="flex items-center gap-3 md:justify-end">
+                  <p className="text-lg font-semibold text-rose-700">-{formatPrice(toNumber(labor.total_amount), labor.currency ?? "USD")}</p>
+                  {canManage ? (
+                    <form action={deleteEventLaborCostAction}>
+                      <input type="hidden" name="event_id" value={typedEvent.id} />
+                      <input type="hidden" name="labor_cost_id" value={labor.id} />
+                      <button type="submit" className="rounded-xl border border-rose-200 px-3 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50">
+                        Delete
+                      </button>
+                    </form>
+                  ) : null}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </section>
 
