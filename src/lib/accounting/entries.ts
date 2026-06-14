@@ -166,7 +166,8 @@ function toCurrency(value: string | null | undefined) {
 
 function toDateOnly(value: string | null | undefined) {
   const date = value ? new Date(value) : new Date();
-  if (Number.isNaN(date.getTime())) return new Date().toISOString().slice(0, 10);
+  if (Number.isNaN(date.getTime()))
+    return new Date().toISOString().slice(0, 10);
   return date.toISOString().slice(0, 10);
 }
 
@@ -214,6 +215,10 @@ export function accountingCategoryLabel(category: string) {
 }
 
 function dbAccountingEntryToEntry(row: AccountingEntryDbRow): AccountingEntry {
+  const rawNetAmount = toNumber(row.net_amount);
+  const normalizedNetAmount =
+    row.direction === "debit" ? -Math.abs(rawNetAmount) : rawNetAmount;
+
   return {
     id: row.id,
     studioId: row.studio_id,
@@ -226,7 +231,7 @@ function dbAccountingEntryToEntry(row: AccountingEntryDbRow): AccountingEntry {
     grossAmount: toNumber(row.gross_amount),
     feeAmount: toNumber(row.fee_amount),
     refundAmount: toNumber(row.refund_amount),
-    netAmount: toNumber(row.net_amount),
+    netAmount: normalizedNetAmount,
     currency: toCurrency(row.currency),
     paymentMethod: row.payment_method,
     sourceTable: row.source_table,
@@ -250,8 +255,10 @@ function paymentCategory(payment: PaymentRow) {
   const notes = (payment.notes ?? "").toLowerCase();
 
   if (type.includes("membership")) return "membership_revenue";
-  if (type.includes("package") || payment.client_package_id) return "package_revenue";
-  if (type.includes("floor") || source.includes("floor")) return "floor_rental_revenue";
+  if (type.includes("package") || payment.client_package_id)
+    return "package_revenue";
+  if (type.includes("floor") || source.includes("floor"))
+    return "floor_rental_revenue";
   if (type.includes("event")) return "event_ticket_revenue";
   if (type.includes("private")) return "private_lesson_revenue";
   if (type.includes("group")) return "group_class_revenue";
@@ -267,18 +274,24 @@ function expenseCategory(expense: ExpenseRow) {
   if (category === "marketing") return "marketing_expense";
   if (category === "software") return "software_expense";
   if (category === "supplies") return "supplies_expense";
-  if (["event_expense", "event_cost", "event", "event_costs"].includes(category)) {
+  if (
+    ["event_expense", "event_cost", "event", "event_costs"].includes(category)
+  ) {
     return "event_expense";
   }
   if (category === "travel") return "travel_expense";
   return "other_expense";
 }
 
-
 function isPaidLike(status: string | null | undefined) {
-  return ["paid", "processed", "complete", "completed", "refunded", "partial"].includes(
-    (status ?? "").toLowerCase(),
-  );
+  return [
+    "paid",
+    "processed",
+    "complete",
+    "completed",
+    "refunded",
+    "partial",
+  ].includes((status ?? "").toLowerCase());
 }
 
 function hasPositiveAmount(value: number | string | null | undefined) {
@@ -354,7 +367,9 @@ function paymentRefundEntry(payment: PaymentRow): AccountingEntry | null {
     id: `payments:${payment.id}:refund:${category}`,
     studioId: payment.studio_id,
     organizerId: null,
-    entryDate: toDateOnly(payment.refunded_at ?? payment.paid_at ?? payment.created_at),
+    entryDate: toDateOnly(
+      payment.refunded_at ?? payment.paid_at ?? payment.created_at,
+    ),
     entryType: "refund",
     category,
     categoryLabel: accountingCategoryLabel(category),
@@ -414,7 +429,10 @@ function paymentFeeEntries(payment: PaymentRow): AccountingEntry[] {
       clientId: payment.client_id,
       eventId: null,
       appointmentId: null,
-      externalReference: payment.stripe_balance_transaction_id ?? payment.external_reference ?? null,
+      externalReference:
+        payment.stripe_balance_transaction_id ??
+        payment.external_reference ??
+        null,
       stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
       stripeChargeId: payment.stripe_charge_id ?? null,
       stripeInvoiceId: payment.stripe_invoice_id ?? null,
@@ -445,7 +463,10 @@ function paymentFeeEntries(payment: PaymentRow): AccountingEntry[] {
       clientId: payment.client_id,
       eventId: null,
       appointmentId: null,
-      externalReference: payment.stripe_balance_transaction_id ?? payment.external_reference ?? null,
+      externalReference:
+        payment.stripe_balance_transaction_id ??
+        payment.external_reference ??
+        null,
       stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
       stripeChargeId: payment.stripe_charge_id ?? null,
       stripeInvoiceId: payment.stripe_invoice_id ?? null,
@@ -458,7 +479,9 @@ function paymentFeeEntries(payment: PaymentRow): AccountingEntry[] {
   return entries;
 }
 
-function eventPaymentRevenueEntry(payment: EventPaymentRow): AccountingEntry | null {
+function eventPaymentRevenueEntry(
+  payment: EventPaymentRow,
+): AccountingEntry | null {
   if (!isPaidLike(payment.status)) return null;
 
   const registration = first(payment.event_registrations);
@@ -500,7 +523,9 @@ function eventPaymentRevenueEntry(payment: EventPaymentRow): AccountingEntry | n
   };
 }
 
-function eventPaymentRefundEntry(payment: EventPaymentRow): AccountingEntry | null {
+function eventPaymentRefundEntry(
+  payment: EventPaymentRow,
+): AccountingEntry | null {
   if (!isPaidLike(payment.status)) return null;
 
   const registration = first(payment.event_registrations);
@@ -540,7 +565,8 @@ function eventPaymentRefundEntry(payment: EventPaymentRow): AccountingEntry | nu
     clientId: registration.client_id ?? null,
     eventId: registration.event_id,
     appointmentId: null,
-    externalReference: payment.stripe_refund_id ?? payment.external_reference ?? null,
+    externalReference:
+      payment.stripe_refund_id ?? payment.external_reference ?? null,
     stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
     stripeChargeId: payment.stripe_charge_id ?? null,
     stripeInvoiceId: payment.stripe_invoice_id ?? null,
@@ -584,7 +610,10 @@ function eventPaymentFeeEntries(payment: EventPaymentRow): AccountingEntry[] {
       clientId: registration.client_id ?? null,
       eventId: registration.event_id,
       appointmentId: null,
-      externalReference: payment.stripe_balance_transaction_id ?? payment.external_reference ?? null,
+      externalReference:
+        payment.stripe_balance_transaction_id ??
+        payment.external_reference ??
+        null,
       stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
       stripeChargeId: payment.stripe_charge_id ?? null,
       stripeInvoiceId: payment.stripe_invoice_id ?? null,
@@ -615,7 +644,10 @@ function eventPaymentFeeEntries(payment: EventPaymentRow): AccountingEntry[] {
       clientId: registration.client_id ?? null,
       eventId: registration.event_id,
       appointmentId: null,
-      externalReference: payment.stripe_balance_transaction_id ?? payment.external_reference ?? null,
+      externalReference:
+        payment.stripe_balance_transaction_id ??
+        payment.external_reference ??
+        null,
       stripePaymentIntentId: payment.stripe_payment_intent_id ?? null,
       stripeChargeId: payment.stripe_charge_id ?? null,
       stripeInvoiceId: payment.stripe_invoice_id ?? null,
@@ -656,12 +688,13 @@ function expenseToEntry(expense: ExpenseRow): AccountingEntry {
     stripePaymentIntentId: null,
     stripeChargeId: null,
     stripeInvoiceId: null,
-    description: [expense.vendor_name, expense.notes].filter(Boolean).join(" — ") || accountingCategoryLabel(category),
+    description:
+      [expense.vendor_name, expense.notes].filter(Boolean).join(" — ") ||
+      accountingCategoryLabel(category),
     status: "paid",
     createdAt: expense.created_at,
   };
 }
-
 
 export async function getStudioAccountingEntries({
   supabase,
@@ -674,54 +707,60 @@ export async function getStudioAccountingEntries({
   startDate: string;
   endDate: string;
 }) {
-  const [paymentsResult, eventAccountingEntriesResult, expensesResult] = await Promise.all([
-    supabase
-      .from("payments")
-      .select(
-        "id, studio_id, client_id, client_package_id, client_membership_id, amount, currency, payment_method, payment_type, source, status, notes, paid_at, created_at, external_payment_id, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_invoice_id, stripe_processing_fee_amount, stripe_application_fee_amount, platform_fee_amount, stripe_balance_transaction_id, refund_amount, refunded_at, stripe_refund_id",
-      )
-      .eq("studio_id", studioId)
-      .or(
-        [
-          `and(created_at.gte.${startDate},created_at.lte.${endDate})`,
-          `and(paid_at.gte.${startDate},paid_at.lte.${endDate})`,
-          `and(refunded_at.gte.${startDate},refunded_at.lte.${endDate})`,
-        ].join(","),
-      )
-      .limit(5000),
-    supabase
-      .from("accounting_entries")
-      .select(
-        "id, studio_id, organizer_id, entry_date, entry_type, category, direction, gross_amount, fee_amount, refund_amount, net_amount, currency, payment_method, source_table, source_id, client_id, event_id, appointment_id, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_invoice_id, description, created_at",
-      )
-      .eq("studio_id", studioId)
-      .eq("source_table", "event_payments")
-      .eq("entry_type", "revenue")
-      .eq("category", "event_ticket_revenue")
-      .gte("entry_date", startDate.slice(0, 10))
-      .lte("entry_date", endDate.slice(0, 10))
-      .limit(5000),
-    supabase
-      .from("expenses")
-      .select("id, studio_id, expense_date, vendor_name, category, amount, currency, payment_method, related_event_id, related_client_id, related_appointment_id, notes, created_at")
-      .eq("studio_id", studioId)
-      .gte("expense_date", startDate.slice(0, 10))
-      .lte("expense_date", endDate.slice(0, 10))
-      .limit(5000),
-  ]);
+  const [paymentsResult, ledgerAccountingEntriesResult, expensesResult] =
+    await Promise.all([
+      supabase
+        .from("payments")
+        .select(
+          "id, studio_id, client_id, client_package_id, client_membership_id, amount, currency, payment_method, payment_type, source, status, notes, paid_at, created_at, external_payment_id, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_invoice_id, stripe_processing_fee_amount, stripe_application_fee_amount, platform_fee_amount, stripe_balance_transaction_id, refund_amount, refunded_at, stripe_refund_id",
+        )
+        .eq("studio_id", studioId)
+        .or(
+          [
+            `and(created_at.gte.${startDate},created_at.lte.${endDate})`,
+            `and(paid_at.gte.${startDate},paid_at.lte.${endDate})`,
+            `and(refunded_at.gte.${startDate},refunded_at.lte.${endDate})`,
+          ].join(","),
+        )
+        .limit(5000),
+      supabase
+        .from("accounting_entries")
+        .select(
+          "id, studio_id, organizer_id, entry_date, entry_type, category, direction, gross_amount, fee_amount, refund_amount, net_amount, currency, payment_method, source_table, source_id, client_id, event_id, appointment_id, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_invoice_id, description, created_at",
+        )
+        .eq("studio_id", studioId)
+        .in("source_table", ["event_payments", "expenses"])
+        .in("entry_type", ["revenue", "expense"])
+        .gte("entry_date", startDate.slice(0, 10))
+        .lte("entry_date", endDate.slice(0, 10))
+        .limit(5000),
+      supabase
+        .from("expenses")
+        .select(
+          "id, studio_id, expense_date, vendor_name, category, amount, currency, payment_method, related_event_id, related_client_id, related_appointment_id, notes, created_at",
+        )
+        .eq("studio_id", studioId)
+        .gte("expense_date", startDate.slice(0, 10))
+        .lte("expense_date", endDate.slice(0, 10))
+        .limit(5000),
+    ]);
 
   if (paymentsResult.error) {
-    throw new Error(`Accounting payments lookup failed: ${paymentsResult.error.message}`);
+    throw new Error(
+      `Accounting payments lookup failed: ${paymentsResult.error.message}`,
+    );
   }
 
-  if (eventAccountingEntriesResult.error) {
+  if (ledgerAccountingEntriesResult.error) {
     throw new Error(
-      `Accounting event payment ledger lookup failed: ${eventAccountingEntriesResult.error.message}`,
+      `Accounting ledger lookup failed: ${ledgerAccountingEntriesResult.error.message}`,
     );
   }
 
   if (expensesResult.error) {
-    throw new Error(`Accounting expenses lookup failed: ${expensesResult.error.message}`);
+    throw new Error(
+      `Accounting expenses lookup failed: ${expensesResult.error.message}`,
+    );
   }
 
   const paymentEntries = ((paymentsResult.data ?? []) as PaymentRow[]).flatMap(
@@ -733,23 +772,38 @@ export async function getStudioAccountingEntries({
       ].filter((entry): entry is AccountingEntry => Boolean(entry)),
   );
 
-  const eventPaymentEntries = (
-    (eventAccountingEntriesResult.data ?? []) as AccountingEntryDbRow[]
+  const ledgerEntries = (
+    (ledgerAccountingEntriesResult.data ?? []) as AccountingEntryDbRow[]
   ).map(dbAccountingEntryToEntry);
+
+  const persistedExpenseSourceIds = new Set(
+    ledgerEntries
+      .filter(
+        (entry) =>
+          entry.sourceTable === "expenses" && entry.entryType === "expense",
+      )
+      .map((entry) => entry.sourceId),
+  );
+
+  const virtualExpenseEntries = ((expensesResult.data ?? []) as ExpenseRow[])
+    .filter((expense) => !persistedExpenseSourceIds.has(expense.id))
+    .map(expenseToEntry);
 
   const rangeStartDate = startDate.slice(0, 10);
   const rangeEndDate = endDate.slice(0, 10);
 
   const entries = [
     ...paymentEntries,
-    ...eventPaymentEntries,
-    ...((expensesResult.data ?? []) as ExpenseRow[]).map(expenseToEntry),
+    ...ledgerEntries,
+    ...virtualExpenseEntries,
   ]
-    .filter((entry) =>
-      entry.entryDate >= rangeStartDate && entry.entryDate <= rangeEndDate,
+    .filter(
+      (entry) =>
+        entry.entryDate >= rangeStartDate && entry.entryDate <= rangeEndDate,
     )
     .sort((a, b) => {
-      if (a.entryDate === b.entryDate) return b.createdAt.localeCompare(a.createdAt);
+      if (a.entryDate === b.entryDate)
+        return b.createdAt.localeCompare(a.createdAt);
       return b.entryDate.localeCompare(a.entryDate);
     });
 
