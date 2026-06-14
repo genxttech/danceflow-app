@@ -2040,7 +2040,7 @@ async function updatePaymentRefundByPaymentIntent(
     const { error: paymentUpdateError } = await supabase
       .from("payments")
       .update({
-        status: fullyRefunded ? "refunded" : "partial",
+        status: fullyRefunded ? "refunded" : "paid",
         refund_amount: refundAmount,
         refunded_at: new Date().toISOString(),
         stripe_refund_id: stripeRefundId,
@@ -2094,7 +2094,7 @@ async function updateEventPaymentRefundByPaymentIntent(
     const { error: paymentUpdateError } = await supabase
       .from("event_payments")
       .update({
-        status: fullyRefunded ? "refunded" : "partial",
+        status: fullyRefunded ? "refunded" : "paid",
         refund_amount: rowRefundAmount,
         refunded_at: new Date().toISOString(),
         stripe_refund_id: stripeRefundId,
@@ -3261,24 +3261,44 @@ export async function POST(request: Request) {
     return new Response("Event lookup failed", { status: 500 });
   }
 
-  if (existingEvent) {
+  if (existingEvent?.status === "processed") {
     return new Response("Already processed", { status: 200 });
   }
 
-  const { error: insertEventError } = await supabase
-    .from("payment_provider_events")
-    .insert({
-      provider: "stripe",
-      provider_event_id: event.id,
-      event_type: event.type,
-      status: "received",
-      payload_hash: payloadHash,
-    });
+  if (existingEvent) {
+    const { error: retryEventError } = await supabase
+      .from("payment_provider_events")
+      .update({
+        event_type: event.type,
+        status: "received",
+        payload_hash: payloadHash,
+        error_message: null,
+        processed_at: null,
+      })
+      .eq("provider", "stripe")
+      .eq("provider_event_id", event.id);
 
-  if (insertEventError) {
-    return new Response(`Event logging failed: ${insertEventError.message}`, {
-      status: 500,
-    });
+    if (retryEventError) {
+      return new Response(`Event retry logging failed: ${retryEventError.message}`, {
+        status: 500,
+      });
+    }
+  } else {
+    const { error: insertEventError } = await supabase
+      .from("payment_provider_events")
+      .insert({
+        provider: "stripe",
+        provider_event_id: event.id,
+        event_type: event.type,
+        status: "received",
+        payload_hash: payloadHash,
+      });
+
+    if (insertEventError) {
+      return new Response(`Event logging failed: ${insertEventError.message}`, {
+        status: 500,
+      });
+    }
   }
 
   try {
