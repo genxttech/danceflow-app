@@ -104,6 +104,21 @@ type EventSettlementRow = {
   updated_at: string | null;
 };
 
+type EventSettlementHistoryRow = {
+  id: string;
+  previous_status: string | null;
+  new_status: string | null;
+  notes: string | null;
+  event_profit_loss: number | string | null;
+  margin: number | string | null;
+  total_event_costs: number | string | null;
+  net_ticket_revenue: number | string | null;
+  tickets_checked_in: number | string | null;
+  tickets_issued: number | string | null;
+  changed_by: string | null;
+  changed_at: string | null;
+};
+
 
 function canManageTickets(params: {
   isPlatformAdmin: boolean;
@@ -302,6 +317,10 @@ function settlementStatusMeta(value: string | null | undefined) {
   }
 }
 
+function formatSettlementStatusLabel(value: string | null | undefined) {
+  return settlementStatusMeta(value ?? "open").label;
+}
+
 function derivedSettlementReadiness(params: {
   unpaidRegistrations: number;
   pendingRegistrations: number;
@@ -350,6 +369,39 @@ function derivedSettlementReadiness(params: {
   };
 }
 
+type SettlementChecklistSeverity = "clear" | "warning" | "critical";
+
+function settlementChecklistStyle(severity: SettlementChecklistSeverity) {
+  switch (severity) {
+    case "critical":
+      return {
+        badge: "Needs review",
+        className: "border-rose-200 bg-rose-50 text-rose-800",
+        dotClassName: "bg-rose-500",
+      };
+    case "warning":
+      return {
+        badge: "Check",
+        className: "border-amber-200 bg-amber-50 text-amber-800",
+        dotClassName: "bg-amber-500",
+      };
+    default:
+      return {
+        badge: "Clear",
+        className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+        dotClassName: "bg-emerald-500",
+      };
+  }
+}
+
+function formatCurrency(value: number | string | null | undefined) {
+  const amount = Number(value ?? 0);
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(Number.isFinite(amount) ? amount : 0);
+}
 
 export default async function EventTicketsPage({
   params,
@@ -451,7 +503,14 @@ export default async function EventTicketsPage({
 
   const hasPrivateLessonSlots = Number(privateLessonSlotCount ?? 0) > 0;
 
-  const [profitabilityResult, registrationsResult, attendeesResult, laborCostsResult, settlementResult] = await Promise.all([
+  const [
+    profitabilityResult,
+    registrationsResult,
+    attendeesResult,
+    laborCostsResult,
+    settlementResult,
+    settlementHistoryResult,
+  ] = await Promise.all([
     (supabase as any)
       .from("v_event_profit_loss")
       .select("event_id, gross_ticket_revenue, refunds, processing_and_platform_fees, net_ticket_revenue, event_expenses, event_labor_costs, total_event_costs, event_profit_loss")
@@ -477,6 +536,12 @@ export default async function EventTicketsPage({
       .select("id, status, notes, gross_ticket_revenue, refunds, processing_and_platform_fees, net_ticket_revenue, event_expenses, event_labor_costs, total_event_costs, event_profit_loss, margin, paid_registrations, tickets_issued, tickets_checked_in, unpaid_registrations, pending_registrations, refunded_registrations, settled_at, settled_by, created_at, updated_at")
       .eq("event_id", typedEvent.id)
       .maybeSingle(),
+    (supabase as any)
+      .from("event_settlement_history")
+      .select("id, previous_status, new_status, notes, event_profit_loss, margin, total_event_costs, net_ticket_revenue, tickets_checked_in, tickets_issued, changed_by, changed_at")
+      .eq("event_id", typedEvent.id)
+      .order("changed_at", { ascending: false })
+      .limit(10),
   ]);
 
   if (registrationsResult.error) {
@@ -498,11 +563,16 @@ export default async function EventTicketsPage({
     throw new Error(`Failed to load event settlement: ${settlementResult.error.message}`);
   }
 
+  if (settlementHistoryResult.error) {
+    throw new Error(`Failed to load event settlement history: ${settlementHistoryResult.error.message}`);
+  }
+
   const profitability = profitabilityResult.data as EventProfitLossRow | null;
   const registrationRows = (registrationsResult.data ?? []) as EventRegistrationCheckInRow[];
-  const attendeeRows = (attendeesResult.data ?? []) as EventAttendeeCheckInRow[];
+  const attendeeRows = (attendeesResult.error ? [] : attendeesResult.data ?? []) as EventAttendeeCheckInRow[];
   const laborCostRows = (laborCostsResult.data ?? []) as EventLaborCostRow[];
   const settlement = settlementResult.data as EventSettlementRow | null;
+  const settlementHistoryRows = (settlementHistoryResult.data ?? []) as EventSettlementHistoryRow[];
 
   const ticketRows = (tickets ?? []) as TicketTypeRow[];
   const activeCount = ticketRows.filter((ticket) => ticket.active).length;
@@ -553,6 +623,91 @@ export default async function EventTicketsPage({
     eventExpenses,
     eventLaborCosts,
   });
+  const uncheckedIssuedTickets = Math.max(issuedTicketCount - checkedInTicketCount, 0);
+  const isSettled = (settlement?.status ?? "open") === "settled";
+  const isReopened = (settlement?.status ?? "open") === "reopened";
+  const lowMarginThreshold = 0.15;
+  const settlementChecklistItems: Array<{
+    label: string;
+    detail: string;
+    severity: SettlementChecklistSeverity;
+  }> = [
+    {
+      label: "Payment exceptions",
+      detail:
+        unpaidRegistrations > 0 || pendingRegistrations > 0
+          ? `${unpaidRegistrations} unpaid and ${pendingRegistrations} pending registrations need review.`
+          : "No unpaid or pending registrations were found.",
+      severity: unpaidRegistrations > 0 || pendingRegistrations > 0 ? "critical" : "clear",
+    },
+    {
+      label: "Refund activity",
+      detail:
+        refundedRegistrations > 0
+          ? `${refundedRegistrations} refunded registrations are included in the closeout numbers.`
+          : "No refunded registrations were found.",
+      severity: refundedRegistrations > 0 ? "warning" : "clear",
+    },
+    {
+      label: "Issued ticket check-in",
+      detail:
+        issuedTicketCount === 0
+          ? "No issued attendee tickets were found."
+          : uncheckedIssuedTickets > 0
+            ? `${uncheckedIssuedTickets} of ${issuedTicketCount} issued tickets are not checked in.`
+            : "All issued tickets are checked in.",
+      severity: uncheckedIssuedTickets > 0 ? "warning" : "clear",
+    },
+    {
+      label: "Labor / staff costs",
+      detail:
+        eventLaborCosts > 0
+          ? `${formatCurrency(eventLaborCosts)} in labor or staff costs is linked to this event.`
+          : "No labor or staff costs are linked to this event.",
+      severity: eventLaborCosts > 0 ? "clear" : "warning",
+    },
+    {
+      label: "Event expenses",
+      detail:
+        eventExpenses > 0
+          ? `${formatCurrency(eventExpenses)} in event expenses is linked to this event.`
+          : "No event-specific expenses are linked to this event.",
+      severity: eventExpenses > 0 ? "clear" : "warning",
+    },
+    {
+      label: "Profitability",
+      detail:
+        eventProfitLoss < 0
+          ? `This event is currently negative by ${formatCurrency(Math.abs(eventProfitLoss))}.`
+          : profitMargin !== null && profitMargin < lowMarginThreshold
+            ? `Profit is positive, but margin is low at ${formatPercent(profitMargin)}.`
+            : `Current profit/loss is ${formatCurrency(eventProfitLoss)}${profitMargin !== null ? ` with ${formatPercent(profitMargin)} margin` : ""}.`,
+      severity:
+        eventProfitLoss < 0
+          ? "critical"
+          : profitMargin !== null && profitMargin < lowMarginThreshold
+            ? "warning"
+            : "clear",
+    },
+    {
+      label: "Settlement state",
+      detail: isSettled
+        ? "This event is marked settled. Reopen before making material changes."
+        : isReopened
+          ? "This event was reopened. Review any changes before settling again."
+          : "This event is still editable before final settlement.",
+      severity: isReopened ? "warning" : "clear",
+    },
+  ];
+  const checklistCriticalCount = settlementChecklistItems.filter((item) => item.severity === "critical").length;
+  const checklistWarningCount = settlementChecklistItems.filter((item) => item.severity === "warning").length;
+  const checklistClearCount = settlementChecklistItems.filter((item) => item.severity === "clear").length;
+  const checklistSummary =
+    checklistCriticalCount > 0
+      ? `${checklistCriticalCount} must-review item${checklistCriticalCount === 1 ? "" : "s"} before settlement.`
+      : checklistWarningCount > 0
+        ? `${checklistWarningCount} advisory item${checklistWarningCount === 1 ? "" : "s"} to confirm before settlement.`
+        : "All checklist items are clear.";
 
   return (
     <div className="space-y-6">
@@ -852,6 +1007,58 @@ export default async function EventTicketsPage({
             </div>
           </div>
 
+          <div className="mt-5 rounded-2xl border border-[#E9D5FF] bg-white p-4">
+            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-950">Closeout readiness checklist</h4>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Review these items before marking the event ready to settle or settled. Warnings do not block settlement yet.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-emerald-800">{checklistClearCount} clear</span>
+                <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-amber-800">{checklistWarningCount} check</span>
+                <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-rose-800">{checklistCriticalCount} review</span>
+              </div>
+            </div>
+
+            <div className={`mt-4 rounded-xl border px-4 py-3 text-sm ${
+              checklistCriticalCount > 0
+                ? "border-rose-200 bg-rose-50 text-rose-800"
+                : checklistWarningCount > 0
+                  ? "border-amber-200 bg-amber-50 text-amber-800"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-800"
+            }`}>
+              <p className="font-semibold">
+                {checklistCriticalCount > 0 ? "Needs review" : checklistWarningCount > 0 ? "Ready with confirmations" : "Ready to settle"}
+              </p>
+              <p className="mt-1 leading-6">{checklistSummary}</p>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {settlementChecklistItems.map((item) => {
+                const itemStyle = settlementChecklistStyle(item.severity);
+
+                return (
+                  <div key={item.label} className={`rounded-xl border px-4 py-3 text-sm ${itemStyle.className}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${itemStyle.dotClassName}`} />
+                          <p className="font-semibold">{item.label}</p>
+                        </div>
+                        <p className="mt-2 leading-6 opacity-90">{item.detail}</p>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-current/20 bg-white/60 px-2 py-1 text-[11px] font-semibold">
+                        {itemStyle.badge}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           {canManage ? (
             <form action={updateEventSettlementAction} className="mt-5 grid gap-4 rounded-2xl border border-[#E9D5FF] bg-white p-4 md:grid-cols-[240px_1fr_auto] md:items-end">
               <input type="hidden" name="event_id" value={typedEvent.id} />
@@ -881,6 +1088,81 @@ export default async function EventTicketsPage({
               </button>
             </form>
           ) : null}
+
+          <div className="mt-5 rounded-2xl border border-[#E9D5FF] bg-white p-4">
+            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h4 className="text-sm font-semibold text-slate-950">Settlement history</h4>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Tracks closeout status changes and the saved financial snapshot at each step.
+                </p>
+              </div>
+              <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+                {settlementHistoryRows.length} recent changes
+              </span>
+            </div>
+
+            {settlementHistoryRows.length === 0 ? (
+              <div className="mt-4 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
+                No settlement history yet. Save a closeout status to create the first audit entry.
+              </div>
+            ) : (
+              <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+                <div className="hidden grid-cols-[1.2fr_1fr_1fr_1fr] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 md:grid">
+                  <span>Status change</span>
+                  <span>Profit / loss</span>
+                  <span>Snapshot</span>
+                  <span>Changed</span>
+                </div>
+
+                <div className="divide-y divide-slate-200">
+                  {settlementHistoryRows.map((history) => {
+                    const previousStatus = history.previous_status
+                      ? formatSettlementStatusLabel(history.previous_status)
+                      : "Initial snapshot";
+                    const newStatus = formatSettlementStatusLabel(history.new_status);
+                    const historyProfitLoss = toNumber(history.event_profit_loss);
+                    const historyMargin = history.margin === null || history.margin === undefined
+                      ? null
+                      : toNumber(history.margin);
+
+                    return (
+                      <div key={history.id} className="grid gap-3 px-4 py-4 text-sm md:grid-cols-[1.2fr_1fr_1fr_1fr] md:items-center">
+                        <div>
+                          <p className="font-semibold text-slate-950">
+                            {previousStatus} → {newStatus}
+                          </p>
+                          {history.notes ? (
+                            <p className="mt-1 text-xs leading-5 text-slate-600">{history.notes}</p>
+                          ) : (
+                            <p className="mt-1 text-xs text-slate-500">No notes saved for this change.</p>
+                          )}
+                        </div>
+
+                        <div>
+                          <p className={`font-semibold ${historyProfitLoss < 0 ? "text-rose-700" : "text-emerald-700"}`}>
+                            {formatPrice(historyProfitLoss, "USD")}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">Margin {formatPercent(historyMargin)}</p>
+                        </div>
+
+                        <div className="text-xs leading-5 text-slate-600">
+                          <p>Net revenue {formatPrice(toNumber(history.net_ticket_revenue), "USD")}</p>
+                          <p>Total costs {formatPrice(toNumber(history.total_event_costs), "USD")}</p>
+                          <p>Checked in {toNumber(history.tickets_checked_in)}/{toNumber(history.tickets_issued)}</p>
+                        </div>
+
+                        <div>
+                          <p className="font-medium text-slate-900">{formatDateTime(history.changed_at)}</p>
+                          <p className="mt-1 text-xs text-slate-500">Changed by {history.changed_by ? history.changed_by.slice(0, 8) : "system"}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="mt-5 flex flex-wrap gap-3">
