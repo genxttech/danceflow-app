@@ -27,6 +27,23 @@ function canManageEventLabor(role: string | null | undefined, isPlatformAdmin: b
   return role === "studio_owner" || role === "studio_admin" || role === "studio_manager";
 }
 
+
+async function assertEventSettlementIsEditable(supabase: Awaited<ReturnType<typeof createClient>>, eventId: string) {
+  const { data, error } = await (supabase as any)
+    .from("event_settlements")
+    .select("status")
+    .eq("event_id", eventId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Could not verify event settlement lock: ${error.message}`);
+  }
+
+  if ((data?.status ?? "open") === "settled") {
+    throw new Error("This event has been settled. Reopen the settlement before changing event labor costs.");
+  }
+}
+
 function calculateTotal(params: {
   payType: string;
   rateAmount: number;
@@ -121,6 +138,8 @@ export async function createEventLaborCostAction(formData: FormData) {
     throw new Error("Event was not found in this workspace.");
   }
 
+  await assertEventSettlementIsEditable(supabase, event.id);
+
   const { error } = await (supabase as any).from("event_labor_costs").insert({
     studio_id: event.studio_id,
     organizer_id: event.organizer_id,
@@ -174,6 +193,8 @@ export async function deleteEventLaborCostAction(formData: FormData) {
   if (!eventId || !laborCostId) {
     throw new Error("Event ID and labor cost ID are required.");
   }
+
+  await assertEventSettlementIsEditable(supabase, eventId);
 
   const { error } = await (supabase as any)
     .from("event_labor_costs")

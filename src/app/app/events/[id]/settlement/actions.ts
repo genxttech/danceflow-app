@@ -111,6 +111,26 @@ export async function updateEventSettlementAction(formData: FormData) {
     throw new Error("You do not have permission to update event settlement.");
   }
 
+  const { data: existingSettlement, error: existingSettlementError } = await (supabase as any)
+    .from("event_settlements")
+    .select("id, status")
+    .eq("event_id", eventId)
+    .maybeSingle();
+
+  if (existingSettlementError) {
+    throw new Error(`Could not verify current settlement status: ${existingSettlementError.message}`);
+  }
+
+  const existingStatus = String(existingSettlement?.status ?? "open").toLowerCase();
+
+  if (existingStatus === "settled" && status !== "reopened") {
+    throw new Error("This event has already been settled. Reopen the settlement before making closeout changes.");
+  }
+
+  if (existingStatus === "settled" && status === "reopened" && (!notes || notes.length < 8)) {
+    throw new Error("A reopening reason is required before a settled event can be reopened.");
+  }
+
   const [profitabilityResult, registrationsResult, attendeesResult] = await Promise.all([
     (supabase as any)
       .from("v_event_profit_loss")

@@ -626,6 +626,7 @@ export default async function EventTicketsPage({
   const uncheckedIssuedTickets = Math.max(issuedTicketCount - checkedInTicketCount, 0);
   const isSettled = (settlement?.status ?? "open") === "settled";
   const isReopened = (settlement?.status ?? "open") === "reopened";
+  const eventFinancialsLocked = isSettled;
   const lowMarginThreshold = 0.15;
   const settlementChecklistItems: Array<{
     label: string;
@@ -1007,6 +1008,15 @@ export default async function EventTicketsPage({
             </div>
           </div>
 
+          {eventFinancialsLocked ? (
+            <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-semibold">Settlement locked</p>
+              <p className="mt-1 leading-6">
+                This event has been settled. Financial changes are locked unless the settlement is reopened with a reason.
+              </p>
+            </div>
+          ) : null}
+
           <div className="mt-5 rounded-2xl border border-[#E9D5FF] bg-white p-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
               <div>
@@ -1060,33 +1070,55 @@ export default async function EventTicketsPage({
           </div>
 
           {canManage ? (
-            <form action={updateEventSettlementAction} className="mt-5 grid gap-4 rounded-2xl border border-[#E9D5FF] bg-white p-4 md:grid-cols-[240px_1fr_auto] md:items-end">
-              <input type="hidden" name="event_id" value={typedEvent.id} />
+            eventFinancialsLocked ? (
+              <form action={updateEventSettlementAction} className="mt-5 grid gap-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 md:grid-cols-[1fr_auto] md:items-end">
+                <input type="hidden" name="event_id" value={typedEvent.id} />
+                <input type="hidden" name="status" value="reopened" />
 
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-slate-700">Closeout status</span>
-                <select name="status" defaultValue={settlement?.status ?? "open"} className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0">
-                  <option value="open">Open</option>
-                  <option value="ready_to_settle">Ready to settle</option>
-                  <option value="settled">Settled</option>
-                  <option value="reopened">Reopened</option>
-                </select>
-              </label>
+                <label className="space-y-2 text-sm">
+                  <span className="font-medium text-amber-950">Reason for reopening settlement</span>
+                  <input
+                    name="notes"
+                    required
+                    minLength={8}
+                    placeholder="Example: Late refund, corrected labor cost, or missing expense found."
+                    className="w-full rounded-xl border border-amber-300 px-3 py-2 outline-none ring-0"
+                  />
+                </label>
 
-              <label className="space-y-2 text-sm">
-                <span className="font-medium text-slate-700">Settlement notes</span>
-                <input
-                  name="notes"
-                  defaultValue={settlement?.notes ?? ""}
-                  placeholder="Example: Final numbers reviewed after event check-in."
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
-                />
-              </label>
+                <button type="submit" className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-800">
+                  Reopen Settlement
+                </button>
+              </form>
+            ) : (
+              <form action={updateEventSettlementAction} className="mt-5 grid gap-4 rounded-2xl border border-[#E9D5FF] bg-white p-4 md:grid-cols-[240px_1fr_auto] md:items-end">
+                <input type="hidden" name="event_id" value={typedEvent.id} />
 
-              <button type="submit" className="rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4A1363]">
-                Save Closeout
-              </button>
-            </form>
+                <label className="space-y-2 text-sm">
+                  <span className="font-medium text-slate-700">Closeout status</span>
+                  <select name="status" defaultValue={settlement?.status ?? "open"} className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0">
+                    <option value="open">Open</option>
+                    <option value="ready_to_settle">Ready to settle</option>
+                    <option value="settled">Settled</option>
+                    <option value="reopened">Reopened</option>
+                  </select>
+                </label>
+
+                <label className="space-y-2 text-sm">
+                  <span className="font-medium text-slate-700">Settlement notes</span>
+                  <input
+                    name="notes"
+                    defaultValue={settlement?.notes ?? ""}
+                    placeholder="Example: Final numbers reviewed after event check-in."
+                    className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                  />
+                </label>
+
+                <button type="submit" className="rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4A1363]">
+                  Save Closeout
+                </button>
+              </form>
+            )
           ) : null}
 
           <div className="mt-5 rounded-2xl border border-[#E9D5FF] bg-white p-4">
@@ -1204,7 +1236,14 @@ export default async function EventTicketsPage({
           </div>
         </div>
 
-        {canManage ? (
+        {canManage && eventFinancialsLocked ? (
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p className="font-semibold">Labor costs are locked</p>
+            <p className="mt-1 leading-6">Reopen the settlement before adding, deleting, or changing event labor costs.</p>
+          </div>
+        ) : null}
+
+        {canManage && !eventFinancialsLocked ? (
           <form action={createEventLaborCostAction} className="mt-5 grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-4">
             <input type="hidden" name="event_id" value={typedEvent.id} />
 
@@ -1306,7 +1345,7 @@ export default async function EventTicketsPage({
                 </div>
                 <div className="flex items-center gap-3 md:justify-end">
                   <p className="text-lg font-semibold text-rose-700">-{formatPrice(toNumber(labor.total_amount), labor.currency ?? "USD")}</p>
-                  {canManage ? (
+                  {canManage && !eventFinancialsLocked ? (
                     <form action={deleteEventLaborCostAction}>
                       <input type="hidden" name="event_id" value={typedEvent.id} />
                       <input type="hidden" name="labor_cost_id" value={labor.id} />
