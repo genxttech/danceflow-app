@@ -11,6 +11,7 @@ import {
   createEventLaborCostAction,
   deleteEventLaborCostAction,
 } from "./labor/actions";
+import { updateEventSettlementAction } from "./settlement/actions";
 
 type TicketTypeRow = {
   id: string;
@@ -76,6 +77,31 @@ type EventLaborCostRow = {
   labor_date: string | null;
   status: string | null;
   notes: string | null;
+};
+
+type EventSettlementRow = {
+  id: string;
+  status: string | null;
+  notes: string | null;
+  gross_ticket_revenue: number | string | null;
+  refunds: number | string | null;
+  processing_and_platform_fees: number | string | null;
+  net_ticket_revenue: number | string | null;
+  event_expenses: number | string | null;
+  event_labor_costs: number | string | null;
+  total_event_costs: number | string | null;
+  event_profit_loss: number | string | null;
+  margin: number | string | null;
+  paid_registrations: number | string | null;
+  tickets_issued: number | string | null;
+  tickets_checked_in: number | string | null;
+  unpaid_registrations: number | string | null;
+  pending_registrations: number | string | null;
+  refunded_registrations: number | string | null;
+  settled_at: string | null;
+  settled_by: string | null;
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 
@@ -246,6 +272,85 @@ function formatPayType(value: string | null | undefined) {
 }
 
 
+
+function settlementStatusMeta(value: string | null | undefined) {
+  switch (value) {
+    case "ready_to_settle":
+      return {
+        label: "Ready to settle",
+        className: "border-amber-200 bg-amber-50 text-amber-800",
+        helper: "Financials look reviewed and this event is ready for final closeout.",
+      };
+    case "settled":
+      return {
+        label: "Settled",
+        className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+        helper: "A final settlement snapshot has been saved for this event.",
+      };
+    case "reopened":
+      return {
+        label: "Reopened",
+        className: "border-sky-200 bg-sky-50 text-sky-800",
+        helper: "This event was reopened after settlement for corrections or late adjustments.",
+      };
+    default:
+      return {
+        label: "Open",
+        className: "border-slate-200 bg-slate-50 text-slate-700",
+        helper: "This event is still open for financial review and closeout preparation.",
+      };
+  }
+}
+
+function derivedSettlementReadiness(params: {
+  unpaidRegistrations: number;
+  pendingRegistrations: number;
+  issuedTicketCount: number;
+  hasFinancialActivity: boolean;
+  eventExpenses: number;
+  eventLaborCosts: number;
+}) {
+  const {
+    unpaidRegistrations,
+    pendingRegistrations,
+    issuedTicketCount,
+    hasFinancialActivity,
+    eventExpenses,
+    eventLaborCosts,
+  } = params;
+
+  if (!hasFinancialActivity && issuedTicketCount === 0) {
+    return {
+      label: "Not ready",
+      className: "border-slate-200 bg-slate-50 text-slate-700",
+      helper: "No ticket or financial activity has been recorded yet.",
+    };
+  }
+
+  if (unpaidRegistrations > 0 || pendingRegistrations > 0) {
+    return {
+      label: "Needs payment review",
+      className: "border-amber-200 bg-amber-50 text-amber-800",
+      helper: "Review unpaid or pending registrations before marking the event ready to settle.",
+    };
+  }
+
+  if (eventExpenses === 0 && eventLaborCosts === 0) {
+    return {
+      label: "Check costs",
+      className: "border-amber-200 bg-amber-50 text-amber-800",
+      helper: "No event-specific expenses or labor costs are recorded. Confirm that is correct before settlement.",
+    };
+  }
+
+  return {
+    label: "Ready candidate",
+    className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    helper: "Payments and costs look ready for event closeout review.",
+  };
+}
+
+
 export default async function EventTicketsPage({
   params,
 }: {
@@ -346,7 +451,7 @@ export default async function EventTicketsPage({
 
   const hasPrivateLessonSlots = Number(privateLessonSlotCount ?? 0) > 0;
 
-  const [profitabilityResult, registrationsResult, attendeesResult, laborCostsResult] = await Promise.all([
+  const [profitabilityResult, registrationsResult, attendeesResult, laborCostsResult, settlementResult] = await Promise.all([
     (supabase as any)
       .from("v_event_profit_loss")
       .select("event_id, gross_ticket_revenue, refunds, processing_and_platform_fees, net_ticket_revenue, event_expenses, event_labor_costs, total_event_costs, event_profit_loss")
@@ -367,6 +472,11 @@ export default async function EventTicketsPage({
       .neq("status", "cancelled")
       .order("labor_date", { ascending: false })
       .order("created_at", { ascending: false }),
+    (supabase as any)
+      .from("event_settlements")
+      .select("id, status, notes, gross_ticket_revenue, refunds, processing_and_platform_fees, net_ticket_revenue, event_expenses, event_labor_costs, total_event_costs, event_profit_loss, margin, paid_registrations, tickets_issued, tickets_checked_in, unpaid_registrations, pending_registrations, refunded_registrations, settled_at, settled_by, created_at, updated_at")
+      .eq("event_id", typedEvent.id)
+      .maybeSingle(),
   ]);
 
   if (registrationsResult.error) {
@@ -374,17 +484,25 @@ export default async function EventTicketsPage({
   }
 
   if (attendeesResult.error) {
-    throw new Error(`Failed to load attendee profitability context: ${attendeesResult.error.message}`);
-  }
+  console.warn(
+    "Failed to load attendee profitability context:",
+    attendeesResult.error.message
+  );
+}
 
   if (laborCostsResult.error) {
     throw new Error(`Failed to load event labor costs: ${laborCostsResult.error.message}`);
+  }
+
+  if (settlementResult.error) {
+    throw new Error(`Failed to load event settlement: ${settlementResult.error.message}`);
   }
 
   const profitability = profitabilityResult.data as EventProfitLossRow | null;
   const registrationRows = (registrationsResult.data ?? []) as EventRegistrationCheckInRow[];
   const attendeeRows = (attendeesResult.data ?? []) as EventAttendeeCheckInRow[];
   const laborCostRows = (laborCostsResult.data ?? []) as EventLaborCostRow[];
+  const settlement = settlementResult.data as EventSettlementRow | null;
 
   const ticketRows = (tickets ?? []) as TicketTypeRow[];
   const activeCount = ticketRows.filter((ticket) => ticket.active).length;
@@ -403,6 +521,17 @@ export default async function EventTicketsPage({
   const paidRegistrations = registrationRows.filter((registration) =>
     ["paid", "partial", "comped", "free"].includes((registration.payment_status ?? "").toLowerCase()),
   );
+  const unpaidRegistrations = registrationRows.filter((registration) =>
+    ["unpaid", "failed", "requires_payment"].includes((registration.payment_status ?? "").toLowerCase()),
+  ).length;
+  const pendingRegistrations = registrationRows.filter((registration) =>
+    ["pending", "processing", "requires_action"].includes((registration.payment_status ?? "").toLowerCase()),
+  ).length;
+  const refundedRegistrations = registrationRows.filter((registration) => {
+    const paymentStatus = (registration.payment_status ?? "").toLowerCase();
+    const registrationStatus = (registration.status ?? "").toLowerCase();
+    return paymentStatus.includes("refund") || registrationStatus.includes("refund");
+  }).length;
   const issuedTicketCount = attendeeRows.length;
   const checkedInTicketCount = attendeeRows.filter((attendee) => attendee.checked_in_at).length;
   const remainingTicketCount = Math.max(issuedTicketCount - checkedInTicketCount, 0);
@@ -415,6 +544,15 @@ export default async function EventTicketsPage({
     netTicketRevenue > 0 ||
     eventExpenses > 0 ||
     eventLaborCosts > 0;
+  const settlementStatus = settlementStatusMeta(settlement?.status ?? "open");
+  const settlementReadiness = derivedSettlementReadiness({
+    unpaidRegistrations,
+    pendingRegistrations,
+    issuedTicketCount,
+    hasFinancialActivity,
+    eventExpenses,
+    eventLaborCosts,
+  });
 
   return (
     <div className="space-y-6">
@@ -619,6 +757,116 @@ export default async function EventTicketsPage({
               </p>
             </div>
           )}
+        </div>
+
+        <div className="mt-5 rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                Event settlement / closeout
+              </p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">Final event closeout snapshot</h3>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                Use this to review final event revenue, refunds, fees, expenses, labor, check-ins, and payment exceptions before closing the event.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 md:items-end">
+              <span className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${settlementStatus.className}`}>
+                {settlementStatus.label}
+              </span>
+              <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${settlementReadiness.className}`}>
+                {settlementReadiness.label}
+              </span>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
+            <div className="rounded-2xl border border-white bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Net ticket revenue</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">{formatPrice(netTicketRevenue, "USD")}</p>
+            </div>
+            <div className="rounded-2xl border border-white bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Total event costs</p>
+              <p className="mt-2 text-lg font-semibold text-rose-700">-{formatPrice(totalEventCosts, "USD")}</p>
+            </div>
+            <div className="rounded-2xl border border-white bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Final profit / loss</p>
+              <p className={`mt-2 text-lg font-semibold ${eventProfitLoss < 0 ? "text-rose-700" : "text-emerald-700"}`}>
+                {formatPrice(eventProfitLoss, "USD")}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Margin</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">{formatPercent(profitMargin)}</p>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-3 md:grid-cols-5">
+            <div className="rounded-2xl border border-white bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Paid</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">{paidRegistrations.length}</p>
+            </div>
+            <div className="rounded-2xl border border-white bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Unpaid</p>
+              <p className="mt-2 text-lg font-semibold text-rose-700">{unpaidRegistrations}</p>
+            </div>
+            <div className="rounded-2xl border border-white bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Pending</p>
+              <p className="mt-2 text-lg font-semibold text-amber-700">{pendingRegistrations}</p>
+            </div>
+            <div className="rounded-2xl border border-white bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Refunded</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">{refundedRegistrations}</p>
+            </div>
+            <div className="rounded-2xl border border-white bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Checked in</p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">{checkedInTicketCount}/{issuedTicketCount}</p>
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <div className={`rounded-2xl border px-4 py-3 text-sm ${settlementStatus.className}`}>
+              <p className="font-semibold">{settlementStatus.label}</p>
+              <p className="mt-1 leading-6">{settlementStatus.helper}</p>
+              {settlement ? (
+                <p className="mt-2 text-xs opacity-80">Last saved {formatDateTime(settlement.updated_at)}{settlement.settled_at ? ` · Settled ${formatDateTime(settlement.settled_at)}` : ""}</p>
+              ) : null}
+            </div>
+            <div className={`rounded-2xl border px-4 py-3 text-sm ${settlementReadiness.className}`}>
+              <p className="font-semibold">Closeout readiness</p>
+              <p className="mt-1 leading-6">{settlementReadiness.helper}</p>
+            </div>
+          </div>
+
+          {canManage ? (
+            <form action={updateEventSettlementAction} className="mt-5 grid gap-4 rounded-2xl border border-[#E9D5FF] bg-white p-4 md:grid-cols-[240px_1fr_auto] md:items-end">
+              <input type="hidden" name="event_id" value={typedEvent.id} />
+
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-slate-700">Closeout status</span>
+                <select name="status" defaultValue={settlement?.status ?? "open"} className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0">
+                  <option value="open">Open</option>
+                  <option value="ready_to_settle">Ready to settle</option>
+                  <option value="settled">Settled</option>
+                  <option value="reopened">Reopened</option>
+                </select>
+              </label>
+
+              <label className="space-y-2 text-sm">
+                <span className="font-medium text-slate-700">Settlement notes</span>
+                <input
+                  name="notes"
+                  defaultValue={settlement?.notes ?? ""}
+                  placeholder="Example: Final numbers reviewed after event check-in."
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2 outline-none ring-0"
+                />
+              </label>
+
+              <button type="submit" className="rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4A1363]">
+                Save Closeout
+              </button>
+            </form>
+          ) : null}
         </div>
 
         <div className="mt-5 flex flex-wrap gap-3">
