@@ -21,8 +21,15 @@ type ExpenseRow = {
   amount: number;
   currency: string;
   payment_method: string;
+  related_event_id: string | null;
   notes: string | null;
   created_at: string;
+};
+
+type EventOptionRow = {
+  id: string;
+  name: string | null;
+  start_date: string | null;
 };
 
 const expenseCategories = [
@@ -67,6 +74,14 @@ function formatDate(value: string) {
     day: "numeric",
     year: "numeric",
   });
+}
+
+function formatEventOptionLabel(event: EventOptionRow) {
+  const name = event.name?.trim() || "Untitled event";
+
+  if (!event.start_date) return name;
+
+  return `${name} · ${formatDate(event.start_date)}`;
 }
 
 function formatCurrency(value: number, currency = "USD") {
@@ -137,31 +152,52 @@ export default async function ExpensesPage() {
     context.isPlatformAdmin
   );
 
-  const { data: expenses, error } = await supabase
-    .from("expenses")
-    .select(
-      `
-        id,
-        expense_date,
-        vendor_name,
-        category,
-        amount,
-        currency,
-        payment_method,
-        notes,
-        created_at
-      `
-    )
-    .eq("studio_id", context.studioId)
-    .order("expense_date", { ascending: false })
-    .order("created_at", { ascending: false })
-    .limit(100);
+  const [
+    { data: expenses, error: expensesError },
+    { data: eventOptions, error: eventOptionsError },
+  ] = await Promise.all([
+    supabase
+      .from("expenses")
+      .select(
+        `
+          id,
+          expense_date,
+          vendor_name,
+          category,
+          amount,
+          currency,
+          payment_method,
+          related_event_id,
+          notes,
+          created_at
+        `
+      )
+      .eq("studio_id", context.studioId)
+      .order("expense_date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(100),
 
-  if (error) {
-    throw new Error(`Could not load expenses: ${error.message}`);
+    supabase
+      .from("events")
+      .select("id, name, start_date")
+      .eq("studio_id", context.studioId)
+      .order("start_date", { ascending: false })
+      .limit(300),
+  ]);
+
+  if (expensesError) {
+    throw new Error(`Could not load expenses: ${expensesError.message}`);
+  }
+
+  if (eventOptionsError) {
+    throw new Error(`Could not load events for expenses: ${eventOptionsError.message}`);
   }
 
   const typedExpenses = (expenses ?? []) as ExpenseRow[];
+  const typedEventOptions = (eventOptions ?? []) as EventOptionRow[];
+  const eventOptionById = new Map(
+    typedEventOptions.map((event) => [event.id, formatEventOptionLabel(event)]),
+  );
 
   const totalExpenses = typedExpenses.reduce(
     (sum, expense) => sum + Number(expense.amount ?? 0),
@@ -339,6 +375,29 @@ export default async function ExpensesPage() {
 
             <div className="lg:col-span-2">
               <label className="text-sm font-medium text-slate-700">
+                Related Event
+              </label>
+              <select
+                name="related_event_id"
+                defaultValue=""
+                className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/20"
+              >
+                <option value="">Not tied to a specific event</option>
+                {typedEventOptions.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {formatEventOptionLabel(event)}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Link event costs like guest instructors, venue rental, awards,
+                printing, or event marketing so Event P&L can calculate true
+                profitability.
+              </p>
+            </div>
+
+            <div className="lg:col-span-2">
+              <label className="text-sm font-medium text-slate-700">
                 Notes
               </label>
               <textarea
@@ -396,6 +455,9 @@ export default async function ExpensesPage() {
                     Category
                   </th>
                   <th className="px-6 py-3 text-left font-semibold text-slate-600">
+                    Event
+                  </th>
+                  <th className="px-6 py-3 text-left font-semibold text-slate-600">
                     Method
                   </th>
                   <th className="px-6 py-3 text-right font-semibold text-slate-600">
@@ -425,6 +487,16 @@ export default async function ExpensesPage() {
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-slate-700">
                       {categoryLabel(expense.category)}
+                    </td>
+                    <td className="max-w-xs px-6 py-4 text-slate-700">
+                      {expense.related_event_id ? (
+                        <span className="text-xs font-medium text-slate-700">
+                          {eventOptionById.get(expense.related_event_id) ??
+                            "Linked event"}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">—</span>
+                      )}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-slate-700">
                       {paymentMethodLabel(expense.payment_method)}

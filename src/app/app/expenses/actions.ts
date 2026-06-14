@@ -80,6 +80,7 @@ export async function createExpenseAction(formData: FormData) {
   const rawAmount = cleanText(formData.get("amount"));
   const rawPaymentMethod = cleanText(formData.get("payment_method")) || "other";
   const notes = cleanOptionalText(formData.get("notes"));
+  const relatedEventId = cleanOptionalText(formData.get("related_event_id"));
 
   const category = allowedCategories.has(rawCategory) ? rawCategory : "other";
   const paymentMethod = allowedPaymentMethods.has(rawPaymentMethod)
@@ -109,6 +110,7 @@ export async function createExpenseAction(formData: FormData) {
     amount,
     currency: "USD",
     payment_method: paymentMethod,
+    related_event_id: relatedEventId,
     notes,
   });
 
@@ -117,6 +119,7 @@ export async function createExpenseAction(formData: FormData) {
   }
 
   revalidatePath("/app/expenses");
+  revalidatePath("/app/reports");
 }
 
 export async function deleteExpenseAction(formData: FormData) {
@@ -157,4 +160,5 @@ export async function deleteExpenseAction(formData: FormData) {
   }
 
   revalidatePath("/app/expenses");
+  revalidatePath("/app/reports");
 }

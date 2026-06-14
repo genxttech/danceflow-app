@@ -127,6 +127,11 @@ type EventSummary = {
   checkedIn: number;
   noShows: number;
   revenue: number;
+  refunds: number;
+  fees: number;
+  netRevenue: number;
+  expenses: number;
+  profitLoss: number;
 };
 
 type TicketSummary = {
@@ -1393,6 +1398,48 @@ export default async function ReportsPage({
     0,
   );
 
+  const eventNetRevenueTotal = eventTicketAccountingEntries.reduce(
+    (sum, entry) => sum + entry.netAmount,
+    0,
+  );
+
+  const eventLinkedExpensesByEventId = typedExpenses.reduce((map, expense) => {
+    const eventId = expense.related_event_id;
+
+    if (!eventId) return map;
+
+    map.set(eventId, (map.get(eventId) ?? 0) + Number(expense.amount ?? 0));
+
+    return map;
+  }, new Map<string, number>());
+
+  const eventLinkedExpensesTotal = Array.from(
+    eventLinkedExpensesByEventId.values(),
+  ).reduce((sum, amount) => sum + amount, 0);
+
+  const eventProfitLossTotal = eventNetRevenueTotal - eventLinkedExpensesTotal;
+
+  const eventFinanceByEventId = eventTicketAccountingEntries.reduce(
+    (map, entry) => {
+      const eventId = entry.eventId ?? "unknown";
+      const existing = map.get(eventId) ?? {
+        gross: 0,
+        refunds: 0,
+        fees: 0,
+        net: 0,
+      };
+
+      existing.gross += entry.grossAmount;
+      existing.refunds += Math.abs(entry.refundAmount);
+      existing.fees += Math.abs(entry.feeAmount);
+      existing.net += entry.netAmount;
+      map.set(eventId, existing);
+
+      return map;
+    },
+    new Map<string, { gross: number; refunds: number; fees: number; net: number }>(),
+  );
+
   const eventRevenueByEventId = eventTicketAccountingEntries.reduce(
     (map, entry) => {
       const eventId = entry.eventId ?? "unknown";
@@ -1473,6 +1520,11 @@ export default async function ReportsPage({
       checkedIn: 0,
       noShows: 0,
       revenue: 0,
+      refunds: 0,
+      fees: 0,
+      netRevenue: 0,
+      expenses: 0,
+      profitLoss: 0,
     };
 
     eventSummary.registrations += 1;
@@ -1503,8 +1555,20 @@ export default async function ReportsPage({
     ticketSummariesByKey.set(ticketKey, ticketSummary);
   }
 
+  for (const [eventId, eventSummary] of eventSummariesById.entries()) {
+    const finance = eventFinanceByEventId.get(eventId);
+    const expenses = eventLinkedExpensesByEventId.get(eventId) ?? 0;
+
+    eventSummary.revenue = finance?.gross ?? eventSummary.revenue;
+    eventSummary.refunds = finance?.refunds ?? 0;
+    eventSummary.fees = finance?.fees ?? 0;
+    eventSummary.netRevenue = finance?.net ?? eventSummary.revenue;
+    eventSummary.expenses = expenses;
+    eventSummary.profitLoss = eventSummary.netRevenue - expenses;
+  }
+
   const topEventSummaries = Array.from(eventSummariesById.values())
-    .sort((a, b) => b.revenue - a.revenue)
+    .sort((a, b) => b.profitLoss - a.profitLoss)
     .slice(0, 6);
 
   const topTicketSummaries = Array.from(ticketSummariesByKey.values())
@@ -4683,9 +4747,32 @@ export default async function ReportsPage({
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-2xl bg-orange-50 p-4">
-                <p className="text-sm text-orange-900/70">Ticket Revenue</p>
+                <p className="text-sm text-orange-900/70">Gross Ticket Revenue</p>
                 <p className="mt-2 text-2xl font-semibold text-orange-950">
                   {fmtCurrency(eventRevenueTotal)}
+                </p>
+                <p className="mt-1 text-xs text-orange-900/70">
+                  Net after refunds and fees: {fmtCurrency(eventNetRevenueTotal)}
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Event Expenses</p>
+                <p className="mt-2 text-2xl font-semibold text-slate-950">
+                  -{fmtCurrency(eventLinkedExpensesTotal)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Expenses linked to a specific event
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Event Profit / Loss</p>
+                <p className={`mt-2 text-2xl font-semibold ${eventProfitLossTotal >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                  {fmtCurrency(eventProfitLossTotal)}
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Net ticket revenue minus event expenses
                 </p>
               </div>
 
@@ -4742,9 +4829,17 @@ export default async function ReportsPage({
                             </p>
                           </div>
                           <div className="text-right">
-                            <p className="text-sm font-semibold text-slate-950">
-                              {fmtCurrency(event.revenue)}
+                            <p className={`text-sm font-semibold ${event.profitLoss >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                              {fmtCurrency(event.profitLoss)}
                             </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              {fmtCurrency(event.netRevenue)} net · -{fmtCurrency(event.expenses)} expenses
+                            </p>
+                            {event.refunds > 0 || event.fees > 0 ? (
+                              <p className="mt-1 text-xs text-slate-400">
+                                {fmtCurrency(event.revenue)} gross · -{fmtCurrency(event.refunds)} refunds · -{fmtCurrency(event.fees)} fees
+                              </p>
+                            ) : null}
                             {event.eventId !== "unknown" ? (
                               <Link
                                 href={`/app/events/${event.eventId}/registrations`}
@@ -4798,8 +4893,9 @@ export default async function ReportsPage({
             </div>
 
             <div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-orange-900">
-              Event reporting uses the accounting ledger for revenue totals and
-              check-in records to estimate attendance and no-shows.
+              Event reporting uses the accounting ledger for revenue, refunds,
+              and fees. Expenses only affect Event Profit / Loss when they are
+              linked to a specific event in Expenses.
             </div>
           </div>
         ) : (
