@@ -18,7 +18,9 @@ type SearchParams = Promise<{
   status?: string;
   sessionId?: string;
   success?: string;
+  warning?: string;
   error?: string;
+  ticket?: string;
 }>;
 
 type WorkspaceRow = {
@@ -225,7 +227,13 @@ function appendQueryParam(url: string, key: string, value: string) {
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
 }
 
-function getBanner(search: { success?: string; error?: string; q?: string }) {
+function getBanner(search: {
+  success?: string;
+  warning?: string;
+  error?: string;
+  q?: string;
+  ticket?: string;
+}) {
   if (search.success === "checked_in") {
     return {
       kind: "success" as const,
@@ -235,10 +243,12 @@ function getBanner(search: { success?: string; error?: string; q?: string }) {
     };
   }
 
-  if (search.success === "already_checked_in") {
+  if (search.warning === "already_checked_in" || search.success === "already_checked_in") {
+    const ticket = search.ticket ? ` Ticket ${search.ticket}` : "This ticket";
+
     return {
-      kind: "success" as const,
-      message: "Attendee was already checked in.",
+      kind: "warning" as const,
+      message: `${ticket} was already checked in. Do not admit a duplicate ticket without verifying the attendee.`,
     };
   }
 
@@ -452,6 +462,9 @@ export default async function EventCheckInPage({
   let attendeeRows: EventRegistrationAttendeeRow[] = [];
 
   if (registrationIds.length > 0) {
+    // Use event_id instead of a potentially large registration_id IN (...) list.
+    // The attendee table already stores event_id, and this keeps the check-in
+    // page from timing out on larger events or multi-ticket orders.
     const { data: attendees, error: attendeesError } = await supabase
       .from("event_registration_attendees")
       .select(
@@ -469,7 +482,8 @@ export default async function EventCheckInPage({
         ticket_issued_at
       `,
       )
-      .in("registration_id", registrationIds)
+      .eq("event_id", id)
+      .order("registration_id", { ascending: true })
       .order("sort_order", { ascending: true });
 
     if (attendeesError) {
@@ -596,21 +610,24 @@ export default async function EventCheckInPage({
 
   const getEffectiveStatus = (registration: RegistrationRow) => {
     const attendeeRows = registration.event_registration_attendees ?? [];
-    const hasCheckedInAttendee = attendeeRows.some((attendee) =>
-      Boolean(attendee.checked_in_at),
-    );
+    const hasAttendeeTickets = attendeeRows.length > 0;
+    const allAttendeeTicketsCheckedIn =
+      hasAttendeeTickets &&
+      attendeeRows.every((attendee) => Boolean(attendee.checked_in_at));
 
     if (registration.status === "cancelled") return "cancelled";
 
-    // Event Digital Tickets V1 uses event_registrations.checked_in_at and
-    // event_registration_attendees.checked_in_at as the source of truth.
-    // Do not read attendance_records here because this schema does not have
-    // attendance_records.event_session_id.
-    if (
-      registration.checked_in_at ||
-      registration.status === "checked_in" ||
-      hasCheckedInAttendee
-    ) {
+    // QR tickets are checked in per attendee row. If a registration has
+    // attendee ticket rows, keep it in the ready list until every ticket row is
+    // checked in. This avoids one scanned QR code making a multi-ticket
+    // registration look fully checked in.
+    if (hasAttendeeTickets) {
+      if (allAttendeeTicketsCheckedIn) return "checked_in";
+      if (registration.status === "confirmed") return "registered";
+      return registration.status;
+    }
+
+    if (registration.checked_in_at || registration.status === "checked_in") {
       return "checked_in";
     }
 
@@ -659,16 +676,38 @@ export default async function EventCheckInPage({
       );
     });
 
-  const readyCount = typedRegistrations.filter(
-    (registration) => getEffectiveStatus(registration) === "registered",
-  ).length;
-  const checkedInCount = typedRegistrations.filter((registration) => {
+  const getTicketCountForRegistration = (registration: RegistrationRow) => {
+    const attendeeRows = registration.event_registration_attendees ?? [];
+    return attendeeRows.length > 0 ? attendeeRows.length : 1;
+  };
+
+  const getCheckedInTicketCountForRegistration = (
+    registration: RegistrationRow,
+  ) => {
+    const attendeeRows = registration.event_registration_attendees ?? [];
+    if (attendeeRows.length > 0) {
+      return attendeeRows.filter((attendee) => Boolean(attendee.checked_in_at))
+        .length;
+    }
+
     const effectiveStatus = getEffectiveStatus(registration);
-    return effectiveStatus === "checked_in" || effectiveStatus === "attended";
-  }).length;
-  const cancelledCount = typedRegistrations.filter(
-    (registration) => getEffectiveStatus(registration) === "cancelled",
-  ).length;
+    return effectiveStatus === "checked_in" || effectiveStatus === "attended"
+      ? 1
+      : 0;
+  };
+
+  const readyCount = typedRegistrations.reduce((sum, registration) => {
+    if (getEffectiveStatus(registration) !== "registered") return sum;
+    return sum + getTicketCountForRegistration(registration);
+  }, 0);
+  const checkedInCount = typedRegistrations.reduce(
+    (sum, registration) => sum + getCheckedInTicketCountForRegistration(registration),
+    0,
+  );
+  const cancelledCount = typedRegistrations.reduce((sum, registration) => {
+    if (getEffectiveStatus(registration) !== "cancelled") return sum;
+    return sum + getTicketCountForRegistration(registration);
+  }, 0);
   const missingWaiverCount = documentRequirementRows.length
     ? typedRegistrations.filter(
         (registration) => !getDocumentStatus(registration.id).isComplete,
@@ -682,7 +721,9 @@ export default async function EventCheckInPage({
           className={`rounded-2xl border px-4 py-3 text-sm ${
             banner.kind === "success"
               ? "border-green-200 bg-green-50 text-green-700"
-              : "border-red-200 bg-red-50 text-red-700"
+              : banner.kind === "warning"
+                ? "border-amber-300 bg-amber-50 text-amber-800"
+                : "border-red-200 bg-red-50 text-red-700"
           }`}
         >
           {banner.message}
@@ -802,6 +843,78 @@ export default async function EventCheckInPage({
         </section>
       ) : null}
 
+      <form
+        action={checkInEventTicketCodeAction}
+        className="sticky top-2 z-30 rounded-[28px] border-2 border-[var(--brand-primary)] bg-white/95 p-4 shadow-xl backdrop-blur md:static md:border-[var(--brand-border)] md:p-5 md:shadow-sm"
+      >
+        <input type="hidden" name="eventId" value={typedEvent.id} />
+        {isGroupClass && selectedSessionId ? (
+          <input
+            type="hidden"
+            name="eventSessionId"
+            value={selectedSessionId}
+          />
+        ) : null}
+        <input
+          type="hidden"
+          name="returnTo"
+          value={buildCheckInHref({
+            eventId: typedEvent.id,
+            q: query.q ?? "",
+            status: statusFilter,
+            sessionId: selectedSessionId,
+          })}
+        />
+
+        <div className="mb-3 flex items-center justify-between gap-3 md:hidden">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-primary)]">
+              Fast check-in
+            </p>
+            <p className="text-sm text-slate-600">
+              Scan or enter a ticket code without scrolling.
+            </p>
+          </div>
+          <span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-semibold text-[var(--brand-primary)]">
+            Mobile ready
+          </span>
+        </div>
+
+        <div className="grid gap-3 lg:grid-cols-[1fr_auto_auto] lg:items-end">
+          <div className="min-w-0">
+            <label
+              htmlFor="ticketCode"
+              className="mb-1 block text-sm font-medium text-slate-900"
+            >
+              Ticket code
+            </label>
+            <input
+              id="ticketCode"
+              name="ticketCode"
+              className="w-full rounded-xl border border-slate-300 px-3 py-3 font-mono text-base uppercase tracking-wide md:py-2"
+              placeholder="Example: DF-A1B2C3D4E5"
+              autoComplete="off"
+              inputMode="text"
+            />
+            <p className="mt-2 hidden text-xs text-slate-500 md:block">
+              Use this when a guest shows their ticket code or staff reads it
+              from a confirmation.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:items-end">
+            <TicketCodeScanner inputId="ticketCode" />
+
+            <button
+              type="submit"
+              className="inline-flex w-full items-center justify-center rounded-xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90 md:py-2 lg:w-auto"
+            >
+              Check In Code
+            </button>
+          </div>
+        </div>
+      </form>
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm text-slate-500">Ready to Check In</p>
@@ -831,62 +944,6 @@ export default async function EventCheckInPage({
           </p>
         </div>
       </div>
-
-      <form
-        action={checkInEventTicketCodeAction}
-        className="rounded-[28px] border border-[var(--brand-border)] bg-white p-5 shadow-sm"
-      >
-        <input type="hidden" name="eventId" value={typedEvent.id} />
-        {isGroupClass && selectedSessionId ? (
-          <input
-            type="hidden"
-            name="eventSessionId"
-            value={selectedSessionId}
-          />
-        ) : null}
-        <input
-          type="hidden"
-          name="returnTo"
-          value={buildCheckInHref({
-            eventId: typedEvent.id,
-            q: query.q ?? "",
-            status: statusFilter,
-            sessionId: selectedSessionId,
-          })}
-        />
-
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
-          <div className="min-w-0 flex-1">
-            <label
-              htmlFor="ticketCode"
-              className="mb-1 block text-sm font-medium text-slate-900"
-            >
-              Check in by ticket code
-            </label>
-            <input
-              id="ticketCode"
-              name="ticketCode"
-              className="w-full rounded-xl border border-slate-300 px-3 py-2 font-mono uppercase tracking-wide"
-              placeholder="Example: DF-A1B2C3D4E5"
-              autoComplete="off"
-            />
-            <p className="mt-2 text-xs text-slate-500">
-              Use this when a guest shows their ticket code or staff reads it
-              from a confirmation.
-            </p>
-            <div className="mt-3">
-              <TicketCodeScanner inputId="ticketCode" />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-white hover:opacity-90"
-          >
-            Check In Code
-          </button>
-        </div>
-      </form>
 
       <form className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         {isGroupClass && selectedSessionId ? (
@@ -966,11 +1023,13 @@ export default async function EventCheckInPage({
               attendeeRows.find((attendee) =>
                 Boolean(attendee.checked_in_at),
               ) ?? null;
+            const checkedInAttendeeCount = attendeeRows.filter((attendee) =>
+              Boolean(attendee.checked_in_at),
+            ).length;
             const effectiveStatus = getEffectiveStatus(registration);
             const effectiveCheckedInAt =
-              registration.checked_in_at ??
               firstCheckedInAttendee?.checked_in_at ??
-              null;
+              (attendeeRows.length === 0 ? registration.checked_in_at : null);
 
             const fullName =
               `${registration.attendee_first_name} ${registration.attendee_last_name}`.trim();
@@ -1070,11 +1129,24 @@ export default async function EventCheckInPage({
                                     : "Attendee"}
                                   {attendee.email ? ` • ${attendee.email}` : ""}
                                 </p>
-                                {attendee.ticket_code ? (
-                                  <p className="mt-2 inline-flex rounded-lg bg-slate-100 px-2 py-1 font-mono text-xs font-semibold tracking-wide text-slate-700">
-                                    {attendee.ticket_code}
-                                  </p>
-                                ) : null}
+                                <div className="mt-2 flex flex-wrap items-center gap-2">
+                                  {attendee.ticket_code ? (
+                                    <p className="inline-flex rounded-lg bg-slate-100 px-2 py-1 font-mono text-xs font-semibold tracking-wide text-slate-700">
+                                      {attendee.ticket_code}
+                                    </p>
+                                  ) : null}
+                                  <span
+                                    className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
+                                      attendee.checked_in_at
+                                        ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                        : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
+                                    }`}
+                                  >
+                                    {attendee.checked_in_at
+                                      ? `Checked in ${formatDateTime(attendee.checked_in_at)}`
+                                      : "Not checked in"}
+                                  </span>
+                                </div>
                               </div>
                             );
                           })}
@@ -1107,8 +1179,15 @@ export default async function EventCheckInPage({
                       <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                         <p className="text-sm text-slate-500">Checked In</p>
                         <p className="mt-1 font-medium text-slate-900">
-                          {formatDateTime(effectiveCheckedInAt)}
+                          {attendeeRows.length > 0
+                            ? `${checkedInAttendeeCount}/${attendeeRows.length} tickets`
+                            : formatDateTime(effectiveCheckedInAt)}
                         </p>
+                        {attendeeRows.length > 0 && effectiveCheckedInAt ? (
+                          <p className="mt-1 text-xs text-slate-500">
+                            Latest: {formatDateTime(effectiveCheckedInAt)}
+                          </p>
+                        ) : null}
                       </div>
 
                       <div

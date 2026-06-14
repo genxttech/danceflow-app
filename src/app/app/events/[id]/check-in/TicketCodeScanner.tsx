@@ -138,7 +138,11 @@ export default function TicketCodeScanner({ inputId }: TicketCodeScannerProps) {
             streamRef.current = null;
             setOpen(false);
 
-            form?.requestSubmit();
+            // Defer submission one tick so the input/change events finish
+            // propagating before the server action receives the form data.
+            window.setTimeout(() => {
+              form?.requestSubmit();
+            }, 0);
           } catch {
             // Keep scanning. Some frames fail when the QR code is not fully visible.
           }

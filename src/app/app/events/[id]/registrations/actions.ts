@@ -3,6 +3,7 @@
 import { randomUUID } from "crypto";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createSupabaseServiceClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
@@ -66,6 +67,21 @@ type EventSessionRow = {
 type EventPaymentRow = {
   id: string;
 };
+
+
+function createServiceRoleClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) return null;
+
+  return createSupabaseServiceClient(url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -208,6 +224,27 @@ async function findAttendeeByTicketCode(params: {
   }
 
   return data ?? null;
+}
+
+async function allAttendeeTicketsCheckedIn(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  registrationId: string;
+}) {
+  const { supabase, eventId, registrationId } = params;
+
+  const { data, error } = await supabase
+    .from("event_registration_attendees")
+    .select("id, checked_in_at")
+    .eq("event_id", eventId)
+    .eq("registration_id", registrationId);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const rows = data ?? [];
+  return rows.length > 0 && rows.every((row) => Boolean(row.checked_in_at));
 }
 
 async function upsertAttendanceLink(params: {
@@ -1088,33 +1125,33 @@ export async function checkInEventTicketCodeAction(formData: FormData) {
             eventSessionId: isGroupClass ? eventSessionId : null,
           });
 
-          if (
+          const attendeeAlreadyCheckedIn = Boolean(attendee.checked_in_at);
+          const sessionAlreadyCheckedIn =
             existingAttendance?.status === "checked_in" ||
-            existingAttendance?.status === "attended" ||
-            (!isGroupClass &&
-              (registration.checked_in_at || registration.status === "checked_in"))
-          ) {
+            existingAttendance?.status === "attended";
+
+          // QR tickets are issued per attendee row. Do not treat the parent
+          // registration-level checked_in_at as proof that this specific QR ticket
+          // has already been checked in, because one registration can contain
+          // multiple attendee tickets.
+          const shouldTreatAsAlreadyCheckedIn = isGroupClass
+            ? sessionAlreadyCheckedIn
+            : attendeeAlreadyCheckedIn;
+
+          if (shouldTreatAsAlreadyCheckedIn) {
             nextUrl = resolveReturnUrl({
               eventId,
               returnTo,
-              fallbackSuffix: "success=already_checked_in",
+              fallbackSuffix: `warning=already_checked_in&ticket=${encodeURIComponent(
+                normalizeTicketCode(ticketCode),
+              )}`,
             });
           } else {
             const now = new Date().toISOString();
+            const serviceSupabase = createServiceRoleClient();
+            const writeSupabase: any = serviceSupabase ?? supabase;
 
-            const { error: registrationUpdateError } = await supabase
-              .from("event_registrations")
-              .update({
-                checked_in_at: now,
-              })
-              .eq("id", attendee.registration_id)
-              .eq("event_id", eventId);
-
-            if (registrationUpdateError) {
-              throw new Error(registrationUpdateError.message);
-            }
-
-            const { error: attendeeUpdateError } = await supabase
+            const { error: attendeeUpdateError } = await writeSupabase
               .from("event_registration_attendees")
               .update({
                 checked_in_at: now,
@@ -1126,6 +1163,26 @@ export async function checkInEventTicketCodeAction(formData: FormData) {
 
             if (attendeeUpdateError) {
               throw new Error(attendeeUpdateError.message);
+            }
+
+            const registrationFullyCheckedIn = await allAttendeeTicketsCheckedIn({
+              supabase,
+              eventId,
+              registrationId: attendee.registration_id,
+            });
+
+            if (registrationFullyCheckedIn) {
+              const { error: registrationUpdateError } = await writeSupabase
+                .from("event_registrations")
+                .update({
+                  checked_in_at: now,
+                })
+                .eq("id", attendee.registration_id)
+                .eq("event_id", eventId);
+
+              if (registrationUpdateError) {
+                throw new Error(registrationUpdateError.message);
+              }
             }
 
             await upsertAttendanceStatus({
@@ -1258,7 +1315,7 @@ export async function checkInEventRegistrationAction(formData: FormData) {
           nextUrl = resolveReturnUrl({
             eventId,
             returnTo,
-            fallbackSuffix: "success=already_checked_in",
+            fallbackSuffix: "warning=already_checked_in",
           });
         } else {
           const now = new Date().toISOString();

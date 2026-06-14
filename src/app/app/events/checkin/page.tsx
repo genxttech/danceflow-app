@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  ArrowRight,
   CalendarDays,
   CheckCircle2,
   ClipboardList,
+  Clock,
+  MapPin,
   Search,
   Users,
 } from "lucide-react";
@@ -30,12 +33,24 @@ type RegistrationRow = {
   event_id: string;
   status: string;
   payment_status: string | null;
+  checked_in_at: string | null;
 };
 
-type AttendanceRow = {
+type AttendeeRow = {
   id: string;
-  event_registration_id: string;
-  status: string;
+  event_id: string;
+  registration_id: string;
+  checked_in_at: string | null;
+};
+
+type EventCardRow = EventRow & {
+  totalRegistrations: number;
+  paidRegistrations: number;
+  totalTickets: number;
+  checkInTotal: number;
+  checkedInCount: number;
+  remainingCount: number;
+  timing: "past" | "today" | "upcoming";
 };
 
 function formatDateRange(startDate: string, endDate: string) {
@@ -87,7 +102,9 @@ function eventTypeLabel(value: string) {
   if (value === "festival") return "Festival";
   if (value === "special_event") return "Special Event";
   if (value === "other") return "Other";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function statusBadgeClass(status: string) {
@@ -107,9 +124,12 @@ function statusBadgeClass(status: string) {
 }
 
 function visibilityBadgeClass(value: string) {
-  if (value === "public") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
-  if (value === "unlisted") return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
-  if (value === "private") return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+  if (value === "public")
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  if (value === "unlisted")
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  if (value === "private")
+    return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
@@ -118,24 +138,31 @@ function getLocation(city: string | null, state: string | null) {
   return parts.length ? parts.join(", ") : "Location not set";
 }
 
-function getEventTimingBucket(startDate: string) {
+function getEventTimingBucket(
+  startDate: string,
+): "past" | "today" | "upcoming" {
   const today = new Date();
   const todayKey = new Date(
     today.getFullYear(),
     today.getMonth(),
-    today.getDate()
+    today.getDate(),
   ).getTime();
 
   const eventDate = new Date(`${startDate}T00:00:00`);
   const eventKey = new Date(
     eventDate.getFullYear(),
     eventDate.getMonth(),
-    eventDate.getDate()
+    eventDate.getDate(),
   ).getTime();
 
   if (eventKey < todayKey) return "past";
   if (eventKey === todayKey) return "today";
   return "upcoming";
+}
+
+function progressPercent(checkedInCount: number, total: number) {
+  if (total <= 0) return 0;
+  return Math.min(100, Math.round((checkedInCount / total) * 100));
 }
 
 function StatCard({
@@ -162,6 +189,136 @@ function StatCard({
   );
 }
 
+function EventQuickCard({
+  event,
+  priority = false,
+  actionLabel,
+}: {
+  event: EventCardRow;
+  priority?: boolean;
+  actionLabel: string;
+}) {
+  const percent = progressPercent(event.checkedInCount, event.checkInTotal);
+  const remainingText = `${event.remainingCount} ${event.remainingCount === 1 ? "ticket" : "tickets"} remaining`;
+
+  return (
+    <article
+      className={
+        priority
+          ? "rounded-[32px] border-2 border-[var(--brand-primary)] bg-white p-5 shadow-lg shadow-violet-100 md:p-6"
+          : "rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm md:p-6"
+      }
+    >
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          {priority ? (
+            <p className="mb-2 inline-flex rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-[var(--brand-primary)]">
+              Start here
+            </p>
+          ) : null}
+          <h3 className="text-xl font-semibold text-slate-950">{event.name}</h3>
+          <div className="mt-3 space-y-1 text-sm text-slate-500">
+            <p className="flex items-center gap-2">
+              <CalendarDays className="h-4 w-4 text-slate-400" />
+              {formatDateRange(event.start_date, event.end_date)}
+            </p>
+            <p className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-slate-400" />
+              {formatTimeRange(event.start_time, event.end_time)}
+            </p>
+            <p className="flex items-center gap-2">
+              <MapPin className="h-4 w-4 text-slate-400" />
+              {getLocation(event.city, event.state)}
+            </p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 sm:justify-end">
+          <span
+            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
+              event.status,
+            )}`}
+          >
+            {event.status}
+          </span>
+          <span
+            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${visibilityBadgeClass(
+              event.visibility,
+            )}`}
+          >
+            {event.visibility}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+            Type
+          </p>
+          <p className="mt-2 font-semibold text-slate-900">
+            {eventTypeLabel(event.event_type)}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+            Tickets
+          </p>
+          <p className="mt-2 font-semibold text-slate-900">
+            {event.checkInTotal}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
+            Checked In
+          </p>
+          <p className="mt-2 font-semibold text-slate-900">
+            {event.checkedInCount}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4">
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <p className="font-medium text-violet-950">
+            {event.checkedInCount}/{event.checkInTotal} checked in
+          </p>
+          <p className="text-violet-800">{remainingText}</p>
+        </div>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-white">
+          <div
+            className="h-full rounded-full bg-[var(--brand-primary)]"
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-[1fr_auto]">
+        <Link
+          href={`/app/events/${event.id}/check-in`}
+          className={
+            priority
+              ? "inline-flex min-h-12 items-center justify-center gap-2 rounded-2xl bg-slate-950 px-5 py-3 text-base font-semibold text-white hover:bg-slate-800"
+              : "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
+          }
+        >
+          {actionLabel}
+          <ArrowRight className="h-4 w-4" />
+        </Link>
+
+        <Link
+          href={`/app/events/${event.id}/registrations`}
+          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
+        >
+          View Registrations
+        </Link>
+      </div>
+    </article>
+  );
+}
+
 export default async function EventCheckInIndexPage() {
   const supabase = await createClient();
 
@@ -178,7 +335,8 @@ export default async function EventCheckInIndexPage() {
 
   const { data: events, error: eventsError } = await supabase
     .from("events")
-    .select(`
+    .select(
+      `
       id,
       name,
       slug,
@@ -191,117 +349,163 @@ export default async function EventCheckInIndexPage() {
       state,
       status,
       visibility
-    `)
+    `,
+    )
     .eq("studio_id", studioId)
     .order("start_date", { ascending: true })
     .order("start_time", { ascending: true })
     .order("name", { ascending: true });
 
   if (eventsError) {
-    throw new Error(`Failed to load events for check-in: ${eventsError.message}`);
+    throw new Error(
+      `Failed to load events for check-in: ${eventsError.message}`,
+    );
   }
 
   const typedEvents = (events ?? []) as EventRow[];
   const eventIds = typedEvents.map((event) => event.id);
 
   let typedRegistrations: RegistrationRow[] = [];
-  let typedAttendance: AttendanceRow[] = [];
+  let typedAttendees: AttendeeRow[] = [];
 
   if (eventIds.length > 0) {
-    const [{ data: registrations, error: registrationsError }] = await Promise.all([
+    const [
+      { data: registrations, error: registrationsError },
+      { data: attendees, error: attendeesError },
+    ] = await Promise.all([
       supabase
         .from("event_registrations")
-        .select(`
-          id,
-          event_id,
-          status,
-          payment_status
-        `)
+        .select(
+          `
+            id,
+            event_id,
+            status,
+            payment_status,
+            checked_in_at
+          `,
+        )
+        .in("event_id", eventIds),
+      supabase
+        .from("event_registration_attendees")
+        .select(
+          `
+            id,
+            event_id,
+            registration_id,
+            checked_in_at
+          `,
+        )
         .in("event_id", eventIds),
     ]);
 
     if (registrationsError) {
-      throw new Error(`Failed to load registrations for check-in: ${registrationsError.message}`);
+      throw new Error(
+        `Failed to load registrations for check-in: ${registrationsError.message}`,
+      );
+    }
+
+    if (attendeesError) {
+      throw new Error(
+        `Failed to load attendee tickets for check-in: ${attendeesError.message}`,
+      );
     }
 
     typedRegistrations = (registrations ?? []) as RegistrationRow[];
-
-    const registrationIds = typedRegistrations.map((registration) => registration.id);
-
-    if (registrationIds.length > 0) {
-      const { data: attendanceRows, error: attendanceError } = await supabase
-        .from("attendance_records")
-        .select(`
-          id,
-          event_registration_id,
-          status
-        `)
-        .in("event_registration_id", registrationIds);
-
-      if (attendanceError) {
-        throw new Error(`Failed to load attendance for check-in: ${attendanceError.message}`);
-      }
-
-      typedAttendance = (attendanceRows ?? []) as AttendanceRow[];
-    }
+    typedAttendees = (attendees ?? []) as AttendeeRow[];
   }
 
-  const registrationIdsByEvent = new Map<string, string[]>();
+  const registrationsByEvent = new Map<string, RegistrationRow[]>();
   for (const registration of typedRegistrations) {
-    const current = registrationIdsByEvent.get(registration.event_id) ?? [];
-    current.push(registration.id);
-    registrationIdsByEvent.set(registration.event_id, current);
+    const current = registrationsByEvent.get(registration.event_id) ?? [];
+    current.push(registration);
+    registrationsByEvent.set(registration.event_id, current);
   }
 
-  const attendanceByRegistrationId = new Map<string, AttendanceRow[]>();
-  for (const attendance of typedAttendance) {
-    const current = attendanceByRegistrationId.get(attendance.event_registration_id) ?? [];
-    current.push(attendance);
-    attendanceByRegistrationId.set(attendance.event_registration_id, current);
+  const attendeesByEvent = new Map<string, AttendeeRow[]>();
+  for (const attendee of typedAttendees) {
+    const current = attendeesByEvent.get(attendee.event_id) ?? [];
+    current.push(attendee);
+    attendeesByEvent.set(attendee.event_id, current);
   }
 
-  const eventCards = typedEvents.map((event) => {
-    const registrationIds = registrationIdsByEvent.get(event.id) ?? [];
-
-    const checkedInCount = registrationIds.reduce((sum, registrationId) => {
-      const attendanceRows = attendanceByRegistrationId.get(registrationId) ?? [];
-      const hasCheckedIn = attendanceRows.some((row) => row.status === "checked_in");
-      return sum + (hasCheckedIn ? 1 : 0);
-    }, 0);
-
-    const paidRegistrations = typedRegistrations.filter(
+  const eventCards: EventCardRow[] = typedEvents.map((event) => {
+    const registrations = registrationsByEvent.get(event.id) ?? [];
+    const attendees = attendeesByEvent.get(event.id) ?? [];
+    const paidRegistrations = registrations.filter(
       (registration) =>
-        registration.event_id === event.id &&
-        (registration.payment_status === "paid" ||
-          registration.payment_status === "partial" ||
-          registration.payment_status === null)
+        registration.payment_status === "paid" ||
+        registration.payment_status === "partial" ||
+        registration.payment_status === null,
     ).length;
+
+    const checkedInTicketCount = attendees.filter((attendee) =>
+      Boolean(attendee.checked_in_at),
+    ).length;
+    const checkedInRegistrationCount = registrations.filter((registration) =>
+      Boolean(registration.checked_in_at),
+    ).length;
+    const checkInTotal =
+      attendees.length > 0 ? attendees.length : registrations.length;
+    const checkedInCount =
+      attendees.length > 0 ? checkedInTicketCount : checkedInRegistrationCount;
 
     return {
       ...event,
-      totalRegistrations: registrationIds.length,
+      totalRegistrations: registrations.length,
       paidRegistrations,
+      totalTickets: attendees.length,
+      checkInTotal,
       checkedInCount,
-      remainingCount: Math.max(registrationIds.length - checkedInCount, 0),
+      remainingCount: Math.max(checkInTotal - checkedInCount, 0),
       timing: getEventTimingBucket(event.start_date),
     };
   });
 
   const todayEvents = eventCards.filter((event) => event.timing === "today");
-  const upcomingEvents = eventCards.filter((event) => event.timing === "upcoming");
+  const upcomingEvents = eventCards.filter(
+    (event) => event.timing === "upcoming",
+  );
   const pastEvents = eventCards.filter((event) => event.timing === "past");
 
-  const priorityEvents = [...todayEvents, ...upcomingEvents, ...pastEvents];
+  const primaryEvent =
+    [...todayEvents].sort(
+      (a, b) =>
+        b.remainingCount - a.remainingCount || b.checkInTotal - a.checkInTotal,
+    )[0] ??
+    [...upcomingEvents].sort((a, b) =>
+      a.start_date.localeCompare(b.start_date),
+    )[0] ??
+    eventCards[0] ??
+    null;
+
+  const secondaryTodayEvents = primaryEvent
+    ? todayEvents.filter((event) => event.id !== primaryEvent.id)
+    : todayEvents;
+  const secondaryUpcomingEvents =
+    primaryEvent?.timing === "upcoming"
+      ? upcomingEvents.filter((event) => event.id !== primaryEvent.id)
+      : upcomingEvents;
+  const secondaryPastEvents =
+    primaryEvent?.timing === "past"
+      ? pastEvents.filter((event) => event.id !== primaryEvent.id)
+      : pastEvents;
 
   const totalRegistrations = eventCards.reduce(
     (sum, event) => sum + event.totalRegistrations,
-    0
+    0,
   );
-  const totalCheckedIn = eventCards.reduce((sum, event) => sum + event.checkedInCount, 0);
-  const totalRemaining = Math.max(totalRegistrations - totalCheckedIn, 0);
+  const totalCheckInTickets = eventCards.reduce(
+    (sum, event) => sum + event.checkInTotal,
+    0,
+  );
+  const totalCheckedIn = eventCards.reduce(
+    (sum, event) => sum + event.checkedInCount,
+    0,
+  );
+  const totalRemaining = Math.max(totalCheckInTickets - totalCheckedIn, 0);
 
   return (
-    <main className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.42)_0%,rgba(255,255,255,0)_20%)] p-1">
+    <main className="space-y-6 bg-[linear-gradient(180deg,rgba(255,247,237,0.42)_0%,rgba(255,255,255,0)_20%)] p-1 md:space-y-8">
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
@@ -313,7 +517,9 @@ export default async function EventCheckInIndexPage() {
                 Event Check-In Hub
               </h1>
               <p className="mt-3 text-sm leading-7 text-white/85 md:text-base">
-                Pick an event, open the attendee check-in screen, and manage arrivals quickly on event day.
+                Event-day check-in should be fast. Start with the most likely
+                event, then scan QR codes from the sticky scan panel on the
+                event page.
               </p>
             </div>
 
@@ -337,33 +543,67 @@ export default async function EventCheckInIndexPage() {
 
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
           <div className="grid gap-4 md:grid-cols-4">
-            <StatCard label="Events" value={eventCards.length} icon={CalendarDays} />
-            <StatCard label="Registrations" value={totalRegistrations} icon={ClipboardList} />
-            <StatCard label="Checked In" value={totalCheckedIn} icon={CheckCircle2} />
-            <StatCard label="Still Arriving" value={totalRemaining} icon={Users} />
+            <StatCard
+              label="Events"
+              value={eventCards.length}
+              icon={CalendarDays}
+            />
+            <StatCard
+              label="Registrations"
+              value={totalRegistrations}
+              icon={ClipboardList}
+            />
+            <StatCard
+              label="Checked In"
+              value={totalCheckedIn}
+              icon={CheckCircle2}
+            />
+            <StatCard
+              label="Still Arriving"
+              value={totalRemaining}
+              icon={Users}
+            />
           </div>
         </div>
       </section>
 
-      <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-start gap-3">
-          <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
-            <Search className="h-5 w-5" />
+      {primaryEvent ? (
+        <section className="rounded-[32px] border border-violet-200 bg-violet-50/70 p-4 shadow-sm md:p-6">
+          <div className="mb-4 flex items-start gap-3">
+            <div className="rounded-2xl bg-white p-3 text-[var(--brand-primary)] shadow-sm">
+              <Search className="h-5 w-5" />
+            </div>
+
+            <div>
+              <h2 className="text-xl font-semibold text-slate-950">
+                Fastest path for check-in
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Tap the main event below. The event page opens with the QR
+                scanner and manual ticket-code field at the top for mobile
+                check-in.
+              </p>
+            </div>
           </div>
 
-          <div>
-            <h2 className="text-xl font-semibold text-slate-900">Fast event-day flow</h2>
-            <p className="mt-2 text-sm leading-7 text-slate-600">
-              Start with today’s events first, then upcoming events. Each card below opens the full attendee check-in screen for that event.
-            </p>
-          </div>
-        </div>
-      </section>
+          <EventQuickCard
+            event={primaryEvent}
+            priority
+            actionLabel={
+              primaryEvent.timing === "past"
+                ? "Review Check-In"
+                : "Start Check-In"
+            }
+          />
+        </section>
+      ) : null}
 
       <section className="space-y-8">
-        {priorityEvents.length === 0 ? (
+        {eventCards.length === 0 ? (
           <div className="rounded-[32px] border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-sm">
-            <p className="text-lg font-semibold text-slate-900">No events available for check-in</p>
+            <p className="text-lg font-semibold text-slate-900">
+              No events available for check-in
+            </p>
             <p className="mt-2 text-sm text-slate-500">
               Create an event first, then return here to check attendees in.
             </p>
@@ -376,111 +616,30 @@ export default async function EventCheckInIndexPage() {
           </div>
         ) : (
           <>
-            {todayEvents.length > 0 ? (
+            {secondaryTodayEvents.length > 0 ? (
               <div className="space-y-4">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-[0.16em] text-[var(--brand-primary)]">
                     Today
                   </p>
                   <h2 className="mt-1 text-2xl font-semibold text-slate-950">
-                    Priority check-in events
+                    Other events today
                   </h2>
                 </div>
 
                 <div className="grid gap-5 xl:grid-cols-2">
-                  {todayEvents.map((event) => (
-                    <article
+                  {secondaryTodayEvents.map((event) => (
+                    <EventQuickCard
                       key={event.id}
-                      className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-xl font-semibold text-slate-950">{event.name}</h3>
-                          <p className="mt-2 text-sm text-slate-500">
-                            {formatDateRange(event.start_date, event.end_date)} •{" "}
-                            {formatTimeRange(event.start_time, event.end_time)}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {getLocation(event.city, event.state)}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                              event.status
-                            )}`}
-                          >
-                            {event.status}
-                          </span>
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${visibilityBadgeClass(
-                              event.visibility
-                            )}`}
-                          >
-                            {event.visibility}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                            Type
-                          </p>
-                          <p className="mt-2 font-semibold text-slate-900">
-                            {eventTypeLabel(event.event_type)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                            Registrations
-                          </p>
-                          <p className="mt-2 font-semibold text-slate-900">
-                            {event.totalRegistrations}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                            Checked In
-                          </p>
-                          <p className="mt-2 font-semibold text-slate-900">
-                            {event.checkedInCount}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4">
-                        <p className="text-sm text-violet-800">
-                          {event.remainingCount} attendee
-                          {event.remainingCount === 1 ? "" : "s"} still remaining to check in.
-                        </p>
-                      </div>
-
-                      <div className="mt-5 flex flex-wrap gap-3">
-                        <Link
-                          href={`/app/events/${event.id}/check-in`}
-                          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-                        >
-                          Open Check-In
-                        </Link>
-
-                        <Link
-                          href={`/app/events/${event.id}/registrations`}
-                          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          View Registrations
-                        </Link>
-                      </div>
-                    </article>
+                      event={event}
+                      actionLabel="Start Check-In"
+                    />
                   ))}
                 </div>
               </div>
             ) : null}
 
-            {upcomingEvents.length > 0 ? (
+            {secondaryUpcomingEvents.length > 0 ? (
               <div className="space-y-4">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -492,92 +651,18 @@ export default async function EventCheckInIndexPage() {
                 </div>
 
                 <div className="grid gap-5 xl:grid-cols-2">
-                  {upcomingEvents.map((event) => (
-                    <article
+                  {secondaryUpcomingEvents.map((event) => (
+                    <EventQuickCard
                       key={event.id}
-                      className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-xl font-semibold text-slate-950">{event.name}</h3>
-                          <p className="mt-2 text-sm text-slate-500">
-                            {formatDateRange(event.start_date, event.end_date)} •{" "}
-                            {formatTimeRange(event.start_time, event.end_time)}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {getLocation(event.city, event.state)}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                              event.status
-                            )}`}
-                          >
-                            {event.status}
-                          </span>
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${visibilityBadgeClass(
-                              event.visibility
-                            )}`}
-                          >
-                            {event.visibility}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                            Type
-                          </p>
-                          <p className="mt-2 font-semibold text-slate-900">
-                            {eventTypeLabel(event.event_type)}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                            Registrations
-                          </p>
-                          <p className="mt-2 font-semibold text-slate-900">
-                            {event.totalRegistrations}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                            Checked In
-                          </p>
-                          <p className="mt-2 font-semibold text-slate-900">
-                            {event.checkedInCount}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-5 flex flex-wrap gap-3">
-                        <Link
-                          href={`/app/events/${event.id}/check-in`}
-                          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-                        >
-                          Open Check-In
-                        </Link>
-
-                        <Link
-                          href={`/app/events/${event.id}/registrations`}
-                          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          View Registrations
-                        </Link>
-                      </div>
-                    </article>
+                      event={event}
+                      actionLabel="Open Check-In"
+                    />
                   ))}
                 </div>
               </div>
             ) : null}
 
-            {pastEvents.length > 0 ? (
+            {secondaryPastEvents.length > 0 ? (
               <div className="space-y-4">
                 <div>
                   <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
@@ -589,86 +674,12 @@ export default async function EventCheckInIndexPage() {
                 </div>
 
                 <div className="grid gap-5 xl:grid-cols-2">
-                  {pastEvents.map((event) => (
-                    <article
+                  {secondaryPastEvents.map((event) => (
+                    <EventQuickCard
                       key={event.id}
-                      className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-xl font-semibold text-slate-950">{event.name}</h3>
-                          <p className="mt-2 text-sm text-slate-500">
-                            {formatDateRange(event.start_date, event.end_date)} •{" "}
-                            {formatTimeRange(event.start_time, event.end_time)}
-                          </p>
-                          <p className="mt-1 text-sm text-slate-500">
-                            {getLocation(event.city, event.state)}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-wrap gap-2">
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                              event.status
-                            )}`}
-                          >
-                            {event.status}
-                          </span>
-                          <span
-                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${visibilityBadgeClass(
-                              event.visibility
-                            )}`}
-                          >
-                            {event.visibility}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                            Registrations
-                          </p>
-                          <p className="mt-2 font-semibold text-slate-900">
-                            {event.totalRegistrations}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                            Checked In
-                          </p>
-                          <p className="mt-2 font-semibold text-slate-900">
-                            {event.checkedInCount}
-                          </p>
-                        </div>
-
-                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                          <p className="text-xs uppercase tracking-[0.14em] text-slate-500">
-                            Remaining
-                          </p>
-                          <p className="mt-2 font-semibold text-slate-900">
-                            {event.remainingCount}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-5 flex flex-wrap gap-3">
-                        <Link
-                          href={`/app/events/${event.id}/check-in`}
-                          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-medium text-white hover:bg-slate-800"
-                        >
-                          Review Check-In
-                        </Link>
-
-                        <Link
-                          href={`/app/events/${event.id}/registrations`}
-                          className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                        >
-                          View Registrations
-                        </Link>
-                      </div>
-                    </article>
+                      event={event}
+                      actionLabel="Review Check-In"
+                    />
                   ))}
                 </div>
               </div>
