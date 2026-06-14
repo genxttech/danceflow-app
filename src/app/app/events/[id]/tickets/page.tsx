@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { createTicketTypeAction, updateTicketTypeAction } from "./actions";
+import TimezoneFormatter from "./TimezoneFormatter";
 
 type TicketTypeRow = {
   id: string;
@@ -274,12 +275,7 @@ export default async function EventTicketsPage({
 
   return (
     <div className="space-y-6">
-      <script
-        dangerouslySetInnerHTML={{
-          __html:
-            "document.addEventListener('DOMContentLoaded',function(){document.querySelectorAll('[data-timezone-offset-minutes]').forEach(function(input){input.value=String(new Date().getTimezoneOffset());});});",
-        }}
-      />
+      <TimezoneFormatter />
       <section className="overflow-hidden rounded-[28px] border border-[#E9D5FF] bg-gradient-to-r from-[#2D0B45] via-[#5B197A] to-[#7C2D92] text-white shadow-sm">
         <div className="flex flex-col gap-6 px-6 py-6 md:flex-row md:items-start md:justify-between md:px-8">
           <div className="max-w-3xl">
