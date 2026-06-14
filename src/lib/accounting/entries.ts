@@ -83,6 +83,9 @@ type ExpenseRow = {
   amount: number | null;
   currency: string | null;
   payment_method: string | null;
+  related_event_id?: string | null;
+  related_client_id?: string | null;
+  related_appointment_id?: string | null;
   notes: string | null;
   created_at: string;
 };
@@ -264,7 +267,9 @@ function expenseCategory(expense: ExpenseRow) {
   if (category === "marketing") return "marketing_expense";
   if (category === "software") return "software_expense";
   if (category === "supplies") return "supplies_expense";
-  if (category === "event_expense") return "event_expense";
+  if (["event_expense", "event_cost", "event", "event_costs"].includes(category)) {
+    return "event_expense";
+  }
   if (category === "travel") return "travel_expense";
   return "other_expense";
 }
@@ -644,9 +649,9 @@ function expenseToEntry(expense: ExpenseRow): AccountingEntry {
     paymentMethod: expense.payment_method,
     sourceTable: "expenses",
     sourceId: expense.id,
-    clientId: null,
-    eventId: null,
-    appointmentId: null,
+    clientId: expense.related_client_id ?? null,
+    eventId: expense.related_event_id ?? null,
+    appointmentId: expense.related_appointment_id ?? null,
     externalReference: null,
     stripePaymentIntentId: null,
     stripeChargeId: null,
@@ -676,8 +681,13 @@ export async function getStudioAccountingEntries({
         "id, studio_id, client_id, client_package_id, client_membership_id, amount, currency, payment_method, payment_type, source, status, notes, paid_at, created_at, external_payment_id, external_reference, stripe_payment_intent_id, stripe_charge_id, stripe_invoice_id, stripe_processing_fee_amount, stripe_application_fee_amount, platform_fee_amount, stripe_balance_transaction_id, refund_amount, refunded_at, stripe_refund_id",
       )
       .eq("studio_id", studioId)
-      .gte("created_at", startDate)
-      .lte("created_at", endDate)
+      .or(
+        [
+          `and(created_at.gte.${startDate},created_at.lte.${endDate})`,
+          `and(paid_at.gte.${startDate},paid_at.lte.${endDate})`,
+          `and(refunded_at.gte.${startDate},refunded_at.lte.${endDate})`,
+        ].join(","),
+      )
       .limit(5000),
     supabase
       .from("accounting_entries")
@@ -693,7 +703,7 @@ export async function getStudioAccountingEntries({
       .limit(5000),
     supabase
       .from("expenses")
-      .select("id, studio_id, expense_date, vendor_name, category, amount, currency, payment_method, notes, created_at")
+      .select("id, studio_id, expense_date, vendor_name, category, amount, currency, payment_method, related_event_id, related_client_id, related_appointment_id, notes, created_at")
       .eq("studio_id", studioId)
       .gte("expense_date", startDate.slice(0, 10))
       .lte("expense_date", endDate.slice(0, 10))
@@ -727,14 +737,21 @@ export async function getStudioAccountingEntries({
     (eventAccountingEntriesResult.data ?? []) as AccountingEntryDbRow[]
   ).map(dbAccountingEntryToEntry);
 
+  const rangeStartDate = startDate.slice(0, 10);
+  const rangeEndDate = endDate.slice(0, 10);
+
   const entries = [
     ...paymentEntries,
     ...eventPaymentEntries,
     ...((expensesResult.data ?? []) as ExpenseRow[]).map(expenseToEntry),
-  ].sort((a, b) => {
-    if (a.entryDate === b.entryDate) return b.createdAt.localeCompare(a.createdAt);
-    return b.entryDate.localeCompare(a.entryDate);
-  });
+  ]
+    .filter((entry) =>
+      entry.entryDate >= rangeStartDate && entry.entryDate <= rangeEndDate,
+    )
+    .sort((a, b) => {
+      if (a.entryDate === b.entryDate) return b.createdAt.localeCompare(a.createdAt);
+      return b.entryDate.localeCompare(a.entryDate);
+    });
 
   return entries;
 }
