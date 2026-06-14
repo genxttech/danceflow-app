@@ -771,6 +771,12 @@ export default async function EventTicketsPage({
               </p>
             </div>
             <div className="flex flex-col gap-2 md:items-end">
+              <Link
+                href={`/app/events/${typedEvent.id}/settlement/export`}
+                className="inline-flex items-center rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4A1363]"
+              >
+                Download Settlement Report CSV
+              </Link>
               <span className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${settlementStatus.className}`}>
                 {settlementStatus.label}
               </span>
