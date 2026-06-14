@@ -33,6 +33,31 @@ type EventRow = {
   visibility: string;
 };
 
+type EventProfitLossRow = {
+  event_id: string;
+  gross_ticket_revenue: number | string | null;
+  refunds: number | string | null;
+  processing_and_platform_fees: number | string | null;
+  net_ticket_revenue: number | string | null;
+  event_expenses: number | string | null;
+  event_profit_loss: number | string | null;
+};
+
+type EventRegistrationCheckInRow = {
+  id: string;
+  payment_status: string | null;
+  status: string | null;
+  quantity: number | string | null;
+  checked_in_at: string | null;
+};
+
+type EventAttendeeCheckInRow = {
+  id: string;
+  registration_id: string | null;
+  checked_in_at: string | null;
+};
+
+
 function canManageTickets(params: {
   isPlatformAdmin: boolean;
   organizerUserRole: string | null;
@@ -60,6 +85,53 @@ function formatPrice(value: number | string, currency: string) {
     style: "currency",
     currency: currency || "USD",
   }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function toNumber(value: number | string | null | undefined) {
+  const amount = typeof value === "number" ? value : Number(value ?? 0);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+
+  return new Intl.NumberFormat("en-US", {
+    style: "percent",
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(value);
+}
+
+function profitStatus(profitLoss: number, margin: number | null) {
+  if (profitLoss < 0) {
+    return {
+      label: "Losing money",
+      className: "border-rose-200 bg-rose-50 text-rose-800",
+      helper: "Expenses, refunds, and fees are currently higher than net ticket revenue.",
+    };
+  }
+
+  if (margin !== null && margin < 0.15) {
+    return {
+      label: "Low margin",
+      className: "border-amber-200 bg-amber-50 text-amber-800",
+      helper: "This event is profitable, but the current margin is thin.",
+    };
+  }
+
+  if (profitLoss > 0) {
+    return {
+      label: "Profitable",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+      helper: "Ticket revenue is currently covering recorded event costs.",
+    };
+  }
+
+  return {
+    label: "Break-even",
+    className: "border-slate-200 bg-slate-50 text-slate-700",
+    helper: "No profit or loss is showing yet for this event.",
+  };
 }
 
 function ticketStatusLabel(ticket: TicketTypeRow) {
@@ -229,8 +301,60 @@ export default async function EventTicketsPage({
 
   const hasPrivateLessonSlots = Number(privateLessonSlotCount ?? 0) > 0;
 
+  const [profitabilityResult, registrationsResult, attendeesResult] = await Promise.all([
+    (supabase as any)
+      .from("v_event_profit_loss")
+      .select("event_id, gross_ticket_revenue, refunds, processing_and_platform_fees, net_ticket_revenue, event_expenses, event_profit_loss")
+      .eq("event_id", typedEvent.id)
+      .maybeSingle(),
+    supabase
+      .from("event_registrations")
+      .select("id, payment_status, status, quantity, checked_in_at")
+      .eq("event_id", typedEvent.id),
+    supabase
+      .from("event_registration_attendees")
+      .select("id, registration_id, checked_in_at")
+      .eq("event_id", typedEvent.id),
+  ]);
+
+  if (registrationsResult.error) {
+    throw new Error(`Failed to load registration profitability context: ${registrationsResult.error.message}`);
+  }
+
+  if (attendeesResult.error) {
+    throw new Error(`Failed to load attendee profitability context: ${attendeesResult.error.message}`);
+  }
+
+  const profitability = profitabilityResult.data as EventProfitLossRow | null;
+  const registrationRows = (registrationsResult.data ?? []) as EventRegistrationCheckInRow[];
+  const attendeeRows = (attendeesResult.data ?? []) as EventAttendeeCheckInRow[];
+
   const ticketRows = (tickets ?? []) as TicketTypeRow[];
   const activeCount = ticketRows.filter((ticket) => ticket.active).length;
+
+  const grossTicketRevenue = toNumber(profitability?.gross_ticket_revenue);
+  const refunds = toNumber(profitability?.refunds);
+  const processingAndPlatformFees = toNumber(profitability?.processing_and_platform_fees);
+  const netTicketRevenue = toNumber(profitability?.net_ticket_revenue);
+  const eventExpenses = toNumber(profitability?.event_expenses);
+  const eventProfitLoss = toNumber(profitability?.event_profit_loss);
+  const profitMargin = netTicketRevenue > 0 ? eventProfitLoss / netTicketRevenue : null;
+  const status = profitStatus(eventProfitLoss, profitMargin);
+
+  const paidRegistrations = registrationRows.filter((registration) =>
+    ["paid", "partial", "comped", "free"].includes((registration.payment_status ?? "").toLowerCase()),
+  );
+  const issuedTicketCount = attendeeRows.length;
+  const checkedInTicketCount = attendeeRows.filter((attendee) => attendee.checked_in_at).length;
+  const remainingTicketCount = Math.max(issuedTicketCount - checkedInTicketCount, 0);
+  const checkInRate = issuedTicketCount > 0 ? checkedInTicketCount / issuedTicketCount : null;
+  const profitPerCheckedIn = checkedInTicketCount > 0 ? eventProfitLoss / checkedInTicketCount : null;
+  const hasFinancialActivity =
+    grossTicketRevenue > 0 ||
+    refunds > 0 ||
+    processingAndPlatformFees > 0 ||
+    netTicketRevenue > 0 ||
+    eventExpenses > 0;
 
   return (
     <div className="space-y-6">
@@ -320,6 +444,130 @@ export default async function EventTicketsPage({
             <p className="text-xs uppercase tracking-[0.2em] text-white/65">Currently active</p>
             <p className="mt-1 text-sm font-semibold">{activeCount}</p>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+              Running event profitability
+            </p>
+            <h2 className="mt-1 text-xl font-semibold text-slate-950">Financial health for this event</h2>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              This snapshot updates as ticket payments, refunds, fees, check-ins, and event-linked expenses are recorded.
+            </p>
+          </div>
+
+          <span className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${status.className}`}>
+            {status.label}
+          </span>
+        </div>
+
+        <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Gross revenue</p>
+            <p className="mt-2 text-xl font-semibold text-slate-950">
+              {formatPrice(grossTicketRevenue, "USD")}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Refunds</p>
+            <p className="mt-2 text-xl font-semibold text-rose-700">
+              -{formatPrice(refunds, "USD")}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Fees</p>
+            <p className="mt-2 text-xl font-semibold text-amber-700">
+              -{formatPrice(processingAndPlatformFees, "USD")}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Event expenses</p>
+            <p className="mt-2 text-xl font-semibold text-rose-700">
+              -{formatPrice(eventExpenses, "USD")}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Profit / loss</p>
+            <p className={`mt-2 text-xl font-semibold ${eventProfitLoss < 0 ? "text-rose-700" : "text-emerald-700"}`}>
+              {formatPrice(eventProfitLoss, "USD")}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Margin</p>
+            <p className="mt-2 text-xl font-semibold text-slate-950">{formatPercent(profitMargin)}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <div className="rounded-2xl border border-[#E9D5FF] bg-[#FCF8FF] p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-[#7C2D92]">Paid registrations</p>
+            <p className="mt-2 text-lg font-semibold text-slate-950">{paidRegistrations.length}</p>
+          </div>
+          <div className="rounded-2xl border border-[#E9D5FF] bg-[#FCF8FF] p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-[#7C2D92]">QR tickets issued</p>
+            <p className="mt-2 text-lg font-semibold text-slate-950">{issuedTicketCount}</p>
+          </div>
+          <div className="rounded-2xl border border-[#E9D5FF] bg-[#FCF8FF] p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-[#7C2D92]">Checked in</p>
+            <p className="mt-2 text-lg font-semibold text-slate-950">
+              {checkedInTicketCount}/{issuedTicketCount}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">{formatPercent(checkInRate)} check-in rate</p>
+          </div>
+          <div className="rounded-2xl border border-[#E9D5FF] bg-[#FCF8FF] p-4">
+            <p className="text-xs uppercase tracking-[0.18em] text-[#7C2D92]">Profit per checked-in</p>
+            <p className="mt-2 text-lg font-semibold text-slate-950">
+              {profitPerCheckedIn === null ? "—" : formatPrice(profitPerCheckedIn, "USD")}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">{remainingTicketCount} tickets remaining</p>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className={`rounded-2xl border px-4 py-3 text-sm ${status.className}`}>
+            <p className="font-semibold">{status.label}</p>
+            <p className="mt-1 leading-6">{status.helper}</p>
+          </div>
+
+          {hasFinancialActivity && eventExpenses === 0 ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              <p className="font-semibold">No event expenses linked yet</p>
+              <p className="mt-1 leading-6">
+                Link event-specific costs from Expenses to make this profitability view more accurate.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+              <p className="font-semibold text-slate-900">Event-day read</p>
+              <p className="mt-1 leading-6">
+                Net ticket revenue is {formatPrice(netTicketRevenue, "USD")} after refunds and fees.
+              </p>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 flex flex-wrap gap-3">
+          <Link
+            href={`/app/events/${typedEvent.id}/check-in`}
+            className="inline-flex items-center rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4A1363]"
+          >
+            Open Check-In
+          </Link>
+          <Link
+            href={`/app/events/${typedEvent.id}/registrations`}
+            className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Review Registrations
+          </Link>
+          <Link
+            href="/app/expenses"
+            className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            Add Event Expense
+          </Link>
         </div>
       </section>
 

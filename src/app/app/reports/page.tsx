@@ -132,6 +132,7 @@ type EventSummary = {
   netRevenue: number;
   expenses: number;
   profitLoss: number;
+  marginPercent: number | null;
 };
 
 type TicketSummary = {
@@ -1525,6 +1526,7 @@ export default async function ReportsPage({
       netRevenue: 0,
       expenses: 0,
       profitLoss: 0,
+      marginPercent: null,
     };
 
     eventSummary.registrations += 1;
@@ -1565,11 +1567,38 @@ export default async function ReportsPage({
     eventSummary.netRevenue = finance?.net ?? eventSummary.revenue;
     eventSummary.expenses = expenses;
     eventSummary.profitLoss = eventSummary.netRevenue - expenses;
+    eventSummary.marginPercent =
+      eventSummary.netRevenue > 0
+        ? eventSummary.profitLoss / eventSummary.netRevenue
+        : null;
   }
 
-  const topEventSummaries = Array.from(eventSummariesById.values())
+  const eventProfitMarginPercent =
+    eventNetRevenueTotal > 0
+      ? Math.round((eventProfitLossTotal / eventNetRevenueTotal) * 100)
+      : 0;
+
+  const allEventSummaries = Array.from(eventSummariesById.values());
+
+  const topEventSummaries = [...allEventSummaries]
     .sort((a, b) => b.profitLoss - a.profitLoss)
     .slice(0, 6);
+
+  const topProfitableEventSummaries = [...allEventSummaries]
+    .filter((event) => event.profitLoss > 0)
+    .sort((a, b) => b.profitLoss - a.profitLoss)
+    .slice(0, 5);
+
+  const eventAttentionSummaries = [...allEventSummaries]
+    .filter(
+      (event) =>
+        event.profitLoss < 0 ||
+        event.refunds > 0 ||
+        event.fees > 0 ||
+        event.expenses === 0,
+    )
+    .sort((a, b) => a.profitLoss - b.profitLoss)
+    .slice(0, 5);
 
   const topTicketSummaries = Array.from(ticketSummariesByKey.values())
     .sort((a, b) => b.revenue - a.revenue)
@@ -4737,12 +4766,20 @@ export default async function ReportsPage({
                   events for {rangeLabel(range).toLowerCase()}.
                 </p>
               </div>
-              <Link
-                href="/app/events"
-                className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-100"
-              >
-                Open Events
-              </Link>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  href={exportHref("/app/reports/export/event-profitability", range)}
+                  className="rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-100"
+                >
+                  Export Event Profitability CSV
+                </Link>
+                <Link
+                  href="/app/events"
+                  className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Open Events
+                </Link>
+              </div>
             </div>
 
             <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -4773,6 +4810,16 @@ export default async function ReportsPage({
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   Net ticket revenue minus event expenses
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-4">
+                <p className="text-sm text-slate-500">Event Margin</p>
+                <p className={`mt-2 text-2xl font-semibold ${eventProfitMarginPercent >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                  {eventProfitMarginPercent}%
+                </p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Profit / loss divided by net ticket revenue
                 </p>
               </div>
 
@@ -4827,6 +4874,11 @@ export default async function ReportsPage({
                               {fmtNumber(event.tickets)} tickets ·{" "}
                               {fmtNumber(event.checkedIn)} checked in
                             </p>
+                            <p className="mt-1 text-xs text-slate-400">
+                              {event.marginPercent === null
+                                ? "Margin pending"
+                                : `${Math.round(event.marginPercent * 100)}% margin`}
+                            </p>
                           </div>
                           <div className="text-right">
                             <p className={`text-sm font-semibold ${event.profitLoss >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
@@ -4848,6 +4900,92 @@ export default async function ReportsPage({
                                 View registrations
                               </Link>
                             ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  Top Profitable Events
+                </h3>
+                <div className="mt-3 space-y-3">
+                  {topProfitableEventSummaries.length === 0 ? (
+                    <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                      No profitable event summaries in this range yet.
+                    </p>
+                  ) : (
+                    topProfitableEventSummaries.map((event) => (
+                      <div
+                        key={`profitable-${event.eventId}`}
+                        className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="font-semibold text-emerald-950">
+                              {event.name}
+                            </p>
+                            <p className="mt-1 text-xs text-emerald-900/70">
+                              {fmtCurrency(event.netRevenue)} net revenue · -{fmtCurrency(event.expenses)} expenses
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold text-emerald-800">
+                              {fmtCurrency(event.profitLoss)}
+                            </p>
+                            <p className="mt-1 text-xs text-emerald-900/70">
+                              {event.marginPercent === null
+                                ? "No margin yet"
+                                : `${Math.round(event.marginPercent * 100)}% margin`}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                  Events Needing Attention
+                </h3>
+                <div className="mt-3 space-y-3">
+                  {eventAttentionSummaries.length === 0 ? (
+                    <p className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                      No event profitability warnings in this range.
+                    </p>
+                  ) : (
+                    eventAttentionSummaries.map((event) => (
+                      <div
+                        key={`attention-${event.eventId}`}
+                        className="rounded-2xl border border-amber-200 bg-amber-50 p-4"
+                      >
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="font-semibold text-amber-950">
+                              {event.name}
+                            </p>
+                            <p className="mt-1 text-xs text-amber-900/70">
+                              {event.profitLoss < 0
+                                ? "Negative event profit/loss"
+                                : event.expenses === 0
+                                  ? "No event-linked expenses recorded"
+                                  : event.refunds > 0
+                                    ? "Refund activity detected"
+                                    : "Review fees and cost attribution"}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className={`text-sm font-semibold ${event.profitLoss >= 0 ? "text-amber-900" : "text-rose-700"}`}>
+                              {fmtCurrency(event.profitLoss)}
+                            </p>
+                            <p className="mt-1 text-xs text-amber-900/70">
+                              {fmtCurrency(event.netRevenue)} net · -{fmtCurrency(event.expenses)} expenses
+                            </p>
                           </div>
                         </div>
                       </div>
@@ -4891,6 +5029,14 @@ export default async function ReportsPage({
                 </div>
               </div>
             </div>
+
+            {eventLinkedExpensesTotal === 0 && eventNetRevenueTotal > 0 ? (
+              <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+                No event-linked expenses are recorded for this range. Add event
+                costs in Expenses and select the related event to make profit/loss
+                and margin more accurate.
+              </div>
+            ) : null}
 
             <div className="mt-5 rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-orange-900">
               Event reporting uses the accounting ledger for revenue, refunds,

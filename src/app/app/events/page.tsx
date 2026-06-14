@@ -1162,20 +1162,29 @@ export default async function EventsPage() {
                       </div>
                     </div>
 
-                    <div className="grid shrink-0 gap-2 sm:min-w-44">
+                    <div className="grid shrink-0 gap-2 sm:min-w-48">
                       <Link
-                        href={`/app/events/${event.id}/edit`}
-                        className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800"
+                        href={`/app/events/${event.id}`}
+                        className="inline-flex items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
                       >
-                        Edit Event
+                        Event Dashboard
                       </Link>
 
-                      <Link
-                        href={`/app/events/${event.id}/tickets`}
-                        className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                      >
-                        Manage Tickets
-                      </Link>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Link
+                          href={`/app/events/${event.id}/edit`}
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Edit
+                        </Link>
+
+                        <Link
+                          href={`/app/events/${event.id}/tickets`}
+                          className="inline-flex items-center justify-center rounded-xl border border-slate-300 px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Tickets
+                        </Link>
+                      </div>
 
                       <Link
                         href={`/app/events/${event.id}/private-lessons`}

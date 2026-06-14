@@ -11,8 +11,18 @@ type ExpenseRow = {
   amount: number | null;
   currency: string | null;
   payment_method: string | null;
+  related_event_id: string | null;
+  related_client_id: string | null;
+  related_appointment_id: string | null;
   notes: string | null;
   created_at: string | null;
+};
+
+type EventLookupRow = {
+  id: string;
+  name: string | null;
+  event_type: string | null;
+  start_date: string | null;
 };
 
 function startOfTodayLocal() {
@@ -68,8 +78,13 @@ function csvResponse(csv: string, filename: string) {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
     },
   });
+}
+
+function uniqueStrings(values: Array<string | null | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
 }
 
 export async function GET(request: Request) {
@@ -89,7 +104,7 @@ export async function GET(request: Request) {
   const { data, error } = await supabase
     .from("expenses")
     .select(
-      "id, expense_date, vendor_name, category, amount, currency, payment_method, notes, created_at",
+      "id, expense_date, vendor_name, category, amount, currency, payment_method, related_event_id, related_client_id, related_appointment_id, notes, created_at",
     )
     .eq("studio_id", context.studioId)
     .gte("expense_date", rangeStartDateOnly)
@@ -104,17 +119,52 @@ export async function GET(request: Request) {
     });
   }
 
-  const rows = ((data ?? []) as ExpenseRow[]).map((expense) => [
-    expense.expense_date,
-    expense.vendor_name,
-    expense.category,
-    expense.amount ?? 0,
-    expense.currency ?? "USD",
-    expense.payment_method,
-    expense.notes,
-    expense.created_at,
-    expense.id,
-  ]);
+  const expenses = (data ?? []) as ExpenseRow[];
+  const eventIds = uniqueStrings(expenses.map((expense) => expense.related_event_id));
+  const eventById = new Map<string, EventLookupRow>();
+
+  if (eventIds.length > 0) {
+    const { data: events, error: eventsError } = await supabase
+      .from("events")
+      .select("id, name, event_type, start_date")
+      .eq("studio_id", context.studioId)
+      .in("id", eventIds);
+
+    if (eventsError) {
+      return new NextResponse(
+        `Failed to load related event details for expenses export: ${eventsError.message}`,
+        { status: 500 },
+      );
+    }
+
+    for (const event of (events ?? []) as EventLookupRow[]) {
+      eventById.set(event.id, event);
+    }
+  }
+
+  const rows = expenses.map((expense) => {
+    const event = expense.related_event_id
+      ? eventById.get(expense.related_event_id)
+      : null;
+
+    return [
+      expense.expense_date,
+      expense.vendor_name,
+      expense.category,
+      expense.amount ?? 0,
+      expense.currency ?? "USD",
+      expense.payment_method,
+      expense.related_event_id,
+      event?.name ?? null,
+      event?.event_type ?? null,
+      event?.start_date ?? null,
+      expense.related_client_id,
+      expense.related_appointment_id,
+      expense.notes,
+      expense.created_at,
+      expense.id,
+    ];
+  });
 
   const csv = toCsv(
     [
@@ -124,6 +174,12 @@ export async function GET(request: Request) {
       "Amount",
       "Currency",
       "Payment Method",
+      "Related Event ID",
+      "Related Event",
+      "Related Event Type",
+      "Related Event Date",
+      "Related Client ID",
+      "Related Appointment ID",
       "Notes",
       "Created At",
       "Expense ID",

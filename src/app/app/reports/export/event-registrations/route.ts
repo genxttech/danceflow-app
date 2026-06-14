@@ -28,6 +28,13 @@ type EventRegistrationExportRow = {
     | null;
 };
 
+type AttendeeTicketExportRow = {
+  id: string;
+  registration_id: string | null;
+  ticket_code: string | null;
+  checked_in_at: string | null;
+};
+
 function startOfTodayLocal() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -81,6 +88,7 @@ function csvResponse(csv: string, filename: string) {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
     },
   });
 }
@@ -135,32 +143,70 @@ export async function GET(request: Request) {
     );
   }
 
-  const rows = ((data ?? []) as EventRegistrationExportRow[]).map(
-    (registration) => {
-      const event = firstRelated(registration.events);
-      const ticket = firstRelated(registration.event_ticket_types);
-      return [
-        event?.name,
-        event?.event_type,
-        event?.start_date,
-        ticket?.name,
-        ticket?.ticket_kind,
-        registration.attendee_first_name,
-        registration.attendee_last_name,
-        registration.attendee_email,
-        registration.quantity ?? 1,
-        registration.total_amount ?? registration.total_price ?? 0,
-        registration.currency ?? "USD",
-        registration.status,
-        registration.payment_status,
-        registration.checked_in_at ? "Yes" : "No",
-        registration.checked_in_at,
-        registration.created_at,
-        registration.id,
-        registration.event_id,
-      ];
-    },
-  );
+  const registrations = (data ?? []) as EventRegistrationExportRow[];
+  const registrationIds = registrations.map((registration) => registration.id);
+  const attendeesByRegistrationId = new Map<string, AttendeeTicketExportRow[]>();
+
+  if (registrationIds.length > 0) {
+    const { data: attendees, error: attendeesError } = await supabase
+      .from("event_registration_attendees")
+      .select("id, registration_id, ticket_code, checked_in_at")
+      .in("registration_id", registrationIds)
+      .order("registration_id", { ascending: true });
+
+    if (attendeesError) {
+      return new NextResponse(
+        `Failed to export event ticket check-in details: ${attendeesError.message}`,
+        { status: 500 },
+      );
+    }
+
+    for (const attendee of (attendees ?? []) as AttendeeTicketExportRow[]) {
+      if (!attendee.registration_id) continue;
+      const existing = attendeesByRegistrationId.get(attendee.registration_id) ?? [];
+      existing.push(attendee);
+      attendeesByRegistrationId.set(attendee.registration_id, existing);
+    }
+  }
+
+  const rows = registrations.map((registration) => {
+    const event = firstRelated(registration.events);
+    const ticket = firstRelated(registration.event_ticket_types);
+    const attendeeTickets = attendeesByRegistrationId.get(registration.id) ?? [];
+    const ticketCodes = attendeeTickets
+      .map((attendee) => attendee.ticket_code)
+      .filter(Boolean)
+      .join(" | ");
+    const checkedInTicketCount = attendeeTickets.filter((attendee) => attendee.checked_in_at).length;
+    const ticketCount = attendeeTickets.length;
+    const firstTicketCheckedInAt = attendeeTickets.find((attendee) => attendee.checked_in_at)?.checked_in_at ?? null;
+    const isCheckedIn = Boolean(registration.checked_in_at) || checkedInTicketCount > 0;
+
+    return [
+      event?.name,
+      event?.event_type,
+      event?.start_date,
+      ticket?.name,
+      ticket?.ticket_kind,
+      registration.attendee_first_name,
+      registration.attendee_last_name,
+      registration.attendee_email,
+      registration.quantity ?? 1,
+      ticketCount,
+      checkedInTicketCount,
+      ticketCodes,
+      registration.total_amount ?? registration.total_price ?? 0,
+      registration.currency ?? "USD",
+      registration.status,
+      registration.payment_status,
+      isCheckedIn ? "Yes" : "No",
+      registration.checked_in_at,
+      firstTicketCheckedInAt,
+      registration.created_at,
+      registration.id,
+      registration.event_id,
+    ];
+  });
 
   const csv = toCsv(
     [
@@ -173,12 +219,16 @@ export async function GET(request: Request) {
       "Last Name",
       "Email",
       "Quantity",
+      "QR Ticket Count",
+      "QR Tickets Checked In",
+      "Ticket Codes",
       "Amount",
       "Currency",
       "Registration Status",
       "Payment Status",
       "Checked In",
-      "Checked In At",
+      "Registration Checked In At",
+      "First Ticket Checked In At",
       "Created At",
       "Registration ID",
       "Event ID",

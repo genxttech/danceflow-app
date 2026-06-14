@@ -194,6 +194,7 @@ export async function GET(request: Request) {
         "Description",
         "Client ID",
         "Event ID",
+        "Event Accounting Basis",
         "Appointment ID",
         "Gross Amount",
         "Refund Amount",
@@ -222,6 +223,11 @@ export async function GET(request: Request) {
         entry.description,
         entry.clientId,
         entry.eventId,
+        entry.sourceTable === "event_payments" && entry.category === "event_ticket_revenue"
+          ? "ledger_event_ticket_revenue"
+          : entry.sourceTable === "expenses" && entry.eventId
+            ? "event_expense"
+            : "standard_entry",
         entry.appointmentId,
         entry.grossAmount,
         entry.refundAmount,
