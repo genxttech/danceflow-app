@@ -771,12 +771,20 @@ export default async function EventTicketsPage({
               </p>
             </div>
             <div className="flex flex-col gap-2 md:items-end">
-              <Link
-                href={`/app/events/${typedEvent.id}/settlement/export`}
-                className="inline-flex items-center rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4A1363]"
-              >
-                Download Settlement Report CSV
-              </Link>
+              <div className="flex flex-col gap-2 sm:flex-row md:flex-col">
+                <Link
+                  href={`/app/events/${typedEvent.id}/settlement/export`}
+                  className="inline-flex items-center justify-center rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4A1363]"
+                >
+                  Download Settlement CSV
+                </Link>
+                <Link
+                  href={`/app/events/${typedEvent.id}/settlement/pdf`}
+                  className="inline-flex items-center justify-center rounded-xl border border-[#5B197A]/25 bg-white px-4 py-2 text-sm font-semibold text-[#5B197A] transition hover:bg-[#F9F1FF]"
+                >
+                  Download Settlement PDF
+                </Link>
+              </div>
               <span className={`inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${settlementStatus.className}`}>
                 {settlementStatus.label}
               </span>
@@ -1467,6 +1475,3 @@ export default async function EventTicketsPage({
     </div>
   );
 }
-
-
-
