@@ -7,6 +7,8 @@ import {
   Globe2,
   Star,
   MapPin,
+  TrendingDown,
+  TrendingUp,
   Wallet,
   Users,
   ArrowRight,
@@ -47,6 +49,7 @@ type RegistrationSummaryRow = {
   event_id: string;
   status: string;
   payment_status: string | null;
+  quantity?: number | null;
   total_price: number | null;
   total_amount: number | null;
   currency: string | null;
@@ -56,6 +59,56 @@ type AttendanceSummaryRow = {
   id: string;
   event_registration_id: string;
   status: string;
+};
+
+type EventTicketCheckInRow = {
+  id: string;
+  event_id: string | null;
+  registration_id: string | null;
+  checked_in_at: string | null;
+};
+
+type EventProfitabilityRow = {
+  event_id: string | null;
+  gross_ticket_revenue: number | string | null;
+  refunds: number | string | null;
+  processing_and_platform_fees: number | string | null;
+  net_ticket_revenue: number | string | null;
+  event_expenses: number | string | null;
+  event_labor_costs: number | string | null;
+  total_event_costs: number | string | null;
+  event_profit_loss: number | string | null;
+};
+
+type EventSettlementSummaryRow = {
+  event_id: string | null;
+  status: string | null;
+  settled_at: string | null;
+};
+
+type OrganizerEventDashboardRow = {
+  event: EventRow;
+  grossTicketRevenue: number;
+  refunds: number;
+  fees: number;
+  netTicketRevenue: number;
+  eventExpenses: number;
+  eventLaborCosts: number;
+  totalEventCosts: number;
+  eventProfitLoss: number;
+  marginPercent: number | null;
+  registrations: number;
+  paidRegistrations: number;
+  unpaidRegistrations: number;
+  pendingRegistrations: number;
+  refundedRegistrations: number;
+  ticketsIssued: number;
+  ticketsCheckedIn: number;
+  checkInRate: number | null;
+  settlementStatus: string;
+  settledAt: string | null;
+  hasSettlementRecord: boolean;
+  isCompletedOrPast: boolean;
 };
 
 type WorkspaceRow = {
@@ -280,7 +333,6 @@ function formatTimeZoneLabel(timeZone?: string | null) {
   return timeZone.replaceAll("_", " ");
 }
 
-
 function weekdayPlural(startDate: string) {
   const date = new Date(`${startDate}T00:00:00`);
   return `${date.toLocaleDateString([], { weekday: "long" })}s`;
@@ -421,6 +473,43 @@ function fmtCurrency(value: number, currency = "USD") {
   }).format(value);
 }
 
+function safeNumber(value: number | string | null | undefined) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function fmtPercent(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value))
+    return "—";
+  return `${value.toFixed(1)}%`;
+}
+
+function settlementStatusLabel(status: string | null | undefined) {
+  const normalized = (status ?? "open").trim().toLowerCase();
+  if (normalized === "ready_to_settle") return "Ready to Settle";
+  if (normalized === "settled") return "Settled";
+  if (normalized === "reopened") return "Reopened";
+  return "Open";
+}
+
+function settlementBadgeClass(status: string | null | undefined) {
+  const normalized = (status ?? "open").trim().toLowerCase();
+  if (normalized === "settled") {
+    return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  }
+  if (normalized === "ready_to_settle") {
+    return "bg-sky-50 text-sky-700 ring-1 ring-sky-200";
+  }
+  if (normalized === "reopened") {
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  }
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
 function StatCard({
   label,
   value,
@@ -440,6 +529,89 @@ function StatCard({
         <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
           <Icon className="h-5 w-5" />
         </div>
+      </div>
+    </div>
+  );
+}
+
+
+function ComparisonCard({
+  title,
+  subtitle,
+  rows,
+  metricLabel,
+  getMetric,
+  getDetail,
+  positiveIsGood = true,
+}: {
+  title: string;
+  subtitle: string;
+  rows: OrganizerEventDashboardRow[];
+  metricLabel: string;
+  getMetric: (row: OrganizerEventDashboardRow) => string;
+  getDetail?: (row: OrganizerEventDashboardRow) => string;
+  positiveIsGood?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div>
+        <h3 className="font-semibold text-slate-950">{title}</h3>
+        <p className="mt-1 text-sm leading-6 text-slate-500">{subtitle}</p>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {rows.length > 0 ? (
+          rows.map((row, index) => {
+            const isPositive = row.eventProfitLoss >= 0;
+            const metricClass = positiveIsGood
+              ? isPositive
+                ? "text-emerald-700"
+                : "text-rose-700"
+              : "text-slate-950";
+
+            return (
+              <div
+                key={row.event.id}
+                className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                        {index + 1}
+                      </span>
+                      <Link
+                        href={`/app/events/${row.event.id}`}
+                        className="truncate font-semibold text-slate-950 hover:text-[var(--brand-primary)]"
+                      >
+                        {row.event.name}
+                      </Link>
+                    </div>
+                    <p className="mt-2 text-xs text-slate-500">
+                      {formatDateRange(row.event.start_date, row.event.end_date)} • {settlementStatusLabel(row.settlementStatus)}
+                    </p>
+                    {getDetail ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        {getDetail(row)}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="shrink-0 text-right">
+                    <p className="text-xs text-slate-500">{metricLabel}</p>
+                    <p className={`mt-1 font-semibold ${metricClass}`}>
+                      {getMetric(row)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+            Not enough event data yet.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -585,11 +757,17 @@ export default async function EventsPage() {
 
   let typedRegistrations: RegistrationSummaryRow[] = [];
   let typedAttendance: AttendanceSummaryRow[] = [];
+  let typedTicketCheckIns: EventTicketCheckInRow[] = [];
+  let typedProfitabilityRows: EventProfitabilityRow[] = [];
+  let typedSettlementRows: EventSettlementSummaryRow[] = [];
 
   if (eventIds.length > 0) {
     const [
       { data: registrationRows, error: registrationsError },
       { data: attendanceRows, error: attendanceError },
+      { data: ticketCheckInRows, error: ticketCheckInsError },
+      { data: profitabilityRows, error: profitabilityError },
+      { data: settlementRows, error: settlementsError },
     ] = await Promise.all([
       supabase
         .from("event_registrations")
@@ -599,6 +777,7 @@ export default async function EventsPage() {
           event_id,
           status,
           payment_status,
+          quantity,
           total_price,
           total_amount,
           currency
@@ -611,6 +790,24 @@ export default async function EventsPage() {
           event_registration_id,
           status
         `),
+
+      supabase
+        .from("event_registration_attendees")
+        .select("id,event_id,registration_id,checked_in_at")
+        .in("event_id", eventIds)
+        .limit(10000),
+
+      supabase
+        .from("v_event_profit_loss")
+        .select(
+          "event_id,gross_ticket_revenue,refunds,processing_and_platform_fees,net_ticket_revenue,event_expenses,event_labor_costs,total_event_costs,event_profit_loss",
+        )
+        .in("event_id", eventIds),
+
+      supabase
+        .from("event_settlements")
+        .select("event_id,status,settled_at")
+        .in("event_id", eventIds),
     ]);
 
     if (registrationsError) {
@@ -625,8 +822,38 @@ export default async function EventsPage() {
       );
     }
 
+    if (ticketCheckInsError) {
+      console.warn(
+        "Failed to load ticket check-in reporting:",
+        ticketCheckInsError.message,
+      );
+    }
+
+    if (profitabilityError) {
+      console.warn(
+        "Failed to load organizer event profitability reporting:",
+        profitabilityError.message,
+      );
+    }
+
+    if (settlementsError) {
+      console.warn(
+        "Failed to load organizer settlement reporting:",
+        settlementsError.message,
+      );
+    }
+
     typedRegistrations = (registrationRows ?? []) as RegistrationSummaryRow[];
     typedAttendance = (attendanceRows ?? []) as AttendanceSummaryRow[];
+    typedTicketCheckIns = ticketCheckInsError
+      ? []
+      : ((ticketCheckInRows ?? []) as EventTicketCheckInRow[]);
+    typedProfitabilityRows = profitabilityError
+      ? []
+      : ((profitabilityRows ?? []) as EventProfitabilityRow[]);
+    typedSettlementRows = settlementsError
+      ? []
+      : ((settlementRows ?? []) as EventSettlementSummaryRow[]);
   }
 
   const attendanceByRegistrationId = new Map(
@@ -639,6 +866,104 @@ export default async function EventsPage() {
     current.push(registration);
     registrationsByEventId.set(registration.event_id, current);
   }
+
+  const ticketCheckInsByEventId = new Map<string, EventTicketCheckInRow[]>();
+  for (const row of typedTicketCheckIns) {
+    if (!row.event_id) continue;
+    const current = ticketCheckInsByEventId.get(row.event_id) ?? [];
+    current.push(row);
+    ticketCheckInsByEventId.set(row.event_id, current);
+  }
+
+  const profitabilityByEventId = new Map<string, EventProfitabilityRow>();
+  for (const row of typedProfitabilityRows) {
+    if (row.event_id) {
+      profitabilityByEventId.set(row.event_id, row);
+    }
+  }
+
+  const settlementByEventId = new Map<string, EventSettlementSummaryRow>();
+  for (const row of typedSettlementRows) {
+    if (row.event_id) {
+      settlementByEventId.set(row.event_id, row);
+    }
+  }
+
+  const todayStart = new Date(new Date().toDateString());
+
+  const organizerEventRows: OrganizerEventDashboardRow[] = typedEvents.map(
+    (event) => {
+      const registrations = registrationsByEventId.get(event.id) ?? [];
+      const ticketRows = ticketCheckInsByEventId.get(event.id) ?? [];
+      const checkedInTickets = ticketRows.filter(
+        (row) => row.checked_in_at,
+      ).length;
+      const legacyCheckedIn = registrations.filter((row) => {
+        const attendance = attendanceByRegistrationId.get(row.id);
+        return (
+          attendance?.status === "checked_in" ||
+          attendance?.status === "attended"
+        );
+      }).length;
+      const ticketsIssued =
+        ticketRows.length > 0
+          ? ticketRows.length
+          : registrations.reduce(
+              (sum, row) => sum + Number(row.quantity ?? 1),
+              0,
+            );
+      const ticketsCheckedIn =
+        ticketRows.length > 0 ? checkedInTickets : legacyCheckedIn;
+      const profitability = profitabilityByEventId.get(event.id);
+      const settlement = settlementByEventId.get(event.id);
+      const netTicketRevenue = safeNumber(profitability?.net_ticket_revenue);
+      const eventProfitLoss = safeNumber(profitability?.event_profit_loss);
+      const eventStartDate = new Date(`${event.start_date}T00:00:00`);
+      const isPastEvent =
+        !Number.isNaN(eventStartDate.getTime()) && eventStartDate < todayStart;
+      const isCompletedOrPast = event.status === "completed" || isPastEvent;
+
+      return {
+        event,
+        grossTicketRevenue: safeNumber(profitability?.gross_ticket_revenue),
+        refunds: safeNumber(profitability?.refunds),
+        fees: safeNumber(profitability?.processing_and_platform_fees),
+        netTicketRevenue,
+        eventExpenses: safeNumber(profitability?.event_expenses),
+        eventLaborCosts: safeNumber(profitability?.event_labor_costs),
+        totalEventCosts: safeNumber(profitability?.total_event_costs),
+        eventProfitLoss,
+        marginPercent: netTicketRevenue
+          ? (eventProfitLoss / netTicketRevenue) * 100
+          : null,
+        registrations: registrations.length,
+        paidRegistrations: registrations.filter(
+          (row) => row.payment_status === "paid",
+        ).length,
+        unpaidRegistrations: registrations.filter(
+          (row) => row.payment_status === "unpaid",
+        ).length,
+        pendingRegistrations: registrations.filter(
+          (row) => row.payment_status === "pending",
+        ).length,
+        refundedRegistrations: registrations.filter(
+          (row) =>
+            row.payment_status === "refunded" ||
+            row.status === "refunded" ||
+            row.status === "cancelled",
+        ).length,
+        ticketsIssued,
+        ticketsCheckedIn,
+        checkInRate: ticketsIssued
+          ? (ticketsCheckedIn / ticketsIssued) * 100
+          : null,
+        settlementStatus: settlement?.status ?? "open",
+        settledAt: settlement?.settled_at ?? null,
+        hasSettlementRecord: Boolean(settlement),
+        isCompletedOrPast,
+      };
+    },
+  );
 
   const groupClasses = typedEvents.filter(
     (event) => event.event_type === "group_class",
@@ -671,18 +996,195 @@ export default async function EventsPage() {
   }).length;
 
   const totalRegistrations = typedRegistrations.length;
-  const totalCheckedIn = typedRegistrations.filter((row) => {
-    const attendance = attendanceByRegistrationId.get(row.id);
-    return (
-      attendance?.status === "checked_in" || attendance?.status === "attended"
-    );
-  }).length;
-  const totalGrossRevenue = typedRegistrations.reduce((sum, row) => {
-    if (row.payment_status !== "paid" && row.payment_status !== "partial") {
-      return sum;
-    }
-    return sum + Number(row.total_amount ?? row.total_price ?? 0);
-  }, 0);
+  const totalCheckedIn = organizerEventRows.reduce(
+    (sum, row) => sum + row.ticketsCheckedIn,
+    0,
+  );
+  const totalTicketsIssued = organizerEventRows.reduce(
+    (sum, row) => sum + row.ticketsIssued,
+    0,
+  );
+  const totalGrossRevenue = organizerEventRows.reduce(
+    (sum, row) => sum + row.grossTicketRevenue,
+    0,
+  );
+  const totalRefunds = organizerEventRows.reduce(
+    (sum, row) => sum + row.refunds,
+    0,
+  );
+  const totalFees = organizerEventRows.reduce((sum, row) => sum + row.fees, 0);
+  const totalNetTicketRevenue = organizerEventRows.reduce(
+    (sum, row) => sum + row.netTicketRevenue,
+    0,
+  );
+  const totalEventExpenses = organizerEventRows.reduce(
+    (sum, row) => sum + row.eventExpenses,
+    0,
+  );
+  const totalLaborCosts = organizerEventRows.reduce(
+    (sum, row) => sum + row.eventLaborCosts,
+    0,
+  );
+  const totalEventCosts = organizerEventRows.reduce(
+    (sum, row) => sum + row.totalEventCosts,
+    0,
+  );
+  const totalProfitLoss = organizerEventRows.reduce(
+    (sum, row) => sum + row.eventProfitLoss,
+    0,
+  );
+  const totalCheckInRate = totalTicketsIssued
+    ? (totalCheckedIn / totalTicketsIssued) * 100
+    : null;
+  const upcomingEventsCount = typedEvents.filter(
+    (event) => new Date(`${event.start_date}T00:00:00`) >= todayStart,
+  ).length;
+  const completedEventsCount = typedEvents.filter(
+    (event) => event.status === "completed",
+  ).length;
+  const settlementStatusCounts = organizerEventRows.reduce<
+    Record<string, number>
+  >((counts, row) => {
+    const key = row.settlementStatus || "open";
+    counts[key] = (counts[key] ?? 0) + 1;
+    return counts;
+  }, {});
+  const topProfitableEvents = [...organizerEventRows]
+    .sort((a, b) => b.eventProfitLoss - a.eventProfitLoss)
+    .slice(0, 3);
+  const losingMoneyEvents = organizerEventRows
+    .filter((row) => row.eventProfitLoss < 0)
+    .sort((a, b) => a.eventProfitLoss - b.eventProfitLoss)
+    .slice(0, 3);
+
+  const lowMarginThreshold = 15;
+  const eventsNeedingAttention = organizerEventRows
+    .map((row) => {
+      const issues: { label: string; severity: "critical" | "warning" }[] = [];
+      const settlementStatus = row.settlementStatus.trim().toLowerCase();
+      const isSettled = settlementStatus === "settled";
+
+      if (row.isCompletedOrPast && !isSettled) {
+        issues.push({
+          label: "Completed/past event is not settled",
+          severity: "critical",
+        });
+      }
+
+      if (!row.hasSettlementRecord) {
+        issues.push({ label: "No settlement record yet", severity: "warning" });
+      }
+
+      if (row.eventProfitLoss < 0) {
+        issues.push({ label: "Event is losing money", severity: "critical" });
+      } else if (
+        row.marginPercent !== null &&
+        row.marginPercent < lowMarginThreshold
+      ) {
+        issues.push({
+          label: `Margin below ${lowMarginThreshold}%`,
+          severity: "warning",
+        });
+      }
+
+      if (row.unpaidRegistrations > 0) {
+        issues.push({
+          label: `${row.unpaidRegistrations} unpaid registration${row.unpaidRegistrations === 1 ? "" : "s"}`,
+          severity: "critical",
+        });
+      }
+
+      if (row.pendingRegistrations > 0) {
+        issues.push({
+          label: `${row.pendingRegistrations} pending registration${row.pendingRegistrations === 1 ? "" : "s"}`,
+          severity: "warning",
+        });
+      }
+
+      if (row.refunds > 0 || row.refundedRegistrations > 0) {
+        issues.push({ label: "Refund activity to review", severity: "warning" });
+      }
+
+      if (row.netTicketRevenue > 0 && row.eventLaborCosts <= 0) {
+        issues.push({ label: "No labor/staff costs linked", severity: "warning" });
+      }
+
+      if (row.netTicketRevenue > 0 && row.eventExpenses <= 0) {
+        issues.push({ label: "No event expenses linked", severity: "warning" });
+      }
+
+      if (
+        row.isCompletedOrPast &&
+        row.ticketsIssued > 0 &&
+        row.checkInRate !== null &&
+        row.checkInRate < 75
+      ) {
+        issues.push({ label: "Low check-in rate", severity: "warning" });
+      }
+
+      const hasCritical = issues.some((issue) => issue.severity === "critical");
+
+      return {
+        row,
+        issues,
+        severity: hasCritical ? "critical" : "warning",
+      };
+    })
+    .filter((item) => item.issues.length > 0)
+    .sort((a, b) => {
+      if (a.severity !== b.severity) {
+        return a.severity === "critical" ? -1 : 1;
+      }
+
+      return a.row.event.start_date.localeCompare(b.row.event.start_date);
+    })
+    .slice(0, 8);
+
+  const eventsWithFinancialActivity = organizerEventRows.filter(
+    (row) =>
+      row.netTicketRevenue > 0 ||
+      row.totalEventCosts > 0 ||
+      row.eventProfitLoss !== 0 ||
+      row.ticketsIssued > 0,
+  );
+
+  const highestRevenueEvents = [...eventsWithFinancialActivity]
+    .sort((a, b) => b.netTicketRevenue - a.netTicketRevenue)
+    .slice(0, 5);
+
+  const bestMarginEvents = eventsWithFinancialActivity
+    .filter((row) => row.marginPercent !== null && row.netTicketRevenue > 0)
+    .sort((a, b) => (b.marginPercent ?? -Infinity) - (a.marginPercent ?? -Infinity))
+    .slice(0, 5);
+
+  const worstMarginEvents = eventsWithFinancialActivity
+    .filter((row) => row.marginPercent !== null && row.netTicketRevenue > 0)
+    .sort((a, b) => (a.marginPercent ?? Infinity) - (b.marginPercent ?? Infinity))
+    .slice(0, 5);
+
+  const bestCheckInRateEvents = eventsWithFinancialActivity
+    .filter((row) => row.ticketsIssued > 0 && row.checkInRate !== null)
+    .sort((a, b) => (b.checkInRate ?? -Infinity) - (a.checkInRate ?? -Infinity))
+    .slice(0, 5);
+
+  const bestProfitPerCheckedInTicketEvents = eventsWithFinancialActivity
+    .filter((row) => row.ticketsCheckedIn > 0)
+    .sort(
+      (a, b) =>
+        b.eventProfitLoss / b.ticketsCheckedIn -
+        a.eventProfitLoss / a.ticketsCheckedIn,
+    )
+    .slice(0, 5);
+
+  const bestRevenuePerIssuedTicketEvents = eventsWithFinancialActivity
+    .filter((row) => row.ticketsIssued > 0)
+    .sort(
+      (a, b) =>
+        b.netTicketRevenue / b.ticketsIssued -
+        a.netTicketRevenue / a.ticketsIssued,
+    )
+    .slice(0, 5);
+
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -809,6 +1311,408 @@ export default async function EventsPage() {
         />
         <StatCard label="Checked In" value={totalCheckedIn} icon={Sparkles} />
       </div>
+
+      <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+              Organizer Event Reporting
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+              Financial and settlement summary
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+              This summary uses the event profitability ledger, ticket
+              check-ins, and settlement status so organizers can see revenue,
+              costs, and event outcomes in one place.
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-3 lg:items-end">
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/app/events/export/financial-summary"
+                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-sm hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
+              >
+                Export Financial CSV
+              </Link>
+              <Link
+                href="/app/events/export/attention"
+                className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 shadow-sm hover:border-amber-300 hover:bg-amber-100"
+              >
+                Export Attention CSV
+              </Link>
+            </div>
+
+            <div className="flex flex-wrap gap-2 lg:justify-end">
+              {Object.entries(settlementStatusCounts).length > 0 ? (
+                Object.entries(settlementStatusCounts).map(([status, count]) => (
+                  <span
+                    key={status}
+                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${settlementBadgeClass(status)}`}
+                  >
+                    {settlementStatusLabel(status)}: {count}
+                  </span>
+                ))
+              ) : (
+                <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                  No settlements yet
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
+              Event Count
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {typedEvents.length}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {upcomingEventsCount} upcoming • {completedEventsCount} completed
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
+              Net Revenue
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {fmtCurrency(totalNetTicketRevenue)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {fmtCurrency(totalGrossRevenue)} gross •{" "}
+              {fmtCurrency(totalRefunds)} refunds • {fmtCurrency(totalFees)}{" "}
+              fees
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
+              Event Costs
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-slate-950">
+              {fmtCurrency(totalEventCosts)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {fmtCurrency(totalEventExpenses)} expenses •{" "}
+              {fmtCurrency(totalLaborCosts)} labor
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">
+              Profit / Loss
+            </p>
+            <p
+              className={`mt-2 text-2xl font-semibold ${totalProfitLoss >= 0 ? "text-emerald-700" : "text-rose-700"}`}
+            >
+              {fmtCurrency(totalProfitLoss)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {totalTicketsIssued} tickets issued •{" "}
+              {fmtPercent(totalCheckInRate)} checked in
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-emerald-700" />
+              <h3 className="font-semibold text-emerald-950">
+                Top profitable events
+              </h3>
+            </div>
+            <div className="mt-4 space-y-3">
+              {topProfitableEvents.length > 0 ? (
+                topProfitableEvents.map((row) => (
+                  <div
+                    key={row.event.id}
+                    className="rounded-xl border border-emerald-200 bg-white p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <Link
+                          href={`/app/events/${row.event.id}`}
+                          className="font-semibold text-slate-950 hover:text-[var(--brand-primary)]"
+                        >
+                          {row.event.name}
+                        </Link>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {settlementStatusLabel(row.settlementStatus)} •{" "}
+                          {row.ticketsCheckedIn}/{row.ticketsIssued} checked in
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-emerald-700">
+                          {fmtCurrency(row.eventProfitLoss)}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {fmtPercent(row.marginPercent)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-emerald-900">
+                  No profitability data yet.
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5">
+            <div className="flex items-center gap-2">
+              <TrendingDown className="h-5 w-5 text-rose-700" />
+              <h3 className="font-semibold text-rose-950">
+                Events losing money
+              </h3>
+            </div>
+            <div className="mt-4 space-y-3">
+              {losingMoneyEvents.length > 0 ? (
+                losingMoneyEvents.map((row) => (
+                  <div
+                    key={row.event.id}
+                    className="rounded-xl border border-rose-200 bg-white p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <Link
+                          href={`/app/events/${row.event.id}`}
+                          className="font-semibold text-slate-950 hover:text-[var(--brand-primary)]"
+                        >
+                          {row.event.name}
+                        </Link>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Costs {fmtCurrency(row.totalEventCosts)} • Net revenue{" "}
+                          {fmtCurrency(row.netTicketRevenue)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-semibold text-rose-700">
+                          {fmtCurrency(row.eventProfitLoss)}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {fmtPercent(row.marginPercent)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-rose-900">
+                  No events are currently showing a loss.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h3 className="font-semibold text-amber-950">
+                Events needing attention
+              </h3>
+              <p className="mt-1 text-sm leading-6 text-amber-900">
+                These are the organizer events most likely to need operational or
+                financial review before closeout.
+              </p>
+            </div>
+            <span className="inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
+              {eventsNeedingAttention.length} flagged
+            </span>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {eventsNeedingAttention.length > 0 ? (
+              eventsNeedingAttention.map((item) => (
+                <div
+                  key={item.row.event.id}
+                  className="rounded-xl border border-amber-200 bg-white p-4"
+                >
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/app/events/${item.row.event.id}`}
+                          className="font-semibold text-slate-950 hover:text-[var(--brand-primary)]"
+                        >
+                          {item.row.event.name}
+                        </Link>
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            item.severity === "critical"
+                              ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200"
+                              : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                          }`}
+                        >
+                          {item.severity === "critical"
+                            ? "Needs review"
+                            : "Check"}
+                        </span>
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${settlementBadgeClass(item.row.settlementStatus)}`}
+                        >
+                          {settlementStatusLabel(item.row.settlementStatus)}
+                        </span>
+                      </div>
+
+                      <p className="mt-1 text-xs text-slate-500">
+                        {formatDateRange(
+                          item.row.event.start_date,
+                          item.row.event.end_date,
+                        )} • {item.row.ticketsCheckedIn}/{item.row.ticketsIssued} checked in • {fmtPercent(item.row.checkInRate)} check-in rate
+                      </p>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {item.issues.map((issue) => (
+                          <span
+                            key={issue.label}
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                              issue.severity === "critical"
+                                ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200"
+                                : "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                            }`}
+                          >
+                            {issue.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="grid gap-2 text-right text-sm sm:grid-cols-3 lg:min-w-[360px]">
+                      <div>
+                        <p className="text-xs text-slate-500">Net revenue</p>
+                        <p className="font-semibold text-slate-950">
+                          {fmtCurrency(item.row.netTicketRevenue)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500">Total costs</p>
+                        <p className="font-semibold text-slate-950">
+                          {fmtCurrency(item.row.totalEventCosts)}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500">Profit/loss</p>
+                        <p
+                          className={`font-semibold ${item.row.eventProfitLoss >= 0 ? "text-emerald-700" : "text-rose-700"}`}
+                        >
+                          {fmtCurrency(item.row.eventProfitLoss)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+                No organizer events are currently flagged for attention.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-indigo-200 bg-indigo-50 p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h3 className="font-semibold text-indigo-950">
+                Event drilldown and comparison
+              </h3>
+              <p className="mt-1 text-sm leading-6 text-indigo-900">
+                Compare organizer events by revenue, margin, attendance quality,
+                and per-ticket performance to identify which events are worth
+                repeating or improving.
+              </p>
+            </div>
+            <span className="inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold text-indigo-800 ring-1 ring-indigo-200">
+              {eventsWithFinancialActivity.length} events with activity
+            </span>
+          </div>
+
+          <div className="mt-5 grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+            <ComparisonCard
+              title="Highest revenue events"
+              subtitle="Events ranked by net ticket revenue after refunds and fees."
+              rows={highestRevenueEvents}
+              metricLabel="Net revenue"
+              getMetric={(row) => fmtCurrency(row.netTicketRevenue)}
+              getDetail={(row) =>
+                `${row.ticketsIssued} tickets issued • ${fmtPercent(row.checkInRate)} checked in`
+              }
+              positiveIsGood={false}
+            />
+
+            <ComparisonCard
+              title="Best margin events"
+              subtitle="Events producing the strongest profit relative to net revenue."
+              rows={bestMarginEvents}
+              metricLabel="Margin"
+              getMetric={(row) => fmtPercent(row.marginPercent)}
+              getDetail={(row) =>
+                `${fmtCurrency(row.eventProfitLoss)} profit/loss • ${fmtCurrency(row.totalEventCosts)} costs`
+              }
+            />
+
+            <ComparisonCard
+              title="Worst margin events"
+              subtitle="Events most likely to need pricing, labor, or expense review."
+              rows={worstMarginEvents}
+              metricLabel="Margin"
+              getMetric={(row) => fmtPercent(row.marginPercent)}
+              getDetail={(row) =>
+                `${fmtCurrency(row.eventProfitLoss)} profit/loss • ${fmtCurrency(row.netTicketRevenue)} net revenue`
+              }
+            />
+
+            <ComparisonCard
+              title="Best check-in rate"
+              subtitle="Events with the strongest ticket-to-attendance conversion."
+              rows={bestCheckInRateEvents}
+              metricLabel="Check-in rate"
+              getMetric={(row) => fmtPercent(row.checkInRate)}
+              getDetail={(row) =>
+                `${row.ticketsCheckedIn}/${row.ticketsIssued} checked in • ${row.paidRegistrations} paid registrations`
+              }
+              positiveIsGood={false}
+            />
+
+            <ComparisonCard
+              title="Profit per checked-in ticket"
+              subtitle="Shows how much profit each attended ticket produced."
+              rows={bestProfitPerCheckedInTicketEvents}
+              metricLabel="Per checked-in"
+              getMetric={(row) =>
+                fmtCurrency(row.eventProfitLoss / Math.max(row.ticketsCheckedIn, 1))
+              }
+              getDetail={(row) =>
+                `${fmtCurrency(row.eventProfitLoss)} total profit/loss • ${row.ticketsCheckedIn} checked in`
+              }
+            />
+
+            <ComparisonCard
+              title="Revenue per issued ticket"
+              subtitle="Shows average net revenue per issued ticket."
+              rows={bestRevenuePerIssuedTicketEvents}
+              metricLabel="Per issued"
+              getMetric={(row) =>
+                fmtCurrency(row.netTicketRevenue / Math.max(row.ticketsIssued, 1))
+              }
+              getDetail={(row) =>
+                `${fmtCurrency(row.netTicketRevenue)} net revenue • ${row.ticketsIssued} tickets issued`
+              }
+              positiveIsGood={false}
+            />
+          </div>
+        </div>
+
+      </section>
 
       <section className="rounded-[28px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
         <div className="grid gap-5 lg:grid-cols-[1fr_1.15fr] lg:items-center">
@@ -1015,6 +1919,14 @@ export default async function EventsPage() {
                 return sum + Number(row.total_amount ?? row.total_price ?? 0);
               }, 0);
 
+              const eventProfitability = profitabilityByEventId.get(event.id);
+              const netRevenue = safeNumber(
+                eventProfitability?.net_ticket_revenue,
+              );
+              const profitLoss = safeNumber(
+                eventProfitability?.event_profit_loss,
+              );
+
               return (
                 <div key={event.id} className="px-6 py-6">
                   <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
@@ -1120,7 +2032,7 @@ export default async function EventsPage() {
                         {eventListingHint(event.event_type, event.visibility)}
                       </p>
 
-                      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
                         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                           <p className="text-xs text-slate-500">
                             Registrations
@@ -1157,6 +2069,24 @@ export default async function EventsPage() {
                           </p>
                           <p className="mt-1 text-lg font-semibold text-slate-900">
                             {fmtCurrency(grossRevenue, defaultCurrency)}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">Net Revenue</p>
+                          <p className="mt-1 text-lg font-semibold text-slate-900">
+                            {fmtCurrency(netRevenue, defaultCurrency)}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-xs text-slate-500">
+                            Profit / Loss
+                          </p>
+                          <p
+                            className={`mt-1 text-lg font-semibold ${profitLoss >= 0 ? "text-emerald-700" : "text-rose-700"}`}
+                          >
+                            {fmtCurrency(profitLoss, defaultCurrency)}
                           </p>
                         </div>
                       </div>
