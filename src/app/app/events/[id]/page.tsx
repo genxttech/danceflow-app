@@ -710,6 +710,113 @@ export default async function EventTicketsPage({
         ? `${checklistWarningCount} advisory item${checklistWarningCount === 1 ? "" : "s"} to confirm before settlement.`
         : "All checklist items are clear.";
 
+  const eventAriaInsights: Array<{
+    title: string;
+    detail: string;
+    tone: "positive" | "warning" | "critical";
+    actionLabel: string;
+    actionHref: string;
+  }> = [];
+
+  if (eventFinancialsLocked) {
+    eventAriaInsights.push({
+      title: "This event is settled and locked",
+      detail:
+        "ARIA sees this event as financially closed. Keep exports and history available, but reopen before changing labor, expenses, or closeout notes.",
+      tone: "positive",
+      actionLabel: "View settlement history",
+      actionHref: `#settlement-history`,
+    });
+  } else if (checklistCriticalCount > 0) {
+    eventAriaInsights.push({
+      title: "Do not settle this event yet",
+      detail: `${checklistCriticalCount} closeout item${checklistCriticalCount === 1 ? "" : "s"} still need review before this event should be settled.`,
+      tone: "critical",
+      actionLabel: "Review checklist",
+      actionHref: `#closeout-readiness`,
+    });
+  } else if (checklistWarningCount > 0) {
+    eventAriaInsights.push({
+      title: "This event is close to settlement-ready",
+      detail: `${checklistWarningCount} advisory item${checklistWarningCount === 1 ? "" : "s"} should be confirmed, then this event can likely move to ready-to-settle.`,
+      tone: "warning",
+      actionLabel: "Review closeout",
+      actionHref: `#event-closeout`,
+    });
+  } else {
+    eventAriaInsights.push({
+      title: "This event looks ready to settle",
+      detail:
+        "Payment exceptions, check-ins, labor, expenses, and profitability checks are clear based on the current data.",
+      tone: "positive",
+      actionLabel: "Open closeout",
+      actionHref: `#event-closeout`,
+    });
+  }
+
+  if (eventProfitLoss < 0) {
+    eventAriaInsights.push({
+      title: "Profitability is negative",
+      detail: `ARIA sees a current loss of ${formatCurrency(Math.abs(eventProfitLoss))}. Review pricing, refunds, fees, labor, and event expenses before repeating this format.`,
+      tone: "critical",
+      actionLabel: "Review financials",
+      actionHref: `#event-financial-health`,
+    });
+  } else if (profitMargin !== null && profitMargin < lowMarginThreshold && netTicketRevenue > 0) {
+    eventAriaInsights.push({
+      title: "Margin is thin",
+      detail: `The current margin is ${formatPercent(profitMargin)}. This may still be profitable, but ARIA recommends reviewing costs before using this as a repeatable model.`,
+      tone: "warning",
+      actionLabel: "Review costs",
+      actionHref: `#event-financial-health`,
+    });
+  } else if (eventProfitLoss > 0 && profitMargin !== null && profitMargin >= 0.25) {
+    eventAriaInsights.push({
+      title: "Strong repeat-event signal",
+      detail: `This event is profitable with a ${formatPercent(profitMargin)} margin. ARIA would consider it a candidate to repeat if attendance and feedback were strong.`,
+      tone: "positive",
+      actionLabel: "Duplicate event",
+      actionHref: `#event-actions`,
+    });
+  }
+
+  if (eventLaborCosts === 0 || eventExpenses === 0) {
+    const missing = [
+      eventLaborCosts === 0 ? "labor/staff costs" : null,
+      eventExpenses === 0 ? "event expenses" : null,
+    ].filter(Boolean).join(" and ");
+
+    eventAriaInsights.push({
+      title: "Closeout data may be incomplete",
+      detail: `ARIA does not see ${missing} linked to this event. Confirm whether this event truly had no related costs before settling.`,
+      tone: "warning",
+      actionLabel: "Review costs",
+      actionHref: `#event-labor-costs`,
+    });
+  }
+
+  if (checkInRate !== null && checkInRate < 0.7 && issuedTicketCount > 0) {
+    eventAriaInsights.push({
+      title: "Check-in rate is low",
+      detail: `${checkedInTicketCount} of ${issuedTicketCount} issued tickets are checked in. ARIA recommends confirming whether walk-ins, no-shows, or missed scans explain the gap.`,
+      tone: "warning",
+      actionLabel: "Open check-in",
+      actionHref: `/app/events/${typedEvent.id}/check-in`,
+    });
+  }
+
+  if (unpaidRegistrations > 0 || pendingRegistrations > 0) {
+    eventAriaInsights.push({
+      title: "Registration exceptions need follow-up",
+      detail: `${unpaidRegistrations} unpaid and ${pendingRegistrations} pending registrations may affect final revenue and closeout confidence.`,
+      tone: "critical",
+      actionLabel: "Review registrations",
+      actionHref: `/app/events/${typedEvent.id}/registrations`,
+    });
+  }
+
+  const visibleEventAriaInsights = eventAriaInsights.slice(0, 4);
+
   return (
     <div className="space-y-6">
       <section className="overflow-hidden rounded-[28px] border border-[#E9D5FF] bg-gradient-to-r from-[#2D0B45] via-[#5B197A] to-[#7C2D92] text-white shadow-sm">
@@ -727,7 +834,7 @@ export default async function EventTicketsPage({
             </p>
           </div>
 
-          <div className="flex flex-wrap gap-3">
+          <div id="event-actions" className="flex flex-wrap gap-3">
             <Link
               href="/app/events"
               className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
@@ -801,7 +908,7 @@ export default async function EventTicketsPage({
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section id="event-financial-health" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
@@ -915,7 +1022,64 @@ export default async function EventTicketsPage({
           )}
         </div>
 
-        <div className="mt-5 rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
+
+        <div className="mt-5 rounded-3xl border border-[#E9D5FF] bg-gradient-to-br from-[#FCF8FF] to-white p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                ARIA event insights
+              </p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">What ARIA sees in this event</h3>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                ARIA reviews this event’s revenue, closeout readiness, labor, expenses, registration exceptions, and check-in rate to suggest the next operational move.
+              </p>
+            </div>
+            <Link
+              href="/app/aria"
+              className="inline-flex items-center justify-center rounded-xl border border-[#5B197A]/25 bg-white px-4 py-2 text-sm font-semibold text-[#5B197A] transition hover:bg-[#F9F1FF]"
+            >
+              Consult with ARIA
+            </Link>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {visibleEventAriaInsights.map((insight) => {
+              const insightClassName =
+                insight.tone === "critical"
+                  ? "border-rose-200 bg-rose-50 text-rose-900"
+                  : insight.tone === "warning"
+                    ? "border-amber-200 bg-amber-50 text-amber-900"
+                    : "border-emerald-200 bg-emerald-50 text-emerald-900";
+
+              const dotClassName =
+                insight.tone === "critical"
+                  ? "bg-rose-500"
+                  : insight.tone === "warning"
+                    ? "bg-amber-500"
+                    : "bg-emerald-500";
+
+              return (
+                <div key={insight.title} className={`rounded-2xl border p-4 text-sm ${insightClassName}`}>
+                  <div className="flex items-start gap-3">
+                    <span className={`mt-1 h-2.5 w-2.5 shrink-0 rounded-full ${dotClassName}`} />
+                    <div className="min-w-0">
+                      <p className="font-semibold">{insight.title}</p>
+                      <p className="mt-2 leading-6 opacity-90">{insight.detail}</p>
+                      <Link
+                        href={insight.actionHref}
+                        className="mt-3 inline-flex text-xs font-semibold underline-offset-4 hover:underline"
+                      >
+                        {insight.actionLabel}
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div id="event-closeout" className="mt-5 rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
@@ -1017,7 +1181,7 @@ export default async function EventTicketsPage({
             </div>
           ) : null}
 
-          <div className="mt-5 rounded-2xl border border-[#E9D5FF] bg-white p-4">
+          <div id="closeout-readiness" className="mt-5 rounded-2xl border border-[#E9D5FF] bg-white p-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
               <div>
                 <h4 className="text-sm font-semibold text-slate-950">Closeout readiness checklist</h4>
@@ -1121,7 +1285,7 @@ export default async function EventTicketsPage({
             )
           ) : null}
 
-          <div className="mt-5 rounded-2xl border border-[#E9D5FF] bg-white p-4">
+          <div id="settlement-history" className="mt-5 rounded-2xl border border-[#E9D5FF] bg-white p-4">
             <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
               <div>
                 <h4 className="text-sm font-semibold text-slate-950">Settlement history</h4>
@@ -1219,7 +1383,7 @@ export default async function EventTicketsPage({
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section id="event-labor-costs" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">

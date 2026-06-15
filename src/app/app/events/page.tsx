@@ -17,6 +17,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { planHasFeature } from "@/lib/billing/plans";
 import CopyCalendarFeedButton from "@/components/app/CopyCalendarFeedButton";
+import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { duplicateEventAction } from "./actions";
 
 type EventRow = {
@@ -534,7 +535,6 @@ function StatCard({
   );
 }
 
-
 function ComparisonCard({
   title,
   subtitle,
@@ -588,7 +588,11 @@ function ComparisonCard({
                       </Link>
                     </div>
                     <p className="mt-2 text-xs text-slate-500">
-                      {formatDateRange(row.event.start_date, row.event.end_date)} • {settlementStatusLabel(row.settlementStatus)}
+                      {formatDateRange(
+                        row.event.start_date,
+                        row.event.end_date,
+                      )}{" "}
+                      • {settlementStatusLabel(row.settlementStatus)}
                     </p>
                     {getDetail ? (
                       <p className="mt-1 text-xs text-slate-500">
@@ -1102,11 +1106,17 @@ export default async function EventsPage() {
       }
 
       if (row.refunds > 0 || row.refundedRegistrations > 0) {
-        issues.push({ label: "Refund activity to review", severity: "warning" });
+        issues.push({
+          label: "Refund activity to review",
+          severity: "warning",
+        });
       }
 
       if (row.netTicketRevenue > 0 && row.eventLaborCosts <= 0) {
-        issues.push({ label: "No labor/staff costs linked", severity: "warning" });
+        issues.push({
+          label: "No labor/staff costs linked",
+          severity: "warning",
+        });
       }
 
       if (row.netTicketRevenue > 0 && row.eventExpenses <= 0) {
@@ -1154,12 +1164,16 @@ export default async function EventsPage() {
 
   const bestMarginEvents = eventsWithFinancialActivity
     .filter((row) => row.marginPercent !== null && row.netTicketRevenue > 0)
-    .sort((a, b) => (b.marginPercent ?? -Infinity) - (a.marginPercent ?? -Infinity))
+    .sort(
+      (a, b) => (b.marginPercent ?? -Infinity) - (a.marginPercent ?? -Infinity),
+    )
     .slice(0, 5);
 
   const worstMarginEvents = eventsWithFinancialActivity
     .filter((row) => row.marginPercent !== null && row.netTicketRevenue > 0)
-    .sort((a, b) => (a.marginPercent ?? Infinity) - (b.marginPercent ?? Infinity))
+    .sort(
+      (a, b) => (a.marginPercent ?? Infinity) - (b.marginPercent ?? Infinity),
+    )
     .slice(0, 5);
 
   const bestCheckInRateEvents = eventsWithFinancialActivity
@@ -1185,6 +1199,73 @@ export default async function EventsPage() {
     )
     .slice(0, 5);
 
+  const readyToSettleEvents = organizerEventRows.filter(
+    (row) =>
+      row.isCompletedOrPast &&
+      row.settlementStatus !== "settled" &&
+      row.unpaidRegistrations === 0 &&
+      row.pendingRegistrations === 0 &&
+      row.eventProfitLoss >= 0,
+  );
+  const missingCostEvents = organizerEventRows.filter(
+    (row) =>
+      row.netTicketRevenue > 0 &&
+      (row.eventLaborCosts <= 0 || row.eventExpenses <= 0),
+  );
+  const organizerAriaRepeatCandidate = [...organizerEventRows]
+    .filter(
+      (row) =>
+        row.netTicketRevenue > 0 &&
+        row.eventProfitLoss > 0 &&
+        (row.marginPercent ?? 0) >= 25 &&
+        (row.checkInRate ?? 0) >= 75,
+    )
+    .sort((a, b) => b.eventProfitLoss - a.eventProfitLoss)[0];
+  const organizerAriaRiskEvent = eventsNeedingAttention[0]?.row ?? null;
+
+  const organizerAriaInsight = organizerAriaRiskEvent
+    ? {
+        title: "ARIA sees events that need operator attention.",
+        insight: `${eventsNeedingAttention.length} event${eventsNeedingAttention.length === 1 ? " is" : "s are"} flagged for review. The highest-priority item is ${organizerAriaRiskEvent.event.name}.`,
+        recommendation:
+          organizerAriaRiskEvent.isCompletedOrPast &&
+          organizerAriaRiskEvent.settlementStatus !== "settled"
+            ? "Open the event dashboard, review the closeout checklist, and settle or reopen the event before reviewing lower-priority events."
+            : "Open the event dashboard and review the finance, check-in, and settlement signals before making pricing or repeat-event decisions.",
+        metric: `${eventsNeedingAttention.length} flagged`,
+        href: `/app/events/${organizerAriaRiskEvent.event.id}`,
+        label: "Review event",
+      }
+    : organizerAriaRepeatCandidate
+      ? {
+          title: "ARIA found an event worth repeating.",
+          insight: `${organizerAriaRepeatCandidate.event.name} produced ${fmtCurrency(organizerAriaRepeatCandidate.eventProfitLoss)} profit with a ${fmtPercent(organizerAriaRepeatCandidate.marginPercent)} margin and ${fmtPercent(organizerAriaRepeatCandidate.checkInRate)} check-in rate.`,
+          recommendation:
+            "Use this event as a repeat-event template. Review pricing, ticket mix, and promotion timing before duplicating it for the next date.",
+          metric: "Repeat candidate",
+          href: `/app/events/${organizerAriaRepeatCandidate.event.id}`,
+          label: "Open event",
+        }
+      : readyToSettleEvents.length > 0
+        ? {
+            title: "ARIA sees events ready for closeout.",
+            insight: `${readyToSettleEvents.length} completed event${readyToSettleEvents.length === 1 ? " looks" : "s look"} ready to settle with no unpaid or pending registration blockers.`,
+            recommendation:
+              "Start with the oldest completed event, confirm labor and expenses are complete, then mark the settlement ready or settled.",
+            metric: `${readyToSettleEvents.length} ready`,
+            href: `/app/events/${readyToSettleEvents[0].event.id}`,
+            label: "Start closeout",
+          }
+        : {
+            title: "ARIA is monitoring organizer performance.",
+            insight:
+              "No urgent organizer event issues are currently standing out from the dashboard data.",
+            recommendation:
+              "Keep event labor, expenses, and settlement notes current so ARIA can surface stronger recommendations as registrations and check-ins come in.",
+            metric: "Monitoring",
+            href: "/app/events",
+            label: "Review events",
+          };
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -1283,6 +1364,21 @@ export default async function EventsPage() {
         </div>
       </section>
 
+      {organizerWorkspace ? (
+        <AriaInsightCard
+          eyebrow="ARIA Organizer Insight"
+          title={organizerAriaInsight.title}
+          insight={organizerAriaInsight.insight}
+          recommendation={organizerAriaInsight.recommendation}
+          metric={organizerAriaInsight.metric}
+          primaryAction={{
+            href: organizerAriaInsight.href,
+            label: organizerAriaInsight.label,
+          }}
+          secondaryAction={{ href: "/app/aria", label: "Consult with ARIA" }}
+        />
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
         <StatCard
           label="Total Events"
@@ -1346,14 +1442,16 @@ export default async function EventsPage() {
 
             <div className="flex flex-wrap gap-2 lg:justify-end">
               {Object.entries(settlementStatusCounts).length > 0 ? (
-                Object.entries(settlementStatusCounts).map(([status, count]) => (
-                  <span
-                    key={status}
-                    className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${settlementBadgeClass(status)}`}
-                  >
-                    {settlementStatusLabel(status)}: {count}
-                  </span>
-                ))
+                Object.entries(settlementStatusCounts).map(
+                  ([status, count]) => (
+                    <span
+                      key={status}
+                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${settlementBadgeClass(status)}`}
+                    >
+                      {settlementStatusLabel(status)}: {count}
+                    </span>
+                  ),
+                )
               ) : (
                 <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
                   No settlements yet
@@ -1520,8 +1618,8 @@ export default async function EventsPage() {
                 Events needing attention
               </h3>
               <p className="mt-1 text-sm leading-6 text-amber-900">
-                These are the organizer events most likely to need operational or
-                financial review before closeout.
+                These are the organizer events most likely to need operational
+                or financial review before closeout.
               </p>
             </div>
             <span className="inline-flex w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200">
@@ -1567,7 +1665,10 @@ export default async function EventsPage() {
                         {formatDateRange(
                           item.row.event.start_date,
                           item.row.event.end_date,
-                        )} • {item.row.ticketsCheckedIn}/{item.row.ticketsIssued} checked in • {fmtPercent(item.row.checkInRate)} check-in rate
+                        )}{" "}
+                        • {item.row.ticketsCheckedIn}/{item.row.ticketsIssued}{" "}
+                        checked in • {fmtPercent(item.row.checkInRate)} check-in
+                        rate
                       </p>
 
                       <div className="mt-3 flex flex-wrap gap-2">
@@ -1689,7 +1790,9 @@ export default async function EventsPage() {
               rows={bestProfitPerCheckedInTicketEvents}
               metricLabel="Per checked-in"
               getMetric={(row) =>
-                fmtCurrency(row.eventProfitLoss / Math.max(row.ticketsCheckedIn, 1))
+                fmtCurrency(
+                  row.eventProfitLoss / Math.max(row.ticketsCheckedIn, 1),
+                )
               }
               getDetail={(row) =>
                 `${fmtCurrency(row.eventProfitLoss)} total profit/loss • ${row.ticketsCheckedIn} checked in`
@@ -1702,7 +1805,9 @@ export default async function EventsPage() {
               rows={bestRevenuePerIssuedTicketEvents}
               metricLabel="Per issued"
               getMetric={(row) =>
-                fmtCurrency(row.netTicketRevenue / Math.max(row.ticketsIssued, 1))
+                fmtCurrency(
+                  row.netTicketRevenue / Math.max(row.ticketsIssued, 1),
+                )
               }
               getDetail={(row) =>
                 `${fmtCurrency(row.netTicketRevenue)} net revenue • ${row.ticketsIssued} tickets issued`
@@ -1711,7 +1816,6 @@ export default async function EventsPage() {
             />
           </div>
         </div>
-
       </section>
 
       <section className="rounded-[28px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">

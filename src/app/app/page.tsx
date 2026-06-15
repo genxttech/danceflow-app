@@ -1311,6 +1311,87 @@ export default async function AppDashboardPage({
       !onboardingCompleted &&
       organizerOnboardingComplete;
 
+    const organizerAriaInsight =
+      typedEvents.length === 0
+        ? {
+            title: "ARIA is ready to help build your first event.",
+            insight:
+              "No organizer events are active yet, so ARIA's first recommendation is to create one event and make the registration path measurable from day one.",
+            recommendation:
+              "Create the event, add ticket types, confirm public visibility, and then return here so ARIA can watch sales, check-ins, costs, and closeout readiness.",
+            metric: "0 events",
+            primaryAction: { href: "/app/events/new", label: "Create event" },
+            secondaryAction: { href: "/app/aria", label: "Consult with ARIA" },
+          }
+        : !payoutsReady
+          ? {
+              title: "Connect payouts before leaning on paid registration data.",
+              insight:
+                "ARIA found organizer events, but Stripe payouts are not connected yet. That limits reliable ticket revenue, refunds, fees, and closeout tracking.",
+              recommendation:
+                "Connect payouts, then use the organizer event dashboard to review revenue, labor, expenses, and settlement readiness.",
+              metric: "Payouts not connected",
+              primaryAction: { href: "/app/payments", label: "Connect payouts" },
+              secondaryAction: { href: "/app/events", label: "Review events" },
+            }
+          : publishedCount === 0
+            ? {
+                title: "Your events exist, but none are open for registration yet.",
+                insight:
+                  "ARIA found draft or unpublished events. The next organizer move is to publish at least one event and turn on public discovery if it should be found by dancers.",
+                recommendation:
+                  "Open your events list, confirm the public details, then publish or open registration for the next event you want to sell.",
+                metric: `${typedEvents.length} event${typedEvents.length === 1 ? "" : "s"} created`,
+                primaryAction: { href: "/app/events", label: "Open events" },
+                secondaryAction: { href: "/app/aria", label: "Ask ARIA what to fix" },
+              }
+            : discoveryReadyCount === 0
+              ? {
+                  title: "Published events are not fully discovery-ready.",
+                  insight:
+                    "ARIA found published or open events, but none are currently enabled for public directory discovery.",
+                  recommendation:
+                    "Review visibility and public directory settings so dancers can find your event without needing a direct link.",
+                  metric: `${publishedCount} open / published`,
+                  primaryAction: { href: "/app/events", label: "Review discovery" },
+                  secondaryAction: { href: "/app/aria", label: "Consult with ARIA" },
+                }
+              : paidRegistrationsCount === 0
+                ? {
+                    title: "Your next ARIA focus is ticket conversion.",
+                    insight:
+                      "ARIA found discovery-ready events, but no paid registrations in this workspace summary yet.",
+                    recommendation:
+                      "Review the public event page, ticket pricing, campaign links, and registration path so you can turn discovery into paid attendance.",
+                    metric: "0 paid registrations",
+                    primaryAction: { href: "/app/events", label: "Review event funnel" },
+                    secondaryAction: {
+                      href: "/app/organizer-campaigns",
+                      label: "Review campaigns",
+                    },
+                  }
+                : checkedInCount === 0
+                  ? {
+                      title: "Ticket sales are active. Prepare check-in next.",
+                      insight:
+                        "ARIA found paid registrations but no attended check-ins in the dashboard summary yet.",
+                      recommendation:
+                        "Before the next event starts, test the check-in flow and confirm ticket codes or QR scanning are ready.",
+                      metric: `${paidRegistrationsCount} paid`,
+                      primaryAction: { href: "/app/events/check-in", label: "Open check-in" },
+                      secondaryAction: { href: "/app/events", label: "Review events" },
+                    }
+                  : {
+                      title: "ARIA is monitoring organizer performance.",
+                      insight:
+                        "ARIA sees active event operations with paid registrations and check-in activity. The next priority is watching closeout readiness, margins, costs, and repeat-event signals.",
+                      recommendation:
+                        "Open the organizer event dashboard to review events needing attention, profitability rankings, settlement status, and exports.",
+                      metric: `${checkedInCount} checked in`,
+                      primaryAction: { href: "/app/events", label: "Open event dashboard" },
+                      secondaryAction: { href: "/app/aria", label: "Consult with ARIA" },
+                    };
+
     return (
       <main className="space-y-8 p-6 md:p-8">
         <PlatformBroadcastAlerts alerts={visiblePlatformAlerts} />
@@ -1429,6 +1510,16 @@ export default async function AppDashboardPage({
             </div>
           </div>
         </section>
+
+        <AriaInsightCard
+          eyebrow="ARIA Organizer Insights"
+          title={organizerAriaInsight.title}
+          insight={organizerAriaInsight.insight}
+          recommendation={organizerAriaInsight.recommendation}
+          metric={organizerAriaInsight.metric}
+          primaryAction={organizerAriaInsight.primaryAction}
+          secondaryAction={organizerAriaInsight.secondaryAction}
+        />
 
         <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
           <SectionCard

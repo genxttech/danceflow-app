@@ -10,6 +10,10 @@ import {
   Package,
   Sparkles,
   Target,
+  TrendingDown,
+  TrendingUp,
+  Wallet,
+  Ticket,
   WandSparkles,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
@@ -22,10 +26,12 @@ type ClientPackageRow = {
   client_id: string | null;
   name_snapshot: string | null;
   active: boolean | null;
-  client_package_items?: {
-    quantity_remaining: number | string | null;
-    is_unlimited: boolean | null;
-  }[] | null;
+  client_package_items?:
+    | {
+        quantity_remaining: number | string | null;
+        is_unlimited: boolean | null;
+      }[]
+    | null;
 };
 
 type BookingRequestRow = {
@@ -86,6 +92,47 @@ type AriaGoalRow = {
   updated_at: string;
 };
 
+type OrganizerAriaEventRow = {
+  id: string;
+  name: string;
+  slug: string | null;
+  status: string | null;
+  start_date: string;
+  end_date: string | null;
+};
+
+type OrganizerAriaRegistrationRow = {
+  id: string;
+  event_id: string;
+  status: string | null;
+  payment_status: string | null;
+  quantity: number | string | null;
+};
+
+type OrganizerAriaTicketRow = {
+  id: string;
+  event_id: string | null;
+  checked_in_at: string | null;
+};
+
+type OrganizerAriaProfitabilityRow = {
+  event_id: string | null;
+  gross_ticket_revenue: number | string | null;
+  refunds: number | string | null;
+  processing_and_platform_fees: number | string | null;
+  net_ticket_revenue: number | string | null;
+  event_expenses: number | string | null;
+  event_labor_costs: number | string | null;
+  total_event_costs: number | string | null;
+  event_profit_loss: number | string | null;
+};
+
+type OrganizerAriaSettlementRow = {
+  event_id: string | null;
+  status: string | null;
+  settled_at: string | null;
+};
+
 function formatDateTime(value: string | null | undefined) {
   if (!value) return "Not scheduled";
 
@@ -108,7 +155,8 @@ function formatDate(value: string | null | undefined) {
 }
 
 function formatGoalTarget(value: number | string | null, unit: string) {
-  if (value === null || value === undefined || value === "") return "Target not set";
+  if (value === null || value === undefined || value === "")
+    return "Target not set";
   const numericValue = typeof value === "number" ? value : Number(value);
   const formattedValue = Number.isFinite(numericValue)
     ? numericValue.toLocaleString("en-US")
@@ -119,7 +167,11 @@ function formatGoalTarget(value: number | string | null, unit: string) {
   return `${formattedValue} ${unit}`;
 }
 
-function personName(firstName?: string | null, lastName?: string | null, fallback = "Client") {
+function personName(
+  firstName?: string | null,
+  lastName?: string | null,
+  fallback = "Client",
+) {
   return [firstName, lastName].filter(Boolean).join(" ").trim() || fallback;
 }
 
@@ -130,6 +182,33 @@ function asNumber(value: number | string | null | undefined) {
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function safeNumber(value: number | string | null | undefined) {
+  return asNumber(value) ?? 0;
+}
+
+function formatCurrency(value: number | string | null | undefined) {
+  const amount = safeNumber(value);
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+function formatPercent(value: number | null | undefined) {
+  if (value === null || value === undefined || Number.isNaN(value)) return "—";
+  return `${value.toFixed(1)}%`;
+}
+
+function isOrganizerRole(role: string | null | undefined) {
+  return (
+    role === "organizer_owner" ||
+    role === "organizer_admin" ||
+    role === "organizer_staff"
+  );
 }
 
 function packageLowestRemaining(row: ClientPackageRow) {
@@ -158,9 +237,12 @@ function ruleLabel(ruleKey: string) {
   return "Automation";
 }
 
-function opportunityToneClass(tone: "revenue" | "booking" | "document" | "automation" | "retention") {
+function opportunityToneClass(
+  tone: "revenue" | "booking" | "document" | "automation" | "retention",
+) {
   if (tone === "revenue") return "border-pink-200 bg-pink-50 text-pink-700";
-  if (tone === "booking") return "border-violet-200 bg-violet-50 text-violet-700";
+  if (tone === "booking")
+    return "border-violet-200 bg-violet-50 text-violet-700";
   if (tone === "document") return "border-amber-200 bg-amber-50 text-amber-700";
   if (tone === "automation") return "border-blue-200 bg-blue-50 text-blue-700";
   return "border-emerald-200 bg-emerald-50 text-emerald-700";
@@ -186,7 +268,9 @@ function OpportunityCard({
   return (
     <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
-        <div className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${opportunityToneClass(tone)}`}>
+        <div
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${opportunityToneClass(tone)}`}
+        >
           <Icon className="h-5 w-5" />
         </div>
         <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
@@ -217,8 +301,630 @@ export default async function AriaOpportunityHubPage() {
   }
 
   const studioId = context.studioId;
+  const organizerWorkspace = isOrganizerRole(context.studioRole);
+
+  if (organizerWorkspace) {
+    const todayStart = new Date(new Date().toDateString());
+
+    const { data: eventsData, error: eventsError } = await supabase
+      .from("events")
+      .select("id, name, slug, status, start_date, end_date")
+      .eq("studio_id", studioId)
+      .order("start_date", { ascending: true })
+      .limit(250);
+
+    if (eventsError) {
+      throw new Error(
+        `Failed to load organizer ARIA events: ${eventsError.message}`,
+      );
+    }
+
+    const organizerEvents = (eventsData ?? []) as OrganizerAriaEventRow[];
+    const eventIds = organizerEvents.map((event) => event.id);
+
+    let registrationRows: OrganizerAriaRegistrationRow[] = [];
+    let ticketRows: OrganizerAriaTicketRow[] = [];
+    let profitabilityRows: OrganizerAriaProfitabilityRow[] = [];
+    let settlementRows: OrganizerAriaSettlementRow[] = [];
+
+    if (eventIds.length > 0) {
+      const [
+        registrationsResult,
+        ticketsResult,
+        profitabilityResult,
+        settlementsResult,
+      ] = await Promise.all([
+        supabase
+          .from("event_registrations")
+          .select("id,event_id,status,payment_status,quantity")
+          .in("event_id", eventIds),
+        supabase
+          .from("event_registration_attendees")
+          .select("id,event_id,checked_in_at")
+          .in("event_id", eventIds)
+          .limit(10000),
+        supabase
+          .from("v_event_profit_loss")
+          .select(
+            "event_id,gross_ticket_revenue,refunds,processing_and_platform_fees,net_ticket_revenue,event_expenses,event_labor_costs,total_event_costs,event_profit_loss",
+          )
+          .in("event_id", eventIds),
+        supabase
+          .from("event_settlements")
+          .select("event_id,status,settled_at")
+          .in("event_id", eventIds),
+      ]);
+
+      if (registrationsResult.error) {
+        throw new Error(
+          `Failed to load organizer ARIA registrations: ${registrationsResult.error.message}`,
+        );
+      }
+
+      if (ticketsResult.error) {
+        console.warn(
+          "Failed to load organizer ARIA tickets:",
+          ticketsResult.error.message,
+        );
+      }
+
+      if (profitabilityResult.error) {
+        console.warn(
+          "Failed to load organizer ARIA profitability:",
+          profitabilityResult.error.message,
+        );
+      }
+
+      if (settlementsResult.error) {
+        console.warn(
+          "Failed to load organizer ARIA settlements:",
+          settlementsResult.error.message,
+        );
+      }
+
+      registrationRows = (registrationsResult.data ??
+        []) as OrganizerAriaRegistrationRow[];
+      ticketRows = ticketsResult.error
+        ? []
+        : ((ticketsResult.data ?? []) as OrganizerAriaTicketRow[]);
+      profitabilityRows = profitabilityResult.error
+        ? []
+        : ((profitabilityResult.data ?? []) as OrganizerAriaProfitabilityRow[]);
+      settlementRows = settlementsResult.error
+        ? []
+        : ((settlementsResult.data ?? []) as OrganizerAriaSettlementRow[]);
+    }
+
+    const registrationsByEventId = new Map<
+      string,
+      OrganizerAriaRegistrationRow[]
+    >();
+    for (const registration of registrationRows) {
+      const current = registrationsByEventId.get(registration.event_id) ?? [];
+      current.push(registration);
+      registrationsByEventId.set(registration.event_id, current);
+    }
+
+    const ticketsByEventId = new Map<string, OrganizerAriaTicketRow[]>();
+    for (const ticket of ticketRows) {
+      if (!ticket.event_id) continue;
+      const current = ticketsByEventId.get(ticket.event_id) ?? [];
+      current.push(ticket);
+      ticketsByEventId.set(ticket.event_id, current);
+    }
+
+    const profitabilityByEventId = new Map<
+      string,
+      OrganizerAriaProfitabilityRow
+    >();
+    for (const row of profitabilityRows) {
+      if (row.event_id) profitabilityByEventId.set(row.event_id, row);
+    }
+
+    const settlementByEventId = new Map<string, OrganizerAriaSettlementRow>();
+    for (const row of settlementRows) {
+      if (row.event_id) settlementByEventId.set(row.event_id, row);
+    }
+
+    const organizerEventRows = organizerEvents.map((event) => {
+      const registrations = registrationsByEventId.get(event.id) ?? [];
+      const tickets = ticketsByEventId.get(event.id) ?? [];
+      const profitability = profitabilityByEventId.get(event.id);
+      const settlement = settlementByEventId.get(event.id);
+      const netTicketRevenue = safeNumber(profitability?.net_ticket_revenue);
+      const eventProfitLoss = safeNumber(profitability?.event_profit_loss);
+      const ticketsIssued =
+        tickets.length > 0
+          ? tickets.length
+          : registrations.reduce(
+              (sum, row) => sum + safeNumber(row.quantity ?? 1),
+              0,
+            );
+      const ticketsCheckedIn = tickets.filter(
+        (ticket) => ticket.checked_in_at,
+      ).length;
+      const eventDate = new Date(`${event.start_date}T00:00:00`);
+      const isPast =
+        !Number.isNaN(eventDate.getTime()) && eventDate < todayStart;
+
+      return {
+        event,
+        grossTicketRevenue: safeNumber(profitability?.gross_ticket_revenue),
+        refunds: safeNumber(profitability?.refunds),
+        fees: safeNumber(profitability?.processing_and_platform_fees),
+        netTicketRevenue,
+        eventExpenses: safeNumber(profitability?.event_expenses),
+        eventLaborCosts: safeNumber(profitability?.event_labor_costs),
+        totalEventCosts: safeNumber(profitability?.total_event_costs),
+        eventProfitLoss,
+        marginPercent: netTicketRevenue
+          ? (eventProfitLoss / netTicketRevenue) * 100
+          : null,
+        registrations: registrations.length,
+        unpaidRegistrations: registrations.filter(
+          (row) => row.payment_status === "unpaid",
+        ).length,
+        pendingRegistrations: registrations.filter(
+          (row) => row.payment_status === "pending",
+        ).length,
+        refundedRegistrations: registrations.filter(
+          (row) =>
+            row.payment_status === "refunded" || row.status === "refunded",
+        ).length,
+        ticketsIssued,
+        ticketsCheckedIn,
+        checkInRate: ticketsIssued
+          ? (ticketsCheckedIn / ticketsIssued) * 100
+          : null,
+        settlementStatus: settlement?.status ?? "open",
+        hasSettlementRecord: Boolean(settlement),
+        isCompletedOrPast: event.status === "completed" || isPast,
+      };
+    });
+
+    const totalNetRevenue = organizerEventRows.reduce(
+      (sum, row) => sum + row.netTicketRevenue,
+      0,
+    );
+    const totalProfitLoss = organizerEventRows.reduce(
+      (sum, row) => sum + row.eventProfitLoss,
+      0,
+    );
+    const totalTicketsIssued = organizerEventRows.reduce(
+      (sum, row) => sum + row.ticketsIssued,
+      0,
+    );
+    const totalTicketsCheckedIn = organizerEventRows.reduce(
+      (sum, row) => sum + row.ticketsCheckedIn,
+      0,
+    );
+    const totalCheckInRate = totalTicketsIssued
+      ? (totalTicketsCheckedIn / totalTicketsIssued) * 100
+      : null;
+
+    const unsettledCompletedEvents = organizerEventRows.filter(
+      (row) => row.isCompletedOrPast && row.settlementStatus !== "settled",
+    );
+    const losingMoneyEvents = organizerEventRows.filter(
+      (row) => row.eventProfitLoss < 0,
+    );
+    const missingCostEvents = organizerEventRows.filter(
+      (row) =>
+        row.netTicketRevenue > 0 &&
+        (row.eventExpenses <= 0 || row.eventLaborCosts <= 0),
+    );
+    const registrationExceptionEvents = organizerEventRows.filter(
+      (row) => row.unpaidRegistrations > 0 || row.pendingRegistrations > 0,
+    );
+    const repeatCandidate = [...organizerEventRows]
+      .filter(
+        (row) =>
+          row.netTicketRevenue > 0 &&
+          row.eventProfitLoss > 0 &&
+          (row.marginPercent ?? 0) >= 25 &&
+          (row.checkInRate ?? 0) >= 75,
+      )
+      .sort((a, b) => b.eventProfitLoss - a.eventProfitLoss)[0];
+
+    const readyToSettleEvents = organizerEventRows.filter(
+      (row) =>
+        row.isCompletedOrPast &&
+        row.settlementStatus !== "settled" &&
+        row.unpaidRegistrations === 0 &&
+        row.pendingRegistrations === 0 &&
+        row.eventProfitLoss >= 0 &&
+        row.eventExpenses > 0 &&
+        row.eventLaborCosts > 0,
+    );
+
+    const weakestCheckInEvent = [...organizerEventRows]
+      .filter(
+        (row) =>
+          row.ticketsIssued > 0 &&
+          row.checkInRate !== null &&
+          row.isCompletedOrPast,
+      )
+      .sort((a, b) => (a.checkInRate ?? 0) - (b.checkInRate ?? 0))[0];
+
+    const highestRevenueEvent = [...organizerEventRows]
+      .filter((row) => row.netTicketRevenue > 0)
+      .sort((a, b) => b.netTicketRevenue - a.netTicketRevenue)[0];
+
+    const strongestProfitEvent = [...organizerEventRows]
+      .filter((row) => row.eventProfitLoss > 0)
+      .sort((a, b) => b.eventProfitLoss - a.eventProfitLoss)[0];
+
+    const nextBestOrganizerMove = unsettledCompletedEvents[0]
+      ? {
+          title: "Close out completed events first.",
+          insight: `${unsettledCompletedEvents.length} completed or past event${unsettledCompletedEvents.length === 1 ? " still needs" : "s still need"} settlement review.`,
+          recommendation:
+            "Open the oldest unsettled event, verify refunds, labor, expenses, and check-ins, then mark the settlement ready or settled.",
+          href: `/app/events/${unsettledCompletedEvents[0].event.id}`,
+          label: "Review closeout",
+          metric: `${unsettledCompletedEvents.length} unsettled`,
+        }
+      : losingMoneyEvents[0]
+        ? {
+            title: "Review events losing money.",
+            insight: `${losingMoneyEvents.length} event${losingMoneyEvents.length === 1 ? " is" : "s are"} currently below break-even.`,
+            recommendation:
+              "Check whether labor, expenses, refunds, or pricing caused the loss before repeating the event format.",
+            href: `/app/events/${losingMoneyEvents[0].event.id}`,
+            label: "Review loss",
+            metric: `${losingMoneyEvents.length} loss event${losingMoneyEvents.length === 1 ? "" : "s"}`,
+          }
+        : repeatCandidate
+          ? {
+              title: "Repeat your strongest event format.",
+              insight: `${repeatCandidate.event.name} generated ${formatCurrency(repeatCandidate.eventProfitLoss)} profit with a ${formatPercent(repeatCandidate.marginPercent)} margin.`,
+              recommendation:
+                "Duplicate this event or use its pricing, timing, and promotion approach as the model for your next organizer event.",
+              href: `/app/events/${repeatCandidate.event.id}`,
+              label: "Open event",
+              metric: "Repeat candidate",
+            }
+          : {
+              title: "ARIA is watching your organizer event health.",
+              insight:
+                "No urgent event closeout or profitability issue is standing out right now.",
+              recommendation:
+                "Keep labor, expenses, settlements, and registrations current so ARIA can make stronger recommendations as your events run.",
+              href: "/app/events",
+              label: "Open events",
+              metric: "Monitoring",
+            };
+
+    return (
+      <main className="space-y-8 p-6 md:p-8">
+        <section className="overflow-hidden rounded-[36px] border border-[#F9A8D4] bg-white shadow-sm">
+          <div className="relative p-6 md:p-8">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(236,72,153,0.18),transparent_32%),linear-gradient(135deg,rgba(255,247,237,0.9),rgba(255,255,255,0.95)_45%,rgba(250,245,255,0.9))]" />
+            <div className="relative grid gap-6 lg:grid-cols-[auto_minmax(0,1fr)_auto] lg:items-center">
+              <AriaAvatar size="lg" />
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.22em] text-[#BE185D]">
+                  ARIA Organizer Command Center
+                </p>
+                <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
+                  ARIA for event organizers
+                </h1>
+                <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-700 md:text-base">
+                  I’m tuned to your organizer workspace. I look at event
+                  revenue, refunds, fees, labor, expenses, ticket check-ins, and
+                  settlement status so you know which events need action and
+                  which ones are worth repeating.
+                </p>
+              </div>
+              <Link
+                href="/app/events"
+                className="inline-flex items-center justify-center rounded-2xl bg-[#6B21A8] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#581C87]"
+              >
+                Open Organizer Dashboard
+              </Link>
+            </div>
+          </div>
+        </section>
+
+        <AriaInsightCard
+          eyebrow="ARIA's Organizer Next Best Move"
+          title={nextBestOrganizerMove.title}
+          insight={nextBestOrganizerMove.insight}
+          recommendation={nextBestOrganizerMove.recommendation}
+          metric={nextBestOrganizerMove.metric}
+          primaryAction={{
+            href: nextBestOrganizerMove.href,
+            label: nextBestOrganizerMove.label,
+          }}
+          secondaryAction={{
+            href: "/app/events",
+            label: "View organizer reporting",
+          }}
+        />
+
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <OpportunityCard
+            tone="revenue"
+            icon={Wallet}
+            title="Organizer net revenue"
+            metric={formatCurrency(totalNetRevenue)}
+            description="Net ticket revenue after refunds and processing/platform fees across organizer events."
+            href="/app/events"
+            actionLabel="Open reporting"
+          />
+          <OpportunityCard
+            tone={totalProfitLoss >= 0 ? "retention" : "revenue"}
+            icon={totalProfitLoss >= 0 ? TrendingUp : TrendingDown}
+            title="Event profit/loss"
+            metric={formatCurrency(totalProfitLoss)}
+            description="Profit/loss after event expenses and labor costs are applied to event ticket revenue."
+            href="/app/events"
+            actionLabel="Review events"
+          />
+          <OpportunityCard
+            tone="booking"
+            icon={Ticket}
+            title="Ticket check-in health"
+            metric={formatPercent(totalCheckInRate)}
+            description="Issued ticket check-ins help show whether ticket buyers actually attended the event."
+            href="/app/events"
+            actionLabel="View check-ins"
+          />
+          <OpportunityCard
+            tone="automation"
+            icon={ClipboardList}
+            title="Closeout queue"
+            metric={`${unsettledCompletedEvents.length}`}
+            description="Completed or past events that still need settlement review, notes, or final closeout."
+            href="/app/events"
+            actionLabel="Review closeouts"
+          />
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-2">
+          <AriaInsightCard
+            eyebrow="ARIA Profitability"
+            title="Know what to repeat and what to repair."
+            insight={
+              repeatCandidate
+                ? `${repeatCandidate.event.name} is your strongest repeat candidate based on profit, margin, and attendance signals.`
+                : "ARIA needs more settled events with complete cost data before it can confidently recommend repeat formats."
+            }
+            recommendation={
+              repeatCandidate
+                ? "Use the event dashboard to review the pricing, ticket mix, and cost structure before duplicating this event."
+                : "Complete labor and expense tracking for each event so future recommendations are based on full profitability."
+            }
+            metric={
+              repeatCandidate
+                ? formatCurrency(repeatCandidate.eventProfitLoss)
+                : "Needs data"
+            }
+            primaryAction={{
+              href: repeatCandidate
+                ? `/app/events/${repeatCandidate.event.id}`
+                : "/app/events",
+              label: repeatCandidate ? "Review candidate" : "Open events",
+            }}
+            compact
+          />
+
+          <AriaInsightCard
+            eyebrow="ARIA Risk Scan"
+            title="Watch the events with missing or risky closeout data."
+            insight={`${missingCostEvents.length} event${missingCostEvents.length === 1 ? " is" : "s are"} missing labor or expense data, and ${registrationExceptionEvents.length} event${registrationExceptionEvents.length === 1 ? " has" : "s have"} unpaid or pending registrations.`}
+            recommendation="Prioritize cost completeness and registration exceptions before marking an event settled."
+            metric={`${missingCostEvents.length + registrationExceptionEvents.length} review signal${missingCostEvents.length + registrationExceptionEvents.length === 1 ? "" : "s"}`}
+            primaryAction={{
+              href: "/app/events",
+              label: "Review attention list",
+            }}
+            compact
+          />
+        </section>
+
+        <section className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
+                Organizer consult prompts
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                Ask ARIA event-operator questions
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                These are organizer-specific prompts with an immediate answer
+                from your current event data and a direct next action.
+              </p>
+            </div>
+            <Link
+              href="/app/events/export/attention"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-[#6B21A8] hover:bg-slate-50"
+            >
+              Export attention list
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <article className="rounded-3xl border border-amber-200 bg-amber-50/70 p-5">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-amber-700">
+                Which events need closeout first?
+              </p>
+              <h3 className="mt-3 text-lg font-semibold text-slate-950">
+                {unsettledCompletedEvents[0]
+                  ? unsettledCompletedEvents[0].event.name
+                  : "No completed event is currently waiting on settlement."}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                {unsettledCompletedEvents.length > 0
+                  ? `${unsettledCompletedEvents.length} completed or past event${unsettledCompletedEvents.length === 1 ? " needs" : "s need"} closeout review. Start with the oldest open event, verify refunds, labor, expenses, and check-ins, then save the settlement status.`
+                  : "ARIA does not see a completed organizer event that needs settlement review right now."}
+              </p>
+              <Link
+                href={
+                  unsettledCompletedEvents[0]
+                    ? `/app/events/${unsettledCompletedEvents[0].event.id}`
+                    : "/app/events"
+                }
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-amber-800 hover:underline"
+              >
+                {unsettledCompletedEvents[0]
+                  ? "Open closeout"
+                  : "Open organizer dashboard"}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </article>
+
+            <article className="rounded-3xl border border-emerald-200 bg-emerald-50/70 p-5">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">
+                Which events should I repeat?
+              </p>
+              <h3 className="mt-3 text-lg font-semibold text-slate-950">
+                {repeatCandidate
+                  ? repeatCandidate.event.name
+                  : strongestProfitEvent
+                    ? strongestProfitEvent.event.name
+                    : "No repeat candidate yet."}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                {repeatCandidate
+                  ? `${repeatCandidate.event.name} is the strongest repeat signal with ${formatCurrency(repeatCandidate.eventProfitLoss)} profit, ${formatPercent(repeatCandidate.marginPercent)} margin, and ${formatPercent(repeatCandidate.checkInRate)} check-in rate.`
+                  : strongestProfitEvent
+                    ? `${strongestProfitEvent.event.name} has your highest current profit at ${formatCurrency(strongestProfitEvent.eventProfitLoss)}, but ARIA needs stronger margin/check-in signals before calling it a repeat model.`
+                    : "ARIA needs more events with revenue, complete costs, and check-in data before recommending a repeat format."}
+              </p>
+              <Link
+                href={
+                  repeatCandidate
+                    ? `/app/events/${repeatCandidate.event.id}`
+                    : strongestProfitEvent
+                      ? `/app/events/${strongestProfitEvent.event.id}`
+                      : "/app/events"
+                }
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-emerald-800 hover:underline"
+              >
+                Review repeat signal
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </article>
+
+            <article className="rounded-3xl border border-rose-200 bg-rose-50/70 p-5">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-rose-700">
+                Where am I losing margin?
+              </p>
+              <h3 className="mt-3 text-lg font-semibold text-slate-950">
+                {losingMoneyEvents[0]
+                  ? losingMoneyEvents[0].event.name
+                  : "No event is currently below break-even."}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                {losingMoneyEvents.length > 0
+                  ? `${losingMoneyEvents.length} event${losingMoneyEvents.length === 1 ? " is" : "s are"} below break-even. Review ticket pricing, refunds, labor, and event expenses before repeating those formats.`
+                  : "ARIA does not see a negative-profit event right now. Keep cost attribution current so margin warnings stay accurate."}
+              </p>
+              <Link
+                href={
+                  losingMoneyEvents[0]
+                    ? `/app/events/${losingMoneyEvents[0].event.id}`
+                    : "/app/events"
+                }
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-rose-800 hover:underline"
+              >
+                Review margin risk
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </article>
+
+            <article className="rounded-3xl border border-violet-200 bg-violet-50/70 p-5">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-violet-700">
+                What data is missing?
+              </p>
+              <h3 className="mt-3 text-lg font-semibold text-slate-950">
+                {missingCostEvents.length > 0
+                  ? `${missingCostEvents.length} event${missingCostEvents.length === 1 ? " needs" : "s need"} cost cleanup`
+                  : "Labor and expenses look complete for revenue events."}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                {missingCostEvents.length > 0
+                  ? "Events with ticket revenue but no labor or no expenses can make profit look better than it really is. Add staff pay and event-linked expenses before closeout."
+                  : "ARIA is not seeing obvious missing labor or expense data in revenue-producing organizer events."}
+              </p>
+              <Link
+                href="/app/events"
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-violet-800 hover:underline"
+              >
+                Review attention dashboard
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </article>
+
+            <article className="rounded-3xl border border-blue-200 bg-blue-50/70 p-5">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">
+                Which event had the weakest check-in rate?
+              </p>
+              <h3 className="mt-3 text-lg font-semibold text-slate-950">
+                {weakestCheckInEvent
+                  ? weakestCheckInEvent.event.name
+                  : "No completed check-in signal yet."}
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                {weakestCheckInEvent
+                  ? `${weakestCheckInEvent.event.name} checked in ${formatPercent(weakestCheckInEvent.checkInRate)} of issued tickets. Review whether buyers missed the event, check-in was incomplete, or event reminders need improvement.`
+                  : "ARIA needs issued ticket and check-in data from completed events to identify attendance friction."}
+              </p>
+              <Link
+                href={
+                  weakestCheckInEvent
+                    ? `/app/events/${weakestCheckInEvent.event.id}`
+                    : "/app/events"
+                }
+                className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-blue-800 hover:underline"
+              >
+                Review check-ins
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </article>
+
+            <article className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-600">
+                What should I export for review?
+              </p>
+              <h3 className="mt-3 text-lg font-semibold text-slate-950">
+                Start with financial summary and attention list.
+              </h3>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                Use the financial export for accounting review and the attention
+                export to follow up on closeout, missing costs, registration
+                exceptions, and event profitability risks.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  href="/app/events/export/financial-summary"
+                  className="inline-flex items-center gap-2 rounded-2xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800"
+                >
+                  Financial CSV
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+                <Link
+                  href="/app/events/export/attention"
+                  className="inline-flex items-center gap-2 rounded-2xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                >
+                  Attention CSV
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            </article>
+          </div>
+        </section>
+      </main>
+    );
+  }
+
   const nowIso = new Date().toISOString();
-  const ninetyDaysAgoIso = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  const ninetyDaysAgoIso = new Date(
+    Date.now() - 90 * 24 * 60 * 60 * 1000,
+  ).toISOString();
 
   const [
     packagesResult,
@@ -232,7 +938,8 @@ export default async function AriaOpportunityHubPage() {
   ] = await Promise.all([
     supabase
       .from("client_packages")
-      .select(`
+      .select(
+        `
         id,
         client_id,
         name_snapshot,
@@ -241,14 +948,17 @@ export default async function AriaOpportunityHubPage() {
           quantity_remaining,
           is_unlimited
         )
-      `)
+      `,
+      )
       .eq("studio_id", studioId)
       .eq("active", true)
       .limit(250),
 
     supabase
       .from("booking_requests")
-      .select("id, status, source, customer_first_name, customer_last_name, customer_email, requested_starts_at, created_at")
+      .select(
+        "id, status, source, customer_first_name, customer_last_name, customer_email, requested_starts_at, created_at",
+      )
       .eq("studio_id", studioId)
       .eq("status", "pending")
       .order("created_at", { ascending: true })
@@ -256,7 +966,9 @@ export default async function AriaOpportunityHubPage() {
 
     supabase
       .from("automation_actions")
-      .select("id, rule_key, title, body, status, priority, related_table, related_id, client_id, created_at")
+      .select(
+        "id, rule_key, title, body, status, priority, related_table, related_id, client_id, created_at",
+      )
       .eq("studio_id", studioId)
       .in("status", ["suggested", "drafted"])
       .order("created_at", { ascending: false })
@@ -296,7 +1008,9 @@ export default async function AriaOpportunityHubPage() {
 
     supabase
       .from("aria_goals")
-      .select("id, title, status, target_value, current_value, target_unit, target_date, updated_at")
+      .select(
+        "id, title, status, target_value, current_value, target_unit, target_date, updated_at",
+      )
       .eq("studio_id", studioId)
       .eq("status", "active")
       .order("updated_at", { ascending: false })
@@ -304,43 +1018,64 @@ export default async function AriaOpportunityHubPage() {
   ]);
 
   if (packagesResult.error) {
-    throw new Error(`Failed to load ARIA package opportunities: ${packagesResult.error.message}`);
+    throw new Error(
+      `Failed to load ARIA package opportunities: ${packagesResult.error.message}`,
+    );
   }
 
   if (pendingRequestsResult.error) {
-    throw new Error(`Failed to load ARIA booking opportunities: ${pendingRequestsResult.error.message}`);
+    throw new Error(
+      `Failed to load ARIA booking opportunities: ${pendingRequestsResult.error.message}`,
+    );
   }
 
   if (automationActionsResult.error) {
-    throw new Error(`Failed to load ARIA automation actions: ${automationActionsResult.error.message}`);
+    throw new Error(
+      `Failed to load ARIA automation actions: ${automationActionsResult.error.message}`,
+    );
   }
 
   if (automationRulesResult.error) {
-    throw new Error(`Failed to load ARIA automation rules: ${automationRulesResult.error.message}`);
+    throw new Error(
+      `Failed to load ARIA automation rules: ${automationRulesResult.error.message}`,
+    );
   }
 
   if (recentAppointmentsResult.error) {
-    throw new Error(`Failed to load ARIA recent lessons: ${recentAppointmentsResult.error.message}`);
+    throw new Error(
+      `Failed to load ARIA recent lessons: ${recentAppointmentsResult.error.message}`,
+    );
   }
 
   if (futureAppointmentsResult.error) {
-    throw new Error(`Failed to load ARIA future lessons: ${futureAppointmentsResult.error.message}`);
+    throw new Error(
+      `Failed to load ARIA future lessons: ${futureAppointmentsResult.error.message}`,
+    );
   }
 
   if (activeClientsResult.error) {
-    throw new Error(`Failed to load ARIA active clients: ${activeClientsResult.error.message}`);
+    throw new Error(
+      `Failed to load ARIA active clients: ${activeClientsResult.error.message}`,
+    );
   }
 
   if (ariaGoalsResult.error) {
-    throw new Error(`Failed to load ARIA goals: ${ariaGoalsResult.error.message}`);
+    throw new Error(
+      `Failed to load ARIA goals: ${ariaGoalsResult.error.message}`,
+    );
   }
 
   const packages = (packagesResult.data ?? []) as ClientPackageRow[];
-  const pendingRequests = (pendingRequestsResult.data ?? []) as BookingRequestRow[];
-  const automationActions = (automationActionsResult.data ?? []) as AutomationActionRow[];
-  const automationRules = (automationRulesResult.data ?? []) as AutomationRuleRow[];
-  const recentAppointments = (recentAppointmentsResult.data ?? []) as AppointmentRow[];
-  const futureAppointments = (futureAppointmentsResult.data ?? []) as AppointmentRow[];
+  const pendingRequests = (pendingRequestsResult.data ??
+    []) as BookingRequestRow[];
+  const automationActions = (automationActionsResult.data ??
+    []) as AutomationActionRow[];
+  const automationRules = (automationRulesResult.data ??
+    []) as AutomationRuleRow[];
+  const recentAppointments = (recentAppointmentsResult.data ??
+    []) as AppointmentRow[];
+  const futureAppointments = (futureAppointmentsResult.data ??
+    []) as AppointmentRow[];
   const activeClients = (activeClientsResult.data ?? []) as ClientRow[];
   const activeGoals = (ariaGoalsResult.data ?? []) as AriaGoalRow[];
   const activeGoal = activeGoals[0] ?? null;
@@ -350,24 +1085,35 @@ export default async function AriaOpportunityHubPage() {
     return typeof lowestRemaining === "number" && lowestRemaining <= 2;
   });
 
-  const depletedPackages = lowBalancePackages.filter((pkg) => packageLowestRemaining(pkg) === 0);
+  const depletedPackages = lowBalancePackages.filter(
+    (pkg) => packageLowestRemaining(pkg) === 0,
+  );
 
   const futureClientIds = new Set(
     futureAppointments
-      .filter((appointment) => (appointment.status ?? "").toLowerCase() !== "cancelled")
+      .filter(
+        (appointment) =>
+          (appointment.status ?? "").toLowerCase() !== "cancelled",
+      )
       .map((appointment) => appointment.client_id)
       .filter((id): id is string => Boolean(id)),
   );
 
   const recentClientIds = new Set(
     recentAppointments
-      .filter((appointment) => (appointment.status ?? "").toLowerCase() !== "cancelled")
+      .filter(
+        (appointment) =>
+          (appointment.status ?? "").toLowerCase() !== "cancelled",
+      )
       .map((appointment) => appointment.client_id)
       .filter((id): id is string => Boolean(id)),
   );
 
   const rebookingClientIds = activeClients
-    .filter((client) => recentClientIds.has(client.id) && !futureClientIds.has(client.id))
+    .filter(
+      (client) =>
+        recentClientIds.has(client.id) && !futureClientIds.has(client.id),
+    )
     .map((client) => client.id);
 
   const enabledRuleKeys = new Set(
@@ -445,15 +1191,16 @@ export default async function AriaOpportunityHubPage() {
                 <span>AI Revenue Insights Assistant</span>
               </div>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-700 md:text-base">
-                I’m your AI Revenue Insights Assistant. My job is to help you spot the
-                opportunities hiding inside your studio data, turn them into clear next
-                steps, and keep you moving toward your goals.
+                I’m your AI Revenue Insights Assistant. My job is to help you
+                spot the opportunities hiding inside your studio data, turn them
+                into clear next steps, and keep you moving toward your goals.
               </p>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-700 md:text-base">
-                I’ll help you find clients who need follow-up, packages ready for renewal,
-                booking requests that need attention, documents that need signatures, and
-                automations that can reduce front desk work. Think of me as your studio’s
-                growth coach — I’ll help you decide what to focus on next.
+                I’ll help you find clients who need follow-up, packages ready
+                for renewal, booking requests that need attention, documents
+                that need signatures, and automations that can reduce front desk
+                work. Think of me as your studio’s growth coach — I’ll help you
+                decide what to focus on next.
               </p>
               <div className="mt-5 grid gap-3 md:grid-cols-3">
                 <div className="rounded-2xl border border-slate-200 bg-white/85 p-4 shadow-sm">
@@ -464,7 +1211,8 @@ export default async function AriaOpportunityHubPage() {
                     Meet ARIA
                   </p>
                   <p className="mt-1 text-xs leading-5 text-slate-600">
-                    Basic ARIA insights help point you toward the next useful action.
+                    Basic ARIA insights help point you toward the next useful
+                    action.
                   </p>
                 </div>
                 <div className="rounded-2xl border border-violet-200 bg-violet-50/80 p-4 shadow-sm">
@@ -475,7 +1223,8 @@ export default async function AriaOpportunityHubPage() {
                     Unlock the opportunity hub
                   </p>
                   <p className="mt-1 text-xs leading-5 text-slate-600">
-                    Review revenue opportunities, automation recommendations, and client follow-ups.
+                    Review revenue opportunities, automation recommendations,
+                    and client follow-ups.
                   </p>
                 </div>
                 <div className="rounded-2xl border border-pink-200 bg-pink-50/80 p-4 shadow-sm">
@@ -486,7 +1235,8 @@ export default async function AriaOpportunityHubPage() {
                     Plan with ARIA
                   </p>
                   <p className="mt-1 text-xs leading-5 text-slate-600">
-                    Future ARIA Goals, growth plans, advanced AI recommendations, and Chat with ARIA.
+                    Future ARIA Goals, growth plans, advanced AI
+                    recommendations, and Chat with ARIA.
                   </p>
                 </div>
               </div>
@@ -561,8 +1311,9 @@ export default async function AriaOpportunityHubPage() {
                 Reviewable actions from automations
               </h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
-                These are suggestions and drafts created by automation evaluations. They are safe to review
-                because DanceFlow does not auto-send messages from these V1 automations.
+                These are suggestions and drafts created by automation
+                evaluations. They are safe to review because DanceFlow does not
+                auto-send messages from these V1 automations.
               </p>
             </div>
             <Link
@@ -576,8 +1327,8 @@ export default async function AriaOpportunityHubPage() {
 
           {automationActions.length === 0 ? (
             <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm leading-6 text-slate-600">
-              No active automation actions yet. Enable a rule, click Evaluate now, and ARIA will surface
-              reviewable next steps here.
+              No active automation actions yet. Enable a rule, click Evaluate
+              now, and ARIA will surface reviewable next steps here.
             </div>
           ) : (
             <div className="mt-5 space-y-3">
@@ -592,7 +1343,9 @@ export default async function AriaOpportunityHubPage() {
                         <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-[#6B21A8] ring-1 ring-violet-200">
                           {ruleLabel(action.rule_key)}
                         </span>
-                        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${priorityClass(action.priority)}`}>
+                        <span
+                          className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${priorityClass(action.priority)}`}
+                        >
                           {action.priority}
                         </span>
                       </div>
@@ -600,7 +1353,9 @@ export default async function AriaOpportunityHubPage() {
                         {action.title}
                       </h3>
                       {action.body ? (
-                        <p className="mt-1 text-sm leading-6 text-slate-600">{action.body}</p>
+                        <p className="mt-1 text-sm leading-6 text-slate-600">
+                          {action.body}
+                        </p>
                       ) : null}
                     </div>
                     <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
@@ -621,8 +1376,8 @@ export default async function AriaOpportunityHubPage() {
             Where ARIA sends you next
           </h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">
-            Operational pages still remain the source of truth. ARIA summarizes the decision and routes
-            you into the right workflow.
+            Operational pages still remain the source of truth. ARIA summarizes
+            the decision and routes you into the right workflow.
           </p>
 
           <div className="mt-5 space-y-3">
@@ -664,8 +1419,12 @@ export default async function AriaOpportunityHubPage() {
                     <Icon className="h-5 w-5" />
                   </span>
                   <span>
-                    <span className="block text-sm font-semibold text-slate-950">{item.title}</span>
-                    <span className="mt-1 block text-sm leading-6 text-slate-600">{item.body}</span>
+                    <span className="block text-sm font-semibold text-slate-950">
+                      {item.title}
+                    </span>
+                    <span className="mt-1 block text-sm leading-6 text-slate-600">
+                      {item.body}
+                    </span>
                   </span>
                 </Link>
               );
@@ -684,9 +1443,10 @@ export default async function AriaOpportunityHubPage() {
               Turn opportunities into a focused growth plan.
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Give ARIA a revenue, retention, membership, booking, event, or attendance goal with a
-              timeline. She will organize the opportunity hub into a practical plan with focus areas,
-              suggested automations, weekly milestones, and KPIs to watch.
+              Give ARIA a revenue, retention, membership, booking, event, or
+              attendance goal with a timeline. She will organize the opportunity
+              hub into a practical plan with focus areas, suggested automations,
+              weekly milestones, and KPIs to watch.
             </p>
             <div className="mt-4 flex flex-wrap gap-3">
               <Link
@@ -717,11 +1477,21 @@ export default async function AriaOpportunityHubPage() {
                 <p className="text-xs font-bold uppercase tracking-[0.16em] text-[#BE185D]">
                   Active goal
                 </p>
-                <h3 className="mt-2 text-base font-semibold text-slate-950">{activeGoal.title}</h3>
+                <h3 className="mt-2 text-base font-semibold text-slate-950">
+                  {activeGoal.title}
+                </h3>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
-                  Target: {formatGoalTarget(activeGoal.target_value, activeGoal.target_unit)}
-                  {activeGoal.target_date ? ` by ${formatDate(activeGoal.target_date)}` : ""}.
-                  {activeGoal.current_value !== null && activeGoal.current_value !== undefined
+                  Target:{" "}
+                  {formatGoalTarget(
+                    activeGoal.target_value,
+                    activeGoal.target_unit,
+                  )}
+                  {activeGoal.target_date
+                    ? ` by ${formatDate(activeGoal.target_date)}`
+                    : ""}
+                  .
+                  {activeGoal.current_value !== null &&
+                  activeGoal.current_value !== undefined
                     ? ` Current progress: ${formatGoalTarget(activeGoal.current_value, activeGoal.target_unit)}.`
                     : " Add progress updates so ARIA can track the plan."}
                 </p>
