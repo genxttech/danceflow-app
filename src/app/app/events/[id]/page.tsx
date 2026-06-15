@@ -12,6 +12,7 @@ import {
   deleteEventLaborCostAction,
 } from "./labor/actions";
 import { updateEventSettlementAction } from "./settlement/actions";
+import CopyEventFollowUpButton from "./CopyEventFollowUpButton";
 
 type TicketTypeRow = {
   id: string;
@@ -119,6 +120,18 @@ type EventSettlementHistoryRow = {
   changed_at: string | null;
 };
 
+type AriaFollowUpDraft = {
+  key: string;
+  title: string;
+  audience: string;
+  reason: string;
+  subject: string;
+  body: string;
+  tone: "critical" | "warning" | "positive";
+  primaryLabel: string;
+  primaryHref: string;
+  campaignHref: string;
+};
 
 function canManageTickets(params: {
   isPlatformAdmin: boolean;
@@ -401,6 +414,52 @@ function formatCurrency(value: number | string | null | undefined) {
     style: "currency",
     currency: "USD",
   }).format(Number.isFinite(amount) ? amount : 0);
+}
+
+function formatPlainPercent(value: number | null | undefined) {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "not available";
+  return new Intl.NumberFormat("en-US", {
+    style: "percent",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function publicEventUrl(slug: string) {
+  return `https://idanceflow.com/events/${slug}`;
+}
+
+
+function buildCampaignDraftHref(
+  baseHref: string,
+  params: {
+    name: string;
+    subject: string;
+    previewText: string;
+    bodyText: string;
+    ctaLabel?: string;
+    ctaUrl?: string;
+    source?: string;
+  },
+) {
+  const [path, queryString = ""] = baseHref.split("?");
+  const searchParams = new URLSearchParams(queryString);
+
+  searchParams.set("source", params.source ?? "aria-follow-up");
+  searchParams.set("name", params.name);
+  searchParams.set("subject", params.subject);
+  searchParams.set("previewText", params.previewText);
+  searchParams.set("bodyText", params.bodyText);
+
+  if (params.ctaLabel) {
+    searchParams.set("ctaLabel", params.ctaLabel);
+  }
+
+  if (params.ctaUrl) {
+    searchParams.set("ctaUrl", params.ctaUrl);
+  }
+
+  return `${path}?${searchParams.toString()}`;
 }
 
 export default async function EventTicketsPage({
@@ -817,6 +876,126 @@ export default async function EventTicketsPage({
 
   const visibleEventAriaInsights = eventAriaInsights.slice(0, 4);
 
+
+  const eventDetailsUrl = publicEventUrl(typedEvent.slug);
+  const campaignBaseHref = typedEvent.organizer_id
+    ? `/app/organizer-campaigns?organizer=${typedEvent.organizer_id}&event=${typedEvent.id}`
+    : `/app/organizer-campaigns?event=${typedEvent.id}`;
+
+  const ariaFollowUpDrafts: AriaFollowUpDraft[] = [];
+
+  if (unpaidRegistrations > 0 || pendingRegistrations > 0) {
+    ariaFollowUpDrafts.push({
+      key: "payment-follow-up",
+      title: "Unpaid / pending registration follow-up",
+      audience: "Registrants with unpaid or pending payment status",
+      reason: `${unpaidRegistrations} unpaid and ${pendingRegistrations} pending registrations may affect final event revenue.`,
+      subject: `Action needed for ${typedEvent.name}`,
+      body: `Hi,\n\nWe noticed your registration for ${typedEvent.name} may still need payment or confirmation. We would love to have you join us, but we need the registration completed so we can finalize the event roster.\n\nPlease review your registration details here:\n${eventDetailsUrl}\n\nIf you already completed payment or have a question, reply to this message and we will help.\n\nThank you!`,
+      tone: "critical",
+      primaryLabel: "Review registrations",
+      primaryHref: `/app/events/${typedEvent.id}/registrations`,
+      campaignHref: buildCampaignDraftHref(`${campaignBaseHref}&audience=specific_event_registrants`, {
+        name: `ARIA follow-up: ${typedEvent.name}`,
+        subject: `Action needed for ${typedEvent.name}`,
+        previewText: "Please complete or confirm your event registration.",
+        bodyText: `Hi,\n\nWe noticed your registration for ${typedEvent.name} may still need payment or confirmation. We would love to have you join us, but we need the registration completed so we can finalize the event roster.\n\nPlease review your registration details here:\n${eventDetailsUrl}\n\nIf you already completed payment or have a question, reply to this message and we will help.\n\nThank you!`,
+        ctaLabel: "View event details",
+        ctaUrl: eventDetailsUrl,
+      }),
+    });
+  }
+
+  if (checkedInTicketCount > 0) {
+    ariaFollowUpDrafts.push({
+      key: "post-event-thank-you",
+      title: "Post-event attendee thank-you",
+      audience: "Checked-in attendees",
+      reason: `${checkedInTicketCount} attendee ticket${checkedInTicketCount === 1 ? "" : "s"} checked in. This is a good audience for a thank-you and future event invitation.`,
+      subject: `Thank you for joining us at ${typedEvent.name}`,
+      body: `Hi,\n\nThank you for joining us at ${typedEvent.name}. We appreciate you being part of the event and hope you had a great experience.\n\nWe would love to see you again at a future event. Keep an eye out for upcoming dates and announcements.\n\nThank you again for dancing with us!`,
+      tone: "positive",
+      primaryLabel: "Open campaign audience",
+      primaryHref: `${campaignBaseHref}&audience=specific_event_checked_in`,
+      campaignHref: buildCampaignDraftHref(`${campaignBaseHref}&audience=specific_event_checked_in`, {
+        name: `ARIA thank-you: ${typedEvent.name}`,
+        subject: `Thank you for joining us at ${typedEvent.name}`,
+        previewText: "Thank you for being part of the event.",
+        bodyText: `Hi,\n\nThank you for joining us at ${typedEvent.name}. We appreciate you being part of the event and hope you had a great experience.\n\nWe would love to see you again at a future event. Keep an eye out for upcoming dates and announcements.\n\nThank you again for dancing with us!`,
+        ctaLabel: "See upcoming events",
+        ctaUrl: "https://idanceflow.com/events",
+      }),
+    });
+  }
+
+  if (uncheckedIssuedTickets > 0 && issuedTicketCount > 0) {
+    ariaFollowUpDrafts.push({
+      key: "no-show-follow-up",
+      title: "No-show / missed check-in follow-up",
+      audience: "Paid ticket buyers not checked in",
+      reason: `${uncheckedIssuedTickets} issued ticket${uncheckedIssuedTickets === 1 ? " is" : "s are"} not checked in. Some may be true no-shows, while others may have been missed scans.`,
+      subject: `We missed you at ${typedEvent.name}`,
+      body: `Hi,\n\nWe noticed you may not have checked in at ${typedEvent.name}. If you were able to attend, thank you for joining us — we may have simply missed the scan at check-in.\n\nIf you were not able to make it, we hope to see you at a future event. You can view upcoming event details here:\n${eventDetailsUrl}\n\nThank you!`,
+      tone: "warning",
+      primaryLabel: "Review check-ins",
+      primaryHref: `/app/events/${typedEvent.id}/check-in`,
+      campaignHref: buildCampaignDraftHref(`${campaignBaseHref}&audience=specific_event_no_shows`, {
+        name: `ARIA no-show follow-up: ${typedEvent.name}`,
+        subject: `We missed you at ${typedEvent.name}`,
+        previewText: "A quick follow-up from the event organizer.",
+        bodyText: `Hi,\n\nWe noticed you may not have checked in at ${typedEvent.name}. If you were able to attend, thank you for joining us — we may have simply missed the scan at check-in.\n\nIf you were not able to make it, we hope to see you at a future event. You can view upcoming event details here:\n${eventDetailsUrl}\n\nThank you!`,
+        ctaLabel: "View event details",
+        ctaUrl: eventDetailsUrl,
+      }),
+    });
+  }
+
+  if (eventProfitLoss > 0 && profitMargin !== null && profitMargin >= 0.25 && checkedInTicketCount > 0) {
+    ariaFollowUpDrafts.push({
+      key: "repeat-event-announcement",
+      title: "Repeat-event announcement starter",
+      audience: "Attendees and paid registration contacts",
+      reason: `${typedEvent.name} shows a positive repeat signal with ${formatCurrency(eventProfitLoss)} profit and ${formatPlainPercent(profitMargin)} margin.`,
+      subject: `Should we bring back ${typedEvent.name}?`,
+      body: `Hi,\n\nThank you for being part of ${typedEvent.name}. We are considering bringing this event format back and would love to keep you in the loop.\n\nIf you enjoyed the event, watch for future announcements and invite friends who may want to join next time.\n\nMore details will be shared soon!`,
+      tone: "positive",
+      primaryLabel: "Duplicate event",
+      primaryHref: `#event-actions`,
+      campaignHref: buildCampaignDraftHref(`${campaignBaseHref}&audience=specific_event_checked_in`, {
+        name: `ARIA repeat announcement: ${typedEvent.name}`,
+        subject: `Should we bring back ${typedEvent.name}?`,
+        previewText: "We are considering bringing this event format back.",
+        bodyText: `Hi,\n\nThank you for being part of ${typedEvent.name}. We are considering bringing this event format back and would love to keep you in the loop.\n\nIf you enjoyed the event, watch for future announcements and invite friends who may want to join next time.\n\nMore details will be shared soon!`,
+        ctaLabel: "See upcoming events",
+        ctaUrl: "https://idanceflow.com/events",
+      }),
+    });
+  }
+
+  if (refundedRegistrations > 0 || refunds > 0) {
+    ariaFollowUpDrafts.push({
+      key: "refund-issue-follow-up",
+      title: "Refund / issue follow-up",
+      audience: "Refunded or issue-related registrations",
+      reason: `${refundedRegistrations} refunded registration${refundedRegistrations === 1 ? "" : "s"} and ${formatCurrency(refunds)} in refunds are reflected in closeout.`,
+      subject: `Follow-up on ${typedEvent.name}`,
+      body: `Hi,\n\nWe are following up regarding ${typedEvent.name}. We want to make sure any registration, refund, or event-related issue was handled clearly.\n\nIf anything still needs attention, please reply to this message so we can review it.\n\nThank you for your patience and for being part of our event community.`,
+      tone: "warning",
+      primaryLabel: "Review registrations",
+      primaryHref: `/app/events/${typedEvent.id}/registrations`,
+      campaignHref: buildCampaignDraftHref(`${campaignBaseHref}&audience=specific_event_registrants`, {
+        name: `ARIA refund follow-up: ${typedEvent.name}`,
+        subject: `Follow-up on ${typedEvent.name}`,
+        previewText: "A quick follow-up about the event.",
+        bodyText: `Hi,\n\nWe are following up regarding ${typedEvent.name}. We want to make sure any registration, refund, or event-related issue was handled clearly.\n\nIf anything still needs attention, please reply to this message so we can review it.\n\nThank you for your patience and for being part of our event community.`,
+        ctaLabel: "View event details",
+        ctaUrl: eventDetailsUrl,
+      }),
+    });
+  }
+
+  const visibleAriaFollowUpDrafts = ariaFollowUpDrafts.slice(0, 4);
+
   return (
     <div className="space-y-6">
       <section className="overflow-hidden rounded-[28px] border border-[#E9D5FF] bg-gradient-to-r from-[#2D0B45] via-[#5B197A] to-[#7C2D92] text-white shadow-sm">
@@ -1077,6 +1256,96 @@ export default async function EventTicketsPage({
               );
             })}
           </div>
+        </div>
+
+
+
+        <div className="mt-5 rounded-3xl border border-[#E9D5FF] bg-white p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                ARIA follow-up drafts
+              </p>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">Suggested organizer messages</h3>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                ARIA turns event signals into copyable message drafts. These are not sent automatically — use them as a starting point for organizer campaigns, registration follow-up, or post-event communication.
+              </p>
+            </div>
+            <Link
+              href={campaignBaseHref}
+              className="inline-flex items-center justify-center rounded-xl border border-[#5B197A]/25 bg-white px-4 py-2 text-sm font-semibold text-[#5B197A] transition hover:bg-[#F9F1FF]"
+            >
+              Open Organizer Campaigns
+            </Link>
+          </div>
+
+          {visibleAriaFollowUpDrafts.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm leading-6 text-slate-600">
+              ARIA does not see a high-priority message recommendation for this event yet. Follow-up drafts will appear when there are unpaid registrations, checked-in attendees, no-shows, refunds, or a strong repeat-event signal.
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              {visibleAriaFollowUpDrafts.map((draft) => {
+                const draftClassName =
+                  draft.tone === "critical"
+                    ? "border-rose-200 bg-rose-50"
+                    : draft.tone === "warning"
+                      ? "border-amber-200 bg-amber-50"
+                      : "border-emerald-200 bg-emerald-50";
+
+                const badgeClassName =
+                  draft.tone === "critical"
+                    ? "border-rose-200 bg-white text-rose-700"
+                    : draft.tone === "warning"
+                      ? "border-amber-200 bg-white text-amber-700"
+                      : "border-emerald-200 bg-white text-emerald-700";
+
+                return (
+                  <article key={draft.key} className={`rounded-2xl border p-4 ${draftClassName}`}>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${badgeClassName}`}>
+                          Copyable draft
+                        </span>
+                        <h4 className="mt-2 text-sm font-semibold text-slate-950">{draft.title}</h4>
+                        <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          {draft.audience}
+                        </p>
+                      </div>
+                      <CopyEventFollowUpButton
+                        subject={draft.subject}
+                        body={draft.body}
+                        className="shrink-0 rounded-xl bg-[#5B197A] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#4A1363]"
+                      />
+                    </div>
+
+                    <p className="mt-3 text-sm leading-6 text-slate-700">{draft.reason}</p>
+
+                    <div className="mt-3 rounded-xl border border-white/70 bg-white/80 p-3 text-sm text-slate-700">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Subject</p>
+                      <p className="mt-1 font-semibold text-slate-950">{draft.subject}</p>
+                      <p className="mt-3 whitespace-pre-line leading-6">{draft.body}</p>
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Link
+                        href={draft.primaryHref}
+                        className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                      >
+                        {draft.primaryLabel}
+                      </Link>
+                      <Link
+                        href={draft.campaignHref}
+                        className="inline-flex items-center rounded-xl border border-[#5B197A]/25 bg-white px-3 py-2 text-xs font-semibold text-[#5B197A] transition hover:bg-[#F9F1FF]"
+                      >
+                        Start campaign draft
+                      </Link>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <div id="event-closeout" className="mt-5 rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-5">

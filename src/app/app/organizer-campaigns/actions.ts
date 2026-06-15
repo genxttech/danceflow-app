@@ -8,16 +8,20 @@ const AUDIENCE_TYPES = new Set([
   "all_organizer_contacts",
   "specific_event_registrants",
   "specific_event_ticket_buyers",
+  "specific_event_unpaid_pending",
   "specific_event_checked_in",
   "specific_event_no_shows",
+  "specific_event_refunded",
   "paid_registration_contacts",
 ]);
 
 const EVENT_REQUIRED_AUDIENCES = new Set([
   "specific_event_registrants",
   "specific_event_ticket_buyers",
+  "specific_event_unpaid_pending",
   "specific_event_checked_in",
   "specific_event_no_shows",
+  "specific_event_refunded",
 ]);
 
 function getString(formData: FormData, key: string) {
@@ -111,6 +115,7 @@ export async function createOrganizerCampaignDraftAction(formData: FormData) {
   const ctaUrl = normalizeUrl(getString(formData, "ctaUrl"));
   const audienceType = getString(formData, "audienceType") || "all_organizer_contacts";
   const audienceEventId = getString(formData, "audienceEventId");
+  const source = getString(formData, "source");
 
   let redirectTo = "/app/organizer-campaigns";
 
@@ -169,6 +174,16 @@ export async function createOrganizerCampaignDraftAction(formData: FormData) {
     redirect(appendQuery(redirectTo, "campaign_error", "draft_save_failed"));
   }
 
-  redirect(appendQuery(`/app/organizer-campaigns/${insertedCampaign.id}`, "campaign_saved", "1"));
+  let campaignDetailUrl = appendQuery(
+    `/app/organizer-campaigns/${insertedCampaign.id}`,
+    "campaign_saved",
+    "1",
+  );
+
+  if (source === "aria-follow-up") {
+    campaignDetailUrl = appendQuery(campaignDetailUrl, "source", "aria-follow-up");
+  }
+
+  redirect(campaignDetailUrl);
 }
 

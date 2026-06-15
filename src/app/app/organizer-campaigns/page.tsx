@@ -18,6 +18,13 @@ type SearchParams = Promise<{
   organizer?: string;
   audience?: string;
   event?: string;
+  source?: string;
+  name?: string;
+  subject?: string;
+  previewText?: string;
+  bodyText?: string;
+  ctaLabel?: string;
+  ctaUrl?: string;
   campaign_saved?: string;
   campaign_error?: string;
 }>;
@@ -71,6 +78,98 @@ type AudiencePreview = {
   description: string;
 };
 
+
+type AudienceGuidance = {
+  title: string;
+  intent: string;
+  review: string[];
+  risk: string;
+};
+
+function audienceGuidanceFor(audienceType: string, eventName: string | null | undefined): AudienceGuidance {
+  const eventLabel = eventName || "the selected event";
+
+  switch (audienceType) {
+    case "specific_event_unpaid_pending":
+      return {
+        title: "ARIA audience guidance: unpaid / pending registrations",
+        intent: `Use this when you need people registered for ${eventLabel} to finish payment or confirm their status.`,
+        review: [
+          "Review payment status before sending so already-paid attendees are not included by mistake.",
+          "Keep the tone helpful and service-oriented, not punitive.",
+          "Link to the event or registration details so the recipient has a clear next step.",
+        ],
+        risk: "Do not use this audience for general marketing; it is best for operational registration follow-up.",
+      };
+    case "specific_event_ticket_buyers":
+      return {
+        title: "ARIA audience guidance: paid event attendees",
+        intent: `Use this for attendee updates, event reminders, and repeat-event announcements tied to ${eventLabel}.`,
+        review: [
+          "Confirm the message is relevant to people who paid for this event.",
+          "Avoid refund or payment language unless the audience is specifically filtered for that purpose.",
+          "Use a clear CTA such as event details, upcoming events, or feedback.",
+        ],
+        risk: "This audience may include people who paid but did not check in, so avoid wording that assumes everyone attended.",
+      };
+    case "specific_event_checked_in":
+      return {
+        title: "ARIA audience guidance: checked-in attendees",
+        intent: `Use this for thank-you notes, feedback requests, and repeat-event invitations after ${eventLabel}.`,
+        review: [
+          "This is the safest post-event audience because it is based on check-in activity.",
+          "Reference the event experience directly since these contacts were checked in.",
+          "Consider asking for feedback or inviting them to a similar future event.",
+        ],
+        risk: "If check-in scanning was incomplete, this list may miss real attendees.",
+      };
+    case "specific_event_no_shows":
+      return {
+        title: "ARIA audience guidance: no-shows / not checked in",
+        intent: `Use this when paid contacts for ${eventLabel} were not checked in and may need a careful follow-up.`,
+        review: [
+          "Use soft language because some attendees may have attended but were missed at check-in.",
+          "Do not assume fault or absence unless check-in operations were fully reliable.",
+          "Invite them to reply if the record is wrong or if they need help.",
+        ],
+        risk: "This audience is operationally sensitive; avoid language that sounds accusatory.",
+      };
+    case "specific_event_refunded":
+      return {
+        title: "ARIA audience guidance: refunded registrations",
+        intent: `Use this for issue-resolution or goodwill follow-up connected to ${eventLabel}.`,
+        review: [
+          "Confirm the refund or issue status before sending.",
+          "Keep the message focused on clarity, support, and resolution.",
+          "Do not include promotional language unless the issue has been resolved.",
+        ],
+        risk: "Refunded contacts may be dissatisfied; use a service tone and avoid automated-sounding language.",
+      };
+    case "specific_event_registrants":
+      return {
+        title: "ARIA audience guidance: all event registrants",
+        intent: `Use this for broad updates that apply to everyone registered for ${eventLabel}.`,
+        review: [
+          "Make sure the message applies to paid, pending, and unpaid registrations.",
+          "Avoid language that assumes attendance or payment unless you choose a narrower audience.",
+          "Use event details or support contact as the main CTA.",
+        ],
+        risk: "This is a broad event audience; use a narrower audience for payment, refund, or attendance-specific messages.",
+      };
+    default:
+      return {
+        title: "ARIA audience guidance",
+        intent: "Use this audience when the message applies broadly to organizer contacts.",
+        review: [
+          "Confirm the audience matches the message purpose.",
+          "Review unsubscribe and consent expectations before sending live campaigns.",
+          "Keep the CTA aligned with the audience and event context.",
+        ],
+        risk: "Broad audiences should not receive event-specific operational messages unless they are relevant.",
+      };
+  }
+}
+
 const audienceOptions = [
   {
     key: "all_organizer_contacts",
@@ -86,8 +185,14 @@ const audienceOptions = [
   },
   {
     key: "specific_event_ticket_buyers",
-    label: "Specific event ticket buyers",
+    label: "Paid event attendees",
     description: "Contacts with paid registrations for the selected event.",
+    requiresEvent: true,
+  },
+  {
+    key: "specific_event_unpaid_pending",
+    label: "Unpaid / pending event registrations",
+    description: "Contacts whose selected-event registration still needs payment or confirmation.",
     requiresEvent: true,
   },
   {
@@ -98,8 +203,14 @@ const audienceOptions = [
   },
   {
     key: "specific_event_no_shows",
-    label: "Specific event no-shows",
+    label: "No-shows / not checked in",
     description: "Paid event contacts that were not checked in for the selected event.",
+    requiresEvent: true,
+  },
+  {
+    key: "specific_event_refunded",
+    label: "Refunded event registrations",
+    description: "Contacts tied to refunded or partially refunded registrations for the selected event.",
     requiresEvent: true,
   },
   {
@@ -164,6 +275,15 @@ function formatDateTime(value: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function searchParamValue(value: string | undefined) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function suggestedPreviewText(value: string, fallback: string) {
+  const text = value.trim() || fallback;
+  return text.length > 140 ? `${text.slice(0, 137)}...` : text;
 }
 
 function contactName(contact: OrganizerContactRow) {
@@ -248,12 +368,28 @@ async function buildAudiencePreview(params: {
       registrationsQuery = registrationsQuery.eq("payment_status", "paid");
     }
 
+    if (audienceType === "specific_event_unpaid_pending") {
+      registrationsQuery = registrationsQuery.in("payment_status", [
+        "unpaid",
+        "pending",
+        "requires_payment",
+        "failed",
+      ]);
+    }
+
     if (audienceType === "specific_event_checked_in") {
       registrationsQuery = registrationsQuery.not("checked_in_at", "is", null);
     }
 
     if (audienceType === "specific_event_no_shows") {
       registrationsQuery = registrationsQuery.eq("payment_status", "paid").is("checked_in_at", null);
+    }
+
+    if (audienceType === "specific_event_refunded") {
+      registrationsQuery = registrationsQuery.in("payment_status", [
+        "refunded",
+        "partially_refunded",
+      ]);
     }
 
     const { data: registrations, error: registrationsError } = await registrationsQuery;
@@ -426,9 +562,31 @@ export default async function OrganizerCampaignsPage({
         sample: [],
       };
 
+  const ariaAudienceGuidance = audienceGuidanceFor(selectedAudience, selectedEvent?.name);
+
   const draftCount = typedCampaigns.filter((campaign) => campaign.status === "draft").length;
   const sentCount = typedCampaigns.filter((campaign) => campaign.status === "sent").length;
   const eventAudienceNeedsEvent = selectedAudienceOption.requiresEvent && !validSelectedEventId;
+
+  const ariaPrefillSource = resolvedSearchParams.source === "aria-follow-up";
+  const prefillName = searchParamValue(resolvedSearchParams.name);
+  const prefillSubject = searchParamValue(resolvedSearchParams.subject);
+  const prefillPreviewText = searchParamValue(resolvedSearchParams.previewText);
+  const prefillBodyText = searchParamValue(resolvedSearchParams.bodyText);
+  const prefillCtaLabel = searchParamValue(resolvedSearchParams.ctaLabel);
+  const prefillCtaUrl = searchParamValue(resolvedSearchParams.ctaUrl);
+
+  const campaignNameDefault =
+    prefillName ||
+    (selectedEvent ? `Follow-up: ${selectedEvent.name}` : "");
+  const subjectDefault = prefillSubject;
+  const previewTextDefault = suggestedPreviewText(
+    prefillPreviewText,
+    selectedEvent ? `A quick update about ${selectedEvent.name}.` : "A quick event update from the organizer.",
+  );
+  const bodyTextDefault = prefillBodyText;
+  const ctaLabelDefault = prefillCtaLabel || (selectedEvent ? "View event details" : "");
+  const ctaUrlDefault = prefillCtaUrl;
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -476,6 +634,60 @@ export default async function OrganizerCampaignsPage({
         </div>
       ) : null}
 
+      {ariaPrefillSource ? (
+        <div className="rounded-3xl border border-[#E9D5FF] bg-[#F9F1FF] px-5 py-4 text-sm leading-6 text-[#4D1F47]">
+          <span className="font-semibold">ARIA prefilled this campaign draft.</span>{" "}
+          Review the audience, subject, and message before saving. Nothing is sent automatically.
+        </div>
+      ) : null}
+
+      {ariaPrefillSource ? (
+        <section className="rounded-[28px] border border-[#E9D5FF] bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                ARIA audience guidance
+              </p>
+              <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                {ariaAudienceGuidance.title}
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                {ariaAudienceGuidance.intent}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Current preview
+              </p>
+              <p className="mt-1 text-2xl font-semibold text-slate-950">
+                {eventAudienceNeedsEvent ? "Select event" : preview.count}
+              </p>
+              <p className="mt-1 text-xs text-slate-500">
+                {preview.suppressed} suppressed by organizer unsubscribe rules
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="rounded-3xl border border-slate-100 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-950">Review before saving</p>
+              <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+                {ariaAudienceGuidance.review.map((item) => (
+                  <li key={item} className="flex gap-2">
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#7C2D92]" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+              <p className="font-semibold">Audience safety note</p>
+              <p className="mt-2">{ariaAudienceGuidance.risk}</p>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
       <section className="grid gap-4 md:grid-cols-4">
         <StatCard label="Organizer" value={selectedOrganizer?.name ?? "None"} helper="Current campaign workspace" icon={Megaphone} />
         <StatCard label="Preview audience" value={eventAudienceNeedsEvent ? "Select event" : preview.count} helper={`${preview.suppressed} suppressed`} icon={Users} />
@@ -495,6 +707,10 @@ export default async function OrganizerCampaignsPage({
           </div>
 
           <form action={createOrganizerCampaignDraftAction} className="mt-5 space-y-5">
+            {ariaPrefillSource ? (
+              <input type="hidden" name="source" value="aria-follow-up" />
+            ) : null}
+
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2 text-sm font-medium text-slate-700">
                 Organizer
@@ -551,6 +767,7 @@ export default async function OrganizerCampaignsPage({
                   name="name"
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
                   placeholder="Post-event thank you"
+                  defaultValue={campaignNameDefault}
                   required
                 />
               </label>
@@ -561,6 +778,7 @@ export default async function OrganizerCampaignsPage({
                   name="subject"
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
                   placeholder="Thank you for joining us"
+                  defaultValue={subjectDefault}
                   required
                 />
               </label>
@@ -572,6 +790,7 @@ export default async function OrganizerCampaignsPage({
                 name="previewText"
                 className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
                 placeholder="A quick event update from the organizer."
+                defaultValue={previewTextDefault}
               />
             </label>
 
@@ -582,6 +801,7 @@ export default async function OrganizerCampaignsPage({
                 rows={8}
                 className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm leading-6 outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
                 placeholder="Hi,\n\nThanks for joining us..."
+                defaultValue={bodyTextDefault}
                 required
               />
             </label>
@@ -593,6 +813,7 @@ export default async function OrganizerCampaignsPage({
                   name="ctaLabel"
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
                   placeholder="View event details"
+                  defaultValue={ctaLabelDefault}
                 />
               </label>
 
@@ -602,6 +823,7 @@ export default async function OrganizerCampaignsPage({
                   name="ctaUrl"
                   className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
                   placeholder="https://idanceflow.com/events/..."
+                  defaultValue={ctaUrlDefault}
                 />
               </label>
             </div>

@@ -30,6 +30,7 @@ type EventRow = {
   slug: string;
   status: string;
   visibility: string;
+  organizer_id: string | null;
   organizers:
     | { name: string; slug: string }
     | { name: string; slug: string }[]
@@ -345,6 +346,54 @@ function registrationsHref(eventId: string, filter: string) {
     : `/app/events/${eventId}/registrations?filter=${encodeURIComponent(filter)}`;
 }
 
+function publicEventUrl(slug: string) {
+  return `https://idanceflow.com/events/${slug}`;
+}
+
+function buildCampaignDraftHref(
+  baseHref: string,
+  params: {
+    name: string;
+    subject: string;
+    previewText: string;
+    bodyText: string;
+    ctaLabel?: string;
+    ctaUrl?: string;
+    source?: string;
+  },
+) {
+  const [path, queryString = ""] = baseHref.split("?");
+  const searchParams = new URLSearchParams(queryString);
+
+  searchParams.set("source", params.source ?? "aria-follow-up");
+  searchParams.set("name", params.name);
+  searchParams.set("subject", params.subject);
+  searchParams.set("previewText", params.previewText);
+  searchParams.set("bodyText", params.bodyText);
+
+  if (params.ctaLabel) {
+    searchParams.set("ctaLabel", params.ctaLabel);
+  }
+
+  if (params.ctaUrl) {
+    searchParams.set("ctaUrl", params.ctaUrl);
+  }
+
+  return `${path}?${searchParams.toString()}`;
+}
+
+type RegistrationFollowUpEntry = {
+  key: string;
+  title: string;
+  audience: string;
+  count: number;
+  description: string;
+  campaignHref: string;
+  filterHref: string;
+  tone: "critical" | "warning" | "success" | "neutral";
+};
+
+
 function ticketQrSrc(ticketCode: string) {
   return `/api/tickets/qr?code=${encodeURIComponent(ticketCode)}`;
 }
@@ -597,6 +646,7 @@ export default async function EventRegistrationsPage({
         slug,
         status,
         visibility,
+        organizer_id,
         organizers ( name, slug )
       `,
       )
@@ -979,6 +1029,118 @@ export default async function EventRegistrationsPage({
     return !latestEmail || latestEmail.status === "failed" || Boolean(latestEmail.error_message);
   }).length;
 
+  const unpaidPendingCount = typedRegistrations.filter((registration) =>
+    ["pending", "unpaid", "failed", "partial"].includes(registration.payment_status ?? ""),
+  ).length;
+
+  const refundedCount = typedRegistrations.filter((registration) =>
+    registration.payment_status === "refunded" ||
+    (paymentsByRegistrationId.get(registration.id) ?? []).some(
+      (payment) => payment.status === "refunded" || Number(payment.refund_amount ?? 0) > 0,
+    ),
+  ).length;
+
+  const noShowCount = typedRegistrations.filter((registration) => {
+    if (registration.payment_status !== "paid") return false;
+    const attendeeRows = registration.event_registration_attendees ?? [];
+    if (attendeeRows.length > 0) {
+      return attendeeRows.every((attendee) => !attendee.checked_in_at);
+    }
+
+    const status = getEffectiveStatus(registration);
+    return status !== "checked_in" && status !== "attended";
+  }).length;
+
+  const checkedInAttendeeCount = typedRegistrations.reduce((count, registration) => {
+    const attendeeRows = registration.event_registration_attendees ?? [];
+    if (attendeeRows.length > 0) {
+      return count + attendeeRows.filter((attendee) => Boolean(attendee.checked_in_at)).length;
+    }
+
+    const status = getEffectiveStatus(registration);
+    return count + (status === "checked_in" || status === "attended" ? 1 : 0);
+  }, 0);
+
+  const eventDetailsUrl = publicEventUrl(typedEvent.slug);
+  const campaignBaseHref = typedEvent.organizer_id
+    ? `/app/organizer-campaigns?organizer=${typedEvent.organizer_id}&event=${typedEvent.id}`
+    : `/app/organizer-campaigns?event=${typedEvent.id}`;
+
+  const ariaRegistrationFollowUps: RegistrationFollowUpEntry[] = [
+    {
+      key: "unpaid-pending",
+      title: "Unpaid / pending registration follow-up",
+      audience: "Unpaid or pending registrations",
+      count: unpaidPendingCount,
+      description:
+        "Use this when registration records need payment or confirmation before the event roster can be trusted.",
+      filterHref: registrationsHref(typedEvent.id, "payment_attention"),
+      tone: unpaidPendingCount > 0 ? "critical" : "neutral",
+      campaignHref: buildCampaignDraftHref(`${campaignBaseHref}&audience=specific_event_unpaid_pending`, {
+        name: `ARIA follow-up: ${typedEvent.name}`,
+        subject: `Action needed for ${typedEvent.name}`,
+        previewText: "Please complete or confirm your event registration.",
+        bodyText: `Hi,\n\nWe noticed your registration for ${typedEvent.name} may still need payment or confirmation. We would love to have you join us, but we need the registration completed so we can finalize the event roster.\n\nPlease review your registration details here:\n${eventDetailsUrl}\n\nIf you already completed payment or have a question, reply to this message and we will help.\n\nThank you!`,
+        ctaLabel: "View event details",
+        ctaUrl: eventDetailsUrl,
+      }),
+    },
+    {
+      key: "checked-in-thank-you",
+      title: "Checked-in attendee thank-you",
+      audience: "Checked-in attendees",
+      count: checkedInAttendeeCount,
+      description:
+        "Use this after the event to thank confirmed attendees, request feedback, or invite them to a similar future event.",
+      filterHref: registrationsHref(typedEvent.id, "checked_in"),
+      tone: checkedInAttendeeCount > 0 ? "success" : "neutral",
+      campaignHref: buildCampaignDraftHref(`${campaignBaseHref}&audience=specific_event_checked_in`, {
+        name: `Thank you: ${typedEvent.name}`,
+        subject: `Thank you for attending ${typedEvent.name}`,
+        previewText: "We appreciate you joining us.",
+        bodyText: `Hi,\n\nThank you for attending ${typedEvent.name}. We appreciate you being part of the event and hope you had a great experience.\n\nIf you have feedback, questions, or would like to join us again, reply to this message.\n\nThank you!`,
+        ctaLabel: "View event details",
+        ctaUrl: eventDetailsUrl,
+      }),
+    },
+    {
+      key: "no-show",
+      title: "No-show / not checked-in follow-up",
+      audience: "Paid registrations without check-in",
+      count: noShowCount,
+      description:
+        "Use soft language here because some attendees may have attended but were missed during check-in.",
+      filterHref: registrationsHref(typedEvent.id, "ticket_attention"),
+      tone: noShowCount > 0 ? "warning" : "neutral",
+      campaignHref: buildCampaignDraftHref(`${campaignBaseHref}&audience=specific_event_no_shows`, {
+        name: `Missed you: ${typedEvent.name}`,
+        subject: `We missed you at ${typedEvent.name}`,
+        previewText: "Checking in after the event.",
+        bodyText: `Hi,\n\nWe noticed you were registered for ${typedEvent.name}, but our check-in record does not show you as checked in. If we missed you at check-in, just reply and let us know.\n\nWe hope to see you at a future event.\n\nThank you!`,
+        ctaLabel: "View event details",
+        ctaUrl: eventDetailsUrl,
+      }),
+    },
+    {
+      key: "refunded",
+      title: "Refund / issue follow-up",
+      audience: "Refunded registrations",
+      count: refundedCount,
+      description:
+        "Use this for service-focused follow-up when a refund or issue may need a human touch.",
+      filterHref: registrationsHref(typedEvent.id, "payment_attention"),
+      tone: refundedCount > 0 ? "warning" : "neutral",
+      campaignHref: buildCampaignDraftHref(`${campaignBaseHref}&audience=specific_event_refunded`, {
+        name: `Refund follow-up: ${typedEvent.name}`,
+        subject: `Following up about ${typedEvent.name}`,
+        previewText: "We wanted to make sure everything was resolved.",
+        bodyText: `Hi,\n\nWe wanted to follow up regarding your registration for ${typedEvent.name}. If your refund or event-related issue has not been fully resolved, please reply to this message and we will help.\n\nThank you!`,
+        ctaLabel: "View event details",
+        ctaUrl: eventDetailsUrl,
+      }),
+    },
+  ];
+
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
       {banner ? (
@@ -1013,7 +1175,9 @@ export default async function EventRegistrationsPage({
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-3">
+
+
+      <div className="flex flex-wrap gap-3">
               <Link
                 href={`/app/events/${typedEvent.id}`}
                 className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
@@ -1048,6 +1212,79 @@ export default async function EventRegistrationsPage({
               event-day registration and check-in flow from one place.
             </p>
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-[28px] border border-[#E9D5FF] bg-[#FCF8FF] p-5 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+        ARIA follow-up entry points
+      </p>
+      <h2 className="mt-1 text-lg font-semibold text-slate-950">Start the right event audience campaign</h2>
+      <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+        Use these shortcuts from the registration screen to create copyable ARIA campaign drafts for the right event audience. Nothing is sent automatically.
+      </p>
+          </div>
+          <Link
+      href={campaignBaseHref}
+      className="rounded-xl border border-[#5B197A]/25 bg-white px-4 py-2 text-sm font-semibold text-[#5B197A] hover:bg-[#F9F1FF]"
+          >
+      Open Organizer Campaigns
+          </Link>
+        </div>
+
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          {ariaRegistrationFollowUps.map((followUp) => {
+      const toneClassName =
+        followUp.tone === "critical"
+          ? "border-rose-200 bg-rose-50"
+          : followUp.tone === "warning"
+            ? "border-amber-200 bg-amber-50"
+            : followUp.tone === "success"
+              ? "border-emerald-200 bg-emerald-50"
+              : "border-slate-200 bg-white";
+
+      const countClassName =
+        followUp.tone === "critical"
+          ? "bg-rose-100 text-rose-800"
+          : followUp.tone === "warning"
+            ? "bg-amber-100 text-amber-800"
+            : followUp.tone === "success"
+              ? "bg-emerald-100 text-emerald-800"
+              : "bg-slate-100 text-slate-700";
+
+      return (
+        <article key={followUp.key} className={`rounded-2xl border p-4 ${toneClassName}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950">{followUp.title}</h3>
+              <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                {followUp.audience}
+              </p>
+            </div>
+            <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${countClassName}`}>
+              {followUp.count}
+            </span>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-slate-700">{followUp.description}</p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link
+              href={followUp.campaignHref}
+              className="inline-flex items-center rounded-xl bg-[#5B197A] px-3 py-2 text-xs font-semibold text-white transition hover:bg-[#4A1363]"
+            >
+              Start campaign draft
+            </Link>
+            <Link
+              href={followUp.filterHref}
+              className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Review audience
+            </Link>
+          </div>
+        </article>
+      );
+          })}
         </div>
       </div>
 

@@ -7,6 +7,7 @@ import {
   Mail,
   Send,
   ShieldCheck,
+  Sparkles,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -31,6 +32,7 @@ type SearchParams = Promise<{
   campaign_sent?: string;
   campaign_error?: string;
   recipient_status?: string;
+  source?: string;
 }>;
 
 type OrganizerCampaignRow = {
@@ -137,6 +139,137 @@ const audienceOptions = [
     requiresEvent: false,
   },
 ];
+
+type CampaignReviewGuidance = {
+  title: string;
+  intent: string;
+  review: string[];
+  risk: string;
+  nextSteps: string[];
+};
+
+function campaignReviewGuidanceFor(
+  audienceType: string,
+  eventName: string | null | undefined,
+): CampaignReviewGuidance {
+  const eventLabel = eventName || "the selected event";
+
+  switch (audienceType) {
+    case "specific_event_no_shows":
+      return {
+        title: "Review no-show language before sending",
+        intent: `This draft is meant for paid contacts who were not checked in for ${eventLabel}.`,
+        review: [
+          "Use soft wording because some people may have attended but were missed at check-in.",
+          "Avoid implying fault or absence unless check-in scanning was complete.",
+          "Give the recipient a simple way to reply if the record is wrong.",
+        ],
+        risk: "No-show campaigns are operationally sensitive. Review the list before preparing recipients.",
+        nextSteps: [
+          "Preview the audience count before generating recipients.",
+          "Send yourself a test email first.",
+          "Check failed or suppressed recipients before sending live.",
+        ],
+      };
+    case "specific_event_unpaid_pending":
+      return {
+        title: "Review payment follow-up tone",
+        intent: `This draft is meant for unpaid or pending registrations tied to ${eventLabel}.`,
+        review: [
+          "Keep the message helpful and service-oriented, not punitive.",
+          "Make the payment or confirmation next step obvious.",
+          "Preview the audience after saving to avoid contacting already-paid attendees.",
+        ],
+        risk: "Payment follow-ups should be treated as operational reminders, not broad marketing campaigns.",
+        nextSteps: [
+          "Preview the unpaid/pending audience.",
+          "Verify the CTA URL points to the right event or registration path.",
+          "Send a test email before preparing recipients.",
+        ],
+      };
+    case "specific_event_checked_in":
+      return {
+        title: "Good fit for post-event thank-you",
+        intent: `This draft is aimed at contacts checked in for ${eventLabel}.`,
+        review: [
+          "It is safe to reference the event experience for checked-in attendees.",
+          "Consider asking for feedback or linking to the next similar event.",
+          "Make sure the CTA fits a post-event thank-you or repeat-event message.",
+        ],
+        risk: "If check-in scanning was incomplete, some actual attendees may be missing from this audience.",
+        nextSteps: [
+          "Preview the checked-in audience count.",
+          "Send a test email to confirm formatting.",
+          "Prepare recipients only after reviewing the audience preview.",
+        ],
+      };
+    case "specific_event_refunded":
+      return {
+        title: "Use service-first refund follow-up",
+        intent: `This draft is meant for refunded registrations tied to ${eventLabel}.`,
+        review: [
+          "Confirm refund or issue status before sending.",
+          "Keep the tone focused on clarity, support, and resolution.",
+          "Avoid promotional language unless the issue has been resolved.",
+        ],
+        risk: "Refunded contacts may be dissatisfied, so review carefully before sending.",
+        nextSteps: [
+          "Preview the refunded audience.",
+          "Send a test email.",
+          "Review any replies manually after sending.",
+        ],
+      };
+    case "specific_event_ticket_buyers":
+      return {
+        title: "Good fit for paid attendee updates",
+        intent: `This draft targets paid registrations for ${eventLabel}.`,
+        review: [
+          "Avoid assuming everyone attended unless you choose checked-in attendees instead.",
+          "Use this for reminders, event updates, or repeat-event invitations.",
+          "Check the CTA and event context before preparing recipients.",
+        ],
+        risk: "Paid buyers can include no-shows, so attendance-specific wording may be inaccurate.",
+        nextSteps: [
+          "Preview the paid attendee audience.",
+          "Use checked-in attendees for post-event experience language.",
+          "Send a test email before live send.",
+        ],
+      };
+    case "specific_event_registrants":
+      return {
+        title: "Broad event audience review",
+        intent: `This draft targets all registrations for ${eventLabel}.`,
+        review: [
+          "Make sure the message applies to paid, pending, and unpaid registrations.",
+          "Avoid wording that assumes payment or attendance.",
+          "Use a narrower audience for payment, refund, or no-show follow-up.",
+        ],
+        risk: "This audience is broad. Narrow it when the message is status-specific.",
+        nextSteps: [
+          "Preview the audience count.",
+          "Confirm the message applies to all registrants.",
+          "Send a test email before generating recipients.",
+        ],
+      };
+    default:
+      return {
+        title: "Organizer campaign review",
+        intent: "Review audience, message, and consent expectations before sending.",
+        review: [
+          "Confirm the audience matches the message purpose.",
+          "Review the subject, preview text, and CTA.",
+          "Use a test email before preparing recipients.",
+        ],
+        risk: "Broad organizer audiences should not receive event-specific operational messages unless relevant.",
+        nextSteps: [
+          "Preview the audience.",
+          "Send yourself a test email.",
+          "Prepare recipients only after review.",
+        ],
+      };
+  }
+}
+
 
 function canViewOrganizerCampaigns(
   role: string | null | undefined,
@@ -495,6 +628,12 @@ export default async function OrganizerCampaignDetailPage({
     audienceOptions.find((option) => option.key === campaign.audience_type) ??
     audienceOptions[0];
   const selectedEvent = events.find((event) => event.id === campaign.audience_event_id) ?? null;
+  const selectedReviewGuidance = campaignReviewGuidanceFor(
+    campaign.audience_type,
+    selectedEvent?.name,
+  );
+  const isAriaGeneratedDraft = resolvedSearchParams.source === "aria-follow-up";
+  const shouldShowCampaignReview = isAriaGeneratedDraft || Boolean(campaign.audience_event_id);
   const isLocked = campaign.status !== "draft";
   const allowedRecipientFilters = [
     "all",
@@ -617,6 +756,81 @@ export default async function OrganizerCampaignDetailPage({
           Campaign action failed:{" "}
           {resolvedSearchParams.campaign_error.replaceAll("_", " ")}.
         </div>
+      ) : null}
+
+      {shouldShowCampaignReview ? (
+        <section className="rounded-[28px] border border-[#E9D5FF] bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="max-w-3xl">
+              <div className="flex items-center gap-3">
+                <span className="rounded-2xl bg-[#F9F1FF] p-2 text-[#7C2D92]">
+                  <Sparkles className="h-5 w-5" />
+                </span>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                    {isAriaGeneratedDraft ? "ARIA-generated campaign draft" : "Event campaign review"}
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                    {selectedReviewGuidance.title}
+                  </h2>
+                </div>
+              </div>
+              <p className="mt-4 text-sm leading-6 text-slate-600">
+                {selectedReviewGuidance.intent}
+              </p>
+            </div>
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm lg:min-w-72">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Suggested audience
+              </p>
+              <p className="mt-1 font-semibold text-slate-950">
+                {selectedAudience.label}
+              </p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                {selectedEvent ? selectedEvent.name : "No specific event selected"}
+              </p>
+              <p className="mt-3 text-sm font-semibold text-[var(--brand-primary)]">
+                {preview.count} deliverable · {preview.suppressed} suppressed
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="rounded-3xl border border-slate-100 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-950">
+                Review before sending
+              </p>
+              <ul className="mt-3 space-y-2 text-sm leading-6 text-slate-600">
+                {selectedReviewGuidance.review.map((item) => (
+                  <li key={item} className="flex gap-2">
+                    <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#7C2D92]" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+              <p className="font-semibold">Safety reminder</p>
+              <p className="mt-2">{selectedReviewGuidance.risk}</p>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded-3xl border border-slate-100 bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-950">
+              Suggested next review steps
+            </p>
+            <div className="mt-3 grid gap-2 md:grid-cols-3">
+              {selectedReviewGuidance.nextSteps.map((step) => (
+                <div
+                  key={step}
+                  className="rounded-2xl border border-slate-100 bg-white p-3 text-sm leading-5 text-slate-600"
+                >
+                  {step}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
       ) : null}
 
       <section className="grid gap-4 md:grid-cols-4">
