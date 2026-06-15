@@ -108,6 +108,7 @@ type PersistedAriaActionItemRow = {
   action_key: string;
   status: string;
   snoozed_until: string | null;
+  updated_at?: string | null;
 };
 
 type OrganizerEventDashboardRow = {
@@ -510,6 +511,28 @@ function fmtPercent(value: number | null | undefined) {
   if (value === null || value === undefined || !Number.isFinite(value))
     return "—";
   return `${value.toFixed(1)}%`;
+}
+
+function ariaActionKey(...parts: Array<string | number | null | undefined>) {
+  return parts
+    .map((part) =>
+      String(part ?? "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, ""),
+    )
+    .filter(Boolean)
+    .join("-");
+}
+
+function ariaActionStatusLabel(status: string | null | undefined) {
+  const normalized = (status ?? "open").trim().toLowerCase();
+
+  if (normalized === "completed") return "Completed";
+  if (normalized === "dismissed") return "Dismissed";
+  if (normalized === "snoozed") return "Snoozed";
+
+  return "Open";
 }
 
 function settlementStatusLabel(status: string | null | undefined) {
@@ -1331,7 +1354,7 @@ export default async function EventsPage() {
     }
 
     ariaActionQueue.push({
-      id: `attention-${row.event.id}`,
+      id: ariaActionKey("attention", row.event.id, firstIssue),
       priority: item.severity === "critical" ? "High" : "Medium",
       title,
       reason: `${firstIssue}${issueLabels.length > 1 ? ` + ${issueLabels.length - 1} more` : ""}`,
@@ -1341,12 +1364,12 @@ export default async function EventsPage() {
   }
 
   for (const row of readyToSettleEvents.slice(0, 3)) {
-    if (ariaActionQueue.some((action) => action.id === `attention-${row.event.id}`)) {
+    if (ariaActionQueue.some((action) => action.href === `/app/events/${row.event.id}`)) {
       continue;
     }
 
     ariaActionQueue.push({
-      id: `ready-${row.event.id}`,
+      id: ariaActionKey("ready", row.event.id, "closeout"),
       priority: "Medium",
       title: `Settle ${row.event.name}`,
       reason: "Completed event appears ready for closeout with no unpaid or pending registration blockers.",
@@ -1359,15 +1382,22 @@ export default async function EventsPage() {
     if (
       ariaActionQueue.some(
         (action) =>
-          action.id === `attention-${row.event.id}` ||
-          action.id === `ready-${row.event.id}`,
+          action.href === `/app/events/${row.event.id}`,
       )
     ) {
       continue;
     }
 
     ariaActionQueue.push({
-      id: `costs-${row.event.id}`,
+      id: ariaActionKey(
+        "costs",
+        row.event.id,
+        row.eventLaborCosts <= 0 && row.eventExpenses <= 0
+          ? "missing-labor-and-expenses"
+          : row.eventLaborCosts <= 0
+            ? "missing-labor"
+            : "missing-expenses",
+      ),
       priority: "Low",
       title: `Add missing cost detail for ${row.event.name}`,
       reason:
@@ -1383,7 +1413,11 @@ export default async function EventsPage() {
 
   if (organizerAriaRepeatCandidate) {
     ariaActionQueue.push({
-      id: `repeat-${organizerAriaRepeatCandidate.event.id}`,
+      id: ariaActionKey(
+        "repeat",
+        organizerAriaRepeatCandidate.event.id,
+        "strong-margin",
+      ),
       priority: "Low",
       title: `Consider repeating ${organizerAriaRepeatCandidate.event.name}`,
       reason: `${fmtCurrency(organizerAriaRepeatCandidate.eventProfitLoss)} profit with ${fmtPercent(organizerAriaRepeatCandidate.marginPercent)} margin and ${fmtPercent(organizerAriaRepeatCandidate.checkInRate)} check-in rate.`,
@@ -1407,7 +1441,7 @@ export default async function EventsPage() {
     const { data: persistedActions, error: persistedActionsError } =
       await actionStateSupabase
         .from("aria_action_items")
-        .select("id, action_key, status, snoozed_until")
+        .select("id, action_key, status, snoozed_until, updated_at")
         .eq("studio_id", studioId)
         .in("action_key", actionKeys);
 
@@ -1450,6 +1484,41 @@ export default async function EventsPage() {
       return true;
     },
   );
+
+  const hiddenAriaActionQueue = prioritizedAriaActionQueue
+    .map((action) => ({
+      action,
+      persistedAction: persistedAriaActionByKey.get(action.id),
+    }))
+    .filter(({ persistedAction }) => {
+      if (!persistedAction) return false;
+
+      if (
+        persistedAction.status === "dismissed" ||
+        persistedAction.status === "completed"
+      ) {
+        return true;
+      }
+
+      return Boolean(
+        persistedAction.status === "snoozed" &&
+          persistedAction.snoozed_until &&
+          new Date(persistedAction.snoozed_until).getTime() > nowMs,
+      );
+    });
+
+  const completedAriaActionCount = hiddenAriaActionQueue.filter(
+    ({ persistedAction }) => persistedAction?.status === "completed",
+  ).length;
+  const snoozedAriaActionCount = hiddenAriaActionQueue.filter(
+    ({ persistedAction }) => persistedAction?.status === "snoozed",
+  ).length;
+  const dismissedAriaActionCount = hiddenAriaActionQueue.filter(
+    ({ persistedAction }) => persistedAction?.status === "dismissed",
+  ).length;
+  const highPriorityAriaActionCount = visiblePrioritizedAriaActionQueue.filter(
+    (action) => action.priority === "High",
+  ).length;
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -1578,9 +1647,51 @@ export default async function EventsPage() {
                 queue is advisory for now; it does not make changes for you.
               </p>
             </div>
-            <span className="inline-flex w-fit rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 ring-1 ring-purple-200">
-              {visiblePrioritizedAriaActionQueue.length} open
-            </span>
+            <div className="flex flex-wrap gap-2">
+              <span className="inline-flex w-fit rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 ring-1 ring-purple-200">
+                {visiblePrioritizedAriaActionQueue.length} active
+              </span>
+              {highPriorityAriaActionCount > 0 ? (
+                <span className="inline-flex w-fit rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
+                  {highPriorityAriaActionCount} high priority
+                </span>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 md:grid-cols-4">
+            <div className="rounded-2xl border border-purple-100 bg-purple-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-purple-600">
+                Active
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-purple-950">
+                {visiblePrioritizedAriaActionQueue.length}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-600">
+                Completed
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-emerald-950">
+                {completedAriaActionCount}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-600">
+                Snoozed
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-amber-950">
+                {snoozedAriaActionCount}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                Dismissed
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {dismissedAriaActionCount}
+              </p>
+            </div>
           </div>
 
           <div className="mt-5 space-y-3">
@@ -1588,7 +1699,13 @@ export default async function EventsPage() {
               visiblePrioritizedAriaActionQueue.map((action) => (
                 <div
                   key={action.id}
-                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                  className={`rounded-2xl border p-4 ${
+                    action.priority === "High"
+                      ? "border-rose-200 bg-rose-50/60"
+                      : action.priority === "Medium"
+                        ? "border-amber-200 bg-amber-50/60"
+                        : "border-slate-200 bg-slate-50"
+                  }`}
                 >
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
@@ -1596,13 +1713,16 @@ export default async function EventsPage() {
                         <span
                           className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
                             action.priority === "High"
-                              ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200"
+                              ? "bg-rose-100 text-rose-800 ring-1 ring-rose-200"
                               : action.priority === "Medium"
-                                ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                                ? "bg-amber-100 text-amber-800 ring-1 ring-amber-200"
                                 : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
                           }`}
                         >
                           {action.priority} priority
+                        </span>
+                        <span className="inline-flex rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                          Open
                         </span>
                         <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
                           Suggested by ARIA
@@ -1681,13 +1801,66 @@ export default async function EventsPage() {
                 </div>
               ))
             ) : (
-              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-900">
-                ARIA does not see any organizer event actions that need
-                attention right now. Keep settlement, labor, expense, and
-                check-in data current so the queue stays useful.
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-sm leading-6 text-emerald-900">
+                <p className="font-semibold">No active ARIA actions right now.</p>
+                <p className="mt-1">
+                  ARIA is not seeing organizer event actions that need attention.
+                  Completed, dismissed, or snoozed items are counted below. Keep
+                  settlement, labor, expense, and check-in data current so the
+                  queue stays useful.
+                </p>
               </div>
             )}
           </div>
+
+          {hiddenAriaActionQueue.length > 0 ? (
+            <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 className="font-semibold text-slate-950">
+                    Recently handled ARIA actions
+                  </h3>
+                  <p className="text-sm text-slate-600">
+                    These recommendations are hidden from the active queue because
+                    they were completed, dismissed, or snoozed.
+                  </p>
+                </div>
+                <span className="inline-flex w-fit rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                  {hiddenAriaActionQueue.length} hidden
+                </span>
+              </div>
+
+              <div className="mt-3 divide-y divide-slate-100">
+                {hiddenAriaActionQueue.slice(0, 5).map(({ action, persistedAction }) => (
+                  <div
+                    key={`${action.id}-${persistedAction?.status ?? "hidden"}`}
+                    className="flex flex-col gap-2 py-3 md:flex-row md:items-center md:justify-between"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">
+                        {action.title}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {ariaActionStatusLabel(persistedAction?.status)}
+                        {persistedAction?.status === "snoozed" &&
+                        persistedAction.snoozed_until
+                          ? ` until ${new Date(
+                              persistedAction.snoozed_until,
+                            ).toLocaleDateString("en-US")}`
+                          : ""}
+                      </p>
+                    </div>
+                    <Link
+                      href={action.href}
+                      className="text-xs font-semibold text-purple-700 hover:text-purple-800"
+                    >
+                      Review event
+                    </Link>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </section>
       ) : null}
 

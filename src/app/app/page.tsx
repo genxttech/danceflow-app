@@ -264,6 +264,7 @@ type PersistedAriaActionItemRow = {
   action_key: string;
   status: string;
   snoozed_until: string | null;
+  updated_at: string | null;
 };
 
 function isOrganizerRole(role: string | null | undefined) {
@@ -1555,7 +1556,7 @@ export default async function AppDashboardPage({
       const { data: persistedActions, error: persistedActionsError } =
         await supabase
           .from("aria_action_items")
-          .select("id, action_key, status, snoozed_until")
+          .select("id, action_key, status, snoozed_until, updated_at")
           .eq("studio_id", studioId)
           .in("action_key", organizerAriaActionKeys);
 
@@ -1598,10 +1599,27 @@ export default async function AppDashboardPage({
     });
 
     const topOrganizerAriaActions = visibleOrganizerAriaActions.slice(0, 3);
+    const activeOrganizerAriaActionCount = visibleOrganizerAriaActions.length;
     const highPriorityOrganizerAriaActionCount =
       visibleOrganizerAriaActions.filter(
         (action) => action.priority === "High",
       ).length;
+    const completedOrganizerAriaActionCount = persistedOrganizerAriaActions.filter(
+      (action) => action.status === "completed",
+    ).length;
+    const dismissedOrganizerAriaActionCount = persistedOrganizerAriaActions.filter(
+      (action) => action.status === "dismissed",
+    ).length;
+    const snoozedOrganizerAriaActionCount = persistedOrganizerAriaActions.filter(
+      (action) =>
+        action.status === "snoozed" &&
+        action.snoozed_until &&
+        new Date(action.snoozed_until).getTime() > nowMs,
+    ).length;
+    const recentlyHandledOrganizerAriaActionCount =
+      completedOrganizerAriaActionCount +
+      dismissedOrganizerAriaActionCount +
+      snoozedOrganizerAriaActionCount;
 
     return (
       <main className="space-y-8 p-6 md:p-8">
@@ -1750,9 +1768,20 @@ export default async function AppDashboardPage({
               </div>
 
               <div className="flex flex-wrap items-center gap-3">
+                <span className="inline-flex rounded-full bg-[#F5F3FF] px-3 py-1.5 text-xs font-semibold text-[#6B21A8] ring-1 ring-[#DDD6FE]">
+                  {activeOrganizerAriaActionCount} active
+                </span>
                 <span className="inline-flex rounded-full bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
                   {highPriorityOrganizerAriaActionCount} high priority
                 </span>
+                <span className="inline-flex rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                  {recentlyHandledOrganizerAriaActionCount} handled
+                </span>
+                {snoozedOrganizerAriaActionCount > 0 ? (
+                  <span className="inline-flex rounded-full bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 ring-1 ring-amber-200">
+                    {snoozedOrganizerAriaActionCount} snoozed
+                  </span>
+                ) : null}
                 <Link
                   href="/app/events"
                   className="inline-flex items-center gap-2 rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4B1465]"
@@ -1802,10 +1831,21 @@ export default async function AppDashboardPage({
                 </Link>
               ))
             ) : (
-              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm leading-6 text-emerald-800 lg:col-span-3">
-                ARIA does not see urgent organizer actions right now. Continue
-                monitoring the Events dashboard for closeout, margin, ticket,
-                and check-in recommendations.
+              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 lg:col-span-3">
+                <p className="text-sm font-semibold text-emerald-900">
+                  No active organizer actions right now.
+                </p>
+                <p className="mt-2 text-sm leading-6 text-emerald-800">
+                  ARIA does not see urgent organizer actions on the main
+                  dashboard. Completed, dismissed, or snoozed recommendations
+                  are being respected. Continue monitoring the full Events
+                  dashboard for closeout, margin, ticket, and check-in changes.
+                </p>
+                {recentlyHandledOrganizerAriaActionCount > 0 ? (
+                  <p className="mt-3 text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                    {recentlyHandledOrganizerAriaActionCount} recently handled
+                  </p>
+                ) : null}
               </div>
             )}
           </div>
