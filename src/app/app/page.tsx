@@ -91,7 +91,6 @@ type WorkspaceOnboardingPreferenceRow = {
   completed_at: string | null;
 };
 
-
 type DashboardAriaGoalRow = {
   id: string;
   title: string;
@@ -251,6 +250,22 @@ type WorkspaceOnboardingTask = {
   complete: boolean;
 };
 
+type OrganizerAriaAction = {
+  key: string;
+  priority: "High" | "Medium" | "Low";
+  title: string;
+  reason: string;
+  nextStep: string;
+  href: string;
+};
+
+type PersistedAriaActionItemRow = {
+  id: string;
+  action_key: string;
+  status: string;
+  snoozed_until: string | null;
+};
+
 function isOrganizerRole(role: string | null | undefined) {
   const normalized = (role ?? "").trim().toLowerCase();
   return normalized.startsWith("organizer_");
@@ -338,7 +353,9 @@ function getDaysUntilBirthday(value: string | null | undefined) {
     nextBirthday = new Date(Date.UTC(year + 1, parts.month - 1, parts.day));
   }
 
-  return Math.round((nextBirthday.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+  return Math.round(
+    (nextBirthday.getTime() - today.getTime()) / (24 * 60 * 60 * 1000),
+  );
 }
 
 function hasMailingAddress(client: ClientRow) {
@@ -415,7 +432,10 @@ function getAriaGoalTimelinePercent(
     return null;
   }
 
-  return Math.min(100, Math.max(0, Math.round(((now - start) / (target - start)) * 100)));
+  return Math.min(
+    100,
+    Math.max(0, Math.round(((now - start) / (target - start)) * 100)),
+  );
 }
 
 function getEventRelationName(
@@ -688,6 +708,18 @@ function statusBadgeClass(status: string) {
     return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
   }
   return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+}
+
+function ariaActionPriorityClass(priority: OrganizerAriaAction["priority"]) {
+  if (priority === "High") {
+    return "bg-rose-50 text-rose-700 ring-1 ring-rose-200";
+  }
+
+  if (priority === "Medium") {
+    return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+  }
+
+  return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
 }
 
 const PLAN_LABELS: Record<string, string> = {
@@ -1325,25 +1357,33 @@ export default async function AppDashboardPage({
           }
         : !payoutsReady
           ? {
-              title: "Connect payouts before leaning on paid registration data.",
+              title:
+                "Connect payouts before leaning on paid registration data.",
               insight:
                 "ARIA found organizer events, but Stripe payouts are not connected yet. That limits reliable ticket revenue, refunds, fees, and closeout tracking.",
               recommendation:
                 "Connect payouts, then use the organizer event dashboard to review revenue, labor, expenses, and settlement readiness.",
               metric: "Payouts not connected",
-              primaryAction: { href: "/app/payments", label: "Connect payouts" },
+              primaryAction: {
+                href: "/app/payments",
+                label: "Connect payouts",
+              },
               secondaryAction: { href: "/app/events", label: "Review events" },
             }
           : publishedCount === 0
             ? {
-                title: "Your events exist, but none are open for registration yet.",
+                title:
+                  "Your events exist, but none are open for registration yet.",
                 insight:
                   "ARIA found draft or unpublished events. The next organizer move is to publish at least one event and turn on public discovery if it should be found by dancers.",
                 recommendation:
                   "Open your events list, confirm the public details, then publish or open registration for the next event you want to sell.",
                 metric: `${typedEvents.length} event${typedEvents.length === 1 ? "" : "s"} created`,
                 primaryAction: { href: "/app/events", label: "Open events" },
-                secondaryAction: { href: "/app/aria", label: "Ask ARIA what to fix" },
+                secondaryAction: {
+                  href: "/app/aria",
+                  label: "Ask ARIA what to fix",
+                },
               }
             : discoveryReadyCount === 0
               ? {
@@ -1353,8 +1393,14 @@ export default async function AppDashboardPage({
                   recommendation:
                     "Review visibility and public directory settings so dancers can find your event without needing a direct link.",
                   metric: `${publishedCount} open / published`,
-                  primaryAction: { href: "/app/events", label: "Review discovery" },
-                  secondaryAction: { href: "/app/aria", label: "Consult with ARIA" },
+                  primaryAction: {
+                    href: "/app/events",
+                    label: "Review discovery",
+                  },
+                  secondaryAction: {
+                    href: "/app/aria",
+                    label: "Consult with ARIA",
+                  },
                 }
               : paidRegistrationsCount === 0
                 ? {
@@ -1364,7 +1410,10 @@ export default async function AppDashboardPage({
                     recommendation:
                       "Review the public event page, ticket pricing, campaign links, and registration path so you can turn discovery into paid attendance.",
                     metric: "0 paid registrations",
-                    primaryAction: { href: "/app/events", label: "Review event funnel" },
+                    primaryAction: {
+                      href: "/app/events",
+                      label: "Review event funnel",
+                    },
                     secondaryAction: {
                       href: "/app/organizer-campaigns",
                       label: "Review campaigns",
@@ -1378,8 +1427,14 @@ export default async function AppDashboardPage({
                       recommendation:
                         "Before the next event starts, test the check-in flow and confirm ticket codes or QR scanning are ready.",
                       metric: `${paidRegistrationsCount} paid`,
-                      primaryAction: { href: "/app/events/check-in", label: "Open check-in" },
-                      secondaryAction: { href: "/app/events", label: "Review events" },
+                      primaryAction: {
+                        href: "/app/events/check-in",
+                        label: "Open check-in",
+                      },
+                      secondaryAction: {
+                        href: "/app/events",
+                        label: "Review events",
+                      },
                     }
                   : {
                       title: "ARIA is monitoring organizer performance.",
@@ -1388,9 +1443,165 @@ export default async function AppDashboardPage({
                       recommendation:
                         "Open the organizer event dashboard to review events needing attention, profitability rankings, settlement status, and exports.",
                       metric: `${checkedInCount} checked in`,
-                      primaryAction: { href: "/app/events", label: "Open event dashboard" },
-                      secondaryAction: { href: "/app/aria", label: "Consult with ARIA" },
+                      primaryAction: {
+                        href: "/app/events",
+                        label: "Open event dashboard",
+                      },
+                      secondaryAction: {
+                        href: "/app/aria",
+                        label: "Consult with ARIA",
+                      },
                     };
+
+    const organizerAriaActions: OrganizerAriaAction[] = [];
+
+    if (typedEvents.length === 0) {
+      organizerAriaActions.push({
+        key: "create-event",
+        priority: "High",
+        title: "Create your first organizer event",
+        reason:
+          "ARIA cannot monitor ticket sales, check-in, or closeout readiness until an event exists.",
+        nextStep:
+          "Create one event and add ticket types so the registration funnel can be measured.",
+        href: "/app/events/new",
+      });
+    }
+
+    if (!payoutsReady) {
+      organizerAriaActions.push({
+        key: "connect-payouts",
+        priority: "High",
+        title: "Connect payouts before relying on revenue closeout",
+        reason:
+          "Stripe payouts are not connected, so paid registration, fee, refund, and settlement reporting may be incomplete.",
+        nextStep:
+          "Connect payouts, then review organizer event profitability again.",
+        href: "/app/payments",
+      });
+    }
+
+    if (typedEvents.length > 0 && publishedCount === 0) {
+      organizerAriaActions.push({
+        key: "publish-event",
+        priority: "High",
+        title: "Publish or open an event for registration",
+        reason:
+          "Events exist, but none are currently published or open for dancers to register.",
+        nextStep:
+          "Open the event dashboard, confirm details, and publish the next event you want to sell.",
+        href: "/app/events",
+      });
+    }
+
+    if (publishedCount > 0 && discoveryReadyCount === 0) {
+      organizerAriaActions.push({
+        key: "discovery-ready",
+        priority: "Medium",
+        title: "Make at least one event discovery-ready",
+        reason:
+          "Published events are not currently enabled for public directory discovery in the dashboard summary.",
+        nextStep:
+          "Review event visibility and public directory settings so dancers can find the event.",
+        href: "/app/events",
+      });
+    }
+
+    if (discoveryReadyCount > 0 && paidRegistrationsCount === 0) {
+      organizerAriaActions.push({
+        key: "registration-funnel",
+        priority: "Medium",
+        title: "Review the registration funnel",
+        reason:
+          "ARIA found discovery-ready events, but no paid registrations in this workspace summary yet.",
+        nextStep:
+          "Review public event links, ticket pricing, and campaign traffic paths.",
+        href: "/app/events",
+      });
+    }
+
+    if (paidRegistrationsCount > 0 && checkedInCount === 0) {
+      organizerAriaActions.push({
+        key: "prepare-check-in",
+        priority: "Medium",
+        title: "Prepare event check-in",
+        reason:
+          "Paid registrations exist, but no attended check-ins are visible in the dashboard summary yet.",
+        nextStep:
+          "Open check-in and test QR/manual code flow before the event starts.",
+        href: "/app/events/check-in",
+      });
+    }
+
+    if (typedEvents.length > 0) {
+      organizerAriaActions.push({
+        key: "review-action-queue",
+        priority: paidRegistrationsCount > 0 ? "High" : "Low",
+        title: "Review the full ARIA action queue",
+        reason:
+          "The Events dashboard now ranks closeout, margin, missing cost data, registration, and repeat-event opportunities.",
+        nextStep:
+          "Open the event dashboard to review ARIA's event-specific recommendations.",
+        href: "/app/events",
+      });
+    }
+
+    const organizerAriaActionKeys = organizerAriaActions.map(
+      (action) => action.key,
+    );
+    let persistedOrganizerAriaActions: PersistedAriaActionItemRow[] = [];
+
+    if (organizerAriaActionKeys.length > 0) {
+      const { data: persistedActions, error: persistedActionsError } =
+        await supabase
+          .from("aria_action_items")
+          .select("id, action_key, status, snoozed_until")
+          .eq("studio_id", studioId)
+          .in("action_key", organizerAriaActionKeys);
+
+      if (persistedActionsError) {
+        console.warn(
+          "Failed to load persisted ARIA action items:",
+          persistedActionsError.message,
+        );
+      } else {
+        persistedOrganizerAriaActions =
+          (persistedActions ?? []) as PersistedAriaActionItemRow[];
+      }
+    }
+
+    const persistedOrganizerAriaActionByKey = new Map(
+      persistedOrganizerAriaActions.map((item) => [item.action_key, item]),
+    );
+    const nowMs = Date.now();
+
+    const visibleOrganizerAriaActions = organizerAriaActions.filter((action) => {
+      const persistedAction = persistedOrganizerAriaActionByKey.get(action.key);
+      if (!persistedAction) return true;
+
+      if (
+        persistedAction.status === "dismissed" ||
+        persistedAction.status === "completed"
+      ) {
+        return false;
+      }
+
+      if (
+        persistedAction.status === "snoozed" &&
+        persistedAction.snoozed_until &&
+        new Date(persistedAction.snoozed_until).getTime() > nowMs
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    const topOrganizerAriaActions = visibleOrganizerAriaActions.slice(0, 3);
+    const highPriorityOrganizerAriaActionCount =
+      visibleOrganizerAriaActions.filter(
+        (action) => action.priority === "High",
+      ).length;
 
     return (
       <main className="space-y-8 p-6 md:p-8">
@@ -1520,6 +1731,85 @@ export default async function AppDashboardPage({
           primaryAction={organizerAriaInsight.primaryAction}
           secondaryAction={organizerAriaInsight.secondaryAction}
         />
+
+        <section className="overflow-hidden rounded-[32px] border border-[#E9D5FF] bg-white shadow-sm">
+          <div className="border-b border-[#F3E8FF] bg-gradient-to-r from-[#FCF8FF] to-white px-6 py-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                  ARIA Action Queue
+                </p>
+                <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                  Top organizer recommendations
+                </h2>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+                  ARIA is prioritizing the next operational moves for this
+                  organizer workspace. Open the full Events dashboard for the
+                  detailed event-by-event queue.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="inline-flex rounded-full bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 ring-1 ring-rose-200">
+                  {highPriorityOrganizerAriaActionCount} high priority
+                </span>
+                <Link
+                  href="/app/events"
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4B1465]"
+                >
+                  View full queue
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link
+                  href="/app/aria"
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#E9D5FF] bg-white px-4 py-2 text-sm font-semibold text-[#6B21A8] hover:border-[#D8B4FE] hover:bg-[#FCF8FF]"
+                >
+                  Consult with ARIA
+                  <Sparkles className="h-4 w-4" />
+                </Link>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-4 p-6 lg:grid-cols-3">
+            {topOrganizerAriaActions.length > 0 ? (
+              topOrganizerAriaActions.map((action) => (
+                <Link
+                  key={action.key}
+                  href={action.href}
+                  className="group rounded-3xl border border-slate-200 bg-slate-50 p-5 transition hover:-translate-y-0.5 hover:border-[#D8B4FE] hover:bg-[#FCF8FF] hover:shadow-md"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span
+                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${ariaActionPriorityClass(
+                        action.priority,
+                      )}`}
+                    >
+                      {action.priority}
+                    </span>
+                    <ArrowRight className="mt-1 h-4 w-4 text-slate-400 transition group-hover:translate-x-0.5 group-hover:text-[#6B21A8]" />
+                  </div>
+
+                  <h3 className="mt-4 text-base font-semibold text-slate-950">
+                    {action.title}
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    {action.reason}
+                  </p>
+                  <p className="mt-3 text-sm font-medium leading-6 text-[#6B21A8]">
+                    {action.nextStep}
+                  </p>
+                </Link>
+              ))
+            ) : (
+              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-sm leading-6 text-emerald-800 lg:col-span-3">
+                ARIA does not see urgent organizer actions right now. Continue
+                monitoring the Events dashboard for closeout, margin, ticket,
+                and check-in recommendations.
+              </div>
+            )}
+          </div>
+        </section>
 
         <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">
           <SectionCard
@@ -1763,7 +2053,9 @@ export default async function AppDashboardPage({
   ] = await Promise.all([
     supabase
       .from("clients")
-      .select("id, portal_user_id, first_name, last_name, email, phone, birthday, address_line1, address_line2, city, state, postal_code, country")
+      .select(
+        "id, portal_user_id, first_name, last_name, email, phone, birthday, address_line1, address_line2, city, state, postal_code, country",
+      )
       .eq("studio_id", studioId),
     supabase
       .from("appointments")
@@ -2185,7 +2477,9 @@ export default async function AppDashboardPage({
       client.daysUntilBirthday <= 30 &&
       client.hasMailingAddress,
   ).length;
-  const missingBirthdayCount = typedClients.filter((client) => !client.birthday).length;
+  const missingBirthdayCount = typedClients.filter(
+    (client) => !client.birthday,
+  ).length;
   const missingMailingAddressCount = typedClients.filter(
     (client) => !hasMailingAddress(client),
   ).length;
@@ -2267,15 +2561,16 @@ export default async function AppDashboardPage({
     return normalizedStatus !== "cancelled" && normalizedStatus !== "completed";
   });
 
-  const { data: activeAriaGoalRows, error: activeAriaGoalError } = await supabase
-    .from("aria_goals")
-    .select(
-      "id, title, goal_type, focus_area, target_value, current_value, target_unit, timeline_days, starts_at, target_date, status, plan_summary, updated_at",
-    )
-    .eq("studio_id", studioId)
-    .eq("status", "active")
-    .order("created_at", { ascending: false })
-    .limit(1);
+  const { data: activeAriaGoalRows, error: activeAriaGoalError } =
+    await supabase
+      .from("aria_goals")
+      .select(
+        "id, title, goal_type, focus_area, target_value, current_value, target_unit, timeline_days, starts_at, target_date, status, plan_summary, updated_at",
+      )
+      .eq("studio_id", studioId)
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(1);
 
   if (activeAriaGoalError) {
     throw new Error(
@@ -2294,16 +2589,25 @@ export default async function AppDashboardPage({
     : null;
 
   const activeAriaGoalTimeline = activeAriaGoal
-    ? getAriaGoalTimelinePercent(activeAriaGoal.starts_at, activeAriaGoal.target_date)
+    ? getAriaGoalTimelinePercent(
+        activeAriaGoal.starts_at,
+        activeAriaGoal.target_date,
+      )
     : null;
 
   const activeAriaGoalTarget = activeAriaGoal
-    ? formatAriaGoalValue(activeAriaGoal.target_value, activeAriaGoal.target_unit)
+    ? formatAriaGoalValue(
+        activeAriaGoal.target_value,
+        activeAriaGoal.target_unit,
+      )
     : null;
 
   const activeAriaGoalCurrent =
     activeAriaGoal && activeAriaGoal.current_value !== null
-      ? formatAriaGoalValue(activeAriaGoal.current_value, activeAriaGoal.target_unit)
+      ? formatAriaGoalValue(
+          activeAriaGoal.current_value,
+          activeAriaGoal.target_unit,
+        )
       : null;
 
   const activeAriaGoalMetric = activeAriaGoal

@@ -14,11 +14,27 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createSupabaseServiceClient } from "@supabase/supabase-js";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { planHasFeature } from "@/lib/billing/plans";
 import CopyCalendarFeedButton from "@/components/app/CopyCalendarFeedButton";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { duplicateEventAction } from "./actions";
+import { updateOrganizerAriaActionStatusAction } from "./aria-actions";
+
+function createServiceRoleClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) return null;
+
+  return createSupabaseServiceClient(url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+}
 
 type EventRow = {
   id: string;
@@ -85,6 +101,13 @@ type EventSettlementSummaryRow = {
   event_id: string | null;
   status: string | null;
   settled_at: string | null;
+};
+
+type PersistedAriaActionItemRow = {
+  id: string;
+  action_key: string;
+  status: string;
+  snoozed_until: string | null;
 };
 
 type OrganizerEventDashboardRow = {
@@ -1267,6 +1290,167 @@ export default async function EventsPage() {
             label: "Review events",
           };
 
+
+  const ariaActionQueue: {
+    id: string;
+    priority: "High" | "Medium" | "Low";
+    title: string;
+    reason: string;
+    nextStep: string;
+    href: string;
+  }[] = [];
+
+  for (const item of eventsNeedingAttention.slice(0, 5)) {
+    const row = item.row;
+    const issueLabels = item.issues.map((issue) => issue.label);
+    const firstIssue = issueLabels[0] ?? "Review event details";
+
+    let title = `Review ${row.event.name}`;
+    let nextStep = "Open event dashboard";
+
+    if (issueLabels.some((label) => label.includes("not settled"))) {
+      title = `Close out ${row.event.name}`;
+      nextStep = "Review closeout checklist";
+    } else if (issueLabels.some((label) => label.includes("losing money"))) {
+      title = `Review margin risk for ${row.event.name}`;
+      nextStep = "Review financials";
+    } else if (issueLabels.some((label) => label.includes("unpaid"))) {
+      title = `Follow up on unpaid registrations`;
+      nextStep = "Review registrations";
+    } else if (
+      issueLabels.some(
+        (label) =>
+          label.includes("labor") || label.includes("expenses"),
+      )
+    ) {
+      title = `Complete cost data for ${row.event.name}`;
+      nextStep = "Add missing costs";
+    } else if (issueLabels.some((label) => label.includes("check-in"))) {
+      title = `Review check-in performance`;
+      nextStep = "Open check-in report";
+    }
+
+    ariaActionQueue.push({
+      id: `attention-${row.event.id}`,
+      priority: item.severity === "critical" ? "High" : "Medium",
+      title,
+      reason: `${firstIssue}${issueLabels.length > 1 ? ` + ${issueLabels.length - 1} more` : ""}`,
+      nextStep,
+      href: `/app/events/${row.event.id}`,
+    });
+  }
+
+  for (const row of readyToSettleEvents.slice(0, 3)) {
+    if (ariaActionQueue.some((action) => action.id === `attention-${row.event.id}`)) {
+      continue;
+    }
+
+    ariaActionQueue.push({
+      id: `ready-${row.event.id}`,
+      priority: "Medium",
+      title: `Settle ${row.event.name}`,
+      reason: "Completed event appears ready for closeout with no unpaid or pending registration blockers.",
+      nextStep: "Open closeout",
+      href: `/app/events/${row.event.id}`,
+    });
+  }
+
+  for (const row of missingCostEvents.slice(0, 3)) {
+    if (
+      ariaActionQueue.some(
+        (action) =>
+          action.id === `attention-${row.event.id}` ||
+          action.id === `ready-${row.event.id}`,
+      )
+    ) {
+      continue;
+    }
+
+    ariaActionQueue.push({
+      id: `costs-${row.event.id}`,
+      priority: "Low",
+      title: `Add missing cost detail for ${row.event.name}`,
+      reason:
+        row.eventLaborCosts <= 0 && row.eventExpenses <= 0
+          ? "Revenue exists, but labor and event expenses are both missing."
+          : row.eventLaborCosts <= 0
+            ? "Revenue exists, but labor/staff costs are missing."
+            : "Revenue exists, but event expenses are missing.",
+      nextStep: "Open event costs",
+      href: `/app/events/${row.event.id}`,
+    });
+  }
+
+  if (organizerAriaRepeatCandidate) {
+    ariaActionQueue.push({
+      id: `repeat-${organizerAriaRepeatCandidate.event.id}`,
+      priority: "Low",
+      title: `Consider repeating ${organizerAriaRepeatCandidate.event.name}`,
+      reason: `${fmtCurrency(organizerAriaRepeatCandidate.eventProfitLoss)} profit with ${fmtPercent(organizerAriaRepeatCandidate.marginPercent)} margin and ${fmtPercent(organizerAriaRepeatCandidate.checkInRate)} check-in rate.`,
+      nextStep: "Review repeat signal",
+      href: `/app/events/${organizerAriaRepeatCandidate.event.id}`,
+    });
+  }
+
+  const prioritizedAriaActionQueue = ariaActionQueue
+    .sort((a, b) => {
+      const priorityRank = { High: 0, Medium: 1, Low: 2 };
+      return priorityRank[a.priority] - priorityRank[b.priority];
+    })
+    .slice(0, 8);
+
+  const actionKeys = prioritizedAriaActionQueue.map((action) => action.id);
+  let persistedAriaActionItems: PersistedAriaActionItemRow[] = [];
+
+  if (organizerWorkspace && actionKeys.length > 0) {
+    const actionStateSupabase = createServiceRoleClient() ?? supabase;
+    const { data: persistedActions, error: persistedActionsError } =
+      await actionStateSupabase
+        .from("aria_action_items")
+        .select("id, action_key, status, snoozed_until")
+        .eq("studio_id", studioId)
+        .in("action_key", actionKeys);
+
+    if (persistedActionsError) {
+      console.warn(
+        "Failed to load persisted ARIA action items:",
+        persistedActionsError.message,
+      );
+    } else {
+      persistedAriaActionItems =
+        (persistedActions ?? []) as PersistedAriaActionItemRow[];
+    }
+  }
+
+  const persistedAriaActionByKey = new Map(
+    persistedAriaActionItems.map((item) => [item.action_key, item]),
+  );
+  const nowMs = Date.now();
+
+  const visiblePrioritizedAriaActionQueue = prioritizedAriaActionQueue.filter(
+    (action) => {
+      const persistedAction = persistedAriaActionByKey.get(action.id);
+      if (!persistedAction) return true;
+
+      if (
+        persistedAction.status === "dismissed" ||
+        persistedAction.status === "completed"
+      ) {
+        return false;
+      }
+
+      if (
+        persistedAction.status === "snoozed" &&
+        persistedAction.snoozed_until &&
+        new Date(persistedAction.snoozed_until).getTime() > nowMs
+      ) {
+        return false;
+      }
+
+      return true;
+    },
+  );
+
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
@@ -1377,6 +1561,134 @@ export default async function EventsPage() {
           }}
           secondaryAction={{ href: "/app/aria", label: "Consult with ARIA" }}
         />
+      ) : null}
+
+      {organizerWorkspace ? (
+        <section className="rounded-[28px] border border-purple-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.16em] text-purple-600">
+                ARIA Action Queue
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                Recommended organizer actions
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+                ARIA turns event reporting signals into next-best actions. This
+                queue is advisory for now; it does not make changes for you.
+              </p>
+            </div>
+            <span className="inline-flex w-fit rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 ring-1 ring-purple-200">
+              {visiblePrioritizedAriaActionQueue.length} open
+            </span>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {visiblePrioritizedAriaActionQueue.length > 0 ? (
+              visiblePrioritizedAriaActionQueue.map((action) => (
+                <div
+                  key={action.id}
+                  className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                >
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                            action.priority === "High"
+                              ? "bg-rose-50 text-rose-700 ring-1 ring-rose-200"
+                              : action.priority === "Medium"
+                                ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200"
+                                : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                          }`}
+                        >
+                          {action.priority} priority
+                        </span>
+                        <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">
+                          Suggested by ARIA
+                        </span>
+                      </div>
+                      <h3 className="mt-2 font-semibold text-slate-950">
+                        {action.title}
+                      </h3>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">
+                        {action.reason}
+                      </p>
+                    </div>
+                    <Link
+                      href={action.href}
+                      className="inline-flex items-center gap-2 text-sm font-semibold text-purple-700 hover:text-purple-800"
+                    >
+                      {action.nextStep}
+                      <ArrowRight className="h-4 w-4" />
+                    </Link>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-4">
+                    {(["completed", "snoozed", "dismissed"] as const).map(
+                      (status) => (
+                        <form
+                          key={status}
+                          action={updateOrganizerAriaActionStatusAction}
+                        >
+                          <input type="hidden" name="actionKey" value={action.id} />
+                          <input
+                            type="hidden"
+                            name="actionType"
+                            value={action.id.split("-")[0] ?? "organizer_action"}
+                          />
+                          <input
+                            type="hidden"
+                            name="priority"
+                            value={action.priority}
+                          />
+                          <input type="hidden" name="title" value={action.title} />
+                          <input type="hidden" name="reason" value={action.reason} />
+                          <input
+                            type="hidden"
+                            name="recommendedNextStep"
+                            value={action.nextStep}
+                          />
+                          <input type="hidden" name="targetUrl" value={action.href} />
+                          <input
+                            type="hidden"
+                            name="eventId"
+                            value={action.href.startsWith("/app/events/")
+                              ? action.href.replace("/app/events/", "").split("/")[0]
+                              : ""}
+                          />
+                          <input type="hidden" name="status" value={status} />
+                          <button
+                            type="submit"
+                            className={`rounded-xl px-3 py-2 text-xs font-semibold ${
+                              status === "completed"
+                                ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-100"
+                                : status === "snoozed"
+                                  ? "bg-amber-50 text-amber-700 ring-1 ring-amber-200 hover:bg-amber-100"
+                                  : "bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-slate-100"
+                            }`}
+                          >
+                            {status === "completed"
+                              ? "Mark complete"
+                              : status === "snoozed"
+                                ? "Snooze 7 days"
+                                : "Dismiss"}
+                          </button>
+                        </form>
+                      ),
+                    )}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-900">
+                ARIA does not see any organizer event actions that need
+                attention right now. Keep settlement, labor, expense, and
+                check-in data current so the queue stays useful.
+              </div>
+            )}
+          </div>
+        </section>
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
