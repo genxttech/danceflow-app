@@ -1321,25 +1321,43 @@ export default async function EventsPage() {
     reason: string;
     nextStep: string;
     href: string;
+    detailTitle: string;
+    whyItMatters: string;
+    metrics: { label: string; value: string }[];
+    secondaryHref?: string;
+    secondaryLabel?: string;
   }[] = [];
 
   for (const item of eventsNeedingAttention.slice(0, 5)) {
     const row = item.row;
     const issueLabels = item.issues.map((issue) => issue.label);
     const firstIssue = issueLabels[0] ?? "Review event details";
+    const eventHref = `/app/events/${row.event.id}`;
 
     let title = `Review ${row.event.name}`;
     let nextStep = "Open event dashboard";
+    let detailTitle = "ARIA found an event operations signal.";
+    let whyItMatters =
+      "This recommendation is based on settlement, registration, profitability, and check-in signals from the organizer dashboard.";
 
     if (issueLabels.some((label) => label.includes("not settled"))) {
       title = `Close out ${row.event.name}`;
       nextStep = "Review closeout checklist";
+      detailTitle = "Closeout protects the final event numbers.";
+      whyItMatters =
+        "Completed events should be reviewed and settled so revenue, refunds, fees, labor, and expenses are locked into a reliable closeout record.";
     } else if (issueLabels.some((label) => label.includes("losing money"))) {
       title = `Review margin risk for ${row.event.name}`;
       nextStep = "Review financials";
+      detailTitle = "This event is currently losing money.";
+      whyItMatters =
+        "A negative event result can point to pricing, attendance, labor, refund, or expense issues. Review the closeout before repeating this event format.";
     } else if (issueLabels.some((label) => label.includes("unpaid"))) {
       title = `Follow up on unpaid registrations`;
       nextStep = "Review registrations";
+      detailTitle = "Unpaid registrations can distort event demand and revenue.";
+      whyItMatters =
+        "Open unpaid or pending registrations can make ticket sales look stronger than collected revenue. Follow up before settlement or final attendance review.";
     } else if (
       issueLabels.some(
         (label) =>
@@ -1348,9 +1366,15 @@ export default async function EventsPage() {
     ) {
       title = `Complete cost data for ${row.event.name}`;
       nextStep = "Add missing costs";
+      detailTitle = "Missing costs can overstate profit.";
+      whyItMatters =
+        "If labor or event expenses are missing, the event may appear more profitable than it really was. Add costs before using this event as a repeat/pricing benchmark.";
     } else if (issueLabels.some((label) => label.includes("check-in"))) {
       title = `Review check-in performance`;
       nextStep = "Open check-in report";
+      detailTitle = "Check-in rate helps separate sales from actual attendance.";
+      whyItMatters =
+        "Low check-in performance may indicate no-shows, scanning gaps, or event operations issues. Compare sold tickets to checked-in attendance before judging event success.";
     }
 
     ariaActionQueue.push({
@@ -1359,7 +1383,19 @@ export default async function EventsPage() {
       title,
       reason: `${firstIssue}${issueLabels.length > 1 ? ` + ${issueLabels.length - 1} more` : ""}`,
       nextStep,
-      href: `/app/events/${row.event.id}`,
+      href: eventHref,
+      detailTitle,
+      whyItMatters,
+      metrics: [
+        { label: "Net revenue", value: fmtCurrency(row.netTicketRevenue) },
+        { label: "Total costs", value: fmtCurrency(row.totalEventCosts) },
+        { label: "Profit / loss", value: fmtCurrency(row.eventProfitLoss) },
+        { label: "Margin", value: fmtPercent(row.marginPercent) },
+        { label: "Check-in rate", value: fmtPercent(row.checkInRate) },
+        { label: "Settlement", value: settlementStatusLabel(row.settlementStatus) },
+      ],
+      secondaryHref: "/app/aria",
+      secondaryLabel: "Ask ARIA",
     });
   }
 
@@ -1375,6 +1411,19 @@ export default async function EventsPage() {
       reason: "Completed event appears ready for closeout with no unpaid or pending registration blockers.",
       nextStep: "Open closeout",
       href: `/app/events/${row.event.id}`,
+      detailTitle: "This event appears closeout-ready.",
+      whyItMatters:
+        "Settling a completed event saves the final financial and attendance snapshot so future reports and repeat-event decisions are based on locked numbers.",
+      metrics: [
+        { label: "Net revenue", value: fmtCurrency(row.netTicketRevenue) },
+        { label: "Total costs", value: fmtCurrency(row.totalEventCosts) },
+        { label: "Profit / loss", value: fmtCurrency(row.eventProfitLoss) },
+        { label: "Unpaid registrations", value: String(row.unpaidRegistrations) },
+        { label: "Pending registrations", value: String(row.pendingRegistrations) },
+        { label: "Tickets checked in", value: `${row.ticketsCheckedIn} / ${row.ticketsIssued}` },
+      ],
+      secondaryHref: `/app/events/${row.event.id}/registrations`,
+      secondaryLabel: "Review registrations",
     });
   }
 
@@ -1388,6 +1437,13 @@ export default async function EventsPage() {
       continue;
     }
 
+    const missingCostReason =
+      row.eventLaborCosts <= 0 && row.eventExpenses <= 0
+        ? "Revenue exists, but labor and event expenses are both missing."
+        : row.eventLaborCosts <= 0
+          ? "Revenue exists, but labor/staff costs are missing."
+          : "Revenue exists, but event expenses are missing.";
+
     ariaActionQueue.push({
       id: ariaActionKey(
         "costs",
@@ -1400,14 +1456,20 @@ export default async function EventsPage() {
       ),
       priority: "Low",
       title: `Add missing cost detail for ${row.event.name}`,
-      reason:
-        row.eventLaborCosts <= 0 && row.eventExpenses <= 0
-          ? "Revenue exists, but labor and event expenses are both missing."
-          : row.eventLaborCosts <= 0
-            ? "Revenue exists, but labor/staff costs are missing."
-            : "Revenue exists, but event expenses are missing.",
+      reason: missingCostReason,
       nextStep: "Open event costs",
       href: `/app/events/${row.event.id}`,
+      detailTitle: "Cost attribution is incomplete.",
+      whyItMatters:
+        "ARIA cannot judge repeatability or margin accurately until labor and event expenses are entered. Add those costs before settling or comparing this event to others.",
+      metrics: [
+        { label: "Labor / staff", value: fmtCurrency(row.eventLaborCosts) },
+        { label: "Event expenses", value: fmtCurrency(row.eventExpenses) },
+        { label: "Net revenue", value: fmtCurrency(row.netTicketRevenue) },
+        { label: "Current profit / loss", value: fmtCurrency(row.eventProfitLoss) },
+      ],
+      secondaryHref: "/app/expenses",
+      secondaryLabel: "Open expenses",
     });
   }
 
@@ -1423,6 +1485,17 @@ export default async function EventsPage() {
       reason: `${fmtCurrency(organizerAriaRepeatCandidate.eventProfitLoss)} profit with ${fmtPercent(organizerAriaRepeatCandidate.marginPercent)} margin and ${fmtPercent(organizerAriaRepeatCandidate.checkInRate)} check-in rate.`,
       nextStep: "Review repeat signal",
       href: `/app/events/${organizerAriaRepeatCandidate.event.id}`,
+      detailTitle: "This event has a strong repeat signal.",
+      whyItMatters:
+        "High margin, positive profit, and strong check-in performance can indicate a repeatable event format. Use the closeout to confirm pricing, staffing, and attendance assumptions.",
+      metrics: [
+        { label: "Profit / loss", value: fmtCurrency(organizerAriaRepeatCandidate.eventProfitLoss) },
+        { label: "Margin", value: fmtPercent(organizerAriaRepeatCandidate.marginPercent) },
+        { label: "Check-in rate", value: fmtPercent(organizerAriaRepeatCandidate.checkInRate) },
+        { label: "Tickets checked in", value: `${organizerAriaRepeatCandidate.ticketsCheckedIn} / ${organizerAriaRepeatCandidate.ticketsIssued}` },
+      ],
+      secondaryHref: "/app/aria",
+      secondaryLabel: "Ask ARIA why",
     });
   }
 
@@ -1742,6 +1815,60 @@ export default async function EventsPage() {
                       {action.nextStep}
                       <ArrowRight className="h-4 w-4" />
                     </Link>
+                  </div>
+
+                  <div className="mt-4 rounded-2xl border border-white/70 bg-white/70 p-4">
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(260px,0.7fr)]">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-purple-600">
+                          Why this matters
+                        </p>
+                        <h4 className="mt-1 font-semibold text-slate-950">
+                          {action.detailTitle}
+                        </h4>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                          {action.whyItMatters}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          Related metrics
+                        </p>
+                        <div className="mt-2 grid gap-2">
+                          {action.metrics.map((metric) => (
+                            <div
+                              key={`${action.id}-${metric.label}`}
+                              className="flex items-center justify-between gap-3 text-sm"
+                            >
+                              <span className="text-slate-500">{metric.label}</span>
+                              <span className="font-semibold text-slate-950">
+                                {metric.value}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Link
+                        href={action.href}
+                        className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-3 py-2 text-xs font-semibold text-white hover:bg-purple-700"
+                      >
+                        {action.nextStep}
+                        <ArrowRight className="h-4 w-4" />
+                      </Link>
+                      {action.secondaryHref && action.secondaryLabel ? (
+                        <Link
+                          href={action.secondaryHref}
+                          className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-xs font-semibold text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
+                        >
+                          {action.secondaryLabel}
+                          <ArrowRight className="h-4 w-4" />
+                        </Link>
+                      ) : null}
+                    </div>
                   </div>
 
                   <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-200 pt-4">

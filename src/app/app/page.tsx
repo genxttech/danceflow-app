@@ -257,6 +257,10 @@ type OrganizerAriaAction = {
   reason: string;
   nextStep: string;
   href: string;
+  whyItMatters: string;
+  metricPreview: string;
+  secondaryHref?: string;
+  secondaryLabel?: string;
 };
 
 type PersistedAriaActionItemRow = {
@@ -1466,6 +1470,11 @@ export default async function AppDashboardPage({
         nextStep:
           "Create one event and add ticket types so the registration funnel can be measured.",
         href: "/app/events/new",
+        whyItMatters:
+          "ARIA needs an event record before it can monitor ticket sales, registrations, check-in, profitability, or closeout readiness.",
+        metricPreview: "0 organizer events",
+        secondaryHref: "/app/aria",
+        secondaryLabel: "Plan with ARIA",
       });
     }
 
@@ -1479,6 +1488,11 @@ export default async function AppDashboardPage({
         nextStep:
           "Connect payouts, then review organizer event profitability again.",
         href: "/app/payments",
+        whyItMatters:
+          "Settlement and profit reporting are strongest when payment processing, fees, and payout readiness are connected before registrations scale.",
+        metricPreview: "Payouts not connected",
+        secondaryHref: "/app/events",
+        secondaryLabel: "Review event revenue",
       });
     }
 
@@ -1492,6 +1506,11 @@ export default async function AppDashboardPage({
         nextStep:
           "Open the event dashboard, confirm details, and publish the next event you want to sell.",
         href: "/app/events",
+        whyItMatters:
+          "Draft events do not create ticket revenue. Publishing or opening the next event is the first step toward measurable organizer performance.",
+        metricPreview: `${typedEvents.length} events • 0 published/open`,
+        secondaryHref: "/app/events/new",
+        secondaryLabel: "Create another event",
       });
     }
 
@@ -1505,6 +1524,11 @@ export default async function AppDashboardPage({
         nextStep:
           "Review event visibility and public directory settings so dancers can find the event.",
         href: "/app/events",
+        whyItMatters:
+          "A published event still needs discovery visibility so dancers can find it, share it, and register without a direct invite.",
+        metricPreview: `${publishedCount} published/open • 0 discovery-ready`,
+        secondaryHref: "/app/organizer-campaigns",
+        secondaryLabel: "Review campaigns",
       });
     }
 
@@ -1518,6 +1542,11 @@ export default async function AppDashboardPage({
         nextStep:
           "Review public event links, ticket pricing, and campaign traffic paths.",
         href: "/app/events",
+        whyItMatters:
+          "Discovery without paid registrations can point to a pricing, call-to-action, trust, or registration path issue before the event gets close.",
+        metricPreview: `${discoveryReadyCount} discovery-ready • 0 paid registrations`,
+        secondaryHref: "/app/organizer-campaigns",
+        secondaryLabel: "Review campaign funnel",
       });
     }
 
@@ -1531,6 +1560,11 @@ export default async function AppDashboardPage({
         nextStep:
           "Open check-in and test QR/manual code flow before the event starts.",
         href: "/app/events/check-in",
+        whyItMatters:
+          "Paid registrations create attendance expectations. Testing check-in early reduces front-door delays and protects attendance data quality.",
+        metricPreview: `${paidRegistrationsCount} paid • 0 checked in`,
+        secondaryHref: "/app/events",
+        secondaryLabel: "Review event operations",
       });
     }
 
@@ -1544,6 +1578,11 @@ export default async function AppDashboardPage({
         nextStep:
           "Open the event dashboard to review ARIA's event-specific recommendations.",
         href: "/app/events",
+        whyItMatters:
+          "The full queue ties each recommendation to event-specific closeout, margin, registration, check-in, and repeat-event signals.",
+        metricPreview: `${typedEvents.length} events • ${paidRegistrationsCount} paid registrations`,
+        secondaryHref: "/app/aria",
+        secondaryLabel: "Consult with ARIA",
       });
     }
 
@@ -1825,9 +1864,32 @@ export default async function AppDashboardPage({
                   <p className="mt-2 text-sm leading-6 text-slate-600">
                     {action.reason}
                   </p>
+                  <div className="mt-4 rounded-2xl border border-white bg-white/80 p-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7C2D92]">
+                      Why this matters
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      {action.whyItMatters}
+                    </p>
+                    <p className="mt-3 rounded-xl bg-[#F5F3FF] px-3 py-2 text-xs font-semibold text-[#6B21A8] ring-1 ring-[#DDD6FE]">
+                      {action.metricPreview}
+                    </p>
+                  </div>
+
                   <p className="mt-3 text-sm font-medium leading-6 text-[#6B21A8]">
                     {action.nextStep}
                   </p>
+
+                  {action.secondaryHref ? (
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <span className="inline-flex rounded-xl bg-[#5B197A] px-3 py-2 text-xs font-semibold text-white">
+                        Open recommended action
+                      </span>
+                      <span className="inline-flex rounded-xl border border-[#E9D5FF] bg-white px-3 py-2 text-xs font-semibold text-[#6B21A8]">
+                        {action.secondaryLabel ?? "Review with ARIA"}
+                      </span>
+                    </div>
+                  ) : null}
                 </Link>
               ))
             ) : (
