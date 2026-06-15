@@ -52,7 +52,10 @@ type NavSection = {
   items: NavItem[];
 };
 
-function buildDisplayName(profile: ProfileRow | null, fallbackEmail: string | null) {
+function buildDisplayName(
+  profile: ProfileRow | null,
+  fallbackEmail: string | null,
+) {
   const fullName = profile?.full_name?.trim();
   if (fullName) return fullName;
 
@@ -97,6 +100,393 @@ function compactSections(sections: NavSection[]) {
   return sections.filter((section) => section.items.length > 0);
 }
 
+function safeNumber(value: number | string | null | undefined) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function ariaActionKey(...parts: Array<string | number | null | undefined>) {
+  return parts
+    .map((part) =>
+      String(part ?? "")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, ""),
+    )
+    .filter(Boolean)
+    .join("-");
+}
+
+function isHiddenAriaActionState(
+  status: string | null | undefined,
+  snoozedUntil?: string | null,
+) {
+  const normalized = (status ?? "open").trim().toLowerCase();
+
+  if (normalized === "dismissed" || normalized === "completed") return true;
+
+  if (normalized === "snoozed" && snoozedUntil) {
+    const snoozedUntilMs = new Date(snoozedUntil).getTime();
+    return Number.isFinite(snoozedUntilMs) && snoozedUntilMs > Date.now();
+  }
+
+  return false;
+}
+
+async function getOrganizerAriaSidebarCounts({
+  supabase,
+  userId,
+  studioId,
+}: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  userId: string;
+  studioId: string;
+}) {
+  const emptyCounts = { activeCount: 0, highPriorityCount: 0 };
+
+  const { data: organizerRole } = await supabase
+    .from("organizer_users")
+    .select("organizer_id, organizers!inner(studio_id)")
+    .eq("user_id", userId)
+    .eq("active", true)
+    .eq("organizers.studio_id", studioId)
+    .limit(1)
+    .maybeSingle();
+
+  const organizerId = (organizerRole as { organizer_id?: string | null } | null)
+    ?.organizer_id;
+
+  if (!organizerId) return emptyCounts;
+
+  const { data: events } = await supabase
+    .from("events")
+    .select("id, name, status, start_date, end_date")
+    .eq("organizer_id", organizerId)
+    .order("start_date", { ascending: false })
+    .limit(200);
+
+  const eventRows = (
+    (events ?? []) as Array<{
+      id: string;
+      name: string | null;
+      status: string | null;
+      start_date: string | null;
+      end_date: string | null;
+    }>
+  ).filter((event) => event.id);
+
+  if (eventRows.length === 0) return emptyCounts;
+
+  const eventIds = eventRows.map((event) => event.id);
+
+  const [
+    { data: profitabilityRows },
+    { data: settlementRows },
+    { data: registrationRows },
+  ] = await Promise.all([
+    supabase
+      .from("v_event_profit_loss")
+      .select(
+        "event_id, net_ticket_revenue, refunds, event_expenses, event_labor_costs, total_event_costs, event_profit_loss",
+      )
+      .in("event_id", eventIds),
+    supabase
+      .from("event_settlements")
+      .select("event_id, status")
+      .in("event_id", eventIds),
+    supabase
+      .from("event_registrations")
+      .select("event_id, status, payment_status, quantity")
+      .in("event_id", eventIds)
+      .limit(5000),
+  ]);
+
+  const profitabilityByEventId = new Map(
+    (
+      (profitabilityRows ?? []) as Array<{
+        event_id: string | null;
+        net_ticket_revenue: number | string | null;
+        refunds: number | string | null;
+        event_expenses: number | string | null;
+        event_labor_costs: number | string | null;
+        total_event_costs: number | string | null;
+        event_profit_loss: number | string | null;
+      }>
+    )
+      .filter((row) => row.event_id)
+      .map((row) => [row.event_id as string, row]),
+  );
+
+  const settlementByEventId = new Map(
+    (
+      (settlementRows ?? []) as Array<{
+        event_id: string | null;
+        status: string | null;
+      }>
+    )
+      .filter((row) => row.event_id)
+      .map((row) => [row.event_id as string, row]),
+  );
+
+  const registrationsByEventId = new Map<
+    string,
+    Array<{
+      status: string | null;
+      payment_status: string | null;
+      quantity: number | null;
+    }>
+  >();
+
+  for (const registration of (registrationRows ?? []) as Array<{
+    event_id: string | null;
+    status: string | null;
+    payment_status: string | null;
+    quantity: number | null;
+  }>) {
+    if (!registration.event_id) continue;
+    const existing = registrationsByEventId.get(registration.event_id) ?? [];
+    existing.push(registration);
+    registrationsByEventId.set(registration.event_id, existing);
+  }
+
+  const todayStartMs = new Date(
+    new Date().toISOString().slice(0, 10),
+  ).getTime();
+  const lowMarginThreshold = 15;
+
+  const generatedActions: Array<{
+    id: string;
+    priority: "High" | "Medium" | "Low";
+  }> = [];
+
+  const dashboardRows = eventRows.map((event) => {
+    const financials = profitabilityByEventId.get(event.id);
+    const settlement = settlementByEventId.get(event.id);
+    const registrations = registrationsByEventId.get(event.id) ?? [];
+
+    const netTicketRevenue = safeNumber(financials?.net_ticket_revenue);
+    const refunds = safeNumber(financials?.refunds);
+    const eventExpenses = safeNumber(financials?.event_expenses);
+    const eventLaborCosts = safeNumber(financials?.event_labor_costs);
+    const totalEventCosts = safeNumber(financials?.total_event_costs);
+    const eventProfitLoss = safeNumber(financials?.event_profit_loss);
+    const marginPercent =
+      netTicketRevenue > 0 ? (eventProfitLoss / netTicketRevenue) * 100 : null;
+
+    const unpaidRegistrations = registrations.filter((registration) => {
+      const paymentStatus = (registration.payment_status ?? "").toLowerCase();
+      return paymentStatus === "unpaid" || paymentStatus === "failed";
+    }).length;
+    const pendingRegistrations = registrations.filter((registration) => {
+      const paymentStatus = (registration.payment_status ?? "").toLowerCase();
+      const status = (registration.status ?? "").toLowerCase();
+      return paymentStatus === "pending" || status === "pending";
+    }).length;
+    const refundedRegistrations = registrations.filter((registration) => {
+      const paymentStatus = (registration.payment_status ?? "").toLowerCase();
+      const status = (registration.status ?? "").toLowerCase();
+      return paymentStatus === "refunded" || status === "refunded";
+    }).length;
+
+    const endDate = event.end_date || event.start_date;
+    const eventEndMs = endDate
+      ? new Date(`${endDate}T00:00:00`).getTime()
+      : NaN;
+    const isCompletedOrPast =
+      (event.status ?? "").toLowerCase() === "completed" ||
+      (Number.isFinite(eventEndMs) && eventEndMs < todayStartMs);
+
+    return {
+      event,
+      netTicketRevenue,
+      refunds,
+      eventExpenses,
+      eventLaborCosts,
+      totalEventCosts,
+      eventProfitLoss,
+      marginPercent,
+      unpaidRegistrations,
+      pendingRegistrations,
+      refundedRegistrations,
+      settlementStatus: settlement?.status ?? "open",
+      hasSettlementRecord: Boolean(settlement),
+      isCompletedOrPast,
+    };
+  });
+
+  const eventsNeedingAttention = dashboardRows
+    .map((row) => {
+      const issues: { label: string; severity: "critical" | "warning" }[] = [];
+      const settlementStatus = row.settlementStatus.trim().toLowerCase();
+      const isSettled = settlementStatus === "settled";
+
+      if (row.isCompletedOrPast && !isSettled) {
+        issues.push({
+          label: "Completed/past event is not settled",
+          severity: "critical",
+        });
+      }
+
+      if (!row.hasSettlementRecord) {
+        issues.push({ label: "No settlement record yet", severity: "warning" });
+      }
+
+      if (row.eventProfitLoss < 0) {
+        issues.push({ label: "Event is losing money", severity: "critical" });
+      } else if (
+        row.marginPercent !== null &&
+        row.marginPercent < lowMarginThreshold
+      ) {
+        issues.push({
+          label: `Margin below ${lowMarginThreshold}%`,
+          severity: "warning",
+        });
+      }
+
+      if (row.unpaidRegistrations > 0) {
+        issues.push({
+          label: `${row.unpaidRegistrations} unpaid registration${row.unpaidRegistrations === 1 ? "" : "s"}`,
+          severity: "critical",
+        });
+      }
+
+      if (row.pendingRegistrations > 0) {
+        issues.push({
+          label: `${row.pendingRegistrations} pending registration${row.pendingRegistrations === 1 ? "" : "s"}`,
+          severity: "warning",
+        });
+      }
+
+      if (row.refunds > 0 || row.refundedRegistrations > 0) {
+        issues.push({
+          label: "Refund activity to review",
+          severity: "warning",
+        });
+      }
+
+      if (row.netTicketRevenue > 0 && row.eventLaborCosts <= 0) {
+        issues.push({
+          label: "No labor/staff costs linked",
+          severity: "warning",
+        });
+      }
+
+      if (row.netTicketRevenue > 0 && row.eventExpenses <= 0) {
+        issues.push({ label: "No event expenses linked", severity: "warning" });
+      }
+
+      const hasCritical = issues.some((issue) => issue.severity === "critical");
+
+      return { row, issues, severity: hasCritical ? "critical" : "warning" };
+    })
+    .filter((item) => item.issues.length > 0);
+
+  for (const item of eventsNeedingAttention.slice(0, 5)) {
+    const firstIssue = item.issues[0]?.label ?? "Review event details";
+    generatedActions.push({
+      id: ariaActionKey("attention", item.row.event.id, firstIssue),
+      priority: item.severity === "critical" ? "High" : "Medium",
+    });
+  }
+
+  for (const row of dashboardRows
+    .filter(
+      (row) =>
+        row.isCompletedOrPast &&
+        row.settlementStatus !== "settled" &&
+        row.unpaidRegistrations === 0 &&
+        row.pendingRegistrations === 0 &&
+        row.eventProfitLoss >= 0,
+    )
+    .slice(0, 3)) {
+    if (generatedActions.some((action) => action.id.includes(row.event.id)))
+      continue;
+    generatedActions.push({
+      id: ariaActionKey("ready", row.event.id, "closeout"),
+      priority: "Medium",
+    });
+  }
+
+  for (const row of dashboardRows
+    .filter(
+      (row) =>
+        row.netTicketRevenue > 0 &&
+        (row.eventLaborCosts <= 0 || row.eventExpenses <= 0),
+    )
+    .slice(0, 3)) {
+    if (generatedActions.some((action) => action.id.includes(row.event.id)))
+      continue;
+    generatedActions.push({
+      id: ariaActionKey(
+        "costs",
+        row.event.id,
+        row.eventLaborCosts <= 0 && row.eventExpenses <= 0
+          ? "missing-labor-and-expenses"
+          : row.eventLaborCosts <= 0
+            ? "missing-labor"
+            : "missing-expenses",
+      ),
+      priority: "Low",
+    });
+  }
+
+  const repeatCandidate = [...dashboardRows]
+    .filter(
+      (row) =>
+        row.netTicketRevenue > 0 &&
+        row.eventProfitLoss > 0 &&
+        (row.marginPercent ?? 0) >= 25,
+    )
+    .sort((a, b) => b.eventProfitLoss - a.eventProfitLoss)[0];
+
+  if (repeatCandidate) {
+    generatedActions.push({
+      id: ariaActionKey("repeat", repeatCandidate.event.id, "strong-margin"),
+      priority: "Low",
+    });
+  }
+
+  const actionKeys = Array.from(
+    new Set(generatedActions.map((action) => action.id)),
+  );
+  if (actionKeys.length === 0) return emptyCounts;
+
+  const { data: persistedRows } = await supabase
+    .from("aria_action_items")
+    .select("action_key, status, snoozed_until")
+    .eq("organizer_id", organizerId)
+    .in("action_key", actionKeys);
+
+  const persistedByKey = new Map(
+    (
+      (persistedRows ?? []) as Array<{
+        action_key: string;
+        status: string | null;
+        snoozed_until: string | null;
+      }>
+    ).map((row) => [row.action_key, row]),
+  );
+
+  const activeActions = generatedActions.filter((action) => {
+    const persisted = persistedByKey.get(action.id);
+    return (
+      !persisted ||
+      !isHiddenAriaActionState(persisted.status, persisted.snoozed_until)
+    );
+  });
+
+  return {
+    activeCount: activeActions.length,
+    highPriorityCount: activeActions.filter(
+      (action) => action.priority === "High",
+    ).length,
+  };
+}
+
 function buildStudioSections(params: {
   unreadNotificationsCount: number;
   leadsBadgeCount: number;
@@ -129,7 +519,13 @@ function buildStudioSections(params: {
           { label: "Dashboard", href: "/app", icon: "dashboard" },
           { label: "My Schedule", href: "/app/schedule", icon: "schedule" },
           ...(portalHref
-            ? [{ label: "My Studio Portal", href: portalHref, icon: "clients" as const }]
+            ? [
+                {
+                  label: "My Studio Portal",
+                  href: portalHref,
+                  icon: "clients" as const,
+                },
+              ]
             : []),
           {
             label: "Notifications",
@@ -185,8 +581,16 @@ function buildStudioSections(params: {
       items: [
         ...(isFrontDesk || isStudioAdmin || isOwner
           ? [
-              { label: "Client List", href: "/app/clients", icon: "clients" as const },
-              { label: "Add New Client", href: "/app/clients/new", icon: "clients" as const },
+              {
+                label: "Client List",
+                href: "/app/clients",
+                icon: "clients" as const,
+              },
+              {
+                label: "Add New Client",
+                href: "/app/clients/new",
+                icon: "clients" as const,
+              },
               {
                 label: "New Leads",
                 href: "/app/leads",
@@ -215,12 +619,26 @@ function buildStudioSections(params: {
       title: "Schedule & Space",
       items: [
         ...(isAnyInstructor
-          ? [{ label: "My Schedule", href: "/app/schedule", icon: "schedule" as const }]
+          ? [
+              {
+                label: "My Schedule",
+                href: "/app/schedule",
+                icon: "schedule" as const,
+              },
+            ]
           : []),
         ...(isStudioAdmin || isOwner
           ? [
-              { label: "Instructors", href: "/app/instructors", icon: "instructors" as const },
-              { label: "Rooms / Floor Space", href: "/app/rooms", icon: "rooms" as const },
+              {
+                label: "Instructors",
+                href: "/app/instructors",
+                icon: "instructors" as const,
+              },
+              {
+                label: "Rooms / Floor Space",
+                href: "/app/rooms",
+                icon: "rooms" as const,
+              },
             ]
           : []),
       ],
@@ -230,18 +648,50 @@ function buildStudioSections(params: {
       items: [
         ...(isFrontDesk || isStudioAdmin || isOwner
           ? [
-              { label: "Take Payment / Payouts", href: "/app/payments", icon: "payments" as const },
-              { label: "Expenses", href: "/app/expenses", icon: "payments" as const },
-              { label: "Sell Package", href: "/app/packages/sell", icon: "packages" as const },
-              { label: "Sell Membership", href: "/app/memberships/sell", icon: "memberships" as const },
-              { label: "Client Balances", href: "/app/packages/client-balances", icon: "balances" as const },
+              {
+                label: "Take Payment / Payouts",
+                href: "/app/payments",
+                icon: "payments" as const,
+              },
+              {
+                label: "Expenses",
+                href: "/app/expenses",
+                icon: "payments" as const,
+              },
+              {
+                label: "Sell Package",
+                href: "/app/packages/sell",
+                icon: "packages" as const,
+              },
+              {
+                label: "Sell Membership",
+                href: "/app/memberships/sell",
+                icon: "memberships" as const,
+              },
+              {
+                label: "Client Balances",
+                href: "/app/packages/client-balances",
+                icon: "balances" as const,
+              },
             ]
           : []),
         ...(isStudioAdmin || isOwner
           ? [
-              { label: "Package Setup", href: "/app/packages", icon: "packages" as const },
-              { label: "Membership Setup", href: "/app/memberships", icon: "memberships" as const },
-              { label: "Reports", href: "/app/reports", icon: "reports" as const },
+              {
+                label: "Package Setup",
+                href: "/app/packages",
+                icon: "packages" as const,
+              },
+              {
+                label: "Membership Setup",
+                href: "/app/memberships",
+                icon: "memberships" as const,
+              },
+              {
+                label: "Reports",
+                href: "/app/reports",
+                icon: "reports" as const,
+              },
             ]
           : []),
       ],
@@ -251,10 +701,22 @@ function buildStudioSections(params: {
       items: [
         ...(isStudioAdmin || isOwner
           ? [
-              { label: "Public Profile Setup", href: "/app/settings/public-profile", icon: "settings" as const },
-              { label: "View Public Profile", href: publicProfileHref ?? "/discover/studios", icon: "clients" as const },
+              {
+                label: "Public Profile Setup",
+                href: "/app/settings/public-profile",
+                icon: "settings" as const,
+              },
+              {
+                label: "View Public Profile",
+                href: publicProfileHref ?? "/discover/studios",
+                icon: "clients" as const,
+              },
               { label: "Events", href: "/app/events", icon: "events" as const },
-              { label: "Create Event", href: "/app/events/new", icon: "events" as const },
+              {
+                label: "Create Event",
+                href: "/app/events/new",
+                icon: "events" as const,
+              },
             ]
           : []),
         { label: "Discovery Home", href: "/discover", icon: "dashboard" },
@@ -267,12 +729,26 @@ function buildStudioSections(params: {
       title: "Admin",
       items: [
         ...(isStudioAdmin || isOwner
-          ? [{ label: "Studio Settings", href: "/app/settings", icon: "settings" as const }]
+          ? [
+              {
+                label: "Studio Settings",
+                href: "/app/settings",
+                icon: "settings" as const,
+              },
+            ]
           : []),
         ...(isOwner
           ? [
-              { label: "Team & Permissions", href: "/app/settings/team", icon: "settings" as const },
-              { label: "Billing & Payouts", href: "/app/settings/billing", icon: "payments" as const },
+              {
+                label: "Team & Permissions",
+                href: "/app/settings/team",
+                icon: "settings" as const,
+              },
+              {
+                label: "Billing & Payouts",
+                href: "/app/settings/billing",
+                icon: "payments" as const,
+              },
             ]
           : []),
       ],
@@ -289,10 +765,18 @@ function buildStudioSections(params: {
 
 function buildOrganizerSections(params: {
   unreadNotificationsCount: number;
+  organizerAriaActionCount: number;
+  organizerAriaHighPriorityCount: number;
   role: string | null | undefined;
   isPlatformAdmin: boolean;
 }) {
-  const { unreadNotificationsCount, role, isPlatformAdmin } = params;
+  const {
+    unreadNotificationsCount,
+    organizerAriaActionCount,
+    organizerAriaHighPriorityCount,
+    role,
+    isPlatformAdmin,
+  } = params;
 
   const isOwner = isPlatformAdmin || role === "organizer_owner";
   const isOrganizerAdmin = isOwner || role === "organizer_admin";
@@ -304,10 +788,35 @@ function buildOrganizerSections(params: {
         { label: "Dashboard", href: "/app", icon: "dashboard" },
         ...(isOrganizerAdmin
           ? [
+              {
+                label: "ARIA",
+                href: "/app/aria",
+                icon: "aria" as const,
+                badge:
+                  organizerAriaHighPriorityCount > 0
+                    ? organizerAriaHighPriorityCount
+                    : organizerAriaActionCount,
+              },
+            ]
+          : []),
+        ...(isOrganizerAdmin
+          ? [
               { label: "Events", href: "/app/events", icon: "events" as const },
-              { label: "Create Event", href: "/app/events/new", icon: "events" as const },
-              { label: "Registrations", href: "/app/events/registrations", icon: "clients" as const },
-              { label: "Event Check-In", href: "/app/events/checkin", icon: "checkin" as const },
+              {
+                label: "Create Event",
+                href: "/app/events/new",
+                icon: "events" as const,
+              },
+              {
+                label: "Registrations",
+                href: "/app/events/registrations",
+                icon: "clients" as const,
+              },
+              {
+                label: "Event Check-In",
+                href: "/app/events/checkin",
+                icon: "checkin" as const,
+              },
             ]
           : []),
         {
@@ -323,13 +832,31 @@ function buildOrganizerSections(params: {
       items: [
         ...(isOrganizerAdmin
           ? [
-              { label: "Ticket Sales & Payments", href: "/app/payments", icon: "payments" as const },
-              { label: "Expenses", href: "/app/expenses", icon: "payments" as const },
-              { label: "Reports", href: "/app/reports", icon: "reports" as const },
+              {
+                label: "Ticket Sales & Payments",
+                href: "/app/payments",
+                icon: "payments" as const,
+              },
+              {
+                label: "Expenses",
+                href: "/app/expenses",
+                icon: "payments" as const,
+              },
+              {
+                label: "Reports",
+                href: "/app/reports",
+                icon: "reports" as const,
+              },
             ]
           : []),
         ...(isOwner
-          ? [{ label: "Billing & Payouts", href: "/app/settings/billing", icon: "payments" as const }]
+          ? [
+              {
+                label: "Billing & Payouts",
+                href: "/app/settings/billing",
+                icon: "payments" as const,
+              },
+            ]
           : []),
       ],
     },
@@ -337,7 +864,13 @@ function buildOrganizerSections(params: {
       title: "Public Presence",
       items: [
         ...(isOrganizerAdmin
-          ? [{ label: "Organizer Profile", href: "/app/organizers", icon: "settings" as const }]
+          ? [
+              {
+                label: "Organizer Profile",
+                href: "/app/organizers",
+                icon: "settings" as const,
+              },
+            ]
           : []),
         { label: "Discovery Home", href: "/discover", icon: "dashboard" },
         { label: "Find Studios", href: "/discover/studios", icon: "clients" },
@@ -349,10 +882,22 @@ function buildOrganizerSections(params: {
       title: "Admin",
       items: [
         ...(isOrganizerAdmin
-          ? [{ label: "Workspace Settings", href: "/app/settings", icon: "settings" as const }]
+          ? [
+              {
+                label: "Workspace Settings",
+                href: "/app/settings",
+                icon: "settings" as const,
+              },
+            ]
           : []),
         ...(isOwner
-          ? [{ label: "Team & Permissions", href: "/app/settings/team", icon: "settings" as const }]
+          ? [
+              {
+                label: "Team & Permissions",
+                href: "/app/settings/team",
+                icon: "settings" as const,
+              },
+            ]
           : []),
       ],
     },
@@ -476,7 +1021,7 @@ export default async function AppLayout({
     supabase
       .from("notifications")
       .select(
-        "id, type, title, body, read_at, created_at, client_id, appointment_id"
+        "id, type, title, body, read_at, created_at, client_id, appointment_id",
       )
       .eq("studio_id", context.studioId)
       .order("created_at", { ascending: false })
@@ -493,7 +1038,7 @@ export default async function AppLayout({
 
   const safeNotifications = ((notifications ?? []) as NotificationItem[]) || [];
   const unreadNotificationsCount = safeNotifications.filter(
-    (item) => !item.read_at
+    (item) => !item.read_at,
   ).length;
   const leadsBadgeCount = openLeadCount ?? 0;
 
@@ -507,10 +1052,20 @@ export default async function AppLayout({
     : formatRoleLabel(context.studioRole);
 
   const organizerWorkspace = isOrganizerRole(context.studioRole);
+  const organizerAriaSidebarCounts = organizerWorkspace
+    ? await getOrganizerAriaSidebarCounts({
+        supabase,
+        userId: user.id,
+        studioId: context.studioId,
+      })
+    : { activeCount: 0, highPriorityCount: 0 };
 
   const sections = organizerWorkspace
     ? buildOrganizerSections({
         unreadNotificationsCount,
+        organizerAriaActionCount: organizerAriaSidebarCounts.activeCount,
+        organizerAriaHighPriorityCount:
+          organizerAriaSidebarCounts.highPriorityCount,
         role: context.studioRole,
         isPlatformAdmin: context.isPlatformAdmin,
       })
@@ -603,4 +1158,3 @@ export default async function AppLayout({
     </div>
   );
 }
-
