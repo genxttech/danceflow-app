@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { requireStudioFeature } from "@/lib/billing/access";
+import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   checkInEventRegistrationAction,
@@ -319,9 +319,17 @@ export default async function EventCheckInPage({
   params: Params;
   searchParams: SearchParams;
 }) {
-  await requireStudioFeature("check_in");
-
   const { id } = await params;
+
+  await requireEventWorkspaceFeature({
+    eventId: id,
+    feature: "check_in",
+    allowedOrganizerRoles: [
+      "organizer_owner",
+      "organizer_admin",
+      "organizer_staff",
+    ],
+  });
   const query = await searchParams;
   const qRaw = query.q;
   const statusRaw = query.status;

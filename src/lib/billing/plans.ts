@@ -56,12 +56,13 @@ export const BILLING_PLANS: BillingPlan[] = [
     trialDays: STUDIO_TRIAL_DAYS,
     founderOfferNote:
       "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
-    features: ["crm_basic", "schedule_basic", "basic_reporting"],
+    features: ["crm_basic", "schedule_basic", "public_events", "basic_reporting"],
     highlights: [
       "Client CRM and lead records",
       "Lesson scheduling and studio calendar",
       "Client portal access",
       "Basic packages, payments, and reports",
+      "Basic public event listings for DanceFlow Discovery",
       "Basic email campaign tools",
       "Syllabus tracking basics",
     ],
@@ -83,6 +84,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "packages",
       "memberships",
       "payments",
+      "public_events",
       "basic_reporting",
       "advanced_reporting",
       "marketing_campaigns",
@@ -96,6 +98,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "AI report insights and campaign drafting",
       "AI follow-up suggestions",
       "Instructor and client growth reporting",
+      "Basic public event listings for socials, open houses, and workshops",
     ],
   },
   {
@@ -105,7 +108,7 @@ export const BILLING_PLANS: BillingPlan[] = [
     amountMonthlyCents: 12900,
     regularAmountMonthlyCents: 15900,
     description:
-      "Advanced studio growth with event ticketing, QR check-in, guest coach tools, exports, stronger reports, and larger AI usage.",
+      "Advanced studio growth with stronger reporting, automations, documents, marketing, ARIA insights, and larger AI usage without forcing full event-commerce tools.",
     trialDays: STUDIO_TRIAL_DAYS,
     founderOfferNote:
       "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
@@ -115,28 +118,21 @@ export const BILLING_PLANS: BillingPlan[] = [
       "packages",
       "memberships",
       "payments",
-      "organizer_tools",
       "public_events",
-      "ticketing",
-      "check_in",
-      "waitlist",
       "basic_reporting",
       "advanced_reporting",
       "report_exports",
       "marketing_campaigns",
-      "marketing_event_audiences",
       "ai_assistant",
       "documents",
-      "event_waivers",
-      "guest_coach_slots",
     ],
     highlights: [
       "Everything in Growth",
-      "Public events, ticketing, and QR check-in",
-      "Early bird ticket pricing",
-      "Guest coach private lesson slots",
       "Advanced reports and CSV exports",
-      "Event audiences and larger AI allowance",
+      "Advanced automations, documents, and team controls",
+      "Studio ARIA insights and larger AI allowance",
+      "Basic public event listings for DanceFlow Discovery",
+      "Add Organizer Suite for ticketing, QR check-in, settlements, and event ARIA",
     ],
   },
   {
@@ -184,13 +180,14 @@ export const BILLING_PLANS: BillingPlan[] = [
 ];
 
 export const PLAN_FEATURES: Record<StudioPlanCode, BillingFeature[]> = {
-  starter: ["crm_basic", "schedule_basic", "basic_reporting"],
+  starter: ["crm_basic", "schedule_basic", "public_events", "basic_reporting"],
   growth: [
     "crm_basic",
     "schedule_basic",
     "packages",
     "memberships",
     "payments",
+    "public_events",
     "basic_reporting",
     "advanced_reporting",
     "marketing_campaigns",
@@ -203,20 +200,13 @@ export const PLAN_FEATURES: Record<StudioPlanCode, BillingFeature[]> = {
     "packages",
     "memberships",
     "payments",
-    "organizer_tools",
     "public_events",
-    "ticketing",
-    "check_in",
-    "waitlist",
     "basic_reporting",
     "advanced_reporting",
     "report_exports",
     "marketing_campaigns",
-    "marketing_event_audiences",
     "ai_assistant",
     "documents",
-    "event_waivers",
-    "guest_coach_slots",
   ],
 };
 
@@ -243,6 +233,60 @@ export const ORGANIZER_PLAN_FEATURES: Record<
     "guest_coach_slots",
   ],
 };
+
+
+export const BASIC_EVENT_LISTING_FEATURES: BillingFeature[] = ["public_events"];
+
+export const ORGANIZER_SUITE_FEATURES: BillingFeature[] = [
+  "organizer_tools",
+  "ticketing",
+  "check_in",
+  "waitlist",
+  "marketing_event_audiences",
+  "event_waivers",
+  "organizer_contacts",
+  "organizer_campaigns",
+  "guest_coach_slots",
+];
+
+export const EVENT_COMMERCE_FEATURES: BillingFeature[] = [
+  "ticketing",
+  "check_in",
+  "waitlist",
+  "event_waivers",
+  "guest_coach_slots",
+];
+
+export const EVENT_OPERATIONS_FEATURES: BillingFeature[] = [
+  "organizer_tools",
+  "marketing_event_audiences",
+  "organizer_contacts",
+  "organizer_campaigns",
+];
+
+export function isOrganizerSuiteFeature(feature: BillingFeature) {
+  return ORGANIZER_SUITE_FEATURES.includes(feature);
+}
+
+export function isBasicEventListingFeature(feature: BillingFeature) {
+  return BASIC_EVENT_LISTING_FEATURES.includes(feature);
+}
+
+export function planHasBasicEventListings(planCode: string | null | undefined) {
+  return planHasFeature(planCode, "public_events");
+}
+
+export function planHasOrganizerSuite(planCode: string | null | undefined) {
+  return planCode === "organizer";
+}
+
+export function planHasEventCommerce(planCode: string | null | undefined) {
+  return planHasOrganizerSuite(planCode);
+}
+
+export function planHasEventOperations(planCode: string | null | undefined) {
+  return planHasOrganizerSuite(planCode);
+}
 
 export function getBillingPlan(planCode: string | null | undefined) {
   if (!planCode) return null;
@@ -310,6 +354,7 @@ export function requiredStudioPlanForFeature(
   feature: BillingFeature,
 ): StudioPlanCode {
   if (feature === "crm_basic" || feature === "schedule_basic") return "starter";
+  if (feature === "public_events") return "starter";
   if (feature === "basic_reporting") return "starter";
   if (feature === "packages") return "growth";
   if (feature === "memberships") return "growth";

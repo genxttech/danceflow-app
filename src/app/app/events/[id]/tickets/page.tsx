@@ -885,9 +885,3 @@ export default async function EventTicketsPage({
     </div>
   );
 }
-
-
-
-
-
-

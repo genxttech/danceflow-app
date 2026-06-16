@@ -11,6 +11,7 @@ import {
   recordWorkspaceAccess,
 } from "@/lib/auth/studio";
 import { clearStudioContextAction } from "@/app/platform/actions";
+import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import AppSidebarShell from "./AppSidebarShell";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
@@ -1052,6 +1053,14 @@ export default async function AppLayout({
     : formatRoleLabel(context.studioRole);
 
   const organizerWorkspace = isOrganizerRole(context.studioRole);
+  const workspaceCapabilities = organizerWorkspace
+    ? null
+    : await getCurrentWorkspaceCapabilitiesForUser();
+  const hasOrganizerSuite =
+    organizerWorkspace ||
+    context.isPlatformAdmin ||
+    Boolean(workspaceCapabilities?.hasOrganizerSuite);
+
   const organizerAriaSidebarCounts = organizerWorkspace
     ? await getOrganizerAriaSidebarCounts({
         supabase,
@@ -1152,6 +1161,7 @@ export default async function AppLayout({
         workspaces={accessibleStudios}
         currentStudioId={context.studioId}
         switchWorkspaceAction={switchWorkspaceAction}
+        hasOrganizerSuite={hasOrganizerSuite}
       >
         {children}
       </AppSidebarShell>

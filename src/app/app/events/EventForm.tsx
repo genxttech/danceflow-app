@@ -114,6 +114,7 @@ type EventFormProps = {
   organizers: OrganizerOption[];
   initialValues?: EventFormInitialValues;
   organizerWorkspace?: boolean;
+  eventCommerceEnabled?: boolean;
 };
 
 function RequiredAsterisk() {
@@ -583,6 +584,7 @@ export default function EventForm({
   organizers,
   initialValues,
   organizerWorkspace = false,
+  eventCommerceEnabled = true,
 }: EventFormProps) {
   const action = mode === "edit" ? updateEventAction : createEventAction;
   const [state, formAction, pending] = useActionState(action, initialState);
@@ -600,12 +602,16 @@ export default function EventForm({
     initialValues?.capacity != null ? String(initialValues.capacity) : "",
   );
   const [registrationRequired, setRegistrationRequired] = useState(
-    initialValues?.registrationRequired ?? true,
+    eventCommerceEnabled ? (initialValues?.registrationRequired ?? true) : false,
   );
   const [accountRequiredForRegistration, setAccountRequiredForRegistration] =
-    useState(initialValues?.accountRequiredForRegistration ?? false);
+    useState(
+      eventCommerceEnabled
+        ? (initialValues?.accountRequiredForRegistration ?? false)
+        : false,
+    );
   const [waitlistEnabled, setWaitlistEnabled] = useState(
-    initialValues?.waitlistEnabled ?? false,
+    eventCommerceEnabled ? (initialValues?.waitlistEnabled ?? false) : false,
   );
   const [publicDirectoryEnabled, setPublicDirectoryEnabled] = useState(
     initialValues?.publicDirectoryEnabled ?? false,
@@ -656,7 +662,7 @@ export default function EventForm({
     EventScheduleItemFormValue[]
   >(() => buildInitialEventScheduleItems(initialValues));
   const [guestCoaches, setGuestCoaches] = useState<GuestCoachFormValue[]>(() =>
-    buildInitialGuestCoaches(initialValues),
+    eventCommerceEnabled ? buildInitialGuestCoaches(initialValues) : [],
   );
 
   const primaryLocation = eventLocations[0] ?? makeBlankLocation();
@@ -944,7 +950,7 @@ export default function EventForm({
       <input
         type="hidden"
         name="waitlistEnabled"
-        value={waitlistEnabled ? "true" : "false"}
+        value={eventCommerceEnabled && waitlistEnabled ? "true" : "false"}
       />
 
       <input
@@ -967,8 +973,12 @@ export default function EventForm({
         </div>
       ))}
 
-      <input type="hidden" name="guestCoachCount" value={guestCoaches.length} />
-      {guestCoaches.map((coach, coachIndex) => (
+      <input
+        type="hidden"
+        name="guestCoachCount"
+        value={eventCommerceEnabled ? guestCoaches.length : 0}
+      />
+      {eventCommerceEnabled && guestCoaches.map((coach, coachIndex) => (
         <input
           key={`guest-coach-${coachIndex}-block-count`}
           type="hidden"
@@ -2161,6 +2171,7 @@ export default function EventForm({
                 )}
               </div>
 
+              {eventCommerceEnabled ? (
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
@@ -2381,6 +2392,12 @@ export default function EventForm({
                   </div>
                 )}
               </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-purple-200 bg-purple-50 p-4 text-sm leading-6 text-purple-900">
+                  <p className="font-semibold">Organizer Suite unlocks guest coach lesson sales.</p>
+                  <p className="mt-1">Basic event listings can publish event details to discovery. Ticket sales, QR check-in, settlement, and guest coach lesson slots require Organizer Suite.</p>
+                </div>
+              )}
 
               <div>
                 <label
@@ -2729,6 +2746,17 @@ export default function EventForm({
             </div>
           </section>
 
+          {!eventCommerceEnabled ? (
+            <section className="rounded-3xl border border-purple-200 bg-purple-50 p-4 shadow-sm md:p-6">
+              <h3 className="text-lg font-semibold text-purple-950 md:text-xl">
+                Basic Event Listing
+              </h3>
+              <p className="mt-2 max-w-3xl text-sm leading-7 text-purple-900">
+                This event can be published to DanceFlow Discovery with event details, location, image, and description. Organizer Suite is required for DanceFlow registrations, ticketing, QR check-in, waitlists, guest coach lesson sales, settlement, and event ARIA operations.
+              </p>
+            </section>
+          ) : null}
+
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
             <h3 className="text-lg font-semibold text-slate-900 md:text-xl">
               Registration & Access
@@ -2744,6 +2772,7 @@ export default function EventForm({
                   type="checkbox"
                   name="featured"
                   defaultChecked={initialValues?.featured ?? false}
+                  disabled={!eventCommerceEnabled}
                   className="mt-1"
                 />
                 <div>
@@ -2761,6 +2790,7 @@ export default function EventForm({
                   name="registrationRequired"
                   checked={registrationRequired}
                   onChange={(e) => setRegistrationRequired(e.target.checked)}
+                  disabled={!eventCommerceEnabled}
                   className="mt-1"
                 />
                 <div>
@@ -2782,6 +2812,7 @@ export default function EventForm({
                   onChange={(e) =>
                     setAccountRequiredForRegistration(e.target.checked)
                   }
+                  disabled={!eventCommerceEnabled}
                   className="mt-1"
                 />
                 <div>
@@ -2800,7 +2831,7 @@ export default function EventForm({
                   type="checkbox"
                   checked={waitlistEnabled}
                   onChange={(e) => setWaitlistEnabled(e.target.checked)}
-                  disabled={!hasCapacity}
+                  disabled={!eventCommerceEnabled || !hasCapacity}
                   className="mt-1"
                 />
                 <div>
@@ -2831,9 +2862,12 @@ export default function EventForm({
                   name="registrationOpensAt"
                   type="datetime-local"
                   defaultValue={
-                    initialValues?.registrationOpensAt ??
-                    getLocalDateTimeInputValue()
+                    eventCommerceEnabled
+                      ? (initialValues?.registrationOpensAt ??
+                          getLocalDateTimeInputValue())
+                      : ""
                   }
+                  disabled={!eventCommerceEnabled}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 />
               </div>
@@ -2849,7 +2883,12 @@ export default function EventForm({
                   id="registrationClosesAt"
                   name="registrationClosesAt"
                   type="datetime-local"
-                  defaultValue={initialValues?.registrationClosesAt ?? ""}
+                  defaultValue={
+                    eventCommerceEnabled
+                      ? (initialValues?.registrationClosesAt ?? "")
+                      : ""
+                  }
+                  disabled={!eventCommerceEnabled}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 />
               </div>

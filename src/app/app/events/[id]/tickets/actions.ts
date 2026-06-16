@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getStudioContextForStudio } from "@/lib/auth/studio";
+import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -252,6 +253,12 @@ export async function createTicketTypeAction(formData: FormData) {
       }
     }
 
+    await requireEventWorkspaceFeature({
+      eventId,
+      feature: "ticketing",
+      allowedOrganizerRoles: ["organizer_owner", "organizer_admin", "organizer_staff"],
+    });
+
     const { supabase, access } = await getTicketEventAccess(eventId);
 
     const { error } = await supabase.from("event_ticket_types").insert({
@@ -351,6 +358,12 @@ export async function updateTicketTypeAction(formData: FormData) {
         throw new Error("Early bird end date/time is required when early bird pricing is enabled.");
       }
     }
+
+    await requireEventWorkspaceFeature({
+      eventId,
+      feature: "ticketing",
+      allowedOrganizerRoles: ["organizer_owner", "organizer_admin", "organizer_staff"],
+    });
 
     const { supabase, access } = await getTicketEventAccess(eventId);
 

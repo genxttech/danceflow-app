@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import {
   createTicketTypeAction,
   updateTicketTypeAction,
@@ -523,12 +524,21 @@ export default async function EventTicketsPage({
     organizerUserRole = organizerUser?.role ?? null;
   }
 
-  const canManage = canManageTickets({
-    isPlatformAdmin: Boolean(isPlatformAdmin),
-    organizerUserRole,
-    studioRole: studioRole ?? null,
-    isStudioHosted,
-  });
+  const workspaceCapabilities = await getCurrentWorkspaceCapabilitiesForUser();
+  const hasOrganizerRole = [
+    "organizer_owner",
+    "organizer_admin",
+    "organizer_staff",
+  ].includes(organizerUserRole ?? "");
+  const canUseEventOperations = Boolean(isPlatformAdmin) || hasOrganizerRole || Boolean(isStudioHosted && workspaceCapabilities?.canUseEventOperations);
+  const canManage =
+    canUseEventOperations &&
+    canManageTickets({
+      isPlatformAdmin: Boolean(isPlatformAdmin),
+      organizerUserRole,
+      studioRole: studioRole ?? null,
+      isStudioHosted,
+    });
 
   const { data: tickets, error: ticketsError } = await supabase
     .from("event_ticket_types")
@@ -1026,19 +1036,23 @@ export default async function EventTicketsPage({
             >
               Edit Event
             </Link>
-            <Link
-              href={`/app/events/${typedEvent.id}/tickets`}
-              className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
-            >
-              Manage Tickets
-            </Link>
-            <Link
-              href={`/app/events/${typedEvent.id}/registrations`}
-              className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
-            >
-              Manage registrations
-            </Link>
-            {hasPrivateLessonSlots ? (
+            {canUseEventOperations ? (
+              <>
+                <Link
+                  href={`/app/events/${typedEvent.id}/tickets`}
+                  className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+                >
+                  Manage Tickets
+                </Link>
+                <Link
+                  href={`/app/events/${typedEvent.id}/registrations`}
+                  className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
+                >
+                  Manage registrations
+                </Link>
+              </>
+            ) : null}
+            {canUseEventOperations && hasPrivateLessonSlots ? (
               <Link
                 href={`/app/events/${typedEvent.id}/private-lessons`}
                 className="inline-flex items-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/20"
@@ -1087,6 +1101,38 @@ export default async function EventTicketsPage({
         </div>
       </section>
 
+      {!canUseEventOperations ? (
+        <section className="rounded-3xl border border-[#E9D5FF] bg-[#FCF8FF] p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">Basic event listing</p>
+          <h2 className="mt-1 text-xl font-semibold text-slate-950">This event is currently a public listing.</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+            Your studio plan can publish this event to DanceFlow Discovery and send dancers to the public page. Add Organizer Suite to unlock DanceFlow ticket checkout, QR tickets, check-in, settlement, event profitability, event labor, organizer campaigns, and event ARIA.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link
+              href={`/app/events/${typedEvent.id}/edit`}
+              className="inline-flex items-center rounded-xl border border-[#5B197A]/25 bg-white px-4 py-2 text-sm font-semibold text-[#5B197A] transition hover:bg-[#F9F1FF]"
+            >
+              Edit listing
+            </Link>
+            <Link
+              href={`/events/${typedEvent.slug}`}
+              className="inline-flex items-center rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white transition hover:bg-[#4A1268]"
+            >
+              View public listing
+            </Link>
+            <Link
+              href="/app/settings/billing?reason=feature_required&feature=organizer_tools&requiredPlan=organizer"
+              className="inline-flex items-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Add Organizer Suite
+            </Link>
+          </div>
+        </section>
+      ) : null}
+
+      {canUseEventOperations ? (
+        <>
       <section id="event-financial-health" className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
@@ -2225,6 +2271,8 @@ export default async function EventTicketsPage({
             </div>
           </form>
         </section>
+      ) : null}
+        </>
       ) : null}
     </div>
   );

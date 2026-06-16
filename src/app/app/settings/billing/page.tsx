@@ -28,6 +28,12 @@ import {
   type AiCreditPack,
 } from "@/lib/usage/ai-credit-packs";
 
+type OrganizerSuiteEntitlement = {
+  id: string;
+  status: string | null;
+  stripe_subscription_item_id: string | null;
+};
+
 type StudioBillingRow = {
   id: string;
   name: string | null;
@@ -289,6 +295,30 @@ function getSuccessMessage(
     };
   }
 
+  if (success === "organizer_suite_added") {
+    return {
+      title: "Organizer Suite added",
+      body: "Ticketing, QR check-in, event settlement, organizer campaigns, and event ARIA are now available for this studio workspace.",
+      tone: "green",
+    };
+  }
+
+  if (success === "organizer_suite_current") {
+    return {
+      title: "Organizer Suite already active",
+      body: "This studio workspace already has the Organizer Suite add-on.",
+      tone: "green",
+    };
+  }
+
+  if (success === "organizer_suite_removed") {
+    return {
+      title: "Organizer Suite removed",
+      body: "The add-on was removed from this studio workspace. Basic public event listings remain available with the studio plan.",
+      tone: "green",
+    };
+  }
+
   return null;
 }
 
@@ -308,6 +338,11 @@ function getErrorMessage(error?: string) {
     ai_pack_subscription_required: "Start or reactivate your subscription before adding AI credits.",
     ai_pack_add_failed: "The AI credit pack could not be added.",
     ai_pack_checkout_failed: "AI credit pack checkout could not be completed.",
+    organizer_suite_not_found: "The Organizer Suite add-on could not be found for this workspace.",
+    organizer_suite_missing_price: "The Organizer Suite add-on is missing a Stripe price ID.",
+    organizer_suite_subscription_required: "Start or reactivate your studio subscription before adding Organizer Suite.",
+    organizer_suite_checkout_failed: "Organizer Suite checkout could not be completed.",
+    organizer_suite_remove_failed: "Organizer Suite could not be removed.",
     billing_access_denied: "Only a workspace owner or admin can manage billing add-ons.",
   };
 
@@ -456,21 +491,38 @@ function UsageAllowanceCard({
                   </p>
                 </div>
 
-                <form action="/api/billing/addons/ai/remove" method="post">
-                  <input type="hidden" name="entitlement" value={pack.id} />
+                {canManageAddOns && hasManagedSubscription ? (
+                  <details className="group rounded-xl border border-red-200 bg-white">
+                    <summary className="cursor-pointer list-none rounded-xl px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 [&::-webkit-details-marker]:hidden">
+                      Remove pack
+                    </summary>
+                    <div className="border-t border-red-100 p-3">
+                      <p className="text-xs font-semibold text-slate-950">
+                        Remove AI Credit Pack?
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">
+                        This will update your existing DanceFlow subscription. Your card on file is billed by Stripe as part of your monthly subscription. No separate Stripe checkout page will open. Recurring AI credits from this pack will no longer renew after removal.
+                      </p>
+                      <form action="/api/billing/addons/ai/remove" method="post" className="mt-3">
+                        <input type="hidden" name="entitlement" value={pack.id} />
+                        <button
+                          type="submit"
+                          className="w-full rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+                        >
+                          Confirm Remove
+                        </button>
+                      </form>
+                    </div>
+                  </details>
+                ) : (
                   <button
-                    type="submit"
-                    disabled={!canManageAddOns || !hasManagedSubscription}
-                    className={[
-                      "rounded-xl px-3 py-2 text-sm font-medium transition",
-                      canManageAddOns && hasManagedSubscription
-                        ? "border border-red-200 bg-white text-red-700 hover:bg-red-50"
-                        : "cursor-not-allowed bg-slate-200 text-slate-500",
-                    ].join(" ")}
+                    type="button"
+                    disabled
+                    className="cursor-not-allowed rounded-xl bg-slate-200 px-3 py-2 text-sm font-medium text-slate-500"
                   >
                     Remove pack
                   </button>
-                </form>
+                )}
               </div>
             ))}
           </div>
@@ -500,21 +552,38 @@ function UsageAllowanceCard({
                 </p>
                 <p className="mt-3 text-xs leading-5 text-slate-600">{pack.description}</p>
 
-                <form action="/api/billing/addons/ai/checkout" method="post" className="mt-4">
-                  <input type="hidden" name="pack" value={pack.key} />
+                {canAddPack ? (
+                  <details className="mt-4 group rounded-xl border border-[var(--brand-primary)]/20 bg-white">
+                    <summary className="cursor-pointer list-none rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-center text-sm font-medium text-white transition hover:opacity-90 [&::-webkit-details-marker]:hidden">
+                      Add pack
+                    </summary>
+                    <div className="border-t border-slate-200 p-3">
+                      <p className="text-xs font-semibold text-slate-950">
+                        Add AI Credit Pack?
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-slate-600">
+                        This will add {pack.label} to your current DanceFlow subscription. Your card on file will be billed by Stripe as part of your existing monthly subscription. No separate Stripe checkout page will open.
+                      </p>
+                      <form action="/api/billing/addons/ai/checkout" method="post" className="mt-3">
+                        <input type="hidden" name="pack" value={pack.key} />
+                        <button
+                          type="submit"
+                          className="w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                        >
+                          Confirm Add Pack
+                        </button>
+                      </form>
+                    </div>
+                  </details>
+                ) : (
                   <button
-                    type="submit"
-                    disabled={!canAddPack}
-                    className={[
-                      "w-full rounded-xl px-3 py-2 text-sm font-medium transition",
-                      canAddPack
-                        ? "bg-[var(--brand-primary)] text-white hover:opacity-90"
-                        : "cursor-not-allowed bg-slate-200 text-slate-500",
-                    ].join(" ")}
+                    type="button"
+                    disabled
+                    className="mt-4 w-full cursor-not-allowed rounded-xl bg-slate-200 px-3 py-2 text-sm font-medium text-slate-500"
                   >
                     {hasManagedSubscription ? "Add pack" : "Start subscription first"}
                   </button>
-                </form>
+                )}
               </div>
             );
           })}
@@ -628,6 +697,145 @@ function PlanCard({
           {!isCurrent ? <ArrowRight className="h-4 w-4" /> : null}
         </button>
       </form>
+    </div>
+  );
+}
+
+function OrganizerSuiteAddOnCard({
+  activeEntitlement,
+  canManageAddOns,
+  hasManagedSubscription,
+}: {
+  activeEntitlement: OrganizerSuiteEntitlement | null;
+  canManageAddOns: boolean;
+  hasManagedSubscription: boolean;
+}) {
+  const isActive = activeEntitlement?.status === "active";
+  const canChange = canManageAddOns && hasManagedSubscription;
+
+  return (
+    <div className="rounded-[32px] border border-violet-200 bg-white p-7 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="rounded-2xl bg-violet-50 p-3 text-violet-700">
+          <Sparkles className="h-5 w-5" />
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
+            Studio add-on
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+            Organizer Suite
+          </h2>
+          <p className="mt-2 text-sm leading-7 text-slate-600">
+            Keep studio pricing focused while adding ticketing, QR check-in, event settlement, event profitability, organizer campaigns, and event ARIA when the studio runs ticketed public events.
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-violet-100 bg-violet-50 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">
+              {isActive ? "Organizer Suite is active" : "Add Organizer Suite"}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              {isActive
+                ? "This studio can use DanceFlow ticket checkout, QR tickets, check-in, closeout, and event-growth tools."
+                : "Basic event listings stay included. Add Organizer Suite when this studio needs to sell, check in, settle, and grow events."}
+            </p>
+          </div>
+
+          {isActive && activeEntitlement ? (
+            canChange ? (
+              <details className="group w-full max-w-sm rounded-xl border border-red-200 bg-white sm:w-auto">
+                <summary className="cursor-pointer list-none rounded-xl px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-50 [&::-webkit-details-marker]:hidden">
+                  Remove add-on
+                </summary>
+                <div className="border-t border-red-100 p-3">
+                  <p className="text-xs font-semibold text-slate-950">
+                    Remove Organizer Suite?
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    This will remove Organizer Suite from your existing DanceFlow subscription. Ticketing, QR check-in, event settlement, organizer campaigns, and event ARIA will no longer be available for this studio. Existing event data will remain saved.
+                  </p>
+                  <form action="/api/billing/addons/organizer-suite/remove" method="post" className="mt-3">
+                    <input type="hidden" name="entitlement" value={activeEntitlement.id} />
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-700"
+                    >
+                      Confirm Remove
+                    </button>
+                  </form>
+                </div>
+              </details>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="cursor-not-allowed rounded-xl bg-slate-200 px-3 py-2 text-sm font-medium text-slate-500"
+              >
+                Remove add-on
+              </button>
+            )
+          ) : (
+            canChange ? (
+              <details className="group w-full max-w-sm rounded-xl border border-violet-200 bg-white sm:w-auto">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-2 rounded-xl bg-[#5B197A] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#4A1363] [&::-webkit-details-marker]:hidden">
+                  Add Organizer Suite
+                  <ArrowRight className="h-4 w-4" />
+                </summary>
+                <div className="border-t border-violet-100 p-3">
+                  <p className="text-xs font-semibold text-slate-950">
+                    Add Organizer Suite?
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    This will add Organizer Suite to your current DanceFlow subscription for $19/month. Your card on file will be billed by Stripe as part of your existing monthly subscription. No separate Stripe checkout page will open.
+                  </p>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">
+                    Organizer Suite unlocks ticketing, QR check-in, registrations, event settlement, event profitability, organizer campaigns, and event ARIA. Cancel anytime from this billing page.
+                  </p>
+                  <form action="/api/billing/addons/organizer-suite/checkout" method="post" className="mt-3">
+                    <button
+                      type="submit"
+                      className="w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                    >
+                      Confirm Add-On
+                    </button>
+                  </form>
+                </div>
+              </details>
+            ) : (
+              <button
+                type="button"
+                disabled
+                className="inline-flex cursor-not-allowed items-center gap-2 rounded-xl bg-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-500"
+              >
+                Add Organizer Suite
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            )
+          )}
+        </div>
+
+        {!hasManagedSubscription ? (
+          <p className="mt-3 text-xs leading-5 text-violet-700">
+            Start the studio subscription before adding Organizer Suite.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="mt-5 grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="font-semibold text-slate-950">Included in studio plans</p>
+          <p className="mt-1 leading-6">Basic public event listings for discovery.</p>
+        </div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <p className="font-semibold text-slate-950">Unlocked by add-on</p>
+          <p className="mt-1 leading-6">Ticketing, QR check-in, settlements, campaigns, and event ARIA.</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -805,6 +1013,22 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
   const aiCreditPacks = getAiCreditPacks();
 
   const activeAiCreditPacks = await getActiveAiCreditPackEntitlementsForStudio(studio.id);
+
+  const { data: activeOrganizerSuiteRows, error: organizerSuiteError } = await supabase
+    .from("usage_addon_entitlements")
+    .select("id, status, stripe_subscription_item_id")
+    .eq("studio_id", studio.id)
+    .eq("feature_key", "organizer_suite")
+    .eq("source", "stripe_subscription_item")
+    .eq("status", "active")
+    .limit(1);
+
+  if (organizerSuiteError) {
+    console.error("Failed to load Organizer Suite add-on", organizerSuiteError);
+  }
+
+  const activeOrganizerSuiteEntitlement =
+    ((activeOrganizerSuiteRows?.[0] ?? null) as OrganizerSuiteEntitlement | null);
 
   const aiUsageAllowance = await getUsageAllowance({
     featureKey: "ai_action",
@@ -1077,6 +1301,14 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
           </div>
 
           <div className="space-y-8">
+            {selectedAudience === "studio" ? (
+              <OrganizerSuiteAddOnCard
+                activeEntitlement={activeOrganizerSuiteEntitlement}
+                canManageAddOns={canAccessBilling}
+                hasManagedSubscription={hasManagedSubscription}
+              />
+            ) : null}
+
             <UsageAllowanceCard
               allowance={aiUsageAllowance}
               packs={aiCreditPacks}

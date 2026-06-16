@@ -437,6 +437,95 @@ function getSubscriptionSource(subscription: Stripe.Subscription) {
   return null;
 }
 
+
+const ORGANIZER_SUITE_FEATURE_KEY = "organizer_suite";
+
+function getOrganizerSuiteAddonPriceIds() {
+  return new Set(
+    [
+      process.env.STRIPE_PRICE_ORGANIZER_SUITE_ADDON_STANDARD?.trim() || null,
+      process.env.STRIPE_PRICE_ORGANIZER_SUITE_ADDON_FOUNDER?.trim() || null,
+    ].filter((value): value is string => Boolean(value)),
+  );
+}
+
+function isOrganizerSuiteSubscriptionItem(item: Stripe.SubscriptionItem) {
+  const priceIds = getOrganizerSuiteAddonPriceIds();
+  const priceId = item.price?.id ?? null;
+  const featureKey = getString(item.metadata?.featureKey);
+  const source = getString(item.metadata?.source);
+
+  return (
+    featureKey === ORGANIZER_SUITE_FEATURE_KEY ||
+    source === "organizer_suite_addon" ||
+    Boolean(priceId && priceIds.has(priceId))
+  );
+}
+
+async function syncOrganizerSuiteAddonEntitlements(params: {
+  supabase: SupabaseClient;
+  studioId: string;
+  subscription: Stripe.Subscription;
+}) {
+  const { supabase, studioId, subscription } = params;
+  const now = new Date().toISOString();
+  const subscriptionIsActive = subscription.status === "active" || subscription.status === "trialing";
+  const organizerSuiteItems = subscription.items.data.filter(isOrganizerSuiteSubscriptionItem);
+  const activeItemIds = new Set(organizerSuiteItems.map((item) => item.id));
+
+  for (const item of organizerSuiteItems) {
+    const { error } = await supabase
+      .from("usage_addon_entitlements")
+      .upsert(
+  {
+    studio_id: studioId,
+    workspace_type: "studio",
+    feature_key: ORGANIZER_SUITE_FEATURE_KEY,
+    source: "stripe_subscription_item",
+    stripe_subscription_item_id: item.id,
+    quantity_included: 1,
+    status: subscriptionIsActive ? "active" : "canceled",
+    updated_at: now,
+  },
+  { onConflict: "studio_id,feature_key" },
+);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+
+  const { data: existingEntitlements, error: existingEntitlementsError } = await supabase
+    .from("usage_addon_entitlements")
+    .select("id, stripe_subscription_item_id, status")
+    .eq("studio_id", studioId)
+    .eq("feature_key", ORGANIZER_SUITE_FEATURE_KEY)
+    .eq("source", "stripe_subscription_item");
+
+  if (existingEntitlementsError) {
+    throw new Error(existingEntitlementsError.message);
+  }
+
+  const staleEntitlementIds = (existingEntitlements ?? [])
+    .filter((row) => {
+      const itemId = typeof row.stripe_subscription_item_id === "string" ? row.stripe_subscription_item_id : null;
+      return row.status === "active" && (!itemId || !activeItemIds.has(itemId) || !subscriptionIsActive);
+    })
+    .map((row) => row.id)
+    .filter((id): id is string => typeof id === "string");
+
+  if (staleEntitlementIds.length > 0) {
+    const { error } = await supabase
+      .from("usage_addon_entitlements")
+      .update({ status: "canceled", updated_at: now })
+      .in("id", staleEntitlementIds);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  }
+}
+
 async function upsertStudioSubscription(params: {
   supabase: SupabaseClient;
   stripe: Stripe;
@@ -591,6 +680,15 @@ async function upsertStudioSubscription(params: {
     stripeSubscriptionId: subscription.id,
     subscriptionStatus: subscription.status,
   });
+
+
+  if (source === "studio_subscription") {
+    await syncOrganizerSuiteAddonEntitlements({
+      supabase,
+      studioId,
+      subscription,
+    });
+  }
 
   return true;
 }

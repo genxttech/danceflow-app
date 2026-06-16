@@ -3,7 +3,10 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { planHasFeature } from "@/lib/billing/plans";
+import {
+  planHasBasicEventListings,
+  planHasOrganizerSuite,
+} from "@/lib/billing/plans";
 import {
   EVENT_VISIBILITY_OPTIONS,
   TIMEZONE_OPTIONS,
@@ -343,7 +346,7 @@ function getEffectiveSubscriptionStatus(
   );
 }
 
-function isProStudioWorkspace(params: {
+function isBasicEventListingStudioWorkspace(params: {
   workspace: WorkspaceRow | null | undefined;
   subscription: SubscriptionRow | null | undefined;
   subscriptionPlan: SubscriptionPlanRow | null | undefined;
@@ -357,7 +360,45 @@ function isProStudioWorkspace(params: {
     params.subscription,
   );
 
-  return isActiveOrTrialing(status) && planHasFeature(planCode, "ticketing");
+  return isActiveOrTrialing(status) && planHasBasicEventListings(planCode);
+}
+
+function hasOrganizerSuiteWorkspace(params: {
+  workspace: WorkspaceRow | null | undefined;
+  subscription: SubscriptionRow | null | undefined;
+  subscriptionPlan: SubscriptionPlanRow | null | undefined;
+  organizerWorkspace: boolean;
+}) {
+  if (params.organizerWorkspace) return true;
+
+  const planCode = getEffectiveBillingPlan(
+    params.workspace,
+    params.subscriptionPlan,
+  );
+  const status = getEffectiveSubscriptionStatus(
+    params.workspace,
+    params.subscription,
+  );
+
+  return isActiveOrTrialing(status) && planHasOrganizerSuite(planCode);
+}
+
+function applyBasicEventListingRestrictions<T extends ReturnType<typeof buildEventPayload>>(
+  payload: T,
+  hasOrganizerSuite: boolean,
+): T {
+  if (hasOrganizerSuite) return payload;
+
+  return {
+    ...payload,
+    featured: false,
+    registrationRequired: false,
+    accountRequiredForRegistration: false,
+    registrationOpensAt: null,
+    registrationClosesAt: null,
+    waitlistEnabled: false,
+    guestCoaches: [],
+  };
 }
 
 function isOrganizerWorkspaceName(value: string | null | undefined) {
@@ -1035,11 +1076,17 @@ async function getWorkspaceAndOrganizerPolicy(params: {
     isOrganizerWorkspaceName(workspace?.name);
   const studioHostedEvents =
     !organizerWorkspace &&
-    isProStudioWorkspace({
+    isBasicEventListingStudioWorkspace({
       workspace,
       subscription: latestSubscription,
       subscriptionPlan,
     });
+  const hasOrganizerSuite = hasOrganizerSuiteWorkspace({
+    workspace,
+    subscription: latestSubscription,
+    subscriptionPlan,
+    organizerWorkspace,
+  });
 
   const { data: organizers, error: organizersError } = await supabase
     .from("organizers")
@@ -1062,6 +1109,7 @@ async function getWorkspaceAndOrganizerPolicy(params: {
     organizers: typedOrganizers,
     singleOrganizer,
     studioHostedEvents,
+    hasOrganizerSuite,
   };
 }
 
@@ -2208,10 +2256,19 @@ export async function createEventAction(
       return { error: organizerResolution.error };
     }
 
-    const effectivePayload = {
-      ...payload,
-      organizerId: organizerResolution.organizerId,
-    };
+    const workspacePolicy = await getWorkspaceAndOrganizerPolicy({
+      supabase,
+      studioId,
+      currentRole: studioRole,
+    });
+
+    const effectivePayload = applyBasicEventListingRestrictions(
+      {
+        ...payload,
+        organizerId: organizerResolution.organizerId,
+      },
+      workspacePolicy.hasOrganizerSuite,
+    );
 
     const validationError = validateEventPayload(effectivePayload);
 
@@ -2317,14 +2374,16 @@ export async function createEventAction(
       scheduleItems: effectivePayload.eventScheduleItems,
     });
 
-    await replaceGuestCoachPrivateLessons({
-      supabase,
-      eventId: event.id,
-      studioId,
-      organizerId: effectivePayload.organizerId || null,
-      guestCoaches: effectivePayload.guestCoaches,
-      timezone: effectivePayload.timezone,
-    });
+    if (workspacePolicy.hasOrganizerSuite) {
+      await replaceGuestCoachPrivateLessons({
+        supabase,
+        eventId: event.id,
+        studioId,
+        organizerId: effectivePayload.organizerId || null,
+        guestCoaches: effectivePayload.guestCoaches,
+        timezone: effectivePayload.timezone,
+      });
+    }
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
@@ -2369,10 +2428,19 @@ export async function updateEventAction(
       return { error: organizerResolution.error };
     }
 
-    const effectivePayload = {
-      ...payload,
-      organizerId: organizerResolution.organizerId,
-    };
+    const workspacePolicy = await getWorkspaceAndOrganizerPolicy({
+      supabase,
+      studioId,
+      currentRole: studioRole,
+    });
+
+    const effectivePayload = applyBasicEventListingRestrictions(
+      {
+        ...payload,
+        organizerId: organizerResolution.organizerId,
+      },
+      workspacePolicy.hasOrganizerSuite,
+    );
 
     const validationError = validateEventPayload(effectivePayload);
 
@@ -2500,14 +2568,16 @@ export async function updateEventAction(
       scheduleItems: effectivePayload.eventScheduleItems,
     });
 
-    await replaceGuestCoachPrivateLessons({
-      supabase,
-      eventId: id,
-      studioId,
-      organizerId: effectivePayload.organizerId || null,
-      guestCoaches: effectivePayload.guestCoaches,
-      timezone: effectivePayload.timezone,
-    });
+    if (workspacePolicy.hasOrganizerSuite) {
+      await replaceGuestCoachPrivateLessons({
+        supabase,
+        eventId: id,
+        studioId,
+        organizerId: effectivePayload.organizerId || null,
+        guestCoaches: effectivePayload.guestCoaches,
+        timezone: effectivePayload.timezone,
+      });
+    }
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",

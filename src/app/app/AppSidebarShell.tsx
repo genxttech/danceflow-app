@@ -26,6 +26,7 @@ export default function AppSidebarShell({
   workspaces = [],
   currentStudioId,
   switchWorkspaceAction,
+  hasOrganizerSuite = false,
   children,
 }: {
   pathname?: string;
@@ -39,6 +40,7 @@ export default function AppSidebarShell({
   workspaces?: WorkspaceItem[];
   currentStudioId?: string;
   switchWorkspaceAction: (formData: FormData) => void | Promise<void>;
+  hasOrganizerSuite?: boolean;
   children: ReactNode;
 }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -54,8 +56,8 @@ export default function AppSidebarShell({
     : [];
 
   const normalizedSections = useMemo(
-    () => normalizeSections(sections),
-    [sections],
+    () => normalizeSections(sections, { hasOrganizerSuite }),
+    [sections, hasOrganizerSuite],
   );
 
   return (

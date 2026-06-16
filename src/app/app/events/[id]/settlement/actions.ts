@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 
 const allowedStatuses = new Set(["open", "ready_to_settle", "settled", "reopened"]);
 
@@ -66,6 +67,16 @@ export async function updateEventSettlementAction(formData: FormData) {
   if (!eventId) {
     throw new Error("Event ID is required.");
   }
+
+  await requireEventWorkspaceFeature({
+    eventId,
+    feature: "organizer_tools",
+    allowedOrganizerRoles: [
+      "organizer_owner",
+      "organizer_admin",
+      "organizer_staff",
+    ],
+  });
 
   const { data: event, error: eventError } = await supabase
     .from("events")

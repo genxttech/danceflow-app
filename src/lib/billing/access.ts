@@ -3,7 +3,11 @@ import { redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   organizerPlanHasFeature,
+  planHasBasicEventListings,
+  planHasEventCommerce,
+  planHasEventOperations,
   planHasFeature,
+  planHasOrganizerSuite,
   requiredOrganizerPlanForFeature,
   requiredPlanForFeature,
   type BillingFeature,
@@ -46,6 +50,10 @@ export type WorkspaceCapabilities = {
   canUseOrganizerAdmin: boolean;
   maxOrganizerAdmins: number;
   hasPublicEventModule: boolean;
+  canCreateBasicEventListings: boolean;
+  hasOrganizerSuite: boolean;
+  canUseEventCommerce: boolean;
+  canUseEventOperations: boolean;
   canManageMemberships: boolean;
   canManagePackages: boolean;
   canUseAdvancedReports: boolean;
@@ -90,6 +98,28 @@ function isOrganizerRole(value: string | null | undefined) {
   return ["organizer_owner", "organizer_admin", "organizer_staff"].includes(
     value ?? "",
   );
+}
+
+async function studioHasActiveOrganizerSuiteAddOn(studioId: string | null | undefined) {
+  if (!studioId) return false;
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("usage_addon_entitlements")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("feature_key", "organizer_suite")
+    .eq("source", "stripe_subscription_item")
+    .eq("status", "active")
+    .limit(1);
+
+  if (error) {
+    console.error("Failed to read Organizer Suite add-on entitlement", error);
+    return false;
+  }
+
+  return Boolean(data?.length);
 }
 
 type EventFeatureAccessRow = {
@@ -302,6 +332,10 @@ function buildCapabilities(planCode: WorkspacePlanCode, status: string | null): 
       canUseOrganizerAdmin: false,
       maxOrganizerAdmins: 0,
       hasPublicEventModule: false,
+      canCreateBasicEventListings: false,
+      hasOrganizerSuite: false,
+      canUseEventCommerce: false,
+      canUseEventOperations: false,
       canManageMemberships: false,
       canManagePackages: false,
       canUseAdvancedReports: false,
@@ -322,7 +356,11 @@ function buildCapabilities(planCode: WorkspacePlanCode, status: string | null): 
         canUseIndependentInstructor: true,
         canUseOrganizerAdmin: false,
         maxOrganizerAdmins: 0,
-        hasPublicEventModule: false,
+        hasPublicEventModule: planHasBasicEventListings(planCode),
+        canCreateBasicEventListings: planHasBasicEventListings(planCode),
+        hasOrganizerSuite: planHasOrganizerSuite(planCode),
+        canUseEventCommerce: planHasEventCommerce(planCode),
+        canUseEventOperations: planHasEventOperations(planCode),
         canManageMemberships: false,
         canManagePackages: false,
         canUseAdvancedReports: false,
@@ -341,7 +379,11 @@ function buildCapabilities(planCode: WorkspacePlanCode, status: string | null): 
         canUseIndependentInstructor: true,
         canUseOrganizerAdmin: false,
         maxOrganizerAdmins: 0,
-        hasPublicEventModule: false,
+        hasPublicEventModule: planHasBasicEventListings(planCode),
+        canCreateBasicEventListings: planHasBasicEventListings(planCode),
+        hasOrganizerSuite: planHasOrganizerSuite(planCode),
+        canUseEventCommerce: planHasEventCommerce(planCode),
+        canUseEventOperations: planHasEventOperations(planCode),
         canManageMemberships: true,
         canManagePackages: true,
         canUseAdvancedReports: true,
@@ -360,7 +402,11 @@ function buildCapabilities(planCode: WorkspacePlanCode, status: string | null): 
         canUseIndependentInstructor: true,
         canUseOrganizerAdmin: false,
         maxOrganizerAdmins: 0,
-        hasPublicEventModule: true,
+        hasPublicEventModule: planHasBasicEventListings(planCode),
+        canCreateBasicEventListings: planHasBasicEventListings(planCode),
+        hasOrganizerSuite: planHasOrganizerSuite(planCode),
+        canUseEventCommerce: planHasEventCommerce(planCode),
+        canUseEventOperations: planHasEventOperations(planCode),
         canManageMemberships: true,
         canManagePackages: true,
         canUseAdvancedReports: true,
@@ -379,7 +425,11 @@ function buildCapabilities(planCode: WorkspacePlanCode, status: string | null): 
         canUseIndependentInstructor: false,
         canUseOrganizerAdmin: true,
         maxOrganizerAdmins: 999,
-        hasPublicEventModule: true,
+        hasPublicEventModule: planHasBasicEventListings(planCode),
+        canCreateBasicEventListings: planHasBasicEventListings(planCode),
+        hasOrganizerSuite: planHasOrganizerSuite(planCode),
+        canUseEventCommerce: planHasEventCommerce(planCode),
+        canUseEventOperations: planHasEventOperations(planCode),
         canManageMemberships: false,
         canManagePackages: false,
         canUseAdvancedReports: true,
@@ -399,6 +449,10 @@ function buildCapabilities(planCode: WorkspacePlanCode, status: string | null): 
         canUseOrganizerAdmin: false,
         maxOrganizerAdmins: 0,
         hasPublicEventModule: false,
+        canCreateBasicEventListings: false,
+        hasOrganizerSuite: false,
+        canUseEventCommerce: false,
+        canUseEventOperations: false,
         canManageMemberships: false,
         canManagePackages: false,
         canUseAdvancedReports: false,
@@ -511,12 +565,38 @@ export async function getCurrentWorkspaceCapabilitiesForUser(): Promise<Workspac
   }
 
   const capabilities = buildCapabilities(subscription.planCode, subscription.status);
+  const hasOrganizerSuiteAddOn =
+    capabilities.isActive &&
+    !capabilities.hasOrganizerSuite &&
+    (await studioHasActiveOrganizerSuiteAddOn(subscription.studioId));
 
   return {
     ...capabilities,
     studioId: subscription.studioId,
     planName: subscription.planName ?? capabilities.planName,
+    hasOrganizerSuite: capabilities.hasOrganizerSuite || hasOrganizerSuiteAddOn,
+    canUseEventCommerce:
+      capabilities.canUseEventCommerce || hasOrganizerSuiteAddOn,
+    canUseEventOperations:
+      capabilities.canUseEventOperations || hasOrganizerSuiteAddOn,
+    canUseOrganizerAdmin:
+      capabilities.canUseOrganizerAdmin || hasOrganizerSuiteAddOn,
+    maxOrganizerAdmins: hasOrganizerSuiteAddOn
+      ? Math.max(capabilities.maxOrganizerAdmins, 999)
+      : capabilities.maxOrganizerAdmins,
   };
+}
+
+function isOrganizerSuiteFeature(feature: BillingFeature) {
+  return (
+    feature === "organizer_tools" ||
+    feature === "ticketing" ||
+    feature === "check_in" ||
+    feature === "waitlist" ||
+    feature === "marketing_event_audiences" ||
+    feature === "event_waivers" ||
+    feature === "guest_coach_slots"
+  );
 }
 
 export async function studioHasFeature(feature: BillingFeature) {
@@ -527,7 +607,15 @@ export async function studioHasFeature(feature: BillingFeature) {
     return false;
   }
 
-  return planHasFeature(subscription.planCode, feature);
+  if (planHasFeature(subscription.planCode, feature)) {
+    return true;
+  }
+
+  if (isOrganizerSuiteFeature(feature)) {
+    return studioHasActiveOrganizerSuiteAddOn(subscription.studioId);
+  }
+
+  return false;
 }
 
 export async function requireStudioFeature(feature: BillingFeature) {
@@ -536,6 +624,53 @@ export async function requireStudioFeature(feature: BillingFeature) {
   if (!allowed) {
     redirect(buildBillingUpgradeUrl(feature));
   }
+}
+
+
+export async function studioCanCreateBasicEventListings() {
+  return studioHasFeature("public_events");
+}
+
+export async function studioHasOrganizerSuite() {
+  const subscription = await getCurrentStudioPlanForUser();
+
+  if (!subscription) return false;
+  if (subscription.status !== "active" && subscription.status !== "trialing") {
+    return false;
+  }
+
+  return (
+    planHasOrganizerSuite(subscription.planCode) ||
+    (await studioHasActiveOrganizerSuiteAddOn(subscription.studioId))
+  );
+}
+
+export async function studioCanUseEventCommerce() {
+  const subscription = await getCurrentStudioPlanForUser();
+
+  if (!subscription) return false;
+  if (subscription.status !== "active" && subscription.status !== "trialing") {
+    return false;
+  }
+
+  return (
+    planHasEventCommerce(subscription.planCode) ||
+    (await studioHasActiveOrganizerSuiteAddOn(subscription.studioId))
+  );
+}
+
+export async function studioCanUseEventOperations() {
+  const subscription = await getCurrentStudioPlanForUser();
+
+  if (!subscription) return false;
+  if (subscription.status !== "active" && subscription.status !== "trialing") {
+    return false;
+  }
+
+  return (
+    planHasEventOperations(subscription.planCode) ||
+    (await studioHasActiveOrganizerSuiteAddOn(subscription.studioId))
+  );
 }
 
 export function canPlanUseRole(planCode: WorkspacePlanCode, role: AppRole) {

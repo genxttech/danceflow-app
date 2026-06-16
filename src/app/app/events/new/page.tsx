@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import EventForm from "../EventForm";
+import { planHasBasicEventListings, planHasOrganizerSuite } from "@/lib/billing/plans";
 
 type OrganizerOption = {
   id: string;
@@ -79,10 +80,25 @@ function canUseStudioHostedEvents(params: {
   subscription: SubscriptionRow | null | undefined;
   subscriptionPlan: SubscriptionPlanRow | null | undefined;
 }) {
-  return (
-    getEffectiveBillingPlan(params.workspace, params.subscriptionPlan) === "pro" &&
-    isActiveOrTrialing(getEffectiveSubscriptionStatus(params.workspace, params.subscription))
-  );
+  const planCode = getEffectiveBillingPlan(params.workspace, params.subscriptionPlan);
+  const status = getEffectiveSubscriptionStatus(params.workspace, params.subscription);
+
+  return isActiveOrTrialing(status) && planHasBasicEventListings(planCode);
+}
+
+function canUseOrganizerSuite(params: {
+  workspace: WorkspaceRow | null | undefined;
+  subscription: SubscriptionRow | null | undefined;
+  subscriptionPlan: SubscriptionPlanRow | null | undefined;
+  organizerWorkspace: boolean;
+  isPlatformAdminRole: boolean;
+}) {
+  if (params.isPlatformAdminRole || params.organizerWorkspace) return true;
+
+  const planCode = getEffectiveBillingPlan(params.workspace, params.subscriptionPlan);
+  const status = getEffectiveSubscriptionStatus(params.workspace, params.subscription);
+
+  return isActiveOrTrialing(status) && planHasOrganizerSuite(planCode);
 }
 
 export default async function NewEventPage() {
@@ -166,6 +182,13 @@ export default async function NewEventPage() {
       subscription: latestSubscription,
       subscriptionPlan,
     });
+  const eventCommerceEnabled = canUseOrganizerSuite({
+    workspace,
+    subscription: latestSubscription,
+    subscriptionPlan,
+    organizerWorkspace,
+    isPlatformAdminRole: context.isPlatformAdmin,
+  });
   const canCreateOrganizer = canManageOrganizers(
     context.studioRole,
     context.isPlatformAdmin
@@ -190,7 +213,7 @@ export default async function NewEventPage() {
                 {organizerWorkspace
                   ? "Create an organizer-linked event for public discovery, registrations, and event operations."
                   : studioHostedEvents
-                    ? "Create a studio-hosted public event. Your studio name will be used as the event host."
+                    ? "Create a basic public event listing. Your studio name will be used as the event host; ticketing, QR check-in, and settlement require Organizer Suite."
                     : "Create an organizer-linked event and optionally publish it into the public dance directory."}
               </p>
             </div>
@@ -225,8 +248,8 @@ export default async function NewEventPage() {
                 This will be a studio-hosted event
               </h2>
               <p className="mt-2 text-sm leading-7 text-emerald-900">
-                Pro studios can publish events without creating a separate organizer.
-                Your studio name will be used as the public event host.
+Active studio plans can publish basic public event listings without creating a separate organizer.
+                Your studio name will be used as the public event host. Ticketing, QR check-in, settlements, and organizer ARIA require Organizer Suite.
               </p>
             </div>
           </div>
@@ -273,6 +296,7 @@ export default async function NewEventPage() {
               mode="create"
               organizers={typedOrganizers}
               organizerWorkspace={organizerWorkspace}
+              eventCommerceEnabled={eventCommerceEnabled}
               initialValues={{
                 organizerId:
                   organizerWorkspace && singleOrganizer ? singleOrganizer.id : undefined,

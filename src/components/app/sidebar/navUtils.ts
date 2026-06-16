@@ -1,5 +1,9 @@
 import type { NavItem, NavSectionType } from "./types";
 
+type NormalizeSectionsOptions = {
+  hasOrganizerSuite?: boolean;
+};
+
 export function isActivePath(pathname: string, href: string) {
   if (href === "/app") {
     return pathname === "/app";
@@ -199,7 +203,12 @@ function removeRedundantDiscoveryLinks(sections: NavSectionType[]) {
 
 function injectOrganizerCampaignsLink(
   sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
 ): NavSectionType[] {
+  if (!options.hasOrganizerSuite) {
+    return sections;
+  }
+
   const flatItems = sections.flatMap((section) => section.items);
   const hasOrganizerCampaigns = flatItems.some(
     (item) => item.href === "/app/organizer-campaigns",
@@ -295,7 +304,12 @@ function injectOrganizerCampaignsLink(
 
 function injectOrganizerContactsLink(
   sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
 ): NavSectionType[] {
+  if (!options.hasOrganizerSuite) {
+    return sections;
+  }
+
   const flatItems = sections.flatMap((section) => section.items);
   const hasOrganizerContacts = flatItems.some(
     (item) => item.href === "/app/organizer-contacts",
@@ -467,6 +481,7 @@ function injectSyllabusLink(sections: NavSectionType[]): NavSectionType[] {
 
 function injectEventWorkflowLinks(
   sections: NavSectionType[],
+  options: NormalizeSectionsOptions = {},
 ): NavSectionType[] {
   const flatItems = sections.flatMap((section) => section.items);
   const hasEventsAccess = flatItems.some((item) => item.href === "/app/events");
@@ -488,26 +503,30 @@ function injectEventWorkflowLinks(
         href: "/app/events/new",
         icon: "events",
       },
-      {
-        label: "Manage Tickets",
-        href: "/app/events/tickets",
-        icon: "tickets",
-      },
-      {
-        label: "Sell Tickets",
-        href: "/app/events/sell-tickets",
-        icon: "tickets",
-      },
-      {
-        label: "Registrations",
-        href: "/app/events/registrations",
-        icon: "registrations",
-      },
-      {
-        label: "Check-In",
-        href: "/app/events/checkin",
-        icon: "checkin",
-      },
+      ...(options.hasOrganizerSuite
+        ? [
+            {
+              label: "Manage Tickets",
+              href: "/app/events/tickets",
+              icon: "tickets",
+            },
+            {
+              label: "Sell Tickets",
+              href: "/app/events/sell-tickets",
+              icon: "tickets",
+            },
+            {
+              label: "Registrations",
+              href: "/app/events/registrations",
+              icon: "registrations",
+            },
+            {
+              label: "Check-In",
+              href: "/app/events/checkin",
+              icon: "checkin",
+            },
+          ]
+        : []),
     ],
   };
 
@@ -992,7 +1011,7 @@ function makeSection(
   return items.length > 0 ? { title, items } : null;
 }
 
-function optimizeNavigationForTasks(sections: NavSectionType[]): NavSectionType[] {
+function optimizeNavigationForTasks(sections: NavSectionType[], options: NormalizeSectionsOptions = {}): NavSectionType[] {
   const originalItems = uniqueNavItems(sections.flatMap((section) => section.items));
   const available = new Map(originalItems.map((item) => [routeKey(item.href), item]));
   const used = new Set<string>();
@@ -1011,17 +1030,25 @@ function optimizeNavigationForTasks(sections: NavSectionType[]): NavSectionType[
       "/app/check-in",
       "/app/packages/sell",
       "/app/memberships/sell",
-      "/app/events/sell-tickets",
-      "/app/events/checkin",
-      "/app/events/check-in",
+      ...(options.hasOrganizerSuite
+        ? [
+            "/app/events/sell-tickets",
+            "/app/events/checkin",
+            "/app/events/check-in",
+          ]
+        : []),
     ]),
     makeSection("Events", available, used, [
       "/app/events",
       "/app/events/new",
-      "/app/events/tickets",
-      "/app/events/registrations",
-      "/app/organizers",
-      "/app/organizer-contacts",
+      ...(options.hasOrganizerSuite
+        ? [
+            "/app/events/tickets",
+            "/app/events/registrations",
+            "/app/organizers",
+            "/app/organizer-contacts",
+          ]
+        : []),
     ]),
     makeSection("Revenue", available, used, [
       "/app/payments",
@@ -1036,7 +1063,7 @@ function optimizeNavigationForTasks(sections: NavSectionType[]): NavSectionType[
       "/app/leads",
       "/app/marketing",
       "/app/campaigns",
-      "/app/organizer-campaigns",
+      ...(options.hasOrganizerSuite ? ["/app/organizer-campaigns"] : []),
       "/app/automations",
       "/app/reports/client-birthdays",
       "/app/discovery-profile",
@@ -1088,7 +1115,7 @@ function optimizeNavigationForTasks(sections: NavSectionType[]): NavSectionType[
 }
 
 
-export function normalizeSections(input: unknown): NavSectionType[] {
+export function normalizeSections(input: unknown, options: NormalizeSectionsOptions = {}): NavSectionType[] {
   if (!Array.isArray(input)) return [];
 
   const normalized = input
@@ -1138,12 +1165,14 @@ export function normalizeSections(input: unknown): NavSectionType[] {
 
   const withoutDiscoveryDuplicates = removeRedundantDiscoveryLinks(normalized);
   const withAriaLink = injectAriaLink(withoutDiscoveryDuplicates);
-  const withEventWorkflowLinks = injectEventWorkflowLinks(withAriaLink);
+  const withEventWorkflowLinks = injectEventWorkflowLinks(withAriaLink, options);
   const withOrganizerContactsLink = injectOrganizerContactsLink(
     withEventWorkflowLinks,
+    options,
   );
   const withOrganizerCampaignsLink = injectOrganizerCampaignsLink(
     withOrganizerContactsLink,
+    options,
   );
   const withSyllabusLink = injectSyllabusLink(withOrganizerCampaignsLink);
   const withDocumentsLink = injectDocumentsLink(withSyllabusLink);
@@ -1151,7 +1180,7 @@ export function normalizeSections(input: unknown): NavSectionType[] {
   const withInstructorPayLink = injectInstructorPayLink(withAutomationsLink);
   const withDirectTaskLinks = injectDirectTaskLinks(withInstructorPayLink);
 
-  return optimizeNavigationForTasks(withDirectTaskLinks);
+  return optimizeNavigationForTasks(withDirectTaskLinks, options);
 }
 
 export function prettyRole(role: string) {

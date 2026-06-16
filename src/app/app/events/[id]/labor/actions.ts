@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { requireEventWorkspaceFeature } from "@/lib/billing/access";
 
 const allowedPayTypes = new Set(["flat", "hourly", "per_session", "manual"]);
 const allowedStatuses = new Set(["planned", "earned", "paid", "cancelled"]);
@@ -107,6 +108,16 @@ export async function createEventLaborCostAction(formData: FormData) {
     throw new Error("Event ID is required.");
   }
 
+  await requireEventWorkspaceFeature({
+    eventId,
+    feature: "organizer_tools",
+    allowedOrganizerRoles: [
+      "organizer_owner",
+      "organizer_admin",
+      "organizer_staff",
+    ],
+  });
+
   if (!staffName) {
     throw new Error("Staff name is required.");
   }
@@ -193,6 +204,16 @@ export async function deleteEventLaborCostAction(formData: FormData) {
   if (!eventId || !laborCostId) {
     throw new Error("Event ID and labor cost ID are required.");
   }
+
+  await requireEventWorkspaceFeature({
+    eventId,
+    feature: "organizer_tools",
+    allowedOrganizerRoles: [
+      "organizer_owner",
+      "organizer_admin",
+      "organizer_staff",
+    ],
+  });
 
   await assertEventSettlementIsEditable(supabase, eventId);
 

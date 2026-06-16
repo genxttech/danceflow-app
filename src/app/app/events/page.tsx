@@ -16,7 +16,7 @@ import {
 import { createClient } from "@/lib/supabase/server";
 import { createClient as createSupabaseServiceClient } from "@supabase/supabase-js";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { planHasFeature } from "@/lib/billing/plans";
+import { planHasBasicEventListings } from "@/lib/billing/plans";
 import CopyCalendarFeedButton from "@/components/app/CopyCalendarFeedButton";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
 import { duplicateEventAction } from "./actions";
@@ -229,7 +229,7 @@ function canUseStudioHostedEvents(params: {
     params.subscription,
   );
 
-  return isActiveOrTrialing(status) && planHasFeature(planCode, "ticketing");
+  return isActiveOrTrialing(status) && planHasBasicEventListings(planCode);
 }
 
 function statusBadgeClass(status: string) {
@@ -773,10 +773,17 @@ export default async function EventsPage() {
    * but the event list should not show "Unknown" for valid live studio events.
    */
   const studioHostedEvents = !organizerWorkspace;
-  const showCreateEvent = canManageEvents(
-    context.studioRole,
-    context.isPlatformAdmin,
-  );
+  const canCreateBasicEventListing = canUseStudioHostedEvents({
+    workspace,
+    subscription: latestSubscription,
+    subscriptionPlan,
+  });
+  const showCreateEvent =
+    canManageEvents(
+      context.studioRole,
+      context.isPlatformAdmin,
+    ) &&
+    (organizerWorkspace || canCreateBasicEventListing || context.isPlatformAdmin);
   const showOrganizerProfile = canManageOrganizerProfile(
     context.studioRole,
     context.isPlatformAdmin,

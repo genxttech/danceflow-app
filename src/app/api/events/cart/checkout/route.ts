@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
+import {
+  createClient as createSupabaseClient,
+  SupabaseClient,
+} from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { getStripe } from "@/lib/payments/stripe";
 
@@ -44,39 +47,110 @@ function splitFullName(fullName: string) {
   };
 }
 
-function absoluteEventUrl(request: NextRequest, eventSlug: string, query: string) {
-  return new URL(`/events/${encodeURIComponent(eventSlug)}${query}`, request.nextUrl.origin).toString();
+function absoluteEventUrl(
+  request: NextRequest,
+  eventSlug: string,
+  query: string,
+) {
+  return new URL(
+    `/events/${encodeURIComponent(eventSlug)}${query}`,
+    request.nextUrl.origin,
+  ).toString();
 }
 
 function calculateApplicationFeeAmount(amount: number, feePercent: number) {
-  return Math.round(Math.max(0, Math.round(amount * 100)) * Math.max(0, feePercent));
+  return Math.round(
+    Math.max(0, Math.round(amount * 100)) * Math.max(0, feePercent),
+  );
 }
 
-async function getOrganizerPlatformFeePercent(supabase: SupabaseClient, studioId: string) {
-  const { data: subscription } = await supabase
+const ORGANIZER_SUITE_STANDARD_FEE_PERCENT = 0.035;
+const ORGANIZER_SUITE_STUDIO_ADDON_FEE_PERCENT = 0.0325;
+const ORGANIZER_SUITE_PRO_ADDON_FEE_PERCENT = 0.03;
+
+function normalizePlanCode(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function isActiveBillingStatus(value: string | null | undefined) {
+  return value === "active" || value === "trialing";
+}
+
+async function studioHasActiveOrganizerSuiteAddOn(
+  supabase: SupabaseClient,
+  studioId: string,
+) {
+  const { data, error } = await supabase
+    .from("usage_addon_entitlements")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("feature_key", "organizer_suite")
+    .eq("source", "stripe_subscription_item")
+    .eq("status", "active")
+    .limit(1);
+
+  if (error) {
+    console.error("Failed to read Organizer Suite add-on entitlement", error);
+    return false;
+  }
+
+  return Boolean(data?.length);
+}
+
+async function getOrganizerPlatformFeePercent(
+  supabase: SupabaseClient,
+  studioId: string,
+) {
+  const { data: subscription, error } = await supabase
     .from("studio_subscriptions")
-    .select(`
+    .select(
+      `
       status,
       subscription_plans (
         code,
         name
       )
-    `)
+    `,
+    )
     .eq("studio_id", studioId)
     .maybeSingle();
 
-  if (!subscription) return 0;
+  if (error) {
+    console.error(
+      "Failed to read studio subscription for event platform fee",
+      error,
+    );
+    return 0;
+  }
+
+  if (!subscription || !isActiveBillingStatus(subscription.status ?? null)) {
+    return 0;
+  }
 
   const rawPlan = subscription.subscription_plans;
   const plan = Array.isArray(rawPlan) ? rawPlan[0] : rawPlan;
-  const status = subscription.status ?? "inactive";
-  const planCode = plan?.code ?? null;
+  const planCode = normalizePlanCode(plan?.code ?? null);
 
-  if (!["active", "trialing"].includes(status)) return 0;
+  if (planCode === "organizer") {
+    return ORGANIZER_SUITE_STANDARD_FEE_PERCENT;
+  }
 
-  return planCode === "organizer" ? 0.035 : 0;
+  if (!["starter", "growth", "pro"].includes(planCode)) {
+    return 0;
+  }
+
+  const hasOrganizerSuiteAddOn = await studioHasActiveOrganizerSuiteAddOn(
+    supabase,
+    studioId,
+  );
+  if (!hasOrganizerSuiteAddOn) {
+    return 0;
+  }
+
+  return planCode === "pro"
+    ? ORGANIZER_SUITE_PRO_ADDON_FEE_PERCENT
+    : ORGANIZER_SUITE_STUDIO_ADDON_FEE_PERCENT;
 }
-
 type CartEventRow = {
   id: string;
   slug: string;
@@ -176,7 +250,7 @@ type SlotRow = {
 };
 
 function pickOne<T>(value: T | T[] | null | undefined) {
-  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+  return Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
 }
 
 function validateRegistrationWindow(event: CartEventRow) {
@@ -184,11 +258,17 @@ function validateRegistrationWindow(event: CartEventRow) {
 
   if (!event.registration_required) return null;
 
-  if (event.registration_opens_at && new Date(event.registration_opens_at).getTime() > now) {
+  if (
+    event.registration_opens_at &&
+    new Date(event.registration_opens_at).getTime() > now
+  ) {
     return "registration_not_open";
   }
 
-  if (event.registration_closes_at && new Date(event.registration_closes_at).getTime() < now) {
+  if (
+    event.registration_closes_at &&
+    new Date(event.registration_closes_at).getTime() < now
+  ) {
     return "registration_closed";
   }
 
@@ -200,7 +280,10 @@ function validateTicketWindow(ticket: TicketTypeRow) {
 
   if (!ticket.active) return "ticket_unavailable";
 
-  if (ticket.sale_starts_at && new Date(ticket.sale_starts_at).getTime() > now) {
+  if (
+    ticket.sale_starts_at &&
+    new Date(ticket.sale_starts_at).getTime() > now
+  ) {
     return "ticket_not_open";
   }
 
@@ -217,39 +300,77 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
 
   const eventSlug = getString(formData, "eventSlug");
-  const buyerFirstName = getString(formData, "attendeeFirstName") || getString(formData, "buyerFirstName");
-  const buyerLastName = getString(formData, "attendeeLastName") || getString(formData, "buyerLastName");
-  const buyerName = getString(formData, "buyerName") || [buyerFirstName, buyerLastName].filter(Boolean).join(" ");
-  const buyerEmail = (getString(formData, "attendeeEmail") || getString(formData, "buyerEmail")).toLowerCase();
-  const buyerPhone = getString(formData, "attendeePhone") || getString(formData, "buyerPhone");
-  const buyerNotes = getString(formData, "notes") || getString(formData, "buyerNotes");
+  const buyerFirstName =
+    getString(formData, "attendeeFirstName") ||
+    getString(formData, "buyerFirstName");
+  const buyerLastName =
+    getString(formData, "attendeeLastName") ||
+    getString(formData, "buyerLastName");
+  const buyerName =
+    getString(formData, "buyerName") ||
+    [buyerFirstName, buyerLastName].filter(Boolean).join(" ");
+  const buyerEmail = (
+    getString(formData, "attendeeEmail") || getString(formData, "buyerEmail")
+  ).toLowerCase();
+  const buyerPhone =
+    getString(formData, "attendeePhone") || getString(formData, "buyerPhone");
+  const buyerNotes =
+    getString(formData, "notes") || getString(formData, "buyerNotes");
 
   const legacyTicketTypeId = getString(formData, "ticketTypeId");
-  const legacyQuantity = getInt(formData, "quantity", legacyTicketTypeId ? 1 : 0);
+  const legacyQuantity = getInt(
+    formData,
+    "quantity",
+    legacyTicketTypeId ? 1 : 0,
+  );
   const ticketTypeIds = getStringList(formData, "ticketTypeIds");
   const ticketQuantities = getStringList(formData, "ticketQuantities");
-  const additionalAttendeeNames = getStringList(formData, "additionalAttendeeNames");
-  const submittedDocumentRequirementIds = getStringList(formData, "documentRequirementIds");
+  const additionalAttendeeNames = getStringList(
+    formData,
+    "additionalAttendeeNames",
+  );
+  const submittedDocumentRequirementIds = getStringList(
+    formData,
+    "documentRequirementIds",
+  );
   const documentSignatureName = getString(formData, "documentSignatureName");
-  const documentConsentAccepted = getString(formData, "documentConsentAccepted") === "on";
-  const slotIds = Array.from(new Set(getStringList(formData, "slotIds").concat(getStringList(formData, "slotId"))));
+  const documentConsentAccepted =
+    getString(formData, "documentConsentAccepted") === "on";
+  const slotIds = Array.from(
+    new Set(
+      getStringList(formData, "slotIds").concat(
+        getStringList(formData, "slotId"),
+      ),
+    ),
+  );
 
   if (!eventSlug) {
-    return NextResponse.redirect(absoluteEventUrl(request, "", "?error=missing_event"));
+    return NextResponse.redirect(
+      absoluteEventUrl(request, "", "?error=missing_event"),
+    );
   }
 
   if (!buyerName || !buyerEmail) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_contact_required"));
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=cart_contact_required"),
+    );
   }
 
   const submittedTicketSelections = ticketTypeIds
     .map((ticketTypeId, index) => ({
       ticketTypeId,
-      quantity: Math.max(0, Number.parseInt(ticketQuantities[index] ?? "0", 10) || 0),
+      quantity: Math.max(
+        0,
+        Number.parseInt(ticketQuantities[index] ?? "0", 10) || 0,
+      ),
     }))
     .filter((selection) => selection.ticketTypeId && selection.quantity > 0);
 
-  if (legacyTicketTypeId && legacyQuantity > 0 && submittedTicketSelections.length === 0) {
+  if (
+    legacyTicketTypeId &&
+    legacyQuantity > 0 &&
+    submittedTicketSelections.length === 0
+  ) {
     submittedTicketSelections.push({
       ticketTypeId: legacyTicketTypeId,
       quantity: legacyQuantity,
@@ -270,12 +391,15 @@ export async function POST(request: NextRequest) {
   );
 
   if (dedupedSubmittedTicketSelections.length === 0 && slotIds.length === 0) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_empty"));
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=cart_empty"),
+    );
   }
 
   const { data: event, error: eventError } = await supabase
     .from("events")
-    .select(`
+    .select(
+      `
       id,
       slug,
       name,
@@ -296,7 +420,8 @@ export async function POST(request: NextRequest) {
         stripe_connect_payouts_enabled,
         stripe_connect_onboarding_complete
       )
-    `)
+    `,
+    )
     .eq("slug", eventSlug)
     .maybeSingle<CartEventRow>();
 
@@ -304,22 +429,35 @@ export async function POST(request: NextRequest) {
 
   const eventIsPublic =
     event?.status === "published" &&
-    (event.visibility === "public" || event.visibility === "unlisted" || event.public_directory_enabled === true);
-  const studioHasAccess = ["active", "trialing"].includes(studio?.subscription_status ?? "");
+    (event.visibility === "public" ||
+      event.visibility === "unlisted" ||
+      event.public_directory_enabled === true);
+  const studioHasAccess = ["active", "trialing"].includes(
+    studio?.subscription_status ?? "",
+  );
 
   if (eventError || !event || !eventIsPublic || !studioHasAccess) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=event_unavailable"));
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=event_unavailable"),
+    );
   }
 
-  if (!studio?.stripe_connected_account_id || !studio.stripe_connect_onboarding_complete || !studio.stripe_connect_payouts_enabled || !studio.stripe_connect_charges_enabled) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=studio_payouts_not_ready"));
+  if (
+    !studio?.stripe_connected_account_id ||
+    !studio.stripe_connect_onboarding_complete ||
+    !studio.stripe_connect_payouts_enabled ||
+    !studio.stripe_connect_charges_enabled
+  ) {
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=studio_payouts_not_ready"),
+    );
   }
 
-
-  const { data: documentRequirementRows, error: documentRequirementError } = await supabase
-    .from("event_document_requirements")
-    .select(
-      `
+  const { data: documentRequirementRows, error: documentRequirementError } =
+    await supabase
+      .from("event_document_requirements")
+      .select(
+        `
       id,
       event_id,
       template_id,
@@ -333,25 +471,39 @@ export async function POST(request: NextRequest) {
         current_version
       )
     `,
-    )
-    .eq("event_id", event.id)
-    .eq("active", true)
-    .eq("is_required", true);
+      )
+      .eq("event_id", event.id)
+      .eq("active", true)
+      .eq("is_required", true);
 
   if (documentRequirementError) {
-    console.error("event waiver requirement lookup failed:", documentRequirementError);
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=waiver_lookup_failed"));
+    console.error(
+      "event waiver requirement lookup failed:",
+      documentRequirementError,
+    );
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=waiver_lookup_failed"),
+    );
   }
 
-  const requiredDocuments = (documentRequirementRows ?? []) as EventDocumentRequirementRow[];
+  const requiredDocuments = (documentRequirementRows ??
+    []) as EventDocumentRequirementRow[];
   const requiredDocumentIds = requiredDocuments.map((document) => document.id);
 
   if (requiredDocuments.length > 0) {
     const submittedIdSet = new Set(submittedDocumentRequirementIds);
-    const allSubmitted = requiredDocumentIds.every((id) => submittedIdSet.has(id));
+    const allSubmitted = requiredDocumentIds.every((id) =>
+      submittedIdSet.has(id),
+    );
 
-    if (!allSubmitted || !documentConsentAccepted || documentSignatureName.length < 2) {
-      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=waiver_required"));
+    if (
+      !allSubmitted ||
+      !documentConsentAccepted ||
+      documentSignatureName.length < 2
+    ) {
+      return NextResponse.redirect(
+        absoluteEventUrl(request, eventSlug, "?error=waiver_required"),
+      );
     }
   }
 
@@ -363,13 +515,22 @@ export async function POST(request: NextRequest) {
   if (dedupedSubmittedTicketSelections.length > 0) {
     const registrationWindowError = validateRegistrationWindow(event);
     if (registrationWindowError) {
-      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, `?error=${registrationWindowError}`));
+      return NextResponse.redirect(
+        absoluteEventUrl(
+          request,
+          eventSlug,
+          `?error=${registrationWindowError}`,
+        ),
+      );
     }
 
-    const requestedTicketIds = dedupedSubmittedTicketSelections.map((selection) => selection.ticketTypeId);
+    const requestedTicketIds = dedupedSubmittedTicketSelections.map(
+      (selection) => selection.ticketTypeId,
+    );
     const { data: tickets, error: ticketsError } = await supabase
       .from("event_ticket_types")
-      .select(`
+      .select(
+        `
         id,
         event_id,
         name,
@@ -382,34 +543,56 @@ export async function POST(request: NextRequest) {
         sale_starts_at,
         sale_ends_at,
         attendees_per_ticket
-      `)
+      `,
+      )
       .eq("event_id", event.id)
       .in("id", requestedTicketIds);
 
-    if (ticketsError || !tickets || tickets.length !== requestedTicketIds.length) {
-      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=ticket_unavailable"));
+    if (
+      ticketsError ||
+      !tickets ||
+      tickets.length !== requestedTicketIds.length
+    ) {
+      return NextResponse.redirect(
+        absoluteEventUrl(request, eventSlug, "?error=ticket_unavailable"),
+      );
     }
 
-    const ticketsById = new Map((tickets as TicketTypeRow[]).map((ticket) => [ticket.id, ticket]));
+    const ticketsById = new Map(
+      (tickets as TicketTypeRow[]).map((ticket) => [ticket.id, ticket]),
+    );
     let additionalAttendeeCursor = 0;
 
     for (const submittedSelection of dedupedSubmittedTicketSelections) {
       const ticket = ticketsById.get(submittedSelection.ticketTypeId);
       if (!ticket) {
-        return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=ticket_unavailable"));
+        return NextResponse.redirect(
+          absoluteEventUrl(request, eventSlug, "?error=ticket_unavailable"),
+        );
       }
 
       const ticketWindowError = validateTicketWindow(ticket);
       if (ticketWindowError) {
-        return NextResponse.redirect(absoluteEventUrl(request, eventSlug, `?error=${ticketWindowError}`));
+        return NextResponse.redirect(
+          absoluteEventUrl(request, eventSlug, `?error=${ticketWindowError}`),
+        );
       }
 
       const safeQuantity = Math.max(1, submittedSelection.quantity);
       if (ticket.capacity != null && safeQuantity > Number(ticket.capacity)) {
-        return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=ticket_capacity_exceeded"));
+        return NextResponse.redirect(
+          absoluteEventUrl(
+            request,
+            eventSlug,
+            "?error=ticket_capacity_exceeded",
+          ),
+        );
       }
 
-      const attendeesPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
+      const attendeesPerTicket = Math.max(
+        1,
+        Number(ticket.attendees_per_ticket ?? 1) || 1,
+      );
       const expectedAttendeeCount = safeQuantity * attendeesPerTicket;
       const additionalCount = Math.max(0, expectedAttendeeCount - 1);
       const additionalForTicket = additionalAttendeeNames.slice(
@@ -418,7 +601,9 @@ export async function POST(request: NextRequest) {
       );
 
       if (additionalForTicket.length < additionalCount) {
-        return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=missing_attendees"));
+        return NextResponse.redirect(
+          absoluteEventUrl(request, eventSlug, "?error=missing_attendees"),
+        );
       }
 
       additionalAttendeeCursor += additionalCount;
@@ -454,8 +639,17 @@ export async function POST(request: NextRequest) {
       .not("order_id", "is", null);
 
     if (staleRegistrationCleanupError) {
-      console.error("event cart stale registration cleanup failed:", staleRegistrationCleanupError);
-      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=registration_cleanup_failed"));
+      console.error(
+        "event cart stale registration cleanup failed:",
+        staleRegistrationCleanupError,
+      );
+      return NextResponse.redirect(
+        absoluteEventUrl(
+          request,
+          eventSlug,
+          "?error=registration_cleanup_failed",
+        ),
+      );
     }
   }
 
@@ -466,7 +660,8 @@ export async function POST(request: NextRequest) {
   if (slotIds.length > 0) {
     const { data: slotRows, error: slotsError } = await supabase
       .from("event_private_lesson_slots")
-      .select(`
+      .select(
+        `
         id,
         event_id,
         coach_id,
@@ -483,31 +678,45 @@ export async function POST(request: NextRequest) {
           id,
           name
         )
-      `)
+      `,
+      )
       .eq("event_id", event.id)
       .in("id", slotIds);
 
     if (slotsError || !slotRows || slotRows.length !== slotIds.length) {
-      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=coach_slot_unavailable"));
+      return NextResponse.redirect(
+        absoluteEventUrl(request, eventSlug, "?error=coach_slot_unavailable"),
+      );
     }
 
     slots = slotRows as SlotRow[];
 
     const unavailableSlot = slots.find(
-      (slot) => slot.status !== "available" || slot.payment_status !== "unpaid"
+      (slot) => slot.status !== "available" || slot.payment_status !== "unpaid",
     );
 
     if (unavailableSlot) {
-      return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=coach_slot_already_booked"));
+      return NextResponse.redirect(
+        absoluteEventUrl(
+          request,
+          eventSlug,
+          "?error=coach_slot_already_booked",
+        ),
+      );
     }
   }
 
-  const slotTotal = slots.reduce((sum, slot) => sum + Number(slot.price ?? 0), 0);
+  const slotTotal = slots.reduce(
+    (sum, slot) => sum + Number(slot.price ?? 0),
+    0,
+  );
   const currency = (ticketCurrency || "USD").toUpperCase();
   const totalAmount = Number((ticketTotal + slotTotal).toFixed(2));
 
   if (totalAmount <= 0) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_invalid_total"));
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=cart_invalid_total"),
+    );
   }
 
   const expiresAt = holdUntil;
@@ -537,7 +746,9 @@ export async function POST(request: NextRequest) {
 
   if (orderError || !order) {
     console.error("event cart order insert failed:", orderError);
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_order_failed"));
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=cart_order_failed"),
+    );
   }
 
   try {
@@ -560,8 +771,10 @@ export async function POST(request: NextRequest) {
           user_id: null,
           order_id: order.id,
           status: "pending",
-          attendee_first_name: buyerFirstName || splitFullName(buyerName).firstName,
-          attendee_last_name: buyerLastName || splitFullName(buyerName).lastName,
+          attendee_first_name:
+            buyerFirstName || splitFullName(buyerName).firstName,
+          attendee_last_name:
+            buyerLastName || splitFullName(buyerName).lastName,
           attendee_email: buyerEmail,
           attendee_phone: buyerPhone || null,
           quantity,
@@ -580,7 +793,9 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (registrationError || !registration) {
-        throw new Error(registrationError?.message ?? "Registration insert failed.");
+        throw new Error(
+          registrationError?.message ?? "Registration insert failed.",
+        );
       }
 
       registrationIds.push(registration.id);
@@ -601,12 +816,13 @@ export async function POST(request: NextRequest) {
       }
 
       const attendeeRows = attendeeNames.map((name, index) => {
-        const parsed = index === 0
-          ? {
-              firstName: buyerFirstName || splitFullName(buyerName).firstName,
-              lastName: buyerLastName || splitFullName(buyerName).lastName,
-            }
-          : splitFullName(name);
+        const parsed =
+          index === 0
+            ? {
+                firstName: buyerFirstName || splitFullName(buyerName).firstName,
+                lastName: buyerLastName || splitFullName(buyerName).lastName,
+              }
+            : splitFullName(name);
 
         return {
           registration_id: registration.id,
@@ -628,7 +844,6 @@ export async function POST(request: NextRequest) {
       if (attendeeError) {
         throw new Error(attendeeError.message);
       }
-
 
       if (requiredDocuments.length > 0) {
         const signerIp =
@@ -663,25 +878,30 @@ export async function POST(request: NextRequest) {
             .single();
 
           if (assignmentError || !assignment) {
-            throw new Error(assignmentError?.message ?? "Could not save event waiver assignment.");
+            throw new Error(
+              assignmentError?.message ??
+                "Could not save event waiver assignment.",
+            );
           }
 
-          const { error: signatureError } = await supabase.from("document_signatures").insert({
-            assignment_id: assignment.id,
-            template_id: requiredDocument.template_id,
-            template_version_id: requiredDocument.template_version_id,
-            studio_id: event.studio_id,
-            organizer_id: event.organizer_id,
-            event_id: event.id,
-            event_registration_id: registration.id,
-            signer_name: documentSignatureName,
-            signer_email: buyerEmail,
-            signed_body: template.body,
-            signature_text: documentSignatureName,
-            consent_text: consentText,
-            ip_address: signerIp,
-            user_agent: userAgent,
-          });
+          const { error: signatureError } = await supabase
+            .from("document_signatures")
+            .insert({
+              assignment_id: assignment.id,
+              template_id: requiredDocument.template_id,
+              template_version_id: requiredDocument.template_version_id,
+              studio_id: event.studio_id,
+              organizer_id: event.organizer_id,
+              event_id: event.id,
+              event_registration_id: registration.id,
+              signer_name: documentSignatureName,
+              signer_email: buyerEmail,
+              signed_body: template.body,
+              signature_text: documentSignatureName,
+              consent_text: consentText,
+              ip_address: signerIp,
+              user_agent: userAgent,
+            });
 
           if (signatureError) {
             throw new Error(signatureError.message);
@@ -728,7 +948,9 @@ export async function POST(request: NextRequest) {
         .select("id");
 
       if (holdError || !heldSlots || heldSlots.length !== slotIds.length) {
-        throw new Error(holdError?.message ?? "Could not hold all selected coach slots.");
+        throw new Error(
+          holdError?.message ?? "Could not hold all selected coach slots.",
+        );
       }
 
       for (const slot of slots) {
@@ -765,8 +987,14 @@ export async function POST(request: NextRequest) {
       throw new Error(orderItemsError.message);
     }
 
-    const feePercent = await getOrganizerPlatformFeePercent(supabase, event.studio_id);
-    const applicationFeeAmount = calculateApplicationFeeAmount(totalAmount, feePercent);
+    const feePercent = await getOrganizerPlatformFeePercent(
+      supabase,
+      event.studio_id,
+    );
+    const applicationFeeAmount = calculateApplicationFeeAmount(
+      totalAmount,
+      feePercent,
+    );
 
     const lineItems = orderItems.map((item) => ({
       quantity: item.quantity,
@@ -784,11 +1012,20 @@ export async function POST(request: NextRequest) {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: buyerEmail,
-      success_url: absoluteEventUrl(request, eventSlug, `?success=cart_paid&order=${encodeURIComponent(order.id)}`),
-      cancel_url: new URL(`/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(eventSlug)}`, request.nextUrl.origin).toString(),
+      success_url: absoluteEventUrl(
+        request,
+        eventSlug,
+        `?success=cart_paid&order=${encodeURIComponent(order.id)}`,
+      ),
+      cancel_url: new URL(
+        `/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(eventSlug)}`,
+        request.nextUrl.origin,
+      ).toString(),
       line_items: lineItems,
       payment_intent_data: {
-        ...(applicationFeeAmount > 0 ? { application_fee_amount: applicationFeeAmount } : {}),
+        ...(applicationFeeAmount > 0
+          ? { application_fee_amount: applicationFeeAmount }
+          : {}),
         transfer_data: {
           destination: connectedAccountId,
         },
@@ -882,7 +1119,8 @@ export async function POST(request: NextRequest) {
       })
       .eq("id", order.id);
 
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=cart_checkout_failed"));
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=cart_checkout_failed"),
+    );
   }
 }
-

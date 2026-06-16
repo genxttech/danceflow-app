@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
+import {
+  createClient as createSupabaseClient,
+  SupabaseClient,
+} from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 
 function getSupabaseAdmin(): SupabaseClient {
@@ -20,37 +23,108 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function absoluteEventUrl(request: NextRequest, eventSlug: string, query: string) {
-  return new URL(`/events/${encodeURIComponent(eventSlug)}${query}`, request.nextUrl.origin).toString();
+function absoluteEventUrl(
+  request: NextRequest,
+  eventSlug: string,
+  query: string,
+) {
+  return new URL(
+    `/events/${encodeURIComponent(eventSlug)}${query}`,
+    request.nextUrl.origin,
+  ).toString();
 }
 
-async function getOrganizerPlatformFeePercent(supabase: SupabaseClient, studioId: string) {
-  const { data: subscription } = await supabase
+const ORGANIZER_SUITE_STANDARD_FEE_PERCENT = 0.035;
+const ORGANIZER_SUITE_STUDIO_ADDON_FEE_PERCENT = 0.0325;
+const ORGANIZER_SUITE_PRO_ADDON_FEE_PERCENT = 0.03;
+
+function normalizePlanCode(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function isActiveBillingStatus(value: string | null | undefined) {
+  return value === "active" || value === "trialing";
+}
+
+async function studioHasActiveOrganizerSuiteAddOn(
+  supabase: SupabaseClient,
+  studioId: string,
+) {
+  const { data, error } = await supabase
+    .from("usage_addon_entitlements")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("feature_key", "organizer_suite")
+    .eq("source", "stripe_subscription_item")
+    .eq("status", "active")
+    .limit(1);
+
+  if (error) {
+    console.error("Failed to read Organizer Suite add-on entitlement", error);
+    return false;
+  }
+
+  return Boolean(data?.length);
+}
+
+async function getOrganizerPlatformFeePercent(
+  supabase: SupabaseClient,
+  studioId: string,
+) {
+  const { data: subscription, error } = await supabase
     .from("studio_subscriptions")
-    .select(`
+    .select(
+      `
       status,
       subscription_plans (
         code,
         name
       )
-    `)
+    `,
+    )
     .eq("studio_id", studioId)
     .maybeSingle();
 
-  if (!subscription) return 0;
+  if (error) {
+    console.error(
+      "Failed to read studio subscription for event platform fee",
+      error,
+    );
+    return 0;
+  }
+
+  if (!subscription || !isActiveBillingStatus(subscription.status ?? null)) {
+    return 0;
+  }
 
   const rawPlan = subscription.subscription_plans;
   const plan = Array.isArray(rawPlan) ? rawPlan[0] : rawPlan;
-  const status = subscription.status ?? "inactive";
-  const planCode = plan?.code ?? null;
+  const planCode = normalizePlanCode(plan?.code ?? null);
 
-  if (!["active", "trialing"].includes(status)) return 0;
+  if (planCode === "organizer") {
+    return ORGANIZER_SUITE_STANDARD_FEE_PERCENT;
+  }
 
-  return planCode === "organizer" ? 0.035 : 0;
+  if (!["starter", "growth", "pro"].includes(planCode)) {
+    return 0;
+  }
+
+  const hasOrganizerSuiteAddOn = await studioHasActiveOrganizerSuiteAddOn(
+    supabase,
+    studioId,
+  );
+  if (!hasOrganizerSuiteAddOn) {
+    return 0;
+  }
+
+  return planCode === "pro"
+    ? ORGANIZER_SUITE_PRO_ADDON_FEE_PERCENT
+    : ORGANIZER_SUITE_STUDIO_ADDON_FEE_PERCENT;
 }
-
 function calculateApplicationFeeAmount(amount: number, feePercent: number) {
-  return Math.round(Math.max(0, Math.round(amount * 100)) * Math.max(0, feePercent));
+  return Math.round(
+    Math.max(0, Math.round(amount * 100)) * Math.max(0, feePercent),
+  );
 }
 
 export async function POST(request: NextRequest) {
@@ -66,16 +140,29 @@ export async function POST(request: NextRequest) {
   const buyerNotes = getString(formData, "buyerNotes");
 
   if (!slotId || !eventSlug) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug || "", "?error=missing_private_lesson_slot"));
+    return NextResponse.redirect(
+      absoluteEventUrl(
+        request,
+        eventSlug || "",
+        "?error=missing_private_lesson_slot",
+      ),
+    );
   }
 
   if (!buyerName || !buyerEmail) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=private_lesson_contact_required"));
+    return NextResponse.redirect(
+      absoluteEventUrl(
+        request,
+        eventSlug,
+        "?error=private_lesson_contact_required",
+      ),
+    );
   }
 
   const { data: slot, error: slotError } = await supabase
     .from("event_private_lesson_slots")
-    .select(`
+    .select(
+      `
       id,
       event_id,
       coach_id,
@@ -109,40 +196,75 @@ export async function POST(request: NextRequest) {
         id,
         name
       )
-    `)
+    `,
+    )
     .eq("id", slotId)
     .maybeSingle();
 
   if (slotError || !slot) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=private_lesson_not_found"));
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=private_lesson_not_found"),
+    );
   }
 
   const event = Array.isArray(slot.events) ? slot.events[0] : slot.events;
-  const studio = Array.isArray(event?.studios) ? event?.studios[0] : event?.studios;
+  const studio = Array.isArray(event?.studios)
+    ? event?.studios[0]
+    : event?.studios;
   const coach = Array.isArray(slot.event_guest_coaches)
     ? slot.event_guest_coaches[0]
     : slot.event_guest_coaches;
 
   const eventIsPublic =
     event?.status === "published" &&
-    (event?.visibility === "public" || event?.visibility === "unlisted" || event?.public_directory_enabled === true);
-  const studioHasAccess = ["active", "trialing"].includes(studio?.subscription_status ?? "");
+    (event?.visibility === "public" ||
+      event?.visibility === "unlisted" ||
+      event?.public_directory_enabled === true);
+  const studioHasAccess = ["active", "trialing"].includes(
+    studio?.subscription_status ?? "",
+  );
 
-  if (!event || event.slug !== eventSlug || !eventIsPublic || !studioHasAccess) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=private_lesson_unavailable"));
+  if (
+    !event ||
+    event.slug !== eventSlug ||
+    !eventIsPublic ||
+    !studioHasAccess
+  ) {
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=private_lesson_unavailable"),
+    );
   }
 
   if (slot.status !== "available" || slot.payment_status !== "unpaid") {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=private_lesson_already_booked"));
+    return NextResponse.redirect(
+      absoluteEventUrl(
+        request,
+        eventSlug,
+        "?error=private_lesson_already_booked",
+      ),
+    );
   }
 
   const amount = Number(slot.price ?? 0);
   if (!Number.isFinite(amount) || amount <= 0) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=private_lesson_invalid_price"));
+    return NextResponse.redirect(
+      absoluteEventUrl(
+        request,
+        eventSlug,
+        "?error=private_lesson_invalid_price",
+      ),
+    );
   }
 
-  if (!studio?.stripe_connected_account_id || !studio.stripe_connect_onboarding_complete || !studio.stripe_connect_payouts_enabled || !studio.stripe_connect_charges_enabled) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=studio_payouts_not_ready"));
+  if (
+    !studio?.stripe_connected_account_id ||
+    !studio.stripe_connect_onboarding_complete ||
+    !studio.stripe_connect_payouts_enabled ||
+    !studio.stripe_connect_charges_enabled
+  ) {
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=studio_payouts_not_ready"),
+    );
   }
 
   const { data: heldSlot, error: holdError } = await supabase
@@ -163,13 +285,32 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
 
   if (holdError || !heldSlot) {
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=private_lesson_already_booked"));
+    return NextResponse.redirect(
+      absoluteEventUrl(
+        request,
+        eventSlug,
+        "?error=private_lesson_already_booked",
+      ),
+    );
   }
 
-  const feePercent = await getOrganizerPlatformFeePercent(supabase, slot.studio_id);
-  const applicationFeeAmount = calculateApplicationFeeAmount(amount, feePercent);
-  const successUrl = absoluteEventUrl(request, eventSlug, `?success=coach_lesson_booked&slot=${encodeURIComponent(slot.id)}`);
-  const cancelUrl = new URL("/api/events/private-lessons/release", request.nextUrl.origin);
+  const feePercent = await getOrganizerPlatformFeePercent(
+    supabase,
+    slot.studio_id,
+  );
+  const applicationFeeAmount = calculateApplicationFeeAmount(
+    amount,
+    feePercent,
+  );
+  const successUrl = absoluteEventUrl(
+    request,
+    eventSlug,
+    `?success=coach_lesson_booked&slot=${encodeURIComponent(slot.id)}`,
+  );
+  const cancelUrl = new URL(
+    "/api/events/private-lessons/release",
+    request.nextUrl.origin,
+  );
   cancelUrl.searchParams.set("slotId", slot.id);
   cancelUrl.searchParams.set("eventSlug", eventSlug);
 
@@ -188,13 +329,16 @@ export async function POST(request: NextRequest) {
               unit_amount: Math.round(amount * 100),
               product_data: {
                 name: `${event.name} — Private Lesson with ${coach?.name ?? "Guest Coach"}`,
-                description: slot.location_label || "Guest coach private lesson slot",
+                description:
+                  slot.location_label || "Guest coach private lesson slot",
               },
             },
           },
         ],
         payment_intent_data: {
-          ...(applicationFeeAmount > 0 ? { application_fee_amount: applicationFeeAmount } : {}),
+          ...(applicationFeeAmount > 0
+            ? { application_fee_amount: applicationFeeAmount }
+            : {}),
           metadata: {
             source: "event_private_lesson_slot",
             studio_id: slot.studio_id,
@@ -216,7 +360,7 @@ export async function POST(request: NextRequest) {
       },
       {
         stripeAccount: studio.stripe_connected_account_id,
-      }
+      },
     );
 
     const { error: sessionUpdateError } = await supabase
@@ -248,8 +392,15 @@ export async function POST(request: NextRequest) {
       .eq("id", slot.id)
       .eq("status", "held");
 
-    const message = error instanceof Error ? error.message : "Unknown checkout error";
+    const message =
+      error instanceof Error ? error.message : "Unknown checkout error";
     console.error("Private lesson checkout failed:", message);
-    return NextResponse.redirect(absoluteEventUrl(request, eventSlug, "?error=private_lesson_checkout_failed"));
+    return NextResponse.redirect(
+      absoluteEventUrl(
+        request,
+        eventSlug,
+        "?error=private_lesson_checkout_failed",
+      ),
+    );
   }
 }
