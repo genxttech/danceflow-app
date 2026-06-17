@@ -33,6 +33,7 @@ type EventRow = {
   end_date: string;
   featured: boolean;
   cover_image_url: string | null;
+  registration_required: boolean | null;
 };
 
 type EventTagRow = {
@@ -111,7 +112,8 @@ export default async function PublicOrganizerProfilePage({
       start_date,
       end_date,
       featured,
-      cover_image_url
+      cover_image_url,
+      registration_required
     `)
     .eq("organizer_id", typedOrganizer.id)
     .eq("status", "published")
@@ -297,6 +299,16 @@ export default async function PublicOrganizerProfilePage({
                                 Featured
                               </span>
                             ) : null}
+
+                            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${
+                              event.registration_required
+                                ? "bg-purple-50 text-purple-700"
+                                : "bg-slate-100 text-slate-700"
+                            }`}>
+                              {event.registration_required
+                                ? "DanceFlow tickets"
+                                : "Basic listing"}
+                            </span>
                           </div>
 
                           <h3 className="mt-3 text-xl font-semibold text-slate-900">

@@ -111,6 +111,7 @@ type EventRow = {
   visibility: string | null;
   status: string | null;
   public_directory_enabled: boolean | null;
+  registration_required: boolean | null;
 };
 
 type PublicInstructorCredentialRow = {
@@ -449,7 +450,8 @@ export default async function PublicStudioPage({
           beginner_friendly,
           visibility,
           status,
-          public_directory_enabled
+          public_directory_enabled,
+          registration_required
         `
       )
       .eq("studio_id", studio.id)
@@ -1093,6 +1095,15 @@ export default async function PublicStudioPage({
                                 Beginner Friendly
                               </span>
                             ) : null}
+                            <span className={`rounded-full px-3 py-1 text-xs ${
+                              event.registration_required
+                                ? "bg-purple-50 text-purple-700"
+                                : "bg-slate-100 text-slate-700"
+                            }`}>
+                              {event.registration_required
+                                ? "DanceFlow tickets"
+                                : "Basic listing"}
+                            </span>
                           </div>
 
                           <h3 className="text-lg font-semibold text-slate-950">

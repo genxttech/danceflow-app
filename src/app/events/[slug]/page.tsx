@@ -852,6 +852,20 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.error === "registration_not_enabled") {
+    return {
+      kind: "error" as const,
+      message: "DanceFlow ticket checkout is not enabled for this basic event listing. Please contact the host for registration details.",
+    };
+  }
+
+  if (search.error === "organizer_suite_required") {
+    return {
+      kind: "error" as const,
+      message: "DanceFlow ticket checkout is not currently available for this listing. Please contact the host for registration details.",
+    };
+  }
+
   return null;
 }
 
@@ -882,6 +896,33 @@ function heroPrimaryCtaLabel(params: {
   if (params.allowWaitlistJoin) return "Join Waitlist";
   if (!params.registrationOpen) return "View Registration Info";
   return "Register Now";
+}
+
+function basicListingCta(params: {
+  websiteUrl: string | null;
+  contactEmail: string | null;
+}) {
+  if (params.websiteUrl) {
+    return {
+      href: params.websiteUrl,
+      label: "Visit Host Website",
+      external: true,
+    };
+  }
+
+  if (params.contactEmail) {
+    return {
+      href: `mailto:${params.contactEmail}`,
+      label: "Contact Host",
+      external: false,
+    };
+  }
+
+  return {
+    href: "#details",
+    label: "View Event Details",
+    external: false,
+  };
 }
 
 function accountNotice(params: {
@@ -1552,7 +1593,7 @@ export default async function PublicEventDetailPage({
         }
       : undefined;
 
-  const eventOffersJsonLd = visibleTicketTypes.map((ticket) => ({
+  const eventOffersJsonLd = typedEvent.registration_required ? visibleTicketTypes.map((ticket) => ({
     "@type": "Offer",
     name: ticket.name,
     description: ticket.description ?? undefined,
@@ -1564,7 +1605,7 @@ export default async function PublicEventDetailPage({
         : "https://schema.org/InStock",
     validFrom: ticket.sale_starts_at ?? undefined,
     url: `${eventPublicUrl}#registration`,
-  }));
+  })) : [];
 
   const eventJsonLd = {
     "@context": "https://schema.org",
@@ -1625,11 +1666,16 @@ export default async function PublicEventDetailPage({
   const hasPrivateLessons = privateLessonSlotGroups.length > 0;
   const hasSchedule = groupedScheduleItems.length > 0;
   const ticketPriceLabel = lowestVisibleTicketPriceLabel(visibleTicketTypes);
+  const hasDanceFlowRegistration = typedEvent.registration_required;
+  const basicEventListingCta = basicListingCta({
+    websiteUrl: eventHost.websiteUrl,
+    contactEmail: eventHost.contactEmail,
+  });
 
   const eventTabs = [
     { id: "overview", label: "Overview", show: true },
-    { id: "tickets", label: "Tickets", show: true },
-    { id: "private-lessons", label: "Private Lessons", show: hasPrivateLessons },
+    { id: "tickets", label: "Tickets", show: hasDanceFlowRegistration },
+    { id: "private-lessons", label: "Private Lessons", show: hasDanceFlowRegistration && hasPrivateLessons },
     { id: "schedule", label: "Schedule", show: hasSchedule },
     { id: "location", label: "Location", show: true },
     { id: "details", label: "Details", show: true },
@@ -1741,19 +1787,30 @@ export default async function PublicEventDetailPage({
                       </div>
 
                       <div className="flex flex-wrap gap-3">
-                        <a
-                          href="#tickets"
-                          className="inline-flex rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-100"
-                        >
-                          {heroPrimaryCtaLabel({
-                            registrationRequired:
-                              typedEvent.registration_required,
-                            registrationOpen,
-                            allowWaitlistJoin,
-                          })}
-                        </a>
+                        {hasDanceFlowRegistration ? (
+                          <a
+                            href="#tickets"
+                            className="inline-flex rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-100"
+                          >
+                            {heroPrimaryCtaLabel({
+                              registrationRequired:
+                                typedEvent.registration_required,
+                              registrationOpen,
+                              allowWaitlistJoin,
+                            })}
+                          </a>
+                        ) : (
+                          <a
+                            href={basicEventListingCta.href}
+                            target={basicEventListingCta.external ? "_blank" : undefined}
+                            rel={basicEventListingCta.external ? "noreferrer" : undefined}
+                            className="inline-flex rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-900 hover:bg-slate-100"
+                          >
+                            {basicEventListingCta.label}
+                          </a>
+                        )}
 
-                        {eventHost.websiteUrl ? (
+                        {eventHost.websiteUrl && hasDanceFlowRegistration ? (
                           <a
                             href={eventHost.websiteUrl}
                             target="_blank"
@@ -2250,6 +2307,7 @@ export default async function PublicEventDetailPage({
                   </section>
                 ) : null}
 
+                {hasDanceFlowRegistration ? (
                 <section id="tickets" className="scroll-mt-28 overflow-hidden rounded-[2rem] border border-orange-200/80 bg-[radial-gradient(circle_at_top_left,#fff7ed_0%,#ffffff_42%,#fdf2f8_100%)] shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3 border-b border-orange-100 bg-gradient-to-r from-orange-50 via-rose-50 to-white px-5 py-5 sm:px-8">
                     <div>
@@ -2356,6 +2414,51 @@ export default async function PublicEventDetailPage({
                   </div>
                 </section>
 
+                ) : (
+                  <section
+                    id="host-registration"
+                    className="scroll-mt-28 overflow-hidden rounded-[2rem] border border-purple-200/80 bg-[radial-gradient(circle_at_top_left,#faf5ff_0%,#ffffff_45%,#fff7ed_100%)] shadow-sm"
+                  >
+                    <div className="border-b border-purple-100 bg-gradient-to-r from-purple-50 via-white to-orange-50 px-5 py-5 sm:px-8">
+                      <p className="inline-flex rounded-full bg-purple-100 px-3 py-1 text-xs font-bold uppercase tracking-[0.18em] text-purple-700">
+                        Basic Event Listing
+                      </p>
+                      <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                        Registration is managed by the host
+                      </h2>
+                    </div>
+
+                    <div className="space-y-4 p-5 text-sm leading-6 text-slate-700 sm:p-8">
+                      <p>
+                        This event is listed on DanceFlow for discovery. DanceFlow ticket checkout,
+                        QR tickets, and in-app registration are not enabled for this listing.
+                      </p>
+
+                      <div className="flex flex-wrap gap-3">
+                        {eventHost.websiteUrl ? (
+                          <a
+                            href={eventHost.websiteUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                          >
+                            Visit Host Website
+                          </a>
+                        ) : null}
+
+                        {eventHost.contactEmail ? (
+                          <a
+                            href={`mailto:${eventHost.contactEmail}`}
+                            className="rounded-full border border-purple-200 bg-white px-4 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50"
+                          >
+                            Contact Host
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  </section>
+                )}
+
                 <section id="details" className="scroll-mt-28 overflow-hidden rounded-[2rem] border border-purple-200/80 bg-[radial-gradient(circle_at_top_left,#faf5ff_0%,#ffffff_45%,#fff7ed_100%)] shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3 border-b border-purple-100 bg-gradient-to-r from-purple-50 via-fuchsia-50 to-white px-5 py-5 sm:px-8">
                     <div>
@@ -2414,6 +2517,38 @@ export default async function PublicEventDetailPage({
                       : "Registration"}
                   </h2>
 
+                  {!hasDanceFlowRegistration ? (
+                    <div className="mt-5 rounded-2xl border border-purple-100 bg-purple-50 p-5 text-sm leading-6 text-purple-950">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-700">
+                        Basic Event Listing
+                      </p>
+                      <p className="mt-2">
+                        This event is listed for discovery. DanceFlow ticket checkout is not enabled,
+                        so registration or payment is handled by the host.
+                      </p>
+                      <div className="mt-4 flex flex-wrap gap-3">
+                        {eventHost.websiteUrl ? (
+                          <a
+                            href={eventHost.websiteUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                          >
+                            Visit Host Website
+                          </a>
+                        ) : null}
+                        {eventHost.contactEmail ? (
+                          <a
+                            href={`mailto:${eventHost.contactEmail}`}
+                            className="rounded-full border border-purple-200 bg-white px-4 py-2 text-sm font-semibold text-purple-700 hover:bg-purple-50"
+                          >
+                            Contact Host
+                          </a>
+                        ) : null}
+                      </div>
+                    </div>
+                  ) : (
+                  <>
                   <div className="mt-3 rounded-2xl border border-purple-100 bg-purple-50 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-purple-700">
                       Persistent Event Cart
@@ -2616,6 +2751,8 @@ export default async function PublicEventDetailPage({
                       </div>
                     )}
                   </div>
+                  </>
+                  )}
                 </section>
 
                 <section className="rounded-[2rem] border border-slate-200/80 bg-white p-6 shadow-sm sm:p-8">

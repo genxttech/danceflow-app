@@ -442,6 +442,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  if (!event.registration_required) {
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=registration_not_enabled"),
+    );
+  }
+
+  const organizerPlatformFeePercent = await getOrganizerPlatformFeePercent(
+    supabase,
+    event.studio_id,
+  );
+
+  if (organizerPlatformFeePercent <= 0) {
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, "?error=organizer_suite_required"),
+    );
+  }
+
   if (
     !studio?.stripe_connected_account_id ||
     !studio.stripe_connect_onboarding_complete ||
@@ -987,13 +1004,9 @@ export async function POST(request: NextRequest) {
       throw new Error(orderItemsError.message);
     }
 
-    const feePercent = await getOrganizerPlatformFeePercent(
-      supabase,
-      event.studio_id,
-    );
     const applicationFeeAmount = calculateApplicationFeeAmount(
       totalAmount,
-      feePercent,
+      organizerPlatformFeePercent,
     );
 
     const lineItems = orderItems.map((item) => ({
