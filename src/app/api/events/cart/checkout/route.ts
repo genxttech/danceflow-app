@@ -85,7 +85,7 @@ async function studioHasActiveOrganizerSuiteAddOn(
     .select("id")
     .eq("studio_id", studioId)
     .eq("feature_key", "organizer_suite")
-    .eq("source", "stripe_subscription_item")
+    .in("source", ["stripe_subscription_item", "manual_grant"])
     .eq("status", "active")
     .limit(1);
 
