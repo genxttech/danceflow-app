@@ -294,8 +294,8 @@ targeted CRM audiences, AI help, inactive client follow-up, no upcoming
                   </p>
                   <p>
                     <span className="font-semibold text-slate-900">Pro:</span>{" "}
-event-based audiences, checked-in attendee campaigns, ticketing,
-                    QR check-in, advanced reporting, exports, and larger AI usage.
+advanced reporting, exports, automations, documents, studio ARIA,
+                    larger AI usage, and basic event listings. Add Organizer Suite for ticketing, QR check-in, settlements, event audiences, and event ARIA.
                   </p>
                 </div>
               </section>
@@ -311,8 +311,8 @@ event-based audiences, checked-in attendee campaigns, ticketing,
                     DanceFlow also supports public users and organizers
                   </h2>
                   <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
-                    Free discovery accounts are for dancers and the public. Organizer
-                    accounts continue into organizer pricing and event tools. Organizer
+                    Free discovery accounts are for dancers and the public. Studio plans include basic event listings. Organizer
+                    accounts continue into Organizer Suite pricing for ticketing, check-in, settlement, and event-growth tools. Organizer
                     campaign tools are planned as a near-term event marketing workflow
                     after studio Campaigns V1 stabilizes.
                   </p>

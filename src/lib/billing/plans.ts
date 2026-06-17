@@ -132,7 +132,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "Advanced automations, documents, and team controls",
       "Studio ARIA insights and larger AI allowance",
       "Basic public event listings for DanceFlow Discovery",
-      "Add Organizer Suite for ticketing, QR check-in, settlements, and event ARIA",
+      "Add Organizer Suite for ticketing, QR check-in, settlements, event campaigns, and event ARIA",
     ],
   },
   {
@@ -147,7 +147,7 @@ export const BILLING_PLANS: BillingPlan[] = [
     founderOfferNote:
       "Founder organizer pricing is available during launch and lasts for 12 months after your free trial.",
     transparentFeeNote:
-      "Transparent pricing: founder pricing is $12/month, regularly $19/month, plus a 3.5% DanceFlow platform fee per ticket sale. Standard payment processing fees also apply.",
+      "Transparent pricing: founder pricing is $12/month, regularly $19/month, plus a 3.5% DanceFlow platform fee per ticket sale for standalone organizer workspaces. Standard payment processing fees also apply.",
     features: [
       "organizer_tools",
       "public_events",
@@ -174,7 +174,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "Guest coach private lesson tools",
       "Coach schedule links and calendar feeds",
       "Organizer contacts and marketing campaigns",
-      "Organizer reporting as released",
+      "Event reporting, profitability, and settlement tools",
     ],
   },
 ];

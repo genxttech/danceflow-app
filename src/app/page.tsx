@@ -142,7 +142,7 @@ export default async function HomePage() {
     url: siteUrl,
     logo: `${siteUrl}/brand/danceflow-logo.png`,
     description:
-      "DanceFlow provides dance studio CRM, scheduling, event registration, ticketing, public discovery, payments, email marketing, and organizer tools for the dance community.",
+      "DanceFlow provides dance studio CRM, scheduling, public discovery, basic event listings, payments, email marketing, and optional Organizer Suite tools for ticketed event operations.",
   };
 
   const websiteJsonLd = {
@@ -151,7 +151,7 @@ export default async function HomePage() {
     name: "DanceFlow",
     url: siteUrl,
     description:
-      "DanceFlow helps dancers find studios and events while giving studios and organizers connected tools for CRM, scheduling, ticketing, and public discovery.",
+      "DanceFlow helps dancers find studios and events while giving studios and organizers connected tools for CRM, scheduling, public discovery, and optional ticketed-event operations.",
     publisher: {
       "@type": "Organization",
       name: "DanceFlow",
@@ -167,7 +167,7 @@ export default async function HomePage() {
     operatingSystem: "Web",
     url: siteUrl,
     description:
-      "DanceFlow is a public dance discovery platform with CRM, scheduling, event ticketing, payments, and marketing tools for studios, organizers, instructors, and dancers.",
+      "DanceFlow is a public dance discovery platform with CRM, scheduling, basic event listings, payments, marketing, and optional event-commerce tools for studios, organizers, instructors, and dancers.",
     offers: {
       "@type": "Offer",
       price: "0",
@@ -466,7 +466,7 @@ export default async function HomePage() {
                   Find an event, explore studios, or start your DanceFlow workspace with launch pricing.
                 </h2>
                 <p className="mt-4 max-w-3xl text-base leading-7 text-slate-600">
-                  Studios can start with a 30-day trial and founder pricing for the first 25 studios. Organizers can start with a 14-day trial and event tools built for registration, ticketing, contacts, and check-in.
+                  Studios can start with a 30-day trial and founder pricing for the first 25 studios, including basic event listings for discovery. Organizer Suite adds ticketing, QR check-in, contacts, campaigns, and settlement tools when you are ready to run ticketed public events.
                 </p>
               </div>
 

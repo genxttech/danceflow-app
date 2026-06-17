@@ -742,7 +742,7 @@ function OrganizerSuiteAddOnCard({
             <p className="mt-1 text-sm leading-6 text-slate-600">
               {isActive
                 ? "This studio can use DanceFlow ticket checkout, QR tickets, check-in, closeout, and event-growth tools."
-                : "Basic event listings stay included. Add Organizer Suite when this studio needs to sell, check in, settle, and grow events."}
+                : "Basic event listings stay included. Add Organizer Suite when this studio needs to sell tickets, scan QR check-ins, settle, and grow events."}
             </p>
           </div>
 
@@ -794,7 +794,7 @@ function OrganizerSuiteAddOnCard({
                     This will add Organizer Suite to your current DanceFlow subscription for $19/month. Your card on file will be billed by Stripe as part of your existing monthly subscription. No separate Stripe checkout page will open.
                   </p>
                   <p className="mt-2 text-xs leading-5 text-slate-600">
-                    Organizer Suite unlocks ticketing, QR check-in, registrations, event settlement, event profitability, organizer campaigns, and event ARIA. Cancel anytime from this billing page.
+                    Organizer Suite unlocks ticketing, QR check-in, registrations, event settlement, event profitability, organizer campaigns, and event ARIA. Studio add-on ticket platform fees are 3.25% for Starter/Growth and 3.0% for Pro. Cancel anytime from this billing page.
                   </p>
                   <form action="/api/billing/addons/organizer-suite/checkout" method="post" className="mt-3">
                     <button
@@ -1406,7 +1406,7 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
 
               {selectedAudience === "organizer" ? (
                 <div className="mt-5 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-800">
-                  Transparent fees: 2.5% Square processing fee + 3.5% DanceFlow platform fee on ticket sales.
+                  Transparent fees: standard payment processing fees plus DanceFlow ticket platform fees. Standalone Organizer Suite is 3.5%; studio add-ons are 3.25% for Starter/Growth and 3.0% for Pro.
                 </div>
               ) : null}
             </div>

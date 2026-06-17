@@ -33,7 +33,7 @@ export default async function OrganizerPricingPage() {
               <p className="mt-4 text-lg leading-8 text-slate-600">
                 Built for organizers who want public event pages, registrations,
                 ticketing, QR check-in, guest coach private lesson tools,
-                organizer contacts, campaigns, and reporting without hidden pricing.
+                organizer contacts, campaigns, settlement, and event reporting without hidden pricing.
               </p>
 
               <div className="mt-8 rounded-2xl border border-sky-200 bg-sky-50 px-5 py-4">
@@ -70,8 +70,8 @@ export default async function OrganizerPricingPage() {
                       Transparent ticket-sale pricing
                     </p>
                     <p className="mt-2 text-sm leading-6">
-                      3.5% DanceFlow platform fee on ticket sales. Standard
-                      payment processing fees also apply.
+                      3.5% DanceFlow platform fee on ticket sales for standalone organizer workspaces. Standard
+                      payment processing fees also apply. Studio accounts that add Organizer Suite receive reduced ticket platform fees.
                     </p>
                   </div>
 
