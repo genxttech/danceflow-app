@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 import { createOrganizerCampaignDraftAction } from "./actions";
 import CampaignAIAssistant from "../marketing/campaigns/CampaignAIAssistant";
 
@@ -244,6 +245,16 @@ const starterTemplates = [
   },
 ];
 
+function isOrganizerWorkspaceRole(role: string | null | undefined) {
+  const normalized = String(role ?? "").trim().toLowerCase();
+
+  return (
+    normalized === "organizer_owner" ||
+    normalized === "organizer_admin" ||
+    normalized === "organizer_staff"
+  );
+}
+
 function canViewOrganizerCampaigns(role: string | null | undefined, isPlatformAdminRole: boolean) {
   if (isPlatformAdminRole) return true;
 
@@ -467,6 +478,44 @@ function StatCard({
   );
 }
 
+function OrganizerSuiteUpgradeCard() {
+  return (
+    <main className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-6">
+      <div className="rounded-[28px] border border-[#E9D5FF] bg-[#FCF8FF] p-6 shadow-sm">
+        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-[#7C3AED]">
+          Organizer Suite add-on
+        </p>
+
+        <h1 className="mt-3 text-2xl font-semibold text-[#24113B]">
+          Add Organizer Suite to use event campaigns
+        </h1>
+
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-[#6B5B7A]">
+          Basic event listings are included with your studio plan. Organizer Suite unlocks
+          event contacts, event audience segments, organizer campaigns, ARIA follow-ups,
+          ticketing, QR check-in, settlements, and event profitability tools.
+        </p>
+
+        <div className="mt-5 flex flex-wrap gap-3">
+          <a
+            href="/app/settings/billing"
+            className="rounded-full bg-[#7C3AED] px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-[#6D28D9]"
+          >
+            Add Organizer Suite
+          </a>
+
+          <a
+            href="/app/events"
+            className="rounded-full border border-[#E9D5FF] bg-white px-5 py-2.5 text-sm font-semibold text-[#5B21B6] hover:bg-[#F5F3FF]"
+          >
+            Back to Events
+          </a>
+        </div>
+      </div>
+    </main>
+  );
+}
+
 export default async function OrganizerCampaignsPage({
   searchParams,
 }: {
@@ -487,6 +536,16 @@ export default async function OrganizerCampaignsPage({
 
   if (!canViewOrganizerCampaigns(context.studioRole, context.isPlatformAdmin)) {
     redirect("/app");
+  }
+
+  const workspaceCapabilities = await getCurrentWorkspaceCapabilitiesForUser();
+  const hasOrganizerSuiteAccess =
+    Boolean(context.isPlatformAdmin) ||
+    isOrganizerWorkspaceRole(context.studioRole) ||
+    Boolean(workspaceCapabilities?.hasOrganizerSuite || workspaceCapabilities?.canUseEventOperations);
+
+  if (!hasOrganizerSuiteAccess) {
+    return <OrganizerSuiteUpgradeCard />;
   }
 
   const { data: organizers, error: organizersError } = await supabase

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 
 type SearchParams = Promise<{
   organizer?: string;
@@ -60,6 +61,49 @@ type RegistrationHistoryRow = {
   registered_at: string | null;
   checked_in_at: string | null;
 };
+
+
+function isOrganizerWorkspaceRole(role: string | null | undefined) {
+  return [
+    "organizer_owner",
+    "organizer_admin",
+    "organizer_staff",
+  ].includes(role ?? "");
+}
+
+function OrganizerSuiteUpgradeCard() {
+  return (
+    <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
+      <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
+        <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+            Organizer Suite add-on
+          </p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
+            Organizer contacts require Organizer Suite
+          </h1>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-white/85 md:text-base">
+            Basic event listings can still appear in public discovery. Add Organizer Suite to capture event contacts, track registration history, segment audiences, and follow up after ticketed events.
+          </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link
+              href="/app/settings/billing?reason=feature_required&feature=organizer_tools&requiredPlan=organizer"
+              className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-primary)] hover:bg-white/90"
+            >
+              Add Organizer Suite
+            </Link>
+            <Link
+              href="/app/events"
+              className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15"
+            >
+              Back to Events
+            </Link>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 function canViewOrganizerContacts(
   role: string | null | undefined,
@@ -168,6 +212,16 @@ export default async function OrganizerContactsPage({
 
   if (!canViewOrganizerContacts(context.studioRole, context.isPlatformAdmin)) {
     redirect("/app");
+  }
+
+  const workspaceCapabilities = await getCurrentWorkspaceCapabilitiesForUser();
+  const hasOrganizerSuiteAccess =
+    Boolean(context.isPlatformAdmin) ||
+    isOrganizerWorkspaceRole(context.studioRole) ||
+    Boolean(workspaceCapabilities?.hasOrganizerSuite || workspaceCapabilities?.canUseEventOperations);
+
+  if (!hasOrganizerSuiteAccess) {
+    return <OrganizerSuiteUpgradeCard />;
   }
 
   const selectedOrganizerId = resolvedSearchParams.organizer ?? "";
