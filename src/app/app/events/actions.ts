@@ -1081,12 +1081,40 @@ async function getWorkspaceAndOrganizerPolicy(params: {
       subscription: latestSubscription,
       subscriptionPlan,
     });
-  const hasOrganizerSuite = hasOrganizerSuiteWorkspace({
+  const planOrOrganizerWorkspaceHasOrganizerSuite = hasOrganizerSuiteWorkspace({
     workspace,
     subscription: latestSubscription,
     subscriptionPlan,
     organizerWorkspace,
   });
+
+  let hasActiveOrganizerSuiteEntitlement = false;
+
+  if (!planOrOrganizerWorkspaceHasOrganizerSuite) {
+    const { data: organizerSuiteEntitlements, error: organizerSuiteError } =
+      await supabase
+        .from("usage_addon_entitlements")
+        .select("id")
+        .eq("studio_id", studioId)
+        .eq("feature_key", "organizer_suite")
+        .in("source", ["stripe_subscription_item", "manual_grant"])
+        .eq("status", "active")
+        .limit(1);
+
+    if (organizerSuiteError) {
+      throw new Error(
+        `Failed to load Organizer Suite access: ${organizerSuiteError.message}`,
+      );
+    }
+
+    hasActiveOrganizerSuiteEntitlement = Boolean(
+      organizerSuiteEntitlements?.length,
+    );
+  }
+
+  const hasOrganizerSuite =
+    planOrOrganizerWorkspaceHasOrganizerSuite ||
+    hasActiveOrganizerSuiteEntitlement;
 
   const { data: organizers, error: organizersError } = await supabase
     .from("organizers")
