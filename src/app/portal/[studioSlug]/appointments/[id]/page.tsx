@@ -204,18 +204,6 @@ export default async function PortalAppointmentDetailPage({
     throw new Error(`Failed to load lesson recap: ${recapError.message}`);
   }
 
-  console.log("PORTAL_RECAP_DEBUG", {
-    studioSlug,
-    appointmentId: typedAppointment.id,
-    portalUserId: user.id,
-    portalClientId: typedClient.id,
-    appointmentStatus: typedAppointment.status,
-    recapFound: Boolean(recapData),
-    recapId: recapData?.id ?? null,
-    recapVisibleToClient: recapData?.visible_to_client ?? null,
-    recapMediaCount: recapData?.lesson_recap_media?.length ?? 0,
-  });
-
   const recap = (recapData ?? null) as LessonRecapRow | null;
 
   const recapVisible =

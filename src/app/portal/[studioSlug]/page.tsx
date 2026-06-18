@@ -1,10 +1,19 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { ensurePortalProfileAndClientLinks, getAuthUserFullName } from "@/lib/auth/portal-linking";
+import { submitPortalBookingRequestAction } from "./actions";
+import {
+  ensurePortalProfileAndClientLinks,
+  getAuthUserFullName,
+} from "@/lib/auth/portal-linking";
 
 type Params = Promise<{
   studioSlug: string;
+}>;
+
+type SearchParams = Promise<{
+  booking?: string | string[];
+  error?: string | string[];
 }>;
 
 type StudioRow = {
@@ -13,6 +22,15 @@ type StudioRow = {
   slug: string;
   public_name: string | null;
 };
+
+
+function readSearchParam(
+  value: string | string[] | undefined,
+  fallback = "",
+) {
+  if (Array.isArray(value)) return value[0] ?? fallback;
+  return typeof value === "string" ? value : fallback;
+}
 
 function buildPortalLoginPath(studioSlug: string, error?: string) {
   const search = new URLSearchParams({
@@ -117,6 +135,69 @@ type LessonRecapRow = {
   updated_at: string;
 };
 
+type PortalDocumentAssignmentRow = {
+  id: string;
+  template_id: string;
+  template_version_id: string | null;
+  status: string;
+  due_at: string | null;
+  assigned_at: string;
+  signed_at: string | null;
+};
+
+type PortalEventSummaryRow = {
+  id: string;
+  name: string;
+  slug: string;
+  start_date: string;
+  start_time: string | null;
+  end_date: string | null;
+  venue_name: string | null;
+  city: string | null;
+  state: string | null;
+};
+
+type PortalStudioEventRow = PortalEventSummaryRow & {
+  short_description: string | null;
+  registration_required: boolean | null;
+  public_directory_enabled: boolean | null;
+  status: string | null;
+  visibility: string | null;
+};
+
+type PortalEventAttendeeRow = {
+  id: string;
+  registration_id: string;
+  event_id: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  sort_order: number | null;
+  checked_in_at: string | null;
+  waiver_signed_at: string | null;
+  ticket_code: string | null;
+  ticket_issued_at: string | null;
+};
+
+type PortalEventRegistrationRow = {
+  id: string;
+  event_id: string;
+  status: string;
+  payment_status: string | null;
+  quantity: number | null;
+  total_amount: number | null;
+  created_at: string;
+  events: PortalEventSummaryRow | PortalEventSummaryRow[] | null;
+};
+
+type PendingBookingRequestRow = {
+  id: string;
+  status: string | null;
+  source: string | null;
+  requested_starts_at: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
 type UpcomingItem = {
   id: string;
   kind: "appointment" | "rental";
@@ -161,6 +242,67 @@ function formatTimeRange(start: string, end: string) {
   return `${fmt.format(new Date(start))} – ${fmt.format(new Date(end))}`;
 }
 
+function formatEventDateTime(event: PortalEventSummaryRow | null) {
+  if (!event) return "Date coming soon";
+
+  const datePart = formatDate(event.start_date);
+  if (!event.start_time) return datePart;
+
+  return `${datePart} at ${new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(`${event.start_date}T${event.start_time}`))}`;
+}
+
+function eventLocationLabel(event: PortalEventSummaryRow | null) {
+  if (!event) return "Location coming soon";
+  if (event.venue_name?.trim()) return event.venue_name.trim();
+
+  const parts = [event.city, event.state].filter(Boolean);
+  return parts.length ? parts.join(", ") : "Location coming soon";
+}
+
+function eventRegistrationModeLabel(event: {
+  registration_required?: boolean | null;
+}) {
+  return event.registration_required ? "DanceFlow tickets" : "Basic listing";
+}
+
+function ticketQrSrc(ticketCode: string) {
+  return `/api/tickets/qr?code=${encodeURIComponent(ticketCode)}`;
+}
+
+function attendeeName(attendee: PortalEventAttendeeRow, index: number) {
+  const fullName = `${attendee.first_name ?? ""} ${
+    attendee.last_name ?? ""
+  }`.trim();
+
+  return fullName || `Ticket ${index + 1}`;
+}
+
+function getRegistrationEvent(registration: PortalEventRegistrationRow) {
+  if (Array.isArray(registration.events)) {
+    return registration.events[0] ?? null;
+  }
+
+  return registration.events ?? null;
+}
+
+function attentionToneClass(
+  tone: "amber" | "emerald" | "orange" | "sky" | "rose" | "violet",
+) {
+  const tones: Record<string, string> = {
+    amber: "border-amber-200 bg-amber-50 text-amber-950",
+    orange: "border-orange-200 bg-orange-50 text-orange-950",
+    emerald: "border-emerald-200 bg-emerald-50 text-emerald-950",
+    sky: "border-sky-200 bg-sky-50 text-sky-950",
+    rose: "border-rose-200 bg-rose-50 text-rose-950",
+    violet: "border-violet-200 bg-violet-50 text-violet-950",
+  };
+
+  return tones[tone];
+}
+
 function appointmentTypeLabel(value: string) {
   if (value === "private_lesson") return "Private Lesson";
   if (value === "group_class") return "Group Class";
@@ -191,6 +333,59 @@ function toNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === "") return 0;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function clampPercent(value: number) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function creditUsagePercent(
+  total: number | string | null | undefined,
+  used: number | string | null | undefined,
+) {
+  const parsedTotal = toNumber(total);
+  if (parsedTotal <= 0) return 0;
+
+  return clampPercent((toNumber(used) / parsedTotal) * 100);
+}
+
+function daysUntilDate(value: string | null) {
+  if (!value) return null;
+
+  const target = new Date(`${value}T00:00:00`);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const diffMs = target.getTime() - today.getTime();
+  if (!Number.isFinite(diffMs)) return null;
+
+  return Math.ceil(diffMs / 86_400_000);
+}
+
+function expirationLabel(value: string | null) {
+  if (!value) return "No expiration date";
+
+  const days = daysUntilDate(value);
+  if (days === null) return `Expires ${formatDate(value)}`;
+  if (days < 0) return `Expired ${formatDate(value)}`;
+  if (days === 0) return "Expires today";
+  if (days === 1) return "Expires tomorrow";
+  if (days <= 30) return `Expires in ${days} days`;
+
+  return `Expires ${formatDate(value)}`;
+}
+
+function renewalLabel(membership: ActiveMembership | null) {
+  if (!membership) return "No active membership";
+  if (membership.cancel_at_period_end) {
+    return `Ends ${formatDate(membership.current_period_end)}`;
+  }
+  if (membership.auto_renew) {
+    return `Renews ${formatDate(membership.current_period_end)}`;
+  }
+
+  return `Current period ends ${formatDate(membership.current_period_end)}`;
 }
 
 function paymentMethodLabel(value: string | null) {
@@ -233,6 +428,26 @@ function statusBadgeClass(status: string) {
 
 function getClientFirstName(client: ClientRow) {
   return client.first_name?.trim() || "there";
+}
+
+function getClientDisplayName(client: ClientRow) {
+  const parts = [client.first_name, client.last_name]
+    .map((part) => part?.trim())
+    .filter(Boolean);
+
+  return parts.length ? parts.join(" ") : client.email ?? "Portal Student";
+}
+
+function makePortalPassCode(studio: StudioRow, client: ClientRow) {
+  const seed = `${studio.id}:${client.id}:${client.email ?? ""}`;
+  let hash = 0;
+
+  for (let index = 0; index < seed.length; index += 1) {
+    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0;
+  }
+
+  const suffix = hash.toString(36).toUpperCase().padStart(8, "0").slice(-8);
+  return `DF-PASS-${suffix}`;
 }
 
 function CardShell({
@@ -301,8 +516,17 @@ function ActionTile({
   );
 }
 
-export default async function PortalHomePage({ params }: { params: Params }) {
+export default async function PortalHomePage({
+  params,
+  searchParams,
+}: {
+  params: Params;
+  searchParams: SearchParams;
+}) {
   const { studioSlug } = await params;
+  const resolvedSearchParams = await searchParams;
+  const bookingStatus = readSearchParam(resolvedSearchParams.booking);
+  const pageError = readSearchParam(resolvedSearchParams.error);
   const supabase = await createClient();
 
   const {
@@ -392,6 +616,10 @@ export default async function PortalHomePage({ params }: { params: Params }) {
     { data: rentals, error: rentalsError },
     { data: pendingPayments, error: pendingPaymentsError },
     { data: packages, error: packagesError },
+    { data: documentAssignments, error: documentAssignmentsError },
+    { data: eventRegistrations, error: eventRegistrationsError },
+    { data: upcomingStudioEvents, error: upcomingStudioEventsError },
+    { data: bookingRequests, error: bookingRequestsError },
     { data: paymentHistory, error: paymentHistoryError },
   ] = await Promise.all([
     supabase
@@ -485,6 +713,83 @@ export default async function PortalHomePage({ params }: { params: Params }) {
       .limit(6),
 
     supabase
+      .from("document_assignments")
+      .select(
+        "id, template_id, template_version_id, status, due_at, assigned_at, signed_at",
+      )
+      .eq("studio_id", typedStudio.id)
+      .eq("client_id", typedClient.id)
+      .neq("status", "void")
+      .order("assigned_at", { ascending: false })
+      .limit(10),
+
+    supabase
+      .from("event_registrations")
+      .select(
+        `
+        id,
+        event_id,
+        status,
+        payment_status,
+        quantity,
+        total_amount,
+        created_at,
+        events (
+          id,
+          name,
+          slug,
+          start_date,
+          start_time,
+          end_date,
+          venue_name,
+          city,
+          state
+        )
+      `,
+      )
+      .eq("studio_id", typedStudio.id)
+      .eq("client_id", typedClient.id)
+      .in("status", ["confirmed", "checked_in", "pending", "waitlisted"])
+      .order("created_at", { ascending: false })
+      .limit(6),
+
+    supabase
+      .from("events")
+      .select(
+        `
+        id,
+        name,
+        slug,
+        short_description,
+        start_date,
+        start_time,
+        end_date,
+        venue_name,
+        city,
+        state,
+        registration_required,
+        public_directory_enabled,
+        status,
+        visibility
+      `,
+      )
+      .eq("studio_id", typedStudio.id)
+      .eq("status", "published")
+      .eq("visibility", "public")
+      .gte("start_date", new Date().toISOString().slice(0, 10))
+      .order("start_date", { ascending: true })
+      .limit(6),
+
+    supabase
+      .from("booking_requests")
+      .select("id, status, source, requested_starts_at, created_at, updated_at")
+      .eq("studio_id", typedStudio.id)
+      .eq("client_id", typedClient.id)
+      .in("status", ["pending", "approved"])
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .limit(5),
+
+    supabase
       .from("payments")
       .select(
         "id, amount, currency, payment_type, payment_method, status, notes, paid_at, created_at",
@@ -496,7 +801,7 @@ export default async function PortalHomePage({ params }: { params: Params }) {
       .limit(8),
   ]);
 
-   if (appointmentsError) {
+  if (appointmentsError) {
     throw appointmentsError;
   }
 
@@ -512,6 +817,31 @@ export default async function PortalHomePage({ params }: { params: Params }) {
     throw packagesError;
   }
 
+  if (documentAssignmentsError) {
+    throw documentAssignmentsError;
+  }
+
+  if (eventRegistrationsError) {
+    console.error(
+      "portal event registrations unavailable",
+      eventRegistrationsError.message,
+    );
+  }
+
+  if (upcomingStudioEventsError) {
+    console.error(
+      "portal studio events unavailable",
+      upcomingStudioEventsError.message,
+    );
+  }
+
+  if (bookingRequestsError) {
+    console.error(
+      "portal booking requests unavailable",
+      bookingRequestsError.message,
+    );
+  }
+
   if (paymentHistoryError) {
     throw paymentHistoryError;
   }
@@ -521,7 +851,36 @@ export default async function PortalHomePage({ params }: { params: Params }) {
   const typedRentals = (rentals ?? []) as RentalSummaryRow[];
   const typedPendingPayments = (pendingPayments ?? []) as PendingPaymentRow[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
+  const typedDocumentAssignments = (documentAssignments ??
+    []) as PortalDocumentAssignmentRow[];
+  const typedEventRegistrations = (eventRegistrations ??
+    []) as PortalEventRegistrationRow[];
+  const typedUpcomingStudioEvents = (upcomingStudioEvents ??
+    []) as PortalStudioEventRow[];
+  const typedBookingRequests = (bookingRequests ?? []) as PendingBookingRequestRow[];
   const typedPaymentHistory = (paymentHistory ?? []) as PaymentHistoryRow[];
+  const registrationIds = typedEventRegistrations.map((item) => item.id);
+  let typedEventTickets: PortalEventAttendeeRow[] = [];
+
+  if (registrationIds.length) {
+    const { data: eventTickets, error: eventTicketsError } = await supabase
+      .from("event_registration_attendees")
+      .select(
+        "id, registration_id, event_id, first_name, last_name, sort_order, checked_in_at, waiver_signed_at, ticket_code, ticket_issued_at",
+      )
+      .in("registration_id", registrationIds)
+      .order("sort_order", { ascending: true });
+
+    if (eventTicketsError) {
+      console.error("portal event tickets unavailable", eventTicketsError.message);
+    } else {
+      typedEventTickets = (eventTickets ?? []) as PortalEventAttendeeRow[];
+    }
+  }
+
+  const portalPassCode = makePortalPassCode(typedStudio, typedClient);
+  const portalPassQrUrl = `/api/tickets/qr?code=${encodeURIComponent(portalPassCode)}`;
+  const portalPassName = getClientDisplayName(typedClient);
 
   const recapAppointmentIds = typedAppointments
     .filter((item) => item.status === "attended")
@@ -583,8 +942,406 @@ export default async function PortalHomePage({ params }: { params: Params }) {
     ? upcomingItems.length
     : upcomingAppointments.length;
 
+  const nextUpItem = upcomingItems[0] ?? null;
+  const unsignedDocumentAssignments = typedDocumentAssignments.filter(
+    (item) => item.status !== "signed" && !item.signed_at,
+  );
+  const unsignedDocumentCount = unsignedDocumentAssignments.length;
+  const overdueDocumentCount = unsignedDocumentAssignments.filter((item) => {
+    if (!item.due_at) return false;
+    const dueTime = new Date(item.due_at).getTime();
+    return Number.isFinite(dueTime) && dueTime < Date.now();
+  }).length;
+  const upcomingDueDocumentCount = unsignedDocumentAssignments.filter((item) => {
+    if (!item.due_at) return false;
+    const dueTime = new Date(item.due_at).getTime();
+    if (!Number.isFinite(dueTime)) return false;
+    const diffDays = Math.ceil((dueTime - Date.now()) / 86_400_000);
+    return diffDays >= 0 && diffDays <= 7;
+  }).length;
+  const lowCreditItems = typedPackages.flatMap((clientPackage) =>
+    (clientPackage.client_package_items ?? [])
+      .filter(
+        (item) =>
+          !item.is_unlimited &&
+          toNumber(item.quantity_remaining) > 0 &&
+          toNumber(item.quantity_remaining) <= 1,
+      )
+      .map((item) => ({
+        packageName: clientPackage.name_snapshot,
+        label: packageUsageTypeLabel(item.usage_type),
+        remaining: toNumber(item.quantity_remaining),
+      })),
+  );
+  const remainingCreditTotal = typedPackages.reduce(
+    (packageTotal, clientPackage) => {
+      return (
+        packageTotal +
+        (clientPackage.client_package_items ?? []).reduce((itemTotal, item) => {
+          if (item.is_unlimited) return itemTotal;
+          return itemTotal + toNumber(item.quantity_remaining);
+        }, 0)
+      );
+    },
+    0,
+  );
+
+  const packageWalletItems = typedPackages.map((clientPackage) => {
+    const items = clientPackage.client_package_items ?? [];
+    const hasUnlimited = items.some((item) => item.is_unlimited);
+    const totalRemaining = items.reduce((total, item) => {
+      if (item.is_unlimited) return total;
+      return total + toNumber(item.quantity_remaining);
+    }, 0);
+    const totalPurchased = items.reduce((total, item) => {
+      if (item.is_unlimited) return total;
+      return total + toNumber(item.quantity_total);
+    }, 0);
+    const totalUsed = items.reduce((total, item) => {
+      if (item.is_unlimited) return total;
+      return total + toNumber(item.quantity_used);
+    }, 0);
+    const daysUntilExpiration = daysUntilDate(clientPackage.expiration_date);
+    const isExpiringSoon =
+      daysUntilExpiration !== null &&
+      daysUntilExpiration >= 0 &&
+      daysUntilExpiration <= 30;
+    const isLowBalance =
+      !hasUnlimited &&
+      totalRemaining > 0 &&
+      totalRemaining <= Math.max(1, Math.ceil(totalPurchased * 0.2));
+
+    return {
+      clientPackage,
+      items,
+      hasUnlimited,
+      totalRemaining,
+      totalPurchased,
+      totalUsed,
+      usagePercent: creditUsagePercent(totalPurchased, totalUsed),
+      daysUntilExpiration,
+      isExpiringSoon,
+      isLowBalance,
+    };
+  });
+  const hasUnlimitedCredits = packageWalletItems.some((item) => item.hasUnlimited);
+  const expiringPackageCount = packageWalletItems.filter(
+    (item) => item.isExpiringSoon,
+  ).length;
+  const lowBalancePackageCount = packageWalletItems.filter(
+    (item) => item.isLowBalance,
+  ).length;
+  const walletStatusItems = [
+    ...(typedPackages.length
+      ? [
+          `${typedPackages.length} active package${
+            typedPackages.length === 1 ? "" : "s"
+          }`,
+        ]
+      : ["No active packages"]),
+    ...(hasUnlimitedCredits ? ["unlimited credits available"] : []),
+    ...(lowBalancePackageCount
+      ? [
+          `${lowBalancePackageCount} package${
+            lowBalancePackageCount === 1 ? "" : "s"
+          } running low`,
+        ]
+      : []),
+    ...(expiringPackageCount
+      ? [
+          `${expiringPackageCount} package${
+            expiringPackageCount === 1 ? "" : "s"
+          } expiring soon`,
+        ]
+      : []),
+  ];
+  const eventTicketsByRegistration = new Map<string, PortalEventAttendeeRow[]>();
+
+  typedEventTickets.forEach((ticket) => {
+    const current = eventTicketsByRegistration.get(ticket.registration_id) ?? [];
+    current.push(ticket);
+    eventTicketsByRegistration.set(ticket.registration_id, current);
+  });
+
+  const registeredEvents = typedEventRegistrations
+    .map((registration) => ({
+      registration,
+      event: getRegistrationEvent(registration),
+      tickets: eventTicketsByRegistration.get(registration.id) ?? [],
+    }))
+    .filter((item) => item.event)
+    .sort((a, b) =>
+      String(a.event?.start_date ?? "").localeCompare(
+        String(b.event?.start_date ?? ""),
+      ),
+    )
+    .slice(0, 4);
+  const registeredEventIdSet = new Set(
+    typedEventRegistrations.map((registration) => registration.event_id),
+  );
+  const discoverableStudioEvents = typedUpcomingStudioEvents
+    .filter((event) => !registeredEventIdSet.has(event.id))
+    .slice(0, 4);
+  const issuedPortalTicketCount = typedEventTickets.filter((ticket) =>
+    Boolean(ticket.ticket_code),
+  ).length;
+  const pendingBookingRequests = typedBookingRequests.filter(
+    (request) => request.status === "pending",
+  );
+  const approvedBookingRequests = typedBookingRequests.filter(
+    (request) => request.status === "approved",
+  );
+  const membershipRenewalDays = typedMembership
+    ? daysUntilDate(typedMembership.current_period_end)
+    : null;
+  const upcomingRegisteredEvent = registeredEvents[0] ?? null;
+
+  const portalNotificationItems = [
+    ...(nextUpItem
+      ? [
+          {
+            title: "Upcoming schedule reminder",
+            description: `${nextUpItem.title} is next on ${formatDateTime(
+              nextUpItem.starts_at,
+            )}.`,
+            tone: "sky" as const,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}/schedule`,
+            label: "Schedule",
+          },
+        ]
+      : []),
+    ...(upcomingRegisteredEvent?.event
+      ? [
+          {
+            title: "Upcoming event reminder",
+            description: `${upcomingRegisteredEvent.event.name} is coming up. Review your registration, ticket code, and event details before you arrive.`,
+            tone: "orange" as const,
+            href: upcomingRegisteredEvent.event.slug
+              ? `/events/${encodeURIComponent(upcomingRegisteredEvent.event.slug)}`
+              : `/portal/${encodeURIComponent(typedStudio.slug)}#portal-events`,
+            label: "Events",
+          },
+        ]
+      : []),
+    ...(unsignedDocumentCount
+      ? [
+          {
+            title: overdueDocumentCount
+              ? "Document signature past due"
+              : "Document signature needed",
+            description: overdueDocumentCount
+              ? `${overdueDocumentCount} document ${
+                  overdueDocumentCount === 1 ? "is" : "are"
+                } past due. Please review your document center.`
+              : `${unsignedDocumentCount} document ${
+                  unsignedDocumentCount === 1 ? "needs" : "need"
+                } your signature before an upcoming studio activity.`,
+            tone: overdueDocumentCount ? ("rose" as const) : ("violet" as const),
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}/documents`,
+            label: "Documents",
+          },
+        ]
+      : []),
+    ...(lowCreditItems.length
+      ? [
+          {
+            title: "Package balance reminder",
+            description: `${lowCreditItems[0].label} in ${lowCreditItems[0].packageName} ${
+              lowCreditItems.length > 1 ? "and other credits are" : "is"
+            } running low.`,
+            tone: "rose" as const,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}#wallet`,
+            label: "Wallet",
+          },
+        ]
+      : []),
+    ...(pendingBookingRequests.length
+      ? [
+          {
+            title: "Booking request pending",
+            description: `${pendingBookingRequests.length} request ${
+              pendingBookingRequests.length === 1 ? "is" : "are"
+            } waiting for studio review.`,
+            tone: "sky" as const,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}#booking-request`,
+            label: "Requests",
+          },
+        ]
+      : []),
+    ...(approvedBookingRequests.length
+      ? [
+          {
+            title: "Booking request approved",
+            description: `${approvedBookingRequests.length} request ${
+              approvedBookingRequests.length === 1 ? "has" : "have"
+            } been approved. Check your schedule or wait for the studio's next update.`,
+            tone: "emerald" as const,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}/schedule`,
+            label: "Requests",
+          },
+        ]
+      : []),
+    ...(membershipRenewalDays !== null &&
+    membershipRenewalDays >= 0 &&
+    membershipRenewalDays <= 14
+      ? [
+          {
+            title: "Membership renewal reminder",
+            description: typedMembership?.cancel_at_period_end
+              ? `Your membership is scheduled to end ${formatDate(
+                  typedMembership.current_period_end,
+                )}.`
+              : `Your current membership period renews ${formatDate(
+                  typedMembership?.current_period_end ?? null,
+                )}.`,
+            tone: typedMembership?.cancel_at_period_end
+              ? ("amber" as const)
+              : ("emerald" as const),
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}#wallet`,
+            label: "Membership",
+          },
+        ]
+      : []),
+    ...(!upcomingItems.length
+      ? [
+          {
+            title: "No upcoming lessons yet",
+            description: isInstructorPortal
+              ? "No upcoming lessons or rentals are showing in your portal."
+              : "Request a lesson or contact the studio to get something on the calendar.",
+            tone: "sky" as const,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}${
+              isInstructorPortal ? "/schedule" : "#booking-request"
+            }`,
+            label: "Schedule",
+          },
+        ]
+      : []),
+    ...(issuedPortalTicketCount
+      ? [
+          {
+            title: "Ticket code ready",
+            description: `${issuedPortalTicketCount} ticket ${
+              issuedPortalTicketCount === 1 ? "code is" : "codes are"
+            } available in your portal for event check-in.`,
+            tone: "orange" as const,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}#portal-events`,
+            label: "Tickets",
+          },
+        ]
+      : []),
+  ].slice(0, 6);
+
+  const attentionItems = [
+    ...(typedPendingPayments.length
+      ? [
+          {
+            title: "Payment request waiting",
+            description: `${typedPendingPayments.length} pending payment ${
+              typedPendingPayments.length === 1
+                ? "request needs"
+                : "requests need"
+            } attention.`,
+            tone: "amber" as const,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}`,
+            cta: "Review payments",
+          },
+        ]
+      : []),
+    ...(unsignedDocumentCount
+      ? [
+          {
+            title: overdueDocumentCount
+              ? "Document signature overdue"
+              : "Document signature needed",
+            description: overdueDocumentCount
+              ? `${overdueDocumentCount} document ${
+                  overdueDocumentCount === 1 ? "is" : "are"
+                } past due. Review and sign before your next visit.`
+              : `${unsignedDocumentCount} document ${
+                  unsignedDocumentCount === 1 ? "is" : "are"
+                } waiting for your review${
+                  upcomingDueDocumentCount ? " soon" : ""
+                }.`,
+            tone: overdueDocumentCount ? ("rose" as const) : ("violet" as const),
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}/documents`,
+            cta: "Sign documents",
+          },
+        ]
+      : []),
+    ...(lowCreditItems.length
+      ? [
+          {
+            title: "Credits running low",
+            description: `${lowCreditItems[0].label} in ${lowCreditItems[0].packageName} ${
+              lowCreditItems.length > 1 ? "and other credits are" : "is"
+            } almost used up.`,
+            tone: "rose" as const,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}/schedule`,
+            cta: "View credits",
+          },
+        ]
+      : []),
+    ...(pendingBookingRequests.length
+      ? [
+          {
+            title: "Booking request sent",
+            description: `${pendingBookingRequests.length} request ${
+              pendingBookingRequests.length === 1 ? "is" : "are"
+            } waiting for studio review.`,
+            tone: "sky" as const,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}#booking-request`,
+            cta: "View request",
+          },
+        ]
+      : []),
+    ...(!upcomingItems.length
+      ? [
+          {
+            title: "Nothing scheduled yet",
+            description: isInstructorPortal
+              ? "You do not have upcoming lessons or rentals showing in your portal."
+              : "You do not have an upcoming lesson or class on your portal schedule.",
+            tone: "sky" as const,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}/schedule`,
+            cta: "View schedule",
+          },
+        ]
+      : []),
+    ...(typedMembership?.status === "past_due"
+      ? [
+          {
+            title: "Membership needs attention",
+            description:
+              "Your membership is marked past due. Contact the studio or review your payment requests.",
+            tone: "amber" as const,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}`,
+            cta: "Review account",
+          },
+        ]
+      : []),
+  ].slice(0, 4);
+
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.42)_0%,rgba(255,255,255,0)_24%)] p-1">
+      {bookingStatus === "request-sent" ? (
+        <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950">
+          <p className="font-semibold">Request sent to the studio.</p>
+          <p className="mt-1 text-sm leading-6 text-emerald-900">
+            The studio team can review your request and follow up with next steps.
+          </p>
+        </div>
+      ) : null}
+
+      {pageError === "booking-request-failed" ? (
+        <div className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-950">
+          <p className="font-semibold">We could not send that request.</p>
+          <p className="mt-1 text-sm leading-6 text-rose-900">
+            Please try again or contact the studio directly.
+          </p>
+        </div>
+      ) : null}
+
       <section className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-white shadow-sm">
         <div className="bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] px-6 py-8 text-white md:px-8">
           <div className="flex flex-col gap-6">
@@ -721,6 +1478,540 @@ export default async function PortalHomePage({ params }: { params: Params }) {
         </div>
       </section>
 
+      <section className="grid gap-5 lg:grid-cols-[1.2fr_0.8fr]">
+        <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
+          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+                My Dance Hub
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                {nextUpItem
+                  ? "You have something coming up"
+                  : "You are all caught up"}
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
+                {nextUpItem
+                  ? "Your portal keeps your schedule, credits, documents, events, and studio activity in one place."
+                  : "There is nothing urgent showing right now. Use your quick actions to view your schedule, check credits, or contact the studio."}
+              </p>
+            </div>
+
+            <Link
+              href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
+              className="inline-flex items-center justify-center rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              View Schedule
+            </Link>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            <div className="rounded-3xl border border-sky-200 bg-sky-50 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
+                Next Up
+              </p>
+              {nextUpItem ? (
+                <>
+                  <p className="mt-3 text-lg font-semibold text-sky-950">
+                    {nextUpItem.title}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-sky-900">
+                    {formatDateTime(nextUpItem.starts_at)}
+                  </p>
+                  <p className="mt-1 text-sm text-sky-800">
+                    {formatTimeRange(nextUpItem.starts_at, nextUpItem.ends_at)}
+                  </p>
+                </>
+              ) : (
+                <p className="mt-3 text-sm leading-7 text-sky-900">
+                  No upcoming lessons, classes, or rentals are currently on your
+                  portal schedule.
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                My Wallet
+              </p>
+              <p className="mt-3 text-3xl font-semibold text-emerald-950">
+                {hasUnlimitedCredits ? "Unlimited" : remainingCreditTotal}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-emerald-900">
+                {walletStatusItems.join(" • ")}
+              </p>
+              {typedMembership ? (
+                <p className="mt-3 rounded-2xl border border-emerald-200 bg-white px-3 py-2 text-xs font-semibold text-emerald-900">
+                  {typedMembership.name_snapshot}: {renewalLabel(typedMembership)}
+                </p>
+              ) : null}
+            </div>
+
+            <div className="rounded-3xl border border-violet-200 bg-violet-50 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                Documents
+              </p>
+              <p className="mt-3 text-3xl font-semibold text-violet-950">
+                {unsignedDocumentCount}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-violet-900">
+                {unsignedDocumentCount
+                  ? overdueDocumentCount
+                    ? `${overdueDocumentCount} past due. Review before your next visit.`
+                    : upcomingDueDocumentCount
+                      ? `${upcomingDueDocumentCount} due soon.`
+                      : "signature needed."
+                  : "No documents currently need your signature."}
+              </p>
+              <Link
+                href={`/portal/${encodeURIComponent(typedStudio.slug)}/documents`}
+                className="mt-4 inline-flex rounded-2xl border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-900 hover:bg-violet-100"
+              >
+                Open Documents
+              </Link>
+            </div>
+
+            <div className="rounded-3xl border border-orange-200 bg-orange-50 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">
+                My Events
+              </p>
+              <p className="mt-3 text-3xl font-semibold text-orange-950">
+                {registeredEvents.length}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-orange-900">
+                {registeredEvents.length
+                  ? `${issuedPortalTicketCount} ticket ${
+                      issuedPortalTicketCount === 1 ? "code" : "codes"
+                    } ready for check-in.`
+                  : discoverableStudioEvents.length
+                    ? "Studio events are available to review."
+                    : "registered events will appear here after signup."}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+                Needs Attention
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                {attentionItems.length
+                  ? "A few things to review"
+                  : "You are all set"}
+              </h2>
+            </div>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+              {attentionItems.length}
+            </span>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {attentionItems.length ? (
+              attentionItems.map((item) => (
+                <Link
+                  key={item.title}
+                  href={item.href}
+                  className={`block rounded-3xl border p-4 transition hover:shadow-sm ${attentionToneClass(item.tone)}`}
+                >
+                  <p className="font-semibold">{item.title}</p>
+                  <p className="mt-1 text-sm leading-6 opacity-85">
+                    {item.description}
+                  </p>
+                  <p className="mt-3 text-sm font-semibold">{item.cta} →</p>
+                </Link>
+              ))
+            ) : (
+              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950">
+                <p className="font-semibold">Nothing needs action right now.</p>
+                <p className="mt-2 text-sm leading-6 text-emerald-900">
+                  Your portal will highlight unsigned documents, pending
+                  payments, low credits, and schedule reminders here.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <CardShell
+        title="Portal Updates"
+        accent="violet"
+        subtitle="A simple feed of reminders, changes, and next steps from your studio portal."
+      >
+        <div id="portal-notifications" className="space-y-4">
+          {portalNotificationItems.length ? (
+            <div className="grid gap-4 lg:grid-cols-2">
+              {portalNotificationItems.map((item) => (
+                <Link
+                  key={`${item.label}-${item.title}`}
+                  href={item.href}
+                  className={`block rounded-3xl border p-5 transition hover:shadow-sm ${attentionToneClass(item.tone)}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
+                        {item.label}
+                      </p>
+                      <p className="mt-2 font-semibold">{item.title}</p>
+                    </div>
+                    <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold">
+                      New
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6 opacity-85">
+                    {item.description}
+                  </p>
+                  <p className="mt-4 text-sm font-semibold">Review →</p>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+              <p className="font-semibold">No portal updates right now.</p>
+              <p className="mt-2 text-sm leading-6 text-emerald-900">
+                Schedule reminders, tickets, documents, package notices, and booking request updates will appear here.
+              </p>
+            </div>
+          )}
+
+          <div className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600 sm:grid-cols-3">
+            <div>
+              <p className="font-semibold text-slate-900">Schedule</p>
+              <p className="mt-1">Lessons, classes, rentals, and booking request status.</p>
+            </div>
+            <div>
+              <p className="font-semibold text-slate-900">Account</p>
+              <p className="mt-1">Credits, memberships, payment requests, and documents.</p>
+            </div>
+            <div>
+              <p className="font-semibold text-slate-900">Events</p>
+              <p className="mt-1">Registrations, ticket codes, waivers, and studio events.</p>
+            </div>
+          </div>
+        </div>
+      </CardShell>
+
+      <CardShell
+        title="My Pass"
+        accent="emerald"
+        subtitle="Show this pass at the front desk when you arrive. It gives the studio a quick way to confirm your portal profile, membership, and package snapshot."
+      >
+        <div id="my-pass" className="grid gap-6 lg:grid-cols-[0.85fr_1.15fr]">
+          <div className="rounded-[32px] border border-emerald-200 bg-emerald-50 p-6 text-center">
+            <div className="mx-auto inline-flex rounded-[28px] border border-emerald-200 bg-white p-4 shadow-sm">
+              <img
+                src={portalPassQrUrl}
+                alt="Student pass QR code"
+                className="h-48 w-48 rounded-2xl"
+              />
+            </div>
+            <p className="mt-4 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+              Student Pass
+            </p>
+            <p className="mt-2 text-2xl font-semibold text-emerald-950">
+              {portalPassName}
+            </p>
+            <p className="mt-1 text-sm text-emerald-900">{studioLabel}</p>
+            <p className="mt-4 rounded-2xl border border-emerald-200 bg-white px-4 py-3 font-mono text-sm font-semibold tracking-[0.12em] text-emerald-950">
+              {portalPassCode}
+            </p>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Portal Status
+              </p>
+              <p className="mt-3 text-xl font-semibold text-slate-950">
+                Active portal profile
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Front desk staff can use this pass to quickly match your portal profile and review your studio account.
+              </p>
+            </div>
+
+            <div className="rounded-3xl border border-violet-200 bg-violet-50 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                Membership
+              </p>
+              <p className="mt-3 text-xl font-semibold text-violet-950">
+                {typedMembership ? statusLabel(typedMembership.status) : "Not active"}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-violet-900">
+                {typedMembership
+                  ? renewalLabel(typedMembership)
+                  : "No active membership is linked right now."}
+              </p>
+            </div>
+
+            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                Credits
+              </p>
+              <p className="mt-3 text-3xl font-semibold text-emerald-950">
+                {hasUnlimitedCredits ? "Unlimited" : remainingCreditTotal}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-emerald-900">
+                {typedPackages.length
+                  ? `${typedPackages.length} active package${
+                      typedPackages.length === 1 ? "" : "s"
+                    } linked.`
+                  : "No active packages are linked right now."}
+              </p>
+            </div>
+
+            <div className="rounded-3xl border border-sky-200 bg-sky-50 p-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
+                Next Up
+              </p>
+              <p className="mt-3 text-xl font-semibold text-sky-950">
+                {nextUpItem ? nextUpItem.title : "Nothing scheduled"}
+              </p>
+              <p className="mt-2 text-sm leading-6 text-sky-900">
+                {nextUpItem
+                  ? formatDateTime(nextUpItem.starts_at)
+                  : "Your next lesson or class will appear here after the studio schedules it."}
+              </p>
+            </div>
+          </div>
+        </div>
+      </CardShell>
+
+      <CardShell
+        title="My Events & Tickets"
+        accent="orange"
+        subtitle="Review your registered events, ticket codes, event check-in details, and upcoming studio events."
+      >
+        <div className="space-y-6">
+          {unsignedDocumentCount ? (
+            <div className="rounded-3xl border border-violet-200 bg-violet-50 p-5">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-violet-950">
+                    Event or studio documents may need your signature.
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-violet-900">
+                    Review your document center before attending class or checking in for an event.
+                  </p>
+                </div>
+                <Link
+                  href={`/portal/${encodeURIComponent(typedStudio.slug)}/documents`}
+                  className="inline-flex rounded-2xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-violet-800"
+                >
+                  Review documents
+                </Link>
+              </div>
+            </div>
+          ) : null}
+
+          <div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-950">
+                  My Registered Events
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Your DanceFlow registrations and QR ticket codes appear here when available.
+                </p>
+              </div>
+              <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-800 ring-1 ring-orange-100">
+                {registeredEvents.length} registered
+              </span>
+            </div>
+
+            {registeredEvents.length ? (
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                {registeredEvents.map(({ registration, event, tickets }) => (
+                  <div
+                    key={registration.id}
+                    className="rounded-3xl border border-orange-100 bg-orange-50 p-5"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-orange-800 ring-1 ring-orange-100">
+                        {statusLabel(registration.status)}
+                      </span>
+                      {registration.payment_status ? (
+                        <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                          {statusLabel(registration.payment_status)}
+                        </span>
+                      ) : null}
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                        {tickets.length
+                          ? `${tickets.length} ticket${
+                              tickets.length === 1 ? "" : "s"
+                            }`
+                          : "Ticket pending"}
+                      </span>
+                    </div>
+
+                    <Link
+                      href={
+                        event?.slug
+                          ? `/events/${encodeURIComponent(event.slug)}`
+                          : "#"
+                      }
+                      className="mt-4 block"
+                    >
+                      <p className="text-lg font-semibold text-orange-950 hover:text-orange-800">
+                        {event?.name ?? "Event"}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-orange-900">
+                        {formatEventDateTime(event)}
+                      </p>
+                      <p className="mt-1 text-sm text-orange-800">
+                        {eventLocationLabel(event)}
+                      </p>
+                    </Link>
+
+                    {tickets.length ? (
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        {tickets.slice(0, 2).map((ticket, index) => (
+                          <div
+                            key={ticket.id}
+                            className="rounded-2xl border border-orange-100 bg-white p-3"
+                          >
+                            <div className="flex gap-3">
+                              <div className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white p-2">
+                                {ticket.ticket_code ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={ticketQrSrc(ticket.ticket_code)}
+                                    alt={`QR code for ${attendeeName(ticket, index)}`}
+                                    className="h-full w-full"
+                                  />
+                                ) : (
+                                  <span className="text-center text-xs text-slate-400">
+                                    QR pending
+                                  </span>
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-slate-950">
+                                  {attendeeName(ticket, index)}
+                                </p>
+                                <p className="mt-1 font-mono text-[11px] font-semibold text-slate-600">
+                                  {ticket.ticket_code ?? "Ticket code pending"}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {ticket.checked_in_at
+                                    ? "Checked in"
+                                    : "Ready for check-in"}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-4 rounded-2xl border border-dashed border-orange-200 bg-white/70 p-4 text-sm leading-6 text-orange-900">
+                        Your QR ticket code will appear here after the registration is confirmed.
+                      </p>
+                    )}
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Link
+                        href={
+                          event?.slug
+                            ? `/events/${encodeURIComponent(event.slug)}`
+                            : "#"
+                        }
+                        className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-orange-700"
+                      >
+                        View event
+                      </Link>
+                      <Link
+                        href={`/portal/${encodeURIComponent(typedStudio.slug)}/documents`}
+                        className="rounded-xl border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-100"
+                      >
+                        Check waivers
+                      </Link>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-3xl border border-dashed border-orange-200 bg-orange-50 p-6">
+                <p className="font-semibold text-orange-950">
+                  No registered events yet
+                </p>
+                <p className="mt-2 text-sm leading-6 text-orange-900">
+                  When you register for a DanceFlow event, your event details and ticket codes will appear here.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-950">
+                  Upcoming Studio Events
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Discover events from {typedStudio.public_name ?? typedStudio.name}.
+                </p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                {discoverableStudioEvents.length} available
+              </span>
+            </div>
+
+            {discoverableStudioEvents.length ? (
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                {discoverableStudioEvents.map((event) => (
+                  <Link
+                    key={event.id}
+                    href={`/events/${encodeURIComponent(event.slug)}`}
+                    className="rounded-3xl border border-slate-200 bg-white p-5 transition hover:border-orange-200 hover:bg-orange-50"
+                  >
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                        {eventRegistrationModeLabel(event)}
+                      </span>
+                      {event.registration_required ? (
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                          Register online
+                        </span>
+                      ) : (
+                        <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">
+                          Host-managed registration
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-4 text-lg font-semibold text-slate-950">
+                      {event.name}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      {formatEventDateTime(event)}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      {eventLocationLabel(event)}
+                    </p>
+                    {event.short_description ? (
+                      <p className="mt-3 line-clamp-2 text-sm leading-6 text-slate-600">
+                        {event.short_description}
+                      </p>
+                    ) : null}
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="font-semibold text-slate-950">
+                  No additional studio events are posted right now.
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  New studio events will appear here when they are published.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      </CardShell>
+
       <CardShell
         title="Quick Actions"
         accent="sky"
@@ -730,7 +2021,7 @@ export default async function PortalHomePage({ params }: { params: Params }) {
             : "Use these links to view your schedule, packages, payments, and account details."
         }
       >
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
           <ActionTile
             href={`/portal/${encodeURIComponent(typedStudio.slug)}`}
             title="Portal Home"
@@ -742,6 +2033,26 @@ export default async function PortalHomePage({ params }: { params: Params }) {
             title="My Schedule"
             description="See upcoming lessons and recent activity."
             tone="sky"
+          />
+          {!isInstructorPortal ? (
+            <ActionTile
+              href="#booking-request"
+              title="Request a Lesson"
+              description="Send preferred times and scheduling notes to the studio."
+              tone="violet"
+            />
+          ) : null}
+          <ActionTile
+            href="#my-pass"
+            title="My Pass"
+            description="Show your student pass at the front desk for check-in or account lookup."
+            tone="emerald"
+          />
+          <ActionTile
+            href="#portal-notifications"
+            title="Portal Updates"
+            description="Review reminders, tickets, documents, and account prompts."
+            tone="violet"
           />
           <ActionTile
             href={`/portal/${encodeURIComponent(typedStudio.slug)}/documents`}
@@ -789,6 +2100,137 @@ export default async function PortalHomePage({ params }: { params: Params }) {
           ) : null}
         </div>
       </CardShell>
+
+      {!isInstructorPortal ? (
+        <CardShell
+          title="Request a Lesson or Coaching"
+          accent="violet"
+          subtitle="Send a scheduling request to the studio without starting a text thread. This is a request only; the studio will confirm the final time."
+        >
+          <div id="booking-request" className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
+            <div className="rounded-3xl border border-violet-100 bg-violet-50 p-5">
+              <p className="text-sm font-semibold text-violet-950">
+                Request status
+              </p>
+              {pendingBookingRequests.length ? (
+                <div className="mt-4 space-y-3">
+                  {pendingBookingRequests.map((request) => (
+                    <div
+                      key={request.id}
+                      className="rounded-2xl border border-white bg-white p-4"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">
+                          Pending review
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          Sent {formatDate(request.created_at)}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        The studio has your request and can follow up with a confirmed time.
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              ) : approvedBookingRequests.length ? (
+                <div className="mt-4 rounded-2xl border border-white bg-white p-4">
+                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
+                    Recently approved
+                  </span>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Your latest request has been approved. Check your schedule for confirmed appointments.
+                  </p>
+                </div>
+              ) : (
+                <p className="mt-3 text-sm leading-6 text-violet-900">
+                  Use the form to request your next private lesson, coaching, floor rental, make-up lesson, or scheduling help.
+                </p>
+              )}
+            </div>
+
+            <form
+              action={submitPortalBookingRequestAction}
+              className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+            >
+              <input type="hidden" name="studioSlug" value={typedStudio.slug} />
+              <input
+                type="hidden"
+                name="returnTo"
+                value={`/portal/${encodeURIComponent(typedStudio.slug)}`}
+              />
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-700">
+                    Request type
+                  </span>
+                  <select
+                    name="requestType"
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                    defaultValue="private_lesson"
+                  >
+                    <option value="private_lesson">Private lesson</option>
+                    <option value="coaching">Coaching</option>
+                    <option value="group_class">Group class question</option>
+                    <option value="makeup_lesson">Make-up lesson</option>
+                    <option value="floor_rental">Floor rental</option>
+                    <option value="scheduling_question">Scheduling question</option>
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="text-sm font-medium text-slate-700">
+                    Contact preference
+                  </span>
+                  <select
+                    name="contactPreference"
+                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                    defaultValue="email"
+                  >
+                    <option value="email">Email me</option>
+                    <option value="phone">Call me</option>
+                    <option value="text">Text me, if I have opted in</option>
+                    <option value="portal">Portal message or studio follow-up</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="mt-4 block">
+                <span className="text-sm font-medium text-slate-700">
+                  Preferred days or times
+                </span>
+                <textarea
+                  name="preferredTimes"
+                  rows={3}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                  placeholder="Example: Tuesdays after 6pm, Saturday mornings, or any evening next week."
+                  required
+                />
+              </label>
+
+              <label className="mt-4 block">
+                <span className="text-sm font-medium text-slate-700">
+                  Notes for the studio
+                </span>
+                <textarea
+                  name="notes"
+                  rows={4}
+                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
+                  placeholder="Share goals, instructor preferences, make-up details, or anything the studio should know."
+                />
+              </label>
+
+              <button
+                type="submit"
+                className="mt-5 inline-flex rounded-2xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white hover:opacity-90"
+              >
+                Send Request
+              </button>
+            </form>
+          </div>
+        </CardShell>
+      ) : null}
 
       <div className="grid gap-8 xl:grid-cols-[1.25fr_0.95fr]">
         <div className="space-y-8">
@@ -852,75 +2294,215 @@ export default async function PortalHomePage({ params }: { params: Params }) {
           </CardShell>
 
           <CardShell
-            title="Packages & Credits"
+            title="My Wallet"
             accent="emerald"
-            subtitle="See active packages and the credits you have available for lessons, groups, and parties."
+            subtitle="Track your active packages, remaining credits, expiration dates, and what to ask the studio about next."
           >
-            {typedPackages.length ? (
-              <div className="space-y-4">
-                {typedPackages.map((clientPackage) => (
-                  <div
-                    key={clientPackage.id}
-                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-                  >
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
-                            Active
-                          </span>
-                          {clientPackage.expiration_date ? (
-                            <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                              Expires{" "}
-                              {formatDate(clientPackage.expiration_date)}
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="mt-3 text-lg font-semibold text-slate-950">
-                          {clientPackage.name_snapshot}
-                        </p>
-                        <p className="mt-1 text-sm text-slate-600">
-                          {formatCurrency(
-                            clientPackage.sold_price ??
-                              clientPackage.price_snapshot,
-                          )}
-                        </p>
-                      </div>
-                    </div>
+            <div id="wallet" className="grid gap-4 lg:grid-cols-3">
+              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+                <p className="text-sm font-medium text-emerald-700">
+                  Available credits
+                </p>
+                <p className="mt-3 text-4xl font-semibold text-emerald-950">
+                  {hasUnlimitedCredits ? "Unlimited" : remainingCreditTotal}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-emerald-900">
+                  {typedPackages.length
+                    ? `${typedPackages.length} active package${
+                        typedPackages.length === 1 ? "" : "s"
+                      } linked to this portal.`
+                    : "No active package credits are linked right now."}
+                </p>
+              </div>
 
-                    <div className="mt-4 grid gap-3 md:grid-cols-2">
-                      {(clientPackage.client_package_items ?? []).map(
-                        (item) => (
-                          <div
-                            key={`${clientPackage.id}-${item.usage_type}`}
-                            className="rounded-2xl border border-white bg-white p-4"
-                          >
-                            <p className="text-sm font-medium text-slate-900">
-                              {packageUsageTypeLabel(item.usage_type)}
-                            </p>
-                            <p className="mt-2 text-2xl font-semibold text-slate-950">
-                              {item.is_unlimited
-                                ? "Unlimited"
-                                : toNumber(item.quantity_remaining)}
-                            </p>
-                            {!item.is_unlimited ? (
-                              <p className="mt-1 text-xs text-slate-500">
-                                {toNumber(item.quantity_used)} used of{" "}
-                                {toNumber(item.quantity_total)}
-                              </p>
+              <div className="rounded-3xl border border-amber-200 bg-amber-50 p-5">
+                <p className="text-sm font-medium text-amber-700">
+                  Needs attention
+                </p>
+                <p className="mt-3 text-4xl font-semibold text-amber-950">
+                  {lowBalancePackageCount + expiringPackageCount}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-amber-900">
+                  {lowBalancePackageCount || expiringPackageCount
+                    ? "Package balances or expiration dates may need a quick review."
+                    : "Your package balances do not need attention right now."}
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-violet-200 bg-violet-50 p-5">
+                <p className="text-sm font-medium text-violet-700">
+                  Membership
+                </p>
+                <p className="mt-3 text-xl font-semibold text-violet-950">
+                  {typedMembership
+                    ? statusLabel(typedMembership.status)
+                    : "Not active"}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-violet-900">
+                  {typedMembership
+                    ? renewalLabel(typedMembership)
+                    : "No active membership is linked to this portal profile."}
+                </p>
+              </div>
+            </div>
+
+            {packageWalletItems.length ? (
+              <div className="mt-6 space-y-4">
+                {packageWalletItems.map((walletItem) => {
+                  const clientPackage = walletItem.clientPackage;
+
+                  return (
+                    <div
+                      key={clientPackage.id}
+                      className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
+                    >
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
+                              Active
+                            </span>
+                            <span
+                              className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ring-1 ${
+                                walletItem.isExpiringSoon
+                                  ? "bg-amber-50 text-amber-700 ring-amber-100"
+                                  : "bg-white text-slate-600 ring-slate-200"
+                              }`}
+                            >
+                              {expirationLabel(clientPackage.expiration_date)}
+                            </span>
+                            {walletItem.isLowBalance ? (
+                              <span className="inline-flex rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700 ring-1 ring-rose-100">
+                                Low balance
+                              </span>
                             ) : null}
                           </div>
-                        ),
-                      )}
+                          <p className="mt-3 text-xl font-semibold text-slate-950">
+                            {clientPackage.name_snapshot}
+                          </p>
+                          <p className="mt-1 text-sm text-slate-600">
+                            {walletItem.hasUnlimited
+                              ? "Unlimited package"
+                              : `${walletItem.totalRemaining} of ${walletItem.totalPurchased} credits remaining`}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-white bg-white px-4 py-3 text-sm text-slate-600 lg:min-w-48">
+                          <p className="font-semibold text-slate-950">
+                            {formatCurrency(
+                              clientPackage.sold_price ??
+                                clientPackage.price_snapshot,
+                            )}
+                          </p>
+                          <p className="mt-1">
+                            {walletItem.hasUnlimited
+                              ? "Use as allowed by the studio"
+                              : `${walletItem.totalUsed} credits used`}
+                          </p>
+                        </div>
+                      </div>
+
+                      {!walletItem.hasUnlimited ? (
+                        <div className="mt-5">
+                          <div className="h-2 overflow-hidden rounded-full bg-white">
+                            <div
+                              className="h-full rounded-full bg-emerald-500"
+                              style={{ width: `${walletItem.usagePercent}%` }}
+                            />
+                          </div>
+                          <div className="mt-2 flex justify-between text-xs text-slate-500">
+                            <span>{walletItem.usagePercent}% used</span>
+                            <span>{walletItem.totalRemaining} remaining</span>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-2">
+                        {walletItem.items.map((item) => {
+                          const usagePercent = creditUsagePercent(
+                            item.quantity_total,
+                            item.quantity_used,
+                          );
+
+                          return (
+                            <div
+                              key={`${clientPackage.id}-${item.usage_type}`}
+                              className="rounded-2xl border border-white bg-white p-4"
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <p className="text-sm font-medium text-slate-900">
+                                    {packageUsageTypeLabel(item.usage_type)}
+                                  </p>
+                                  <p className="mt-2 text-2xl font-semibold text-slate-950">
+                                    {item.is_unlimited
+                                      ? "Unlimited"
+                                      : toNumber(item.quantity_remaining)}
+                                  </p>
+                                </div>
+                                {!item.is_unlimited ? (
+                                  <span
+                                    className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                                      toNumber(item.quantity_remaining) <= 1
+                                        ? "bg-rose-50 text-rose-700"
+                                        : "bg-emerald-50 text-emerald-700"
+                                    }`}
+                                  >
+                                    {toNumber(item.quantity_remaining) <= 1
+                                      ? "Low"
+                                      : "Available"}
+                                  </span>
+                                ) : null}
+                              </div>
+
+                              {!item.is_unlimited ? (
+                                <>
+                                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                                    <div
+                                      className="h-full rounded-full bg-slate-900"
+                                      style={{ width: `${usagePercent}%` }}
+                                    />
+                                  </div>
+                                  <p className="mt-2 text-xs text-slate-500">
+                                    {toNumber(item.quantity_used)} used of{" "}
+                                    {toNumber(item.quantity_total)}
+                                  </p>
+                                </>
+                              ) : (
+                                <p className="mt-2 text-xs text-slate-500">
+                                  Unlimited use based on studio package rules.
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {walletItem.isLowBalance || walletItem.isExpiringSoon ? (
+                        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                          <p className="text-sm font-semibold text-amber-950">
+                            Ask the studio about this package
+                          </p>
+                          <p className="mt-1 text-sm leading-6 text-amber-900">
+                            {walletItem.isLowBalance
+                              ? "Your credits are running low. The studio can help you renew, purchase another package, or schedule your next lesson."
+                              : "This package expires soon. Check with the studio if you need to use or renew it."}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">
-                  No active packages are linked to this portal profile right
-                  now.
+              <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
+                <p className="text-sm font-semibold text-slate-950">
+                  No active packages yet
+                </p>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  When the studio adds a lesson package, class pack, or event
+                  credit package to your account, it will appear here with
+                  remaining credits and expiration details.
                 </p>
               </div>
             )}

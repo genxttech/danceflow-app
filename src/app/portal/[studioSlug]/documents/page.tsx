@@ -119,6 +119,45 @@ function getErrorMessage(value: string | undefined) {
   return value.replaceAll("_", " ");
 }
 
+function isOverdue(value: string | null) {
+  if (!value) return false;
+  const dueTime = new Date(value).getTime();
+  return Number.isFinite(dueTime) && dueTime < Date.now();
+}
+
+function dueStatusLabel(value: string | null) {
+  if (!value) return "Ready to review";
+  if (isOverdue(value)) return `Past due ${formatDateTime(value)}`;
+  return `Due ${formatDateTime(value)}`;
+}
+
+function documentScopeLabel(item: DocumentItem) {
+  const appliesTo = item.template.applies_to;
+  const documentType = item.template.document_type;
+
+  if (appliesTo === "event_registration" || appliesTo === "event") {
+    return "Event waiver";
+  }
+
+  if (documentType === "waiver" || documentType === "release") {
+    return "Waiver";
+  }
+
+  if (documentType === "membership_terms") {
+    return "Membership";
+  }
+
+  if (documentType === "package_policy") {
+    return "Package";
+  }
+
+  if (documentType === "policy" || documentType === "cancellation_policy") {
+    return "Studio policy";
+  }
+
+  return "Studio document";
+}
+
 export default async function PortalDocumentsPage({
   params,
   searchParams,
@@ -327,7 +366,173 @@ export default async function PortalDocumentsPage({
 
   const unsignedItems = documentItems.filter((item) => !item.isSigned);
   const signedItems = documentItems.filter((item) => item.isSigned);
+  const overdueItems = unsignedItems.filter((item) =>
+    isOverdue(item.assignment?.due_at ?? null),
+  );
+  const referenceItems = documentItems.filter(
+    (item) =>
+      item.isSigned ||
+      (!item.isRequired &&
+        !item.assignment &&
+        !item.template.requires_signature &&
+        !item.version?.requires_signature),
+  );
+  const eventDocumentCount = documentItems.filter((item) =>
+    ["event", "event_registration"].includes(item.template.applies_to ?? ""),
+  ).length;
   const errorMessage = getErrorMessage(resolvedSearchParams.error);
+
+  const renderDocumentCard = (item: DocumentItem) => {
+    const version = item.version;
+    const displayTitle = version?.title || item.template.title;
+    const displayBody = version?.body || item.template.body;
+    const displayDescription =
+      version?.description || item.template.description;
+    const dueLabel = dueStatusLabel(item.assignment?.due_at ?? null);
+    const isPastDue = isOverdue(item.assignment?.due_at ?? null);
+
+    return (
+      <section
+        id={item.key}
+        key={item.key}
+        className={`scroll-mt-6 overflow-hidden rounded-[28px] border bg-white shadow-sm ${
+          !item.isSigned && isPastDue
+            ? "border-rose-200"
+            : !item.isSigned
+              ? "border-orange-200"
+              : "border-slate-200"
+        }`}
+      >
+        <div
+          className={`border-b p-5 ${
+            !item.isSigned && isPastDue
+              ? "border-rose-200 bg-rose-50"
+              : !item.isSigned
+                ? "border-orange-200 bg-orange-50"
+                : "border-slate-200 bg-slate-50"
+          }`}
+        >
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="flex flex-wrap gap-2">
+                <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                  {typeLabel(item.template.document_type)}
+                </span>
+                <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
+                  {documentScopeLabel(item)}
+                </span>
+                {item.isRequired ? (
+                  <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-100">
+                    Required
+                  </span>
+                ) : null}
+                {item.isSigned ? (
+                  <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
+                    Signed
+                  </span>
+                ) : isPastDue ? (
+                  <span className="inline-flex rounded-full bg-rose-50 px-3 py-1 text-xs font-medium text-rose-700 ring-1 ring-rose-100">
+                    Past Due
+                  </span>
+                ) : (
+                  <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700 ring-1 ring-orange-100">
+                    Needs Signature
+                  </span>
+                )}
+              </div>
+              <h2 className="mt-3 text-xl font-semibold text-slate-950">
+                {displayTitle}
+              </h2>
+              {displayDescription ? (
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  {displayDescription}
+                </p>
+              ) : null}
+            </div>
+            <div className="text-sm text-slate-500 md:text-right">
+              {item.isSigned ? (
+                <p>
+                  Signed{" "}
+                  {formatDateTime(
+                    item.signature?.signed_at ?? item.assignment?.signed_at ?? null,
+                  )}
+                </p>
+              ) : (
+                <p className={isPastDue ? "font-semibold text-rose-700" : ""}>
+                  {dueLabel}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="grid gap-0 lg:grid-cols-[1fr_360px]">
+          <div className="max-h-[520px] overflow-y-auto p-5 md:p-6">
+            <div className="whitespace-pre-wrap text-sm leading-7 text-slate-700">
+              {displayBody}
+            </div>
+          </div>
+
+          <div className="border-t border-slate-200 bg-slate-50 p-5 lg:border-l lg:border-t-0">
+            {item.isSigned ? (
+              <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                <p className="text-sm font-semibold text-emerald-900">
+                  Signature recorded
+                </p>
+                <p className="mt-2 text-sm leading-6 text-emerald-800">
+                  Signed by {item.signature?.signer_name || getClientName(typedClient)} on{" "}
+                  {formatDateTime(
+                    item.signature?.signed_at ?? item.assignment?.signed_at ?? null,
+                  )}
+                  .
+                </p>
+              </div>
+            ) : (
+              <form action={signPortalDocumentAction} className="space-y-4">
+                <input type="hidden" name="studioSlug" value={typedStudio.slug} />
+                <input type="hidden" name="assignmentId" value={item.assignment?.id ?? ""} />
+                <input type="hidden" name="templateId" value={item.template.id} />
+                <input type="hidden" name="templateVersionId" value={version?.id ?? ""} />
+
+                <div>
+                  <label className="text-sm font-medium text-slate-800">
+                    Type your full name
+                  </label>
+                  <input
+                    name="signerName"
+                    defaultValue={getClientName(typedClient)}
+                    className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/15"
+                  />
+                </div>
+
+                <label className="flex gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-700">
+                  <input
+                    type="checkbox"
+                    name="consentAccepted"
+                    className="mt-1 h-4 w-4 rounded border-slate-300"
+                  />
+                  <span>
+                    I have reviewed this document and agree to sign it electronically.
+                  </span>
+                </label>
+
+                <button
+                  type="submit"
+                  className="w-full rounded-2xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-medium text-white hover:opacity-95"
+                >
+                  Sign Document
+                </button>
+
+                <p className="text-xs leading-5 text-slate-500">
+                  Your typed name will be stored with the signed document and signing time.
+                </p>
+              </form>
+            )}
+          </div>
+        </div>
+      </section>
+    );
+  };
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -338,18 +543,18 @@ export default async function PortalDocumentsPage({
               DanceFlow Client Portal
             </p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-              Documents & Waivers
+              Document Center
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85">
-              Review documents from {studioLabel}. Documents that need your
-              signature will appear at the top.
+              Review, sign, and keep track of documents from {studioLabel}. Anything
+              that needs your attention appears first.
             </p>
           </div>
           <Link
             href={`/portal/${encodeURIComponent(typedStudio.slug)}`}
             className="inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
           >
-            Back to Portal
+            Back to My Dance Hub
           </Link>
         </div>
       </section>
@@ -367,147 +572,142 @@ export default async function PortalDocumentsPage({
           </div>
         ) : null}
 
-        <section className="grid gap-4 md:grid-cols-3">
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">Needs Signature</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-950">
-              {unsignedItems.length}
-            </p>
+        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm md:p-7">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
+                Needs Attention
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                {unsignedItems.length
+                  ? `${unsignedItems.length} document${
+                      unsignedItems.length === 1 ? "" : "s"
+                    } to review`
+                  : "You are all set"}
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
+                {unsignedItems.length
+                  ? "Sign required waivers, agreements, and policies before your next visit or event."
+                  : "There are no documents waiting for your signature right now."}
+              </p>
+            </div>
+
+            <div className="grid min-w-full gap-3 sm:grid-cols-2 lg:min-w-[420px]">
+              <div className="rounded-3xl border border-orange-200 bg-orange-50 p-4">
+                <p className="text-sm font-medium text-orange-800">
+                  Needs Signature
+                </p>
+                <p className="mt-2 text-3xl font-semibold text-orange-950">
+                  {unsignedItems.length}
+                </p>
+              </div>
+              <div className="rounded-3xl border border-rose-200 bg-rose-50 p-4">
+                <p className="text-sm font-medium text-rose-800">Past Due</p>
+                <p className="mt-2 text-3xl font-semibold text-rose-950">
+                  {overdueItems.length}
+                </p>
+              </div>
+              <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4">
+                <p className="text-sm font-medium text-emerald-800">Signed</p>
+                <p className="mt-2 text-3xl font-semibold text-emerald-950">
+                  {signedItems.length}
+                </p>
+              </div>
+              <div className="rounded-3xl border border-violet-200 bg-violet-50 p-4">
+                <p className="text-sm font-medium text-violet-800">
+                  Event Documents
+                </p>
+                <p className="mt-2 text-3xl font-semibold text-violet-950">
+                  {eventDocumentCount}
+                </p>
+              </div>
+            </div>
           </div>
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">Signed</p>
-            <p className="mt-2 text-3xl font-semibold text-slate-950">
-              {signedItems.length}
-            </p>
-          </div>
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <p className="text-sm text-slate-500">Signer</p>
-            <p className="mt-2 text-lg font-semibold text-slate-950">
-              {getClientName(typedClient)}
-            </p>
-          </div>
+
+          {unsignedItems.length ? (
+            <div className="mt-6 rounded-3xl border border-orange-200 bg-orange-50 p-5">
+              <p className="text-sm font-semibold text-orange-950">
+                Sign these first
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                {unsignedItems.slice(0, 4).map((item) => {
+                  const title = item.version?.title || item.template.title;
+                  const dueLabel = dueStatusLabel(item.assignment?.due_at ?? null);
+                  const isPastDue = isOverdue(item.assignment?.due_at ?? null);
+
+                  return (
+                    <a
+                      key={item.key}
+                      href={`#${item.key}`}
+                      className={`rounded-2xl border bg-white p-4 text-sm transition hover:shadow-sm ${
+                        isPastDue ? "border-rose-200" : "border-orange-100"
+                      }`}
+                    >
+                      <div className="flex flex-wrap gap-2">
+                        <span className="rounded-full bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                          {documentScopeLabel(item)}
+                        </span>
+                        {item.isRequired ? (
+                          <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700 ring-1 ring-amber-100">
+                            Required
+                          </span>
+                        ) : null}
+                      </div>
+                      <p className="mt-3 font-semibold text-slate-950">{title}</p>
+                      <p className={isPastDue ? "mt-1 text-rose-700" : "mt-1 text-slate-500"}>
+                        {dueLabel}
+                      </p>
+                    </a>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
         </section>
 
         {documentItems.length ? (
-          <div className="space-y-5">
-            {documentItems.map((item) => {
-              const version = item.version;
-              const displayTitle = version?.title || item.template.title;
-              const displayBody = version?.body || item.template.body;
-              const displayDescription =
-                version?.description || item.template.description;
+          <div className="space-y-6">
+            {unsignedItems.length ? (
+              <section className="space-y-5">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-orange-700">
+                    Needs Signature
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                    Review and sign
+                  </h2>
+                </div>
+                {unsignedItems.map(renderDocumentCard)}
+              </section>
+            ) : null}
 
-              return (
-                <section
-                  key={item.key}
-                  className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm"
-                >
-                  <div className="border-b border-slate-200 bg-slate-50 p-5">
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <div className="flex flex-wrap gap-2">
-                          <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-700 ring-1 ring-slate-200">
-                            {typeLabel(item.template.document_type)}
-                          </span>
-                          {item.isRequired ? (
-                            <span className="inline-flex rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-100">
-                              Required
-                            </span>
-                          ) : null}
-                          {item.isSigned ? (
-                            <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-100">
-                              Signed
-                            </span>
-                          ) : (
-                            <span className="inline-flex rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700 ring-1 ring-orange-100">
-                              Needs Signature
-                            </span>
-                          )}
-                        </div>
-                        <h2 className="mt-3 text-xl font-semibold text-slate-950">
-                          {displayTitle}
-                        </h2>
-                        {displayDescription ? (
-                          <p className="mt-2 text-sm leading-6 text-slate-600">
-                            {displayDescription}
-                          </p>
-                        ) : null}
-                      </div>
-                      <div className="text-sm text-slate-500 md:text-right">
-                        {item.isSigned ? (
-                          <p>Signed {formatDateTime(item.signature?.signed_at ?? item.assignment?.signed_at ?? null)}</p>
-                        ) : item.assignment?.due_at ? (
-                          <p>Due {formatDateTime(item.assignment.due_at)}</p>
-                        ) : (
-                          <p>Ready to review</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+            {referenceItems.length ? (
+              <section className="space-y-5">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Signed & Reference Documents
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                    Your document history
+                  </h2>
+                </div>
+                {referenceItems.map(renderDocumentCard)}
+              </section>
+            ) : null}
 
-                  <div className="grid gap-0 lg:grid-cols-[1fr_360px]">
-                    <div className="max-h-[520px] overflow-y-auto p-5 md:p-6">
-                      <div className="whitespace-pre-wrap text-sm leading-7 text-slate-700">
-                        {displayBody}
-                      </div>
-                    </div>
-
-                    <div className="border-t border-slate-200 bg-slate-50 p-5 lg:border-l lg:border-t-0">
-                      {item.isSigned ? (
-                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
-                          <p className="text-sm font-semibold text-emerald-900">
-                            Signature recorded
-                          </p>
-                          <p className="mt-2 text-sm leading-6 text-emerald-800">
-                            Signed by {item.signature?.signer_name || getClientName(typedClient)} on {formatDateTime(item.signature?.signed_at ?? item.assignment?.signed_at ?? null)}.
-                          </p>
-                        </div>
-                      ) : (
-                        <form action={signPortalDocumentAction} className="space-y-4">
-                          <input type="hidden" name="studioSlug" value={typedStudio.slug} />
-                          <input type="hidden" name="assignmentId" value={item.assignment?.id ?? ""} />
-                          <input type="hidden" name="templateId" value={item.template.id} />
-                          <input type="hidden" name="templateVersionId" value={version?.id ?? ""} />
-
-                          <div>
-                            <label className="text-sm font-medium text-slate-800">
-                              Type your full name
-                            </label>
-                            <input
-                              name="signerName"
-                              defaultValue={getClientName(typedClient)}
-                              className="mt-2 w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/15"
-                            />
-                          </div>
-
-                          <label className="flex gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm leading-6 text-slate-700">
-                            <input
-                              type="checkbox"
-                              name="consentAccepted"
-                              className="mt-1 h-4 w-4 rounded border-slate-300"
-                            />
-                            <span>
-                              I have reviewed this document and agree to sign it electronically.
-                            </span>
-                          </label>
-
-                          <button
-                            type="submit"
-                            className="w-full rounded-2xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-medium text-white hover:opacity-95"
-                          >
-                            Sign Document
-                          </button>
-
-                          <p className="text-xs leading-5 text-slate-500">
-                            Your typed name will be stored with the signed document and signing time.
-                          </p>
-                        </form>
-                      )}
-                    </div>
-                  </div>
-                </section>
-              );
-            })}
+            {!referenceItems.length && signedItems.length ? (
+              <section className="space-y-5">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                    Signed Documents
+                  </p>
+                  <h2 className="mt-1 text-xl font-semibold text-slate-950">
+                    Your signed documents
+                  </h2>
+                </div>
+                {signedItems.map(renderDocumentCard)}
+              </section>
+            ) : null}
           </div>
         ) : (
           <section className="rounded-[28px] border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm">
@@ -515,7 +715,8 @@ export default async function PortalDocumentsPage({
               No documents yet
             </h2>
             <p className="mx-auto mt-2 max-w-xl text-sm leading-7 text-slate-600">
-              Any documents or waivers your studio asks you to review will appear here.
+              Any waivers, policies, agreements, or event documents your studio asks
+              you to review will appear here.
             </p>
           </section>
         )}
