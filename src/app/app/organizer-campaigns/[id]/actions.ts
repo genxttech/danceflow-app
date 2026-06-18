@@ -10,16 +10,22 @@ const AUDIENCE_TYPES = new Set([
   "all_organizer_contacts",
   "specific_event_registrants",
   "specific_event_ticket_buyers",
+  "specific_event_unpaid_pending",
   "specific_event_checked_in",
   "specific_event_no_shows",
+  "specific_event_registered_not_checked_in",
+  "specific_event_refunded",
   "paid_registration_contacts",
 ]);
 
 const EVENT_REQUIRED_AUDIENCES = new Set([
   "specific_event_registrants",
   "specific_event_ticket_buyers",
+  "specific_event_unpaid_pending",
   "specific_event_checked_in",
   "specific_event_no_shows",
+  "specific_event_registered_not_checked_in",
+  "specific_event_refunded",
 ]);
 
 const MAX_ORGANIZER_CAMPAIGN_SENDS_PER_ACTION = 500;
@@ -312,6 +318,59 @@ function uniqueOrganizerContacts(contacts: OrganizerContactRow[]) {
   return unique;
 }
 
+function normalizedRegistrationStatus(value: string | null | undefined) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function isPaidRegistrationStatus(value: string | null | undefined) {
+  const status = normalizedRegistrationStatus(value);
+  return ["paid", "succeeded", "complete", "completed"].includes(status);
+}
+
+function isUnpaidOrPendingRegistrationStatus(value: string | null | undefined) {
+  const status = normalizedRegistrationStatus(value);
+  return [
+    "",
+    "unpaid",
+    "pending",
+    "open",
+    "requires_payment",
+    "requires_payment_method",
+    "processing",
+    "incomplete",
+  ].includes(status);
+}
+
+function isRefundedRegistrationStatus(value: string | null | undefined) {
+  const status = normalizedRegistrationStatus(value);
+  return ["refunded", "partially_refunded", "refund_pending"].includes(status);
+}
+
+function registrationMatchesAudience(
+  registration: ContactRegistrationRow,
+  audienceType: string,
+) {
+  switch (audienceType) {
+    case "specific_event_ticket_buyers":
+      return isPaidRegistrationStatus(registration.payment_status);
+    case "specific_event_unpaid_pending":
+      return isUnpaidOrPendingRegistrationStatus(registration.payment_status);
+    case "specific_event_checked_in":
+      return Boolean(registration.checked_in_at);
+    case "specific_event_no_shows":
+      return (
+        isPaidRegistrationStatus(registration.payment_status) &&
+        !registration.checked_in_at
+      );
+    case "specific_event_registered_not_checked_in":
+      return !registration.checked_in_at;
+    case "specific_event_refunded":
+      return isRefundedRegistrationStatus(registration.payment_status);
+    default:
+      return true;
+  }
+}
+
 async function getOrganizerCampaignRecipients(params: {
   supabase: SupabaseClient;
   organizerId: string;
@@ -372,20 +431,6 @@ async function getOrganizerCampaignRecipients(params: {
       .eq("event_id", eventId)
       .limit(10000);
 
-    if (audienceType === "specific_event_ticket_buyers") {
-      registrationsQuery = registrationsQuery.eq("payment_status", "paid");
-    }
-
-    if (audienceType === "specific_event_checked_in") {
-      registrationsQuery = registrationsQuery.not("checked_in_at", "is", null);
-    }
-
-    if (audienceType === "specific_event_no_shows") {
-      registrationsQuery = registrationsQuery
-        .eq("payment_status", "paid")
-        .is("checked_in_at", null);
-    }
-
     const { data: registrations, error: registrationsError } =
       await registrationsQuery;
 
@@ -397,9 +442,12 @@ async function getOrganizerCampaignRecipients(params: {
       return [];
     }
 
+    const matchingRegistrations = ((registrations ?? []) as ContactRegistrationRow[])
+      .filter((registration) => registrationMatchesAudience(registration, audienceType));
+
     const contactIds = Array.from(
       new Set(
-        ((registrations ?? []) as ContactRegistrationRow[])
+        matchingRegistrations
           .map((row) => row.organizer_contact_id)
           .filter(Boolean),
       ),
@@ -551,6 +599,10 @@ export async function sendOrganizerCampaignTestEmailAction(formData: FormData) {
 
   if (!campaign.subject || !campaign.body_text) {
     redirect(appendQuery(fallback, "campaign_error", "missing_content"));
+  }
+
+  if (!String(campaign.preview_text ?? "").trim()) {
+    redirect(appendQuery(fallback, "campaign_error", "missing_preview_text"));
   }
 
   const { data: organizer } = await supabase
@@ -705,6 +757,12 @@ export async function sendOrganizerCampaignAction(formData: FormData) {
     redirect(appendQuery(fallback, "campaign_error", "send_not_confirmed"));
   }
 
+  const expectedPendingCountRaw = getString(formData, "expectedPendingCount");
+  const expectedPendingCount = expectedPendingCountRaw
+    ? Number(expectedPendingCountRaw)
+    : null;
+  const confirmSendPhrase = getString(formData, "confirmSendPhrase").toUpperCase();
+
   const supabase = await createClient();
   const campaign = await getCampaignForAction(supabase, campaignId);
   const { user } = await requireOrganizerAccess(
@@ -714,6 +772,10 @@ export async function sendOrganizerCampaignAction(formData: FormData) {
 
   if (!campaign.subject || !campaign.body_text) {
     redirect(appendQuery(fallback, "campaign_error", "missing_content"));
+  }
+
+  if (!String(campaign.preview_text ?? "").trim()) {
+    redirect(appendQuery(fallback, "campaign_error", "missing_preview_text"));
   }
 
   if (campaign.status === "sent") {
@@ -752,6 +814,18 @@ export async function sendOrganizerCampaignAction(formData: FormData) {
 
   if (!pendingRecipients || pendingRecipients.length === 0) {
     redirect(appendQuery(fallback, "campaign_error", "no_pending_recipients"));
+  }
+
+  if (
+    expectedPendingCount !== null &&
+    Number.isFinite(expectedPendingCount) &&
+    expectedPendingCount !== pendingRecipients.length
+  ) {
+    redirect(appendQuery(fallback, "campaign_error", "recipient_count_changed"));
+  }
+
+  if (confirmSendPhrase !== `SEND ${pendingRecipients.length}`) {
+    redirect(appendQuery(fallback, "campaign_error", "final_confirmation_required"));
   }
 
   await supabase
