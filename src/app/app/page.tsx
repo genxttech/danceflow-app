@@ -2862,6 +2862,12 @@ export default async function AppDashboardPage({
 
             <div className="flex flex-wrap gap-3">
               <Link
+                href="/app/payments/quick-charge"
+                className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#4C1D95] shadow-sm hover:bg-white/90"
+              >
+                Quick Charge
+              </Link>
+              <Link
                 href="/app/schedule/new"
                 className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
               >
@@ -2875,7 +2881,7 @@ export default async function AppDashboardPage({
               </Link>
               <Link
                 href="/app/clients/new"
-                className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[#4C1D95] hover:bg-white/90"
+                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
               >
                 Add Client
               </Link>
@@ -2954,13 +2960,19 @@ export default async function AppDashboardPage({
         />
       )}
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+        <QuickActionCard
+          href="/app/payments/quick-charge"
+          title="Quick Charge"
+          description="Collect fast front desk payments for classes, parties, walk-ins, and door sales."
+          icon={CreditCard}
+          primary
+        />
         <QuickActionCard
           href="/app/schedule/new"
           title="Book Lesson"
           description="Schedule a private lesson, intro lesson, coaching session, class, or rental."
           icon={CalendarDays}
-          primary
         />
         <QuickActionCard
           href="/app/schedule/requests"

@@ -1611,6 +1611,16 @@ export default async function BillingSettingsPage({
               </div>
 
               <div className="flex flex-wrap gap-3">
+                {showPayoutsCard ? (
+                  <Link
+                    href="/app/payments/quick-charge"
+                    className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-[var(--brand-primary)] shadow-sm hover:bg-white/90"
+                  >
+                    <span>Quick Charge</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                ) : null}
+
                 {hasManagedSubscription && studio.stripe_customer_id ? (
                   <form action="/api/billing/portal" method="post">
                     <button
@@ -1742,6 +1752,35 @@ export default async function BillingSettingsPage({
                   <span>Open Quick Charge</span>
                   <ArrowRight className="h-4 w-4" />
                 </Link>
+              </div>
+
+              <div className="rounded-[28px] border border-violet-200 bg-[linear-gradient(135deg,#fff7ed_0%,#faf5ff_45%,#ffffff_100%)] p-5 shadow-sm">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-semibold text-[var(--brand-primary)] ring-1 ring-violet-200">
+                        Front desk shortcut
+                      </span>
+                      <span className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                        Quick Charge
+                      </span>
+                    </div>
+                    <h3 className="mt-3 text-xl font-semibold text-slate-950">
+                      Fast door payments for classes, parties, and walk-ins
+                    </h3>
+                    <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+                      Use Quick Charge when staff needs to send a preset amount to the registered Stripe reader without opening a client, package, or membership sale first.
+                    </p>
+                  </div>
+
+                  <Link
+                    href="/app/payments/quick-charge"
+                    className="inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white shadow-sm hover:opacity-90"
+                  >
+                    <span>Open Quick Charge</span>
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </div>
               </div>
 
               <div className="grid gap-8 xl:grid-cols-[0.9fr_1.1fr]">
