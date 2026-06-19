@@ -807,12 +807,51 @@ async function promoteLeadClientAfterBookedAppointment(params: {
 function getUsageBenefitTypeForAppointmentType(appointmentType: string) {
   switch (appointmentType) {
     case "private_lesson":
+    case "intro_lesson":
+    case "coaching":
       return "private_lesson";
     case "group_class":
       return "group_class";
     default:
       return null;
   }
+}
+
+function getMembershipBenefitTypesForAppointmentType(appointmentType: string) {
+  const usageType = getUsageBenefitTypeForAppointmentType(appointmentType);
+
+  if (usageType === "private_lesson") {
+    return [
+      "included_private_lessons",
+      "discount_private_lessons_percent",
+      "discount_private_lessons_fixed",
+    ];
+  }
+
+  if (usageType === "group_class") {
+    return [
+      "included_group_classes",
+      "discount_group_classes_percent",
+      "discount_group_classes_fixed",
+    ];
+  }
+
+  return [];
+}
+
+function membershipBenefitAppliesToAppointmentType(
+  benefit: { applies_to?: string | null },
+  appointmentType: string,
+) {
+  const appliesTo = benefit.applies_to?.trim();
+  if (!appliesTo || appliesTo === "all") return true;
+
+  const usageType = getUsageBenefitTypeForAppointmentType(appointmentType);
+
+  return (
+    appliesTo === appointmentType ||
+    Boolean(usageType && appliesTo === usageType)
+  );
 }
 
 async function clearMembershipUsageForAppointment(params: {
@@ -870,7 +909,7 @@ async function syncMembershipUsageForAppointment(params: {
     .select("id, membership_plan_id, current_period_start, current_period_end")
     .eq("studio_id", studioId)
     .eq("client_id", clientId)
-    .eq("status", "active");
+    .in("status", ["active", "trialing"]);
 
   if (membershipsError) {
     throw new Error(
@@ -890,12 +929,17 @@ async function syncMembershipUsageForAppointment(params: {
 
   if (!matchingMembership) return;
 
+  const membershipBenefitTypes = getMembershipBenefitTypesForAppointmentType(
+    appointmentType,
+  );
+
+  if (membershipBenefitTypes.length === 0) return;
+
   const { data: planBenefits, error: benefitsError } = await supabase
     .from("membership_plan_benefits")
-    .select("id, benefit_type, quantity")
+    .select("id, benefit_type, applies_to")
     .eq("membership_plan_id", matchingMembership.membership_plan_id)
-    .eq("benefit_type", usageType)
-    .limit(1);
+    .in("benefit_type", membershipBenefitTypes);
 
   if (benefitsError) {
     throw new Error(
@@ -903,7 +947,9 @@ async function syncMembershipUsageForAppointment(params: {
     );
   }
 
-  const benefit = planBenefits?.[0];
+  const benefit = (planBenefits ?? []).find((candidate) =>
+    membershipBenefitAppliesToAppointmentType(candidate, appointmentType),
+  );
   if (!benefit) return;
 
   const { error: usageInsertError } = await supabase
@@ -2220,13 +2266,17 @@ async function hasMembershipCoverageForAttendance(params: {
 
   if (!matchingMembership) return false;
 
-  const { data: benefit, error: benefitError } = await supabase
+  const membershipBenefitTypes = getMembershipBenefitTypesForAppointmentType(
+    appointmentType,
+  );
+
+  if (membershipBenefitTypes.length === 0) return false;
+
+  const { data: benefits, error: benefitError } = await supabase
     .from("membership_plan_benefits")
-    .select("id")
+    .select("id, benefit_type, applies_to")
     .eq("membership_plan_id", matchingMembership.membership_plan_id)
-    .eq("benefit_type", usageType)
-    .limit(1)
-    .maybeSingle();
+    .in("benefit_type", membershipBenefitTypes);
 
   if (benefitError) {
     throw new Error(
@@ -2234,7 +2284,9 @@ async function hasMembershipCoverageForAttendance(params: {
     );
   }
 
-  return Boolean(benefit?.id);
+  return (benefits ?? []).some((benefit) =>
+    membershipBenefitAppliesToAppointmentType(benefit, appointmentType),
+  );
 }
 
 async function packageHasAvailableCreditForAttendance(params: {
@@ -3338,4 +3390,162 @@ export async function deleteLessonRecapAction(formData: FormData) {
 }
 
 
+const BOOKING_REQUEST_STATUSES = new Set([
+  "pending",
+  "in_review",
+  "approved",
+  "scheduled",
+  "declined",
+]);
+
+function bookingRequestStatusLabel(value: string) {
+  if (value === "pending") return "New";
+  if (value === "in_review") return "In Review";
+  if (value === "approved") return "Approved";
+  if (value === "scheduled") return "Scheduled";
+  if (value === "declined") return "Declined";
+  return value.replaceAll("_", " ");
+}
+
+export async function updateBookingRequestStatusAction(formData: FormData) {
+  const fallback = "/app/schedule/requests";
+
+  try {
+    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const requestId = getString(formData, "requestId");
+    const status = getString(formData, "status");
+    const staffNote = getNullableString(formData, "staffNote");
+
+    if (!requestId || !BOOKING_REQUEST_STATUSES.has(status)) {
+      redirect(getErrorRedirect(formData, fallback, "booking_request_update_failed"));
+    }
+
+    const { data: request, error: requestError } = await supabase
+      .from("booking_requests")
+      .select("id, client_id, status")
+      .eq("studio_id", studioId)
+      .eq("id", requestId)
+      .maybeSingle();
+
+    if (requestError || !request) {
+      redirect(getErrorRedirect(formData, fallback, "booking_request_not_found"));
+    }
+
+    const now = new Date().toISOString();
+
+    const { error: updateError } = await supabase
+      .from("booking_requests")
+      .update({
+        status,
+        staff_note: staffNote,
+        reviewed_by: user.id,
+        reviewed_at: now,
+        updated_at: now,
+      })
+      .eq("studio_id", studioId)
+      .eq("id", requestId);
+
+    if (updateError) {
+      redirect(getErrorRedirect(formData, fallback, "booking_request_update_failed"));
+    }
+
+    if (request.client_id) {
+      const activityNoteParts = [
+        `Booking request marked ${bookingRequestStatusLabel(status)}.`,
+        staffNote ? `Staff note: ${staffNote}` : null,
+      ].filter(Boolean);
+
+      const { error: activityError } = await supabase.from("lead_activities").insert({
+        studio_id: studioId,
+        client_id: request.client_id,
+        activity_type: "booking_request_status",
+        note: activityNoteParts.join("\n"),
+        created_by: user.id,
+        follow_up_due_at: status === "scheduled" || status === "declined" ? null : now,
+        completed_at: status === "scheduled" || status === "declined" ? now : null,
+      });
+
+      if (activityError) {
+        console.error("booking request activity note failed", activityError.message);
+      }
+    }
+
+    revalidatePath("/app/schedule/requests");
+    revalidatePath("/app/schedule");
+    revalidatePath("/app");
+
+    redirect(getSuccessRedirect(formData, fallback, "booking_request_updated"));
+  } catch (error) {
+    rethrowIfRedirect(error);
+    if (isRedirectError(error)) throw error;
+    redirect(getErrorRedirect(formData, fallback, "booking_request_update_failed"));
+  }
+}
+
+export async function addBookingRequestStaffNoteAction(formData: FormData) {
+  const fallback = "/app/schedule/requests";
+
+  try {
+    const { supabase, studioId, user } = await requireAppointmentEditAccess();
+    const requestId = getString(formData, "requestId");
+    const staffNote = getNullableString(formData, "staffNote");
+
+    if (!requestId) {
+      redirect(getErrorRedirect(formData, fallback, "booking_request_update_failed"));
+    }
+
+    const { data: request, error: requestError } = await supabase
+      .from("booking_requests")
+      .select("id, client_id")
+      .eq("studio_id", studioId)
+      .eq("id", requestId)
+      .maybeSingle();
+
+    if (requestError || !request) {
+      redirect(getErrorRedirect(formData, fallback, "booking_request_not_found"));
+    }
+
+    const now = new Date().toISOString();
+
+    const { error: updateError } = await supabase
+      .from("booking_requests")
+      .update({
+        staff_note: staffNote,
+        reviewed_by: user.id,
+        reviewed_at: now,
+        updated_at: now,
+      })
+      .eq("studio_id", studioId)
+      .eq("id", requestId);
+
+    if (updateError) {
+      redirect(getErrorRedirect(formData, fallback, "booking_request_update_failed"));
+    }
+
+    if (request.client_id && staffNote) {
+      const { error: activityError } = await supabase.from("lead_activities").insert({
+        studio_id: studioId,
+        client_id: request.client_id,
+        activity_type: "booking_request_note",
+        note: `Booking request staff note: ${staffNote}`,
+        created_by: user.id,
+        follow_up_due_at: now,
+        completed_at: null,
+      });
+
+      if (activityError) {
+        console.error("booking request staff note activity failed", activityError.message);
+      }
+    }
+
+    revalidatePath("/app/schedule/requests");
+    revalidatePath("/app/schedule");
+
+    redirect(getSuccessRedirect(formData, fallback, "booking_request_note_saved"));
+  } catch (error) {
+    rethrowIfRedirect(error);
+    if (isRedirectError(error)) throw error;
+    redirect(getErrorRedirect(formData, fallback, "booking_request_update_failed"));
+  }
+}
 

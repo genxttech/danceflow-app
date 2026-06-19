@@ -45,9 +45,10 @@ type ClientPackageOption = {
 type MembershipBenefitOption = {
   benefit_type: string;
   applies_to: string | null;
-  quantity_included: number | null;
-  discount_percent: number | null;
-  discount_amount: number | null;
+  quantity: number | string | null;
+  quantity_included?: number | string | null;
+  discount_percent: number | string | null;
+  discount_amount: number | string | null;
 };
 
 type ClientMembershipOption = {
@@ -297,11 +298,15 @@ function doesBenefitApplyToAppointmentType(
   return appliesTo === appointmentType;
 }
 
+function getBenefitQuantity(benefit: MembershipBenefitOption) {
+  return toNumber(benefit.quantity_included ?? benefit.quantity) ?? 0;
+}
+
 function summarizeBenefit(benefit: MembershipBenefitOption) {
   switch (benefit.benefit_type) {
     case "included_private_lessons":
     case "included_group_classes":
-      return `${benefit.quantity_included ?? 0} included`;
+      return `${getBenefitQuantity(benefit)} included`;
     case "discount_private_lessons_percent":
     case "discount_group_classes_percent":
     case "discount_floor_rental_percent":
@@ -309,7 +314,7 @@ function summarizeBenefit(benefit: MembershipBenefitOption) {
     case "discount_private_lessons_fixed":
     case "discount_group_classes_fixed":
     case "discount_floor_rental_fixed":
-      return `${formatCurrency(benefit.discount_amount ?? 0)} off`;
+      return `${formatCurrency(Number(benefit.discount_amount ?? 0))} off`;
     default:
       return "Configured";
   }

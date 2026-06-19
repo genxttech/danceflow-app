@@ -12,6 +12,7 @@ type MembershipBenefit = {
   membership_plan_id: string;
   benefit_type: string;
   quantity: number | null;
+  quantity_included?: number | null;
   discount_percent: number | null;
   discount_amount: number | null;
   usage_period: string;
@@ -296,9 +297,15 @@ export default async function NewAppointmentPage({
     hydratedClientMembershipsByClientId[membership.client_id] ??= [];
     hydratedClientMembershipsByClientId[membership.client_id].push({
       ...membership,
-      membership_plan_benefits: membershipBenefits.filter(
-        (benefit) => benefit.membership_plan_id === membership.membership_plan_id
-      ),
+      membership_plan_benefits: membershipBenefits
+        .filter(
+          (benefit) =>
+            benefit.membership_plan_id === membership.membership_plan_id
+        )
+        .map((benefit) => ({
+          ...benefit,
+          quantity_included: benefit.quantity,
+        })),
     });
   }
 
