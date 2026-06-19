@@ -53,13 +53,19 @@ export default async function QuickChargePage() {
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
                 DanceFlow Payments
               </p>
-              <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                Quick Charge
-              </h1>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+                  Quick Charge
+                </h1>
+                <span className="rounded-full border border-white/30 bg-white/15 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-white">
+                  Beta · Reader required
+                </span>
+              </div>
               <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
                 Use this for fast in-studio payments like group class drop-ins,
                 social party entrances, practice parties, floor fees, and other
-                ad hoc front desk charges.
+                ad hoc front desk charges. This flow starts in DanceFlow and sends
+                the sale to a registered physical Stripe Terminal reader.
               </p>
             </div>
             <div className="flex flex-wrap gap-3">
@@ -94,9 +100,9 @@ export default async function QuickChargePage() {
               </p>
             </div>
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <h2 className="text-lg font-semibold text-amber-950">Reader required</h2>
+              <h2 className="text-lg font-semibold text-amber-950">Physical reader required</h2>
               <p className="mt-2 text-sm leading-7 text-amber-900">
-                This DanceFlow-initiated flow requires a supported registered Stripe Terminal reader.
+                Use a supported Stripe Terminal smart reader such as Stripe Reader S700/S710 or BBPOS WisePOS E.
               </p>
             </div>
           </div>
@@ -112,14 +118,23 @@ export default async function QuickChargePage() {
             <div>
               <h2 className="text-lg font-semibold">No active reader is registered yet</h2>
               <p className="mt-2 text-sm leading-7">
-                Register or refresh a Stripe Terminal smart reader before using DanceFlow Quick Charge.
+                DanceFlow Quick Charge cannot use the Stripe Dashboard mobile app as the reader. Register a supported
+                physical Stripe Terminal smart reader before using this one-screen card collection flow.
               </p>
-              <Link
-                href="/app/settings/billing"
-                className="mt-4 inline-flex rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
-              >
-                Open Card Reader Settings
-              </Link>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link
+                  href="/app/settings/billing"
+                  className="inline-flex rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Open Card Reader Settings
+                </Link>
+                <Link
+                  href="/app/help?query=in-person%20payments"
+                  className="inline-flex rounded-xl border border-amber-300 bg-white px-4 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100"
+                >
+                  Read payment options
+                </Link>
+              </div>
             </div>
           </div>
         </section>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CheckCircle2, Loader2, Receipt, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Receipt, XCircle } from "lucide-react";
 
 type ReaderOption = {
   id: string;
@@ -55,6 +55,10 @@ function readerLabel(reader: ReaderOption) {
   return `${reader.label || "Stripe reader"}${status}`;
 }
 
+function isReaderOnline(reader: ReaderOption | null | undefined) {
+  return (reader?.status ?? "").toLowerCase() === "online";
+}
+
 async function postJson(url: string, body: Record<string, unknown>) {
   const response = await fetch(url, {
     method: "POST",
@@ -87,6 +91,11 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
   const [busy, setBusy] = useState(false);
   const [polling, setPolling] = useState(false);
   const pollCount = useRef(0);
+  const selectedReader = useMemo(
+    () => readers.find((reader) => reader.id === readerId) ?? null,
+    [readers, readerId]
+  );
+  const selectedReaderOnline = isReaderOnline(selectedReader);
 
   useEffect(() => {
     if (!defaultReader?.id) return;
@@ -96,6 +105,11 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
   async function startCharge(params: { category: string; label: string; amount: number }) {
     if (!readerId) {
       setError("Select or register a Stripe reader before collecting a payment.");
+      return;
+    }
+
+    if (!selectedReaderOnline) {
+      setError("The selected reader is not online. Wake the reader, confirm it is connected to Wi-Fi, then refresh reader status in Billing & Payouts.");
       return;
     }
 
@@ -226,12 +240,26 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
       ) : null}
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+            <p>
+              Quick Charge starts the sale in DanceFlow and sends it to a registered physical Stripe Terminal reader.
+              The Stripe Dashboard mobile app Tap to Pay workflow is separate and will not automatically record this sale.
+            </p>
+          </div>
+        </div>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-950">Reader</h2>
             <p className="mt-1 text-sm text-slate-500">
               Pick the front desk reader once. Preset buttons will send the charge directly to that reader.
             </p>
+            {!selectedReaderOnline ? (
+              <p className="mt-2 text-sm font-medium text-amber-700">
+                Selected reader is not online. Wake the reader and refresh status before taking a card payment.
+              </p>
+            ) : null}
           </div>
 
           <select
@@ -305,7 +333,7 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
               key={preset.category}
               type="button"
               onClick={() => startCharge(preset)}
-              disabled={busy || Boolean(activeSession) || !readerId}
+              disabled={busy || Boolean(activeSession) || !readerId || !selectedReaderOnline}
               className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left transition hover:border-[var(--brand-primary)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
             >
               <p className="text-sm font-medium text-slate-500">{preset.helper}</p>
@@ -403,6 +431,7 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
                 busy ||
                 Boolean(activeSession) ||
                 !readerId ||
+                !selectedReaderOnline ||
                 !Number.isFinite(customAmountNumber) ||
                 customAmountNumber <= 0
               }

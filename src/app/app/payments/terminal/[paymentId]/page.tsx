@@ -233,16 +233,25 @@ export default async function TerminalPaymentPage({ params, searchParams }: Page
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--brand-primary)]">
               DanceFlow Terminal
             </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
-              Collect in-person card payment
-            </h1>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <h1 className="text-3xl font-semibold tracking-tight text-slate-950">
+                Collect in-person card payment
+              </h1>
+              <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-amber-700 ring-1 ring-amber-200">
+                Beta · Reader required
+              </span>
+            </div>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-              Send this pending payment to a registered front-desk reader, then refresh status after the client presents their card.
+              Send this pending payment to a registered physical Stripe Terminal reader. The customer taps, inserts, or swipes on the reader, then DanceFlow records the successful payment.
             </p>
           </div>
           <Link href="/app/payments" className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
             Back to Payments
           </Link>
+        </div>
+
+        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
+          This DanceFlow-initiated flow requires a supported physical Stripe Terminal reader such as Stripe Reader S700/S710 or BBPOS WisePOS E. The Stripe Dashboard mobile app Tap to Pay workflow is separate and cannot act as the reader for this DanceFlow-started payment.
         </div>
 
         {successMessage ? (
@@ -317,7 +326,10 @@ export default async function TerminalPaymentPage({ params, searchParams }: Page
             </div>
           ) : typedReaders.length === 0 ? (
             <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              No active readers are registered yet. Go to Billing &amp; Payouts to register a card reader.
+              No active readers are registered yet. Go to Billing &amp; Payouts to register a supported Stripe Terminal smart reader before collecting from DanceFlow.
+              <div className="mt-3">
+                <Link href="/app/settings/billing" className="font-semibold underline">Open Billing &amp; Payouts</Link>
+              </div>
             </div>
           ) : (
             <form action="/api/stripe/terminal/payments/start" method="post" className="mt-5 space-y-4">
@@ -330,10 +342,15 @@ export default async function TerminalPaymentPage({ params, searchParams }: Page
                   <option value="">Select reader</option>
                   {typedReaders.map((reader) => (
                     <option key={reader.id} value={reader.id}>
-                      {reader.label ?? reader.stripe_reader_id} {reader.status ? `(${reader.status})` : ""}
+                      {reader.label ?? "Card reader"} {reader.status ? `(${reader.status})` : ""}
                     </option>
                   ))}
                 </select>
+                {typedReaders.some((reader) => (reader.status ?? "").toLowerCase() !== "online") ? (
+                  <p className="mt-2 text-xs leading-5 text-amber-700">
+                    If a reader is offline, wake the device, confirm Wi-Fi, then refresh reader status in Billing &amp; Payouts.
+                  </p>
+                ) : null}
               </div>
               <button type="submit" disabled={!canStart} className="w-full rounded-xl bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60">
                 Send payment to reader
@@ -394,7 +411,6 @@ export default async function TerminalPaymentPage({ params, searchParams }: Page
                   </span>
                 </div>
                 {session.error_message ? <p className="mt-3 text-sm text-red-700">{session.error_message}</p> : null}
-                {session.stripe_payment_intent_id ? <p className="mt-3 text-xs text-slate-500">Stripe PaymentIntent: {session.stripe_payment_intent_id}</p> : null}
               </div>
             ))
           )}
