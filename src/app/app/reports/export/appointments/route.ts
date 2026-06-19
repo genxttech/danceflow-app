@@ -4,6 +4,33 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { canExportWithOverride } from "@/lib/auth/permissions";
 import { toCsv } from "@/lib/utils/csv";
 
+
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+function getStudioTimeZone(value?: string | null) {
+  const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+function formatExportDateTime(value: string | null | undefined, timeZone: string) {
+  if (!value) return "";
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 export async function GET() {
   const supabase = await createClient();
 
@@ -52,6 +79,14 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const { data: studioTimeZoneRow } = await supabase
+    .from("studios")
+    .select("timezone")
+    .eq("id", workspace.studioId)
+    .maybeSingle<{ timezone: string | null }>();
+
+  const studioTimeZone = getStudioTimeZone(studioTimeZoneRow?.timezone);
+
   const { data, error } = await supabase
     .from("appointments")
     .select(`
@@ -99,8 +134,8 @@ export async function GET() {
         row.title,
         row.appointment_type,
         row.status,
-        row.starts_at,
-        row.ends_at,
+        formatExportDateTime(row.starts_at, studioTimeZone),
+        formatExportDateTime(row.ends_at, studioTimeZone),
         instructor ? `${instructor.first_name} ${instructor.last_name}` : "",
         room?.name ?? "",
         row.notes,
