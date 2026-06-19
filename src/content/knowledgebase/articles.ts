@@ -3475,64 +3475,187 @@ Review coach slots before publishing or sharing the coach schedule. Recheck avai
   },
 
   {
-    slug: "taking-in-person-payments-with-tap-to-pay",
-    title: "Taking In-Person Payments with Tap to Pay",
+    slug: "in-person-payment-options-and-reader-requirements",
+    title: "In-Person Payment Options and Reader Requirements",
     category: "Billing & Payments",
     audience: "public",
     description:
-      "Use Stripe Dashboard Tap to Pay for quick front-desk payments, then keep DanceFlow payment records accurate.",
+      "Understand the difference between Stripe Dashboard Tap to Pay and DanceFlow-controlled card reader payments.",
     content: `
 ## Overview
 
-Tap to Pay is the fastest way for a studio to collect an in-person card payment while DanceFlow's full card-reader workflow is being rolled out.
+DanceFlow supports in-person payment tracking, but there are two different ways a studio may collect an in-person card payment.
 
-Use this for front desk package sales, lesson payments, membership payments, client balances, floor rentals, and other in-person payments when your studio is using Stripe.
+These workflows are not the same. The technology requirements and recordkeeping steps are different.
 
-## Before you begin
+## Option 1: Stripe Dashboard Tap to Pay
+
+Use this option when the studio wants to accept a card payment using a phone and the Stripe Dashboard mobile app.
+
+This is a useful fallback when the studio does not have a physical Stripe reader yet.
+
+### Technology required
+
+You need:
+
+- A Stripe account connected for the studio
+- The Stripe Dashboard mobile app
+- A compatible phone
+- Tap to Pay availability for the Stripe account and region
+- A staff member who can sign in to the correct Stripe account
+
+You do not need a separate physical reader for this option.
+
+### Process
+
+1. Staff opens the Stripe Dashboard mobile app.
+2. Staff starts a charge inside Stripe.
+3. Staff enters the amount in Stripe.
+4. Customer taps their card or mobile wallet on the phone.
+5. Stripe processes the payment.
+6. Staff returns to DanceFlow and records the sale or payment against the correct client, package, membership, lesson, class, party, or balance.
+
+### Important limitation
+
+Payments taken directly in the Stripe Dashboard app are not started by DanceFlow.
+
+That means DanceFlow does not automatically know what the payment was for. Staff must record the payment in DanceFlow so the client history, package balance, reports, and closeout records stay accurate.
+
+## Option 2: DanceFlow-controlled card reader payment
+
+Use this option when the studio wants to start the sale in DanceFlow and send the payment to a registered Stripe Terminal reader.
+
+This is the recommended workflow for a clean front-desk process because the payment can be automatically tied to the DanceFlow sale.
+
+### Technology required
+
+You need:
+
+- Stripe payout setup completed for the studio
+- A supported physical Stripe Terminal reader
+- The reader registered in DanceFlow
+- The reader powered on and connected to the internet
+- Staff access to the DanceFlow payment workflow
+
+Recommended reader types include Stripe Terminal smart readers such as Stripe Reader S700/S710 or BBPOS WisePOS E, depending on availability in your region.
+
+### Process
+
+1. Staff starts the sale in DanceFlow.
+2. Staff selects the correct purchase or charge type.
+3. DanceFlow sends the payment amount to the registered Stripe reader.
+4. Customer taps, inserts, or swipes their card on the reader.
+5. Stripe processes the payment.
+6. DanceFlow records the payment and links it to the correct sale or balance.
+
+### Best use cases
+
+DanceFlow-controlled reader payments are best for:
+
+- Package payments
+- Membership payments
+- Appointment or lesson balances
+- Client account balances
+- Future quick charges for group classes, social parties, practice parties, and floor fees
+
+## Which option should the studio use?
+
+Use Stripe Dashboard Tap to Pay when:
+
+- The studio does not have a physical reader yet
+- A quick fallback payment is needed
+- Staff are comfortable manually recording the payment in DanceFlow afterward
+
+Use DanceFlow-controlled card reader payments when:
+
+- The studio has a registered Stripe Terminal reader
+- Staff need the payment connected to a DanceFlow sale automatically
+- The studio wants cleaner reports and less manual reconciliation
+
+## Important distinction
+
+A phone using the Stripe Dashboard app does not act as the reader for a DanceFlow-started payment.
+
+If the payment starts in the Stripe Dashboard app, it is a Stripe Dashboard payment and must be recorded in DanceFlow afterward.
+
+If the payment starts in DanceFlow, it must be sent to a supported registered Stripe Terminal reader.
+`,
+  },
+  {
+    slug: "taking-in-person-payments-with-tap-to-pay",
+    title: "Taking In-Person Payments with Stripe Dashboard Tap to Pay",
+    category: "Billing & Payments",
+    audience: "public",
+    description:
+      "Use Stripe Dashboard Tap to Pay as a fallback phone-based payment option, then record the payment in DanceFlow.",
+    content: `
+## Overview
+
+Stripe Dashboard Tap to Pay lets a studio accept an in-person card payment using the Stripe Dashboard mobile app and a compatible phone.
+
+This is a fallback process for studios that do not have a physical Stripe Terminal reader yet.
+
+It is not the same as a DanceFlow-controlled reader payment.
+
+## Technology required
 
 Make sure:
 
 - Your studio has completed Stripe payout setup.
 - You can sign in to the Stripe Dashboard mobile app.
-- Your device supports Tap to Pay.
+- Your phone supports Tap to Pay.
 - Tap to Pay is available for your Stripe account and region.
-- The staff member knows which DanceFlow client, package, membership, lesson, or balance the payment belongs to.
+- Staff know which DanceFlow sale, client, class, party, package, membership, lesson, or balance the payment belongs to.
 
-## Take the payment in the Stripe Dashboard app
+A separate physical card reader is not required for Stripe Dashboard Tap to Pay.
+
+## Process
 
 1. Open the Stripe Dashboard mobile app.
 2. Start a new payment or charge.
 3. Enter the amount due.
 4. Choose Tap to Pay when available.
 5. Ask the customer to tap a contactless card or mobile wallet on the phone.
-6. Wait for the payment confirmation in Stripe.
-7. Return to DanceFlow and record or confirm the payment against the correct client record.
+6. Wait for payment confirmation in Stripe.
+7. Return to DanceFlow.
+8. Record or confirm the payment against the correct DanceFlow record.
 
-## Record the payment in DanceFlow
+## What to record in DanceFlow
 
-After the Stripe payment succeeds, open the correct place in DanceFlow:
+After the Stripe payment succeeds, open the correct area in DanceFlow:
 
 - Client profile for general client payments
 - Quick Sale & Payment for package sales or package payments
 - Memberships for membership payments
 - Schedule or Daily Closeout for lesson balances
-- Floor rental tools for rental balances
+- Payments page for ad hoc payments
+- Event or door-sale tools for event-related payments, when available
 
 Use:
 
 - Payment method: Card
-- Payment channel/source: In-person, Stripe Terminal, or Tap to Pay when available
+- Payment channel/source: In-person or Tap to Pay, when available
 - Notes: Stripe Dashboard Tap to Pay
 
-## Why the DanceFlow record still matters
+## Why a DanceFlow record is still needed
 
-A Tap to Pay payment taken directly in Stripe may not automatically know which DanceFlow record it belongs to.
+A payment taken directly in the Stripe Dashboard app is not started by DanceFlow.
 
-The payment must still be connected to the correct client, package, membership, appointment, or balance so reports and client history stay accurate.
+DanceFlow does not automatically know whether the payment was for a group class, social party, package, membership, lesson, event, floor rental, or client balance.
+
+Recording the payment in DanceFlow keeps:
+
+- Client history accurate
+- Package and membership records accurate
+- Payment reports accurate
+- Front desk closeout cleaner
+- Future accounting exports more reliable
 
 ## Best practice
 
-Before charging the card, confirm the amount and the reason for payment in DanceFlow. After the Stripe payment succeeds, immediately record the payment in DanceFlow so the front desk does not have to reconcile it later.
+For busy front desk payments, write down or immediately select the reason for the charge before using Tap to Pay.
+
+After the payment succeeds, record it in DanceFlow right away so the studio does not have to reconcile unmatched Stripe charges later.
 `,
   },
   {
@@ -3545,19 +3668,24 @@ Before charging the card, confirm the amount and the reason for payment in Dance
     content: `
 ## Overview
 
-DanceFlow can store Stripe Terminal locations and card readers so studios can prepare for in-person card collection from the front desk.
+DanceFlow-controlled in-person payments require a supported physical Stripe Terminal reader.
 
-This setup is for physical Stripe readers used with DanceFlow-controlled payment collection. If you are using Tap to Pay through the Stripe Dashboard mobile app, you may not need to register a physical reader in DanceFlow.
+Registering the reader lets DanceFlow send a payment amount to the reader, collect the card-present payment, and connect the result back to the correct DanceFlow sale or payment record.
 
-## Before you register a reader
+If your studio is only using Stripe Dashboard Tap to Pay, you do not need to register a reader in DanceFlow. Dashboard Tap to Pay is handled inside the Stripe Dashboard mobile app and must be recorded in DanceFlow afterward.
 
-Confirm that:
+## Technology required
 
-- Stripe payout setup is complete.
-- The studio is connected to Stripe.
-- The reader is powered on and connected to the internet.
+To use DanceFlow-controlled reader payments, make sure:
+
+- Stripe payout setup is complete for the studio.
+- The studio has a supported Stripe Terminal reader.
+- The reader is powered on.
+- The reader is connected to the internet.
 - The reader shows a registration code.
 - You have permission to manage billing or payment settings.
+
+Recommended reader types include Stripe Terminal smart readers such as Stripe Reader S700/S710 or BBPOS WisePOS E, depending on availability in your region.
 
 ## Create or confirm the Terminal location
 
@@ -3566,7 +3694,7 @@ Confirm that:
 3. Find In-person payments or Card readers.
 4. Create or confirm the studio Terminal location.
 
-The location tells Stripe where the reader belongs.
+The Terminal location tells Stripe where the reader belongs.
 
 ## Register the reader
 
@@ -3603,9 +3731,15 @@ Generate a new registration code on the reader and try again.
 
 Complete Stripe payout setup first, then return to Billing & Payouts.
 
+### Staff are trying to use a phone as the DanceFlow reader
+
+A phone running the Stripe Dashboard app cannot act as the reader for a DanceFlow-started payment.
+
+For DanceFlow-controlled payments, use a supported registered Stripe Terminal reader.
+
 ## Best practice
 
-Register one reader first and test it before adding multiple readers. Keep reader labels simple so front desk staff can choose the right device during payment collection.
+Register one front desk reader first and test it before adding multiple readers. Keep reader labels simple so front desk staff can choose the right device during payment collection.
 `,
   },
   {
@@ -3618,37 +3752,53 @@ Register one reader first and test it before adding multiple readers. Keep reade
     content: `
 ## Overview
 
-DanceFlow's in-person card payment flow lets staff collect payment through a registered Stripe reader and connect the payment to a client, package, membership, appointment, or balance.
+DanceFlow's in-person card payment flow lets staff start a sale in DanceFlow, send the amount to a registered Stripe reader, and automatically connect the successful payment to the correct DanceFlow record.
 
-This is different from recording a manual card payment. The DanceFlow reader flow creates a Stripe card-present payment and tracks the payment session.
+This is different from Stripe Dashboard Tap to Pay.
 
-## Start from the payment workflow
+With Stripe Dashboard Tap to Pay, staff starts the payment in the Stripe mobile app and records the payment in DanceFlow afterward.
 
-A staff member may start an in-person card payment from places such as:
+With DanceFlow-controlled payments, staff starts the payment in DanceFlow and the customer pays on the registered reader.
 
-- Client Quick Sale & Payment
-- Payments page
-- Package sale workflow
-- Lesson or appointment payment workflow
-- Client balance workflow
+## Technology required
 
-Choose the in-person card or card reader option when collecting payment at the front desk.
+To collect a DanceFlow-controlled in-person card payment, the studio needs:
 
-## Select a reader
+- Completed Stripe payout setup
+- A supported physical Stripe Terminal reader
+- The reader registered in DanceFlow
+- The reader online and available
+- A DanceFlow payment workflow, such as package sale, lesson balance, client balance, or quick charge when available
 
-On the Terminal payment page:
+## Linked payment process
 
-1. Confirm the payment amount and client.
-2. Select the registered reader.
-3. Start card collection.
-4. Ask the customer to follow the prompt on the reader.
-5. Refresh the status after the payment is completed.
+Use this process for payments that must attach to a specific client, package, membership, appointment, or balance.
 
-## What happens after payment succeeds
-
-When the card-present payment succeeds, DanceFlow can update the local payment record and mark the related sale or balance as paid.
+1. Open the payment workflow in DanceFlow.
+2. Confirm the client, amount, and purchase type.
+3. Choose In-person card reader.
+4. Select the registered reader, if prompted.
+5. Start card collection.
+6. Ask the customer to tap, insert, or swipe their card on the reader.
+7. Refresh the status after the payment is completed, if needed.
+8. Confirm the payment shows as paid in DanceFlow.
 
 For a package sale, the package can become active after payment succeeds.
+
+## Quick charge process
+
+Quick Charge is intended for fast front desk charges such as group class drop-ins, social party entrances, practice parties, floor fees, and other ad hoc charges.
+
+The intended flow is:
+
+1. Staff opens Quick Charge.
+2. Staff taps a preset charge such as Group Class or Social Party.
+3. DanceFlow sends the payment to the default registered reader.
+4. Customer pays on the reader.
+5. DanceFlow records the payment automatically.
+6. Staff is ready for the next person.
+
+Quick Charge may be expanded separately from linked package or membership payments because door-sale payments need fewer steps.
 
 ## Canceling a payment attempt
 
@@ -3656,7 +3806,9 @@ If the customer changes their mind, the reader is unavailable, or the wrong paym
 
 ## Best practice
 
-Always confirm the client, amount, and purchase type before sending the payment to the reader. This prevents card payments from being connected to the wrong record.
+Use DanceFlow-controlled reader payments when you want the payment automatically connected to DanceFlow.
+
+Use Stripe Dashboard Tap to Pay only as a fallback when there is no registered reader available, and remember to record the payment in DanceFlow afterward.
 `,
   },
   {

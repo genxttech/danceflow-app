@@ -10,6 +10,7 @@ import {
   Landmark,
   Receipt,
   RotateCcw,
+  Zap,
 } from "lucide-react";
 
 type SearchParams = Promise<{
@@ -36,6 +37,8 @@ type PaymentRow = {
   stripe_payment_intent_id: string | null;
   stripe_charge_id: string | null;
   external_reference: string | null;
+  quick_charge_category: string | null;
+  guest_name: string | null;
   client_memberships:
     | { name_snapshot: string | null }
     | { name_snapshot: string | null }[]
@@ -110,6 +113,7 @@ function paymentTypeBadgeClass(type: string) {
   if (type === "event_registration") return "bg-rose-50 text-rose-700";
   if (type === "floor_rental") return "bg-amber-50 text-amber-700";
   if (type === "pay_as_you_go_lesson") return "bg-emerald-50 text-emerald-700";
+  if (type === "other") return "bg-orange-50 text-orange-700";
   return "bg-slate-100 text-slate-700";
 }
 
@@ -130,7 +134,7 @@ function paymentTypeLabel(type: string | null) {
   if (type === "event_registration") return "Event Registration";
   if (type === "floor_rental") return "Floor Rental";
   if (type === "pay_as_you_go_lesson") return "Lesson Payment";
-  if (type === "other") return "Other";
+  if (type === "other") return "Quick / Other";
   return "General";
 }
 
@@ -170,7 +174,18 @@ function getClientName(
     | null
 ) {
   const client = Array.isArray(value) ? value[0] : value;
-  return client ? `${client.first_name} ${client.last_name}` : "Unknown Client";
+  return client ? `${client.first_name} ${client.last_name}` : "Walk-in / Guest";
+}
+
+function quickChargeLabel(value: string | null) {
+  if (value === "group_class") return "Group Class";
+  if (value === "social_party") return "Social Party";
+  if (value === "practice_party") return "Practice Party";
+  if (value === "floor_fee") return "Floor Fee";
+  if (value === "private_lesson_ad_hoc") return "Private Lesson";
+  if (value === "merchandise") return "Merchandise";
+  if (value === "other") return "Other";
+  return null;
 }
 
 function getPackageName(
@@ -235,6 +250,8 @@ export default async function PaymentsPage({
       stripe_payment_intent_id,
       stripe_charge_id,
       external_reference,
+      quick_charge_category,
+      guest_name,
       client_memberships (
         name_snapshot
       ),
@@ -322,6 +339,8 @@ export default async function PaymentsPage({
       payment.notes ?? "",
       payment.stripe_invoice_id ?? "",
       payment.external_reference ?? "",
+      payment.quick_charge_category ?? "",
+      payment.guest_name ?? "",
     ]
       .join(" ")
       .toLowerCase();
@@ -365,9 +384,18 @@ export default async function PaymentsPage({
 </h1>
 
 <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-  Review package sales, membership payments, floor rental payments, and manual
-  transactions from one searchable payment history.
+  Review package sales, membership payments, floor rental payments, quick charges,
+  and manual transactions from one searchable payment history.
 </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/app/payments/quick-charge"
+                className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-white/90"
+              >
+                <Zap className="h-4 w-4" />
+                Quick Charge
+              </Link>
             </div>
           </div>
         </div>
@@ -380,7 +408,7 @@ export default async function PaymentsPage({
     </h2>
     <p className="mt-2 text-sm leading-7 text-sky-900">
       Quickly review every client payment, including packages, memberships,
-      floor rentals, events, and general balance payments.
+      floor rentals, events, quick charges, and general balance payments.
     </p>
   </div>
 
@@ -553,7 +581,7 @@ export default async function PaymentsPage({
               <option value="package_sale">Package Sale</option>
               <option value="event_registration">Event Registration</option>
               <option value="floor_rental">Floor Rental</option>
-              <option value="other">Other</option>
+              <option value="other">Quick / Other</option>
             </select>
           </div>
         </div>
@@ -589,6 +617,8 @@ export default async function PaymentsPage({
             const currency = (payment.currency ?? "usd").toUpperCase();
             const membershipName = getMembershipName(payment.client_memberships);
             const packageName = getPackageName(payment.client_packages);
+            const quickLabel = quickChargeLabel(payment.quick_charge_category);
+            const displayName = payment.guest_name || getClientName(payment.clients);
 
             return (
               <div
@@ -599,7 +629,7 @@ export default async function PaymentsPage({
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-3">
                       <p className="text-lg font-semibold text-slate-900">
-                        {getClientName(payment.clients)}
+                        {displayName}
                       </p>
 
                       <span
@@ -643,6 +673,15 @@ export default async function PaymentsPage({
                         </p>
                         <p className="mt-1 break-words text-sm font-medium text-slate-900">
                           {packageName}
+                        </p>
+                      </div>
+
+                      <div className="min-w-0">
+                        <p className="text-xs uppercase tracking-wide text-slate-400">
+                          Quick Charge
+                        </p>
+                        <p className="mt-1 break-words text-sm font-medium text-slate-900">
+                          {quickLabel ?? "—"}
                         </p>
                       </div>
 
@@ -699,6 +738,8 @@ export default async function PaymentsPage({
                             >
                               Open linked lesson
                             </Link>
+                          ) : payment.quick_charge_category ? (
+                            "Quick charge"
                           ) : payment.payment_type === "membership" ? (
                             "Membership billing"
                           ) : payment.payment_type === "package_sale" ? (
