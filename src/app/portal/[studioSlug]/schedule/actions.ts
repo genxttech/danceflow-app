@@ -5,6 +5,142 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+function getStudioTimeZone(value?: string | null) {
+  const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+function getZonedDateTimeParts(value: Date | string, timeZone: string) {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value ?? "0");
+  const hourPart = part("hour");
+
+  return {
+    year: part("year"),
+    month: part("month"),
+    day: part("day"),
+    hour: hourPart === 24 ? 0 : hourPart,
+    minute: part("minute"),
+    second: part("second"),
+  };
+}
+
+function getZonedOffsetMs(date: Date, timeZone: string) {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+
+  return asUtc - date.getTime();
+}
+
+function zonedDateTimeToUtcDate(date: string, time: string, timeZone: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = time.split(":").map(Number);
+
+  let utcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0);
+
+  for (let index = 0; index < 3; index += 1) {
+    const offsetMs = getZonedOffsetMs(new Date(utcMs), timeZone);
+    utcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0) - offsetMs;
+  }
+
+  return new Date(utcMs);
+}
+
+function zonedDateTimeToUtcIso(date: string, time: string, timeZone: string) {
+  return zonedDateTimeToUtcDate(date, time, timeZone).toISOString();
+}
+
+function getZonedDateKey(value: Date | string, timeZone: string) {
+  const parts = getZonedDateTimeParts(value, timeZone);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0, 0));
+
+  return date.toISOString().slice(0, 10);
+}
+
+function getZonedWeekday(dateKey: string, timeZone: string) {
+  const date = zonedDateTimeToUtcDate(dateKey, "12:00", timeZone);
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+  }).format(date);
+
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
+}
+
+function getLocalDayUtcRange(dateKey: string, timeZone: string) {
+  const safeTimeZone = getStudioTimeZone(timeZone);
+  const nextDateKey = addDaysToDateKey(dateKey, 1);
+
+  return {
+    startIso: zonedDateTimeToUtcIso(dateKey, "00:00", safeTimeZone),
+    endIso: zonedDateTimeToUtcIso(nextDateKey, "00:00", safeTimeZone),
+  };
+}
+
+function formatStudioDate(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "Unknown";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioDateTime(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "Not requested";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioTime(value: string | null | undefined, timeZone: string) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 type StudioRow = {
   id: string;
   name: string;
@@ -20,6 +156,7 @@ type ClientRow = {
 };
 
 type StudioSettingsRow = {
+  timezone: string | null;
   portal_self_scheduling_enabled: boolean | null;
   portal_self_scheduling_mode: string | null;
   portal_self_scheduling_window_days: number | null;
@@ -50,15 +187,8 @@ function typeLabel(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function formatRequestDateTime(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+function formatRequestDateTime(value: string, timeZone: string) {
+  return formatStudioDateTime(value, timeZone, { weekday: "short" });
 }
 
 function getAllowedWeekdays(settings: StudioSettingsRow) {
@@ -74,11 +204,8 @@ function timeWithinRequestWindow(time: string, settings: StudioSettingsRow) {
   return time >= start && time < end;
 }
 
-function buildLocalDateTime(date: string, time: string) {
-  const [year, month, day] = date.split("-").map(Number);
-  const [hours, minutes] = time.split(":").map(Number);
-
-  return new Date(year, month - 1, day, hours, minutes, 0, 0);
+function buildLocalDateTime(date: string, time: string, timeZone: string) {
+  return zonedDateTimeToUtcDate(date, time, timeZone);
 }
 
 function addMinutes(value: Date, minutes: number) {
@@ -102,12 +229,13 @@ async function queuePortalScheduleRequestEmails(params: {
   bookingRequestId: string;
   appointmentType: string;
   requestedStartsAt: string;
+  studioTimeZone: string;
 }) {
   const clientEmail = params.client.email?.trim();
   const clientName =
     `${params.client.first_name ?? ""} ${params.client.last_name ?? ""}`.trim() || "Portal client";
   const firstName = params.client.first_name?.trim() || "there";
-  const requestedTime = formatRequestDateTime(params.requestedStartsAt);
+  const requestedTime = formatRequestDateTime(params.requestedStartsAt, params.studioTimeZone);
   const lessonType = typeLabel(params.appointmentType);
 
   if (clientEmail) {
@@ -240,6 +368,7 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
   const { data: settings, error: settingsError } = await supabase
     .from("studio_settings")
     .select(`
+      timezone,
       portal_self_scheduling_enabled,
       portal_self_scheduling_mode,
       portal_self_scheduling_window_days,
@@ -256,6 +385,8 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
   if (settingsError || !settings) {
     redirect(appendQueryParam(returnTo, "error", "Schedule request settings are not available."));
   }
+
+  const studioTimeZone = getStudioTimeZone(settings.timezone);
 
   if (
     settings.portal_self_scheduling_enabled !== true ||
@@ -278,14 +409,14 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
       ? instructorId
       : null;
 
-  const requestedStart = buildLocalDateTime(requestedDate, requestedTime);
+  const requestedStart = buildLocalDateTime(requestedDate, requestedTime, studioTimeZone);
   const requestedEnd = addMinutes(requestedStart, durationMinutes);
 
   if (Number.isNaN(requestedStart.getTime())) {
     redirect(appendQueryParam(returnTo, "error", "Please choose a valid request time."));
   }
 
-  if (!getAllowedWeekdays(settings).includes(requestedStart.getDay())) {
+  if (!getAllowedWeekdays(settings).includes(getZonedWeekday(requestedDate, studioTimeZone))) {
     redirect(appendQueryParam(returnTo, "error", "That day is not available for schedule requests."));
   }
 
@@ -307,8 +438,9 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
   }
 
   const windowDays = settings.portal_self_scheduling_window_days ?? 14;
-  const maxStart = new Date();
-  maxStart.setDate(maxStart.getDate() + windowDays + 1);
+  const todayKey = getZonedDateKey(new Date(), studioTimeZone);
+  const maxDateKey = addDaysToDateKey(todayKey, windowDays + 1);
+  const maxStart = zonedDateTimeToUtcDate(maxDateKey, "00:00", studioTimeZone);
 
   if (requestedStart > maxStart) {
     redirect(
@@ -375,6 +507,7 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
     bookingRequestId: bookingRequest.id,
     appointmentType,
     requestedStartsAt: requestedStart.toISOString(),
+    studioTimeZone,
   });
 
   revalidatePath(returnTo);

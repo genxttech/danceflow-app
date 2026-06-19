@@ -3,6 +3,142 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import BookingRequestForm from "./BookingRequestForm";
 
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+function getStudioTimeZone(value?: string | null) {
+  const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+function getZonedDateTimeParts(value: Date | string, timeZone: string) {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value ?? "0");
+  const hourPart = part("hour");
+
+  return {
+    year: part("year"),
+    month: part("month"),
+    day: part("day"),
+    hour: hourPart === 24 ? 0 : hourPart,
+    minute: part("minute"),
+    second: part("second"),
+  };
+}
+
+function getZonedOffsetMs(date: Date, timeZone: string) {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+
+  return asUtc - date.getTime();
+}
+
+function zonedDateTimeToUtcDate(date: string, time: string, timeZone: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = time.split(":").map(Number);
+
+  let utcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0);
+
+  for (let index = 0; index < 3; index += 1) {
+    const offsetMs = getZonedOffsetMs(new Date(utcMs), timeZone);
+    utcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0) - offsetMs;
+  }
+
+  return new Date(utcMs);
+}
+
+function zonedDateTimeToUtcIso(date: string, time: string, timeZone: string) {
+  return zonedDateTimeToUtcDate(date, time, timeZone).toISOString();
+}
+
+function getZonedDateKey(value: Date | string, timeZone: string) {
+  const parts = getZonedDateTimeParts(value, timeZone);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0, 0));
+
+  return date.toISOString().slice(0, 10);
+}
+
+function getZonedWeekday(dateKey: string, timeZone: string) {
+  const date = zonedDateTimeToUtcDate(dateKey, "12:00", timeZone);
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+  }).format(date);
+
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
+}
+
+function getLocalDayUtcRange(dateKey: string, timeZone: string) {
+  const safeTimeZone = getStudioTimeZone(timeZone);
+  const nextDateKey = addDaysToDateKey(dateKey, 1);
+
+  return {
+    startIso: zonedDateTimeToUtcIso(dateKey, "00:00", safeTimeZone),
+    endIso: zonedDateTimeToUtcIso(nextDateKey, "00:00", safeTimeZone),
+  };
+}
+
+function formatStudioDate(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "Unknown";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioDateTime(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "Not requested";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioTime(value: string | null | undefined, timeZone: string) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 type SearchParams = Promise<{
   slotStart?: string;
   success?: string;
@@ -104,54 +240,28 @@ function getPublicIntroInstructorId(settings: StudioSettingsRow) {
   return allowedIds[0] ?? null;
 }
 
-function formatLongDate(value: string) {
-  return new Date(value).toLocaleDateString([], {
+function formatLongDate(value: string, timeZone: string) {
+  return formatStudioDate(`${value}T12:00:00.000Z`, "UTC", {
     weekday: "long",
     month: "long",
     day: "numeric",
   });
 }
 
-function formatTime(value: string) {
-  return new Date(value).toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function formatTime(value: string, timeZone: string) {
+  return formatStudioTime(value, timeZone);
 }
 
-function formatSelectedSlot(value: string) {
-  return new Date(value).toLocaleString([], {
+function formatSelectedSlot(value: string, timeZone: string) {
+  return formatStudioDateTime(value, timeZone, {
     weekday: "long",
     month: "long",
     day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
   });
 }
 
-function toLocalDateParts(date: Date) {
-  return {
-    year: date.getFullYear(),
-    month: date.getMonth(),
-    day: date.getDate(),
-  };
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function startOfTodayLocal() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-}
-
-function buildLocalDateTime(date: Date, time: string) {
-  const [hours, minutes] = time.split(":").map(Number);
-  const { year, month, day } = toLocalDateParts(date);
-  return new Date(year, month, day, hours, minutes, 0, 0);
+function buildStudioDateTime(dateKey: string, time: string, timeZone: string) {
+  return zonedDateTimeToUtcDate(dateKey, time, timeZone);
 }
 
 function addMinutes(date: Date, minutes: number) {
@@ -162,11 +272,11 @@ function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
   return aStart < bEnd && aEnd > bStart;
 }
 
-function groupSlotsByDate(slots: SlotRow[]) {
+function groupSlotsByDate(slots: SlotRow[], timeZone: string) {
   const map = new Map<string, SlotRow[]>();
 
   for (const slot of slots) {
-    const key = slot.start.slice(0, 10);
+    const key = getZonedDateKey(slot.start, timeZone);
     const existing = map.get(key) ?? [];
     existing.push(slot);
     map.set(key, existing);
@@ -241,6 +351,7 @@ export default async function PublicIntroBookingPage({
     notFound();
   }
 
+  const studioTimeZone = getStudioTimeZone(typedSettings.timezone);
   const bookingWindowDays = typedSettings.intro_booking_window_days ?? 7;
   const lessonDurationMinutes = typedSettings.intro_lesson_duration_minutes ?? 30;
   const bookingLeadTimeHours = typedSettings.booking_lead_time_hours ?? 0;
@@ -270,9 +381,9 @@ export default async function PublicIntroBookingPage({
   const typedInstructor = instructor as InstructorRow | null;
   const typedRoom = room as RoomRow | null;
 
-  const today = startOfTodayLocal();
-  const rangeStart = today.toISOString();
-  const rangeEnd = addDays(today, bookingWindowDays + 1).toISOString();
+  const todayKey = getZonedDateKey(new Date(), studioTimeZone);
+  const rangeStart = getLocalDayUtcRange(todayKey, studioTimeZone).startIso;
+  const rangeEnd = getLocalDayUtcRange(addDaysToDateKey(todayKey, bookingWindowDays + 1), studioTimeZone).startIso;
 
   let appointmentsQuery = supabase
     .from("appointments")
@@ -302,8 +413,8 @@ export default async function PublicIntroBookingPage({
   const generatedSlots: SlotRow[] = [];
 
   for (let dayOffset = 0; dayOffset < bookingWindowDays; dayOffset++) {
-    const dayDate = addDays(today, dayOffset);
-    const dayOfWeek = dayDate.getDay();
+    const dayDateKey = addDaysToDateKey(todayKey, dayOffset);
+    const dayOfWeek = getZonedWeekday(dayDateKey, studioTimeZone);
 
     if (!allowedWeekdays.includes(dayOfWeek)) {
       continue;
@@ -314,7 +425,7 @@ export default async function PublicIntroBookingPage({
     );
 
     for (const time of times) {
-      const start = buildLocalDateTime(dayDate, time);
+      const start = buildStudioDateTime(dayDateKey, time, studioTimeZone);
       const end = addMinutes(start, lessonDurationMinutes);
 
       if (start < leadTimeCutoff) {
@@ -337,7 +448,7 @@ export default async function PublicIntroBookingPage({
     }
   }
 
-  const groupedSlots = groupSlotsByDate(generatedSlots);
+  const groupedSlots = groupSlotsByDate(generatedSlots, studioTimeZone);
   const selectedSlot =
     generatedSlots.find((slot) => slot.start === selectedSlotStart) ??
     (selectedSlotStart
@@ -448,7 +559,7 @@ export default async function PublicIntroBookingPage({
                     <div className="mt-6 rounded-2xl border border-green-200 bg-white p-5">
                       <p className="text-sm text-slate-500">Requested time</p>
                       <p className="mt-2 text-lg font-medium text-slate-900">
-                        {formatSelectedSlot(selectedSlot.start)}
+                        {formatSelectedSlot(selectedSlot.start, studioTimeZone)}
                       </p>
                       <p className="mt-1 text-sm text-slate-600">
                         Duration: {lessonDurationMinutes} minutes
@@ -505,7 +616,7 @@ export default async function PublicIntroBookingPage({
                       <section key={group.date} className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
                         <div className="border-b border-slate-200 bg-gradient-to-r from-slate-50 to-pink-50/50 px-5 py-4">
                           <h3 className="font-semibold text-slate-950">
-                            {formatLongDate(group.date)}
+                            {formatLongDate(group.date, studioTimeZone)}
                           </h3>
                         </div>
 
@@ -527,7 +638,7 @@ export default async function PublicIntroBookingPage({
                                 }`}
                               >
                                 <p className="text-base font-medium">
-                                  {formatTime(slot.start)} – {formatTime(slot.end)}
+                                  {formatTime(slot.start, studioTimeZone)} – {formatTime(slot.end, studioTimeZone)}
                                 </p>
                                 <p
                                   className={`mt-2 text-sm ${
@@ -564,7 +675,7 @@ export default async function PublicIntroBookingPage({
                     <BookingRequestForm
                       studioSlug={typedStudio.slug}
                       slotStart={selectedSlot.start}
-                      selectedSlotLabel={formatSelectedSlot(selectedSlot.start)}
+                      selectedSlotLabel={formatSelectedSlot(selectedSlot.start, studioTimeZone)}
                       ctaText={ctaText}
                     />
                   )}

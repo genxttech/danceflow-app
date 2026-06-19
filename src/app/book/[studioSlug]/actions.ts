@@ -3,6 +3,142 @@
 import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+function getStudioTimeZone(value?: string | null) {
+  const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+function getZonedDateTimeParts(value: Date | string, timeZone: string) {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value ?? "0");
+  const hourPart = part("hour");
+
+  return {
+    year: part("year"),
+    month: part("month"),
+    day: part("day"),
+    hour: hourPart === 24 ? 0 : hourPart,
+    minute: part("minute"),
+    second: part("second"),
+  };
+}
+
+function getZonedOffsetMs(date: Date, timeZone: string) {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+
+  return asUtc - date.getTime();
+}
+
+function zonedDateTimeToUtcDate(date: string, time: string, timeZone: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = time.split(":").map(Number);
+
+  let utcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0);
+
+  for (let index = 0; index < 3; index += 1) {
+    const offsetMs = getZonedOffsetMs(new Date(utcMs), timeZone);
+    utcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0) - offsetMs;
+  }
+
+  return new Date(utcMs);
+}
+
+function zonedDateTimeToUtcIso(date: string, time: string, timeZone: string) {
+  return zonedDateTimeToUtcDate(date, time, timeZone).toISOString();
+}
+
+function getZonedDateKey(value: Date | string, timeZone: string) {
+  const parts = getZonedDateTimeParts(value, timeZone);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0, 0));
+
+  return date.toISOString().slice(0, 10);
+}
+
+function getZonedWeekday(dateKey: string, timeZone: string) {
+  const date = zonedDateTimeToUtcDate(dateKey, "12:00", timeZone);
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+  }).format(date);
+
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
+}
+
+function getLocalDayUtcRange(dateKey: string, timeZone: string) {
+  const safeTimeZone = getStudioTimeZone(timeZone);
+  const nextDateKey = addDaysToDateKey(dateKey, 1);
+
+  return {
+    startIso: zonedDateTimeToUtcIso(dateKey, "00:00", safeTimeZone),
+    endIso: zonedDateTimeToUtcIso(nextDateKey, "00:00", safeTimeZone),
+  };
+}
+
+function formatStudioDate(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "Unknown";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioDateTime(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "Not requested";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioTime(value: string | null | undefined, timeZone: string) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 type StudioRow = {
   id: string;
   name: string;
@@ -10,6 +146,7 @@ type StudioRow = {
 };
 
 type StudioSettingsRow = {
+  timezone: string | null;
   booking_lead_time_hours: number | null;
   public_intro_booking_enabled: boolean | null;
   intro_lesson_duration_minutes: number | null;
@@ -79,29 +216,8 @@ function getPublicIntroInstructorId(settings: StudioSettingsRow) {
   return allowedIds[0] ?? null;
 }
 
-function toLocalDateParts(date: Date) {
-  return {
-    year: date.getFullYear(),
-    month: date.getMonth(),
-    day: date.getDate(),
-  };
-}
-
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-}
-
-function startOfTodayLocal() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-}
-
-function buildLocalDateTime(date: Date, time: string) {
-  const [hours, minutes] = time.split(":").map(Number);
-  const { year, month, day } = toLocalDateParts(date);
-  return new Date(year, month, day, hours, minutes, 0, 0);
+function buildStudioDateTime(dateKey: string, time: string, timeZone: string) {
+  return zonedDateTimeToUtcDate(dateKey, time, timeZone);
 }
 
 function addMinutes(date: Date, minutes: number) {
@@ -128,6 +244,7 @@ async function getStudioAndSettings(studioSlug: string) {
   const { data: settings, error: settingsError } = await supabase
     .from("studio_settings")
     .select(`
+      timezone,
       booking_lead_time_hours,
       public_intro_booking_enabled,
       intro_lesson_duration_minutes,
@@ -160,13 +277,14 @@ async function getAvailableSlots(studioSlug: string): Promise<SlotRow[]> {
     return [];
   }
 
+  const studioTimeZone = getStudioTimeZone(settings.timezone);
   const bookingWindowDays = settings.intro_booking_window_days ?? 7;
   const lessonDurationMinutes = settings.intro_lesson_duration_minutes ?? 30;
   const bookingLeadTimeHours = settings.booking_lead_time_hours ?? 0;
 
-  const today = startOfTodayLocal();
-  const rangeStart = today.toISOString();
-  const rangeEnd = addDays(today, bookingWindowDays + 1).toISOString();
+  const todayKey = getZonedDateKey(new Date(), studioTimeZone);
+  const rangeStart = getLocalDayUtcRange(todayKey, studioTimeZone).startIso;
+  const rangeEnd = getLocalDayUtcRange(addDaysToDateKey(todayKey, bookingWindowDays + 1), studioTimeZone).startIso;
 
   let appointmentsQuery = supabase
     .from("appointments")
@@ -198,8 +316,8 @@ async function getAvailableSlots(studioSlug: string): Promise<SlotRow[]> {
   const generatedSlots: SlotRow[] = [];
 
   for (let dayOffset = 0; dayOffset < bookingWindowDays; dayOffset++) {
-    const dayDate = addDays(today, dayOffset);
-    const dayOfWeek = dayDate.getDay();
+    const dayDateKey = addDaysToDateKey(todayKey, dayOffset);
+    const dayOfWeek = getZonedWeekday(dayDateKey, studioTimeZone);
 
     if (!getAllowedWeekdays(settings).includes(dayOfWeek)) {
       continue;
@@ -210,7 +328,7 @@ async function getAvailableSlots(studioSlug: string): Promise<SlotRow[]> {
     );
 
     for (const time of times) {
-      const start = buildLocalDateTime(dayDate, time);
+      const start = buildStudioDateTime(dayDateKey, time, studioTimeZone);
       const end = addMinutes(start, lessonDurationMinutes);
 
       if (start < leadTimeCutoff) {
@@ -277,15 +395,8 @@ async function getStudioNotificationEmail(studioId: string) {
   return null;
 }
 
-function formatBookingRequestDateTime(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+function formatBookingRequestDateTime(value: string, timeZone: string) {
+  return formatStudioDateTime(value, timeZone, { weekday: "short" });
 }
 
 async function queueBookingRequestEmails(params: {
@@ -296,11 +407,12 @@ async function queueBookingRequestEmails(params: {
   customerEmail: string;
   customerPhone: string | null;
   requestedStartsAt: string;
+  studioTimeZone: string;
   danceInterests: string | null;
   notes: string | null;
 }) {
   const supabase = createAdminClient();
-  const requestedTime = formatBookingRequestDateTime(params.requestedStartsAt);
+  const requestedTime = formatBookingRequestDateTime(params.requestedStartsAt, params.studioTimeZone);
   const firstName = params.customerName.split(" ")[0] || "there";
   const requestsUrl = `${(process.env.NEXT_PUBLIC_SITE_URL || "https://www.idanceflow.com").replace(/\/$/, "")}/app/schedule/requests`;
 
@@ -402,6 +514,7 @@ export async function createPublicIntroBookingAction(
     }
 
     const { supabase, studio, settings } = await getStudioAndSettings(studioSlug);
+    const studioTimeZone = getStudioTimeZone(settings.timezone);
 
     if (!settings.public_intro_booking_enabled) {
       return { error: "Intro lesson requests are not enabled for this studio." };
@@ -521,7 +634,7 @@ export async function createPublicIntroBookingAction(
 
     const leadActivityNote = [
       "Public intro lesson requested.",
-      `Requested slot: ${new Date(chosenSlot.start).toLocaleString()}`,
+      `Requested slot: ${formatBookingRequestDateTime(chosenSlot.start, studioTimeZone)}`,
       danceInterests ? `Dance interests: ${danceInterests}` : null,
       notes ? `Notes: ${notes}` : null,
     ]
@@ -547,7 +660,7 @@ export async function createPublicIntroBookingAction(
 
     const notificationBodyParts = [
       `${customerName} requested an intro lesson.`,
-      `Requested for ${new Date(chosenSlot.start).toLocaleString()}.`,
+      `Requested for ${formatBookingRequestDateTime(chosenSlot.start, studioTimeZone)}.`,
       danceInterests ? `Interests: ${danceInterests}.` : null,
     ].filter(Boolean);
 
@@ -571,6 +684,7 @@ export async function createPublicIntroBookingAction(
       customerEmail: email,
       customerPhone: phone || null,
       requestedStartsAt: chosenSlot.start,
+      studioTimeZone,
       danceInterests: danceInterests || null,
       notes: notes || null,
     });

@@ -57,14 +57,28 @@ type StudioNotificationSettingsRow = {
   floor_rental_upcoming_enabled: boolean;
 };
 
-function fmtDateTime(value: string) {
-  return new Date(value).toLocaleString([], {
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+function getStudioTimeZone(value?: string | null) {
+  const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+function fmtDateTime(value: string, timeZone = DEFAULT_TIME_ZONE) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
     month: "short",
     day: "numeric",
     year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+  }).format(new Date(value));
 }
 
 function getClientName(
@@ -157,6 +171,7 @@ export async function syncStudioNotifications(studioId: string) {
   ).toISOString();
 
   const [
+    { data: studioTimeZoneRow, error: studioTimeZoneError },
     { data: settingsRow, error: settingsError },
     { data: overdueFollowUps, error: overdueError },
     { data: packageRows, error: packageRowsError },
@@ -178,6 +193,8 @@ export async function syncStudioNotifications(studioId: string) {
       error: existingFloorRentalNotificationsError,
     },
   ] = await Promise.all([
+    supabase.from("studios").select("timezone").eq("id", studioId).maybeSingle(),
+
     supabase
       .from("studio_notification_settings")
       .select(`
@@ -326,6 +343,10 @@ export async function syncStudioNotifications(studioId: string) {
     );
   }
 
+  const studioTimeZone = getStudioTimeZone(
+    (studioTimeZoneRow as { timezone?: string | null } | null)?.timezone
+  );
+
   const settings: StudioNotificationSettingsRow = settingsRow ?? {
     public_intro_booking_enabled: true,
     follow_up_overdue_enabled: true,
@@ -445,7 +466,8 @@ export async function syncStudioNotifications(studioId: string) {
             priority: "normal",
             title: `${clientName} — Upcoming floor rental`,
             body: `${rentalTitle} starts ${fmtDateTime(
-              rental.starts_at
+              rental.starts_at,
+              studioTimeZone
             )}. No room reservation or package deduction applies.`,
             client_id: rental.client_id,
             appointment_id: rental.id,

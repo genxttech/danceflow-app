@@ -46,6 +46,46 @@ function getTodayDateInputValue() {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+
+function getStudioDateInputValue(timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+
+  const year = parts.find((part) => part.type === "year")?.value ?? "";
+  const month = parts.find((part) => part.type === "month")?.value ?? "";
+  const day = parts.find((part) => part.type === "day")?.value ?? "";
+
+  return year && month && day ? `${year}-${month}-${day}` : getTodayDateInputValue();
+}
+
+function formatDateInputLabel(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(Date.UTC(year, month - 1, day, 12, 0, 0)));
+}
+
+function formatTimeInputLabel(value: string) {
+  const [hourRaw, minuteRaw = "00"] = value.split(":");
+  const hour = Number(hourRaw);
+  const minute = Number(minuteRaw);
+
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return value;
+
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(Date.UTC(2000, 0, 1, hour, minute)));
+}
+
 function formatCurrencyInput(value: string) {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount <= 0) return "";
@@ -58,28 +98,11 @@ function formatCurrencyInput(value: string) {
 function formatSlotLabel(slot: Pick<Slot, "date" | "startTime" | "endTime" | "priceAmount">) {
   if (!slot.date || !slot.startTime || !slot.endTime) return "Incomplete slot";
 
-  const start = new Date(`${slot.date}T${slot.startTime}:00`);
-  const end = new Date(`${slot.date}T${slot.endTime}:00`);
-
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-    return "Incomplete slot";
-  }
-
   const amountLabel = slot.priceAmount
     ? ` • ${formatCurrencyInput(slot.priceAmount) || `$${slot.priceAmount}`}`
     : "";
 
-  return `${start.toLocaleDateString([], {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  })} • ${start.toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  })} - ${end.toLocaleTimeString([], {
-    hour: "numeric",
-    minute: "2-digit",
-  })}${amountLabel}`;
+  return `${formatDateInputLabel(slot.date)} • ${formatTimeInputLabel(slot.startTime)} - ${formatTimeInputLabel(slot.endTime)}${amountLabel}`;
 }
 
 function hasDuplicateSlots(slots: Slot[]) {
@@ -104,14 +127,23 @@ function getClientValidationError(slots: Slot[]) {
       return "Complete every slot before booking.";
     }
 
-    const startsAt = new Date(`${slot.date}T${slot.startTime}:00`);
-    const endsAt = new Date(`${slot.date}T${slot.endTime}:00`);
+    const [startHour, startMinute = 0] = slot.startTime.split(":").map(Number);
+    const [endHour, endMinute = 0] = slot.endTime.split(":").map(Number);
 
-    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) {
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(slot.date) ||
+      !Number.isFinite(startHour) ||
+      !Number.isFinite(startMinute) ||
+      !Number.isFinite(endHour) ||
+      !Number.isFinite(endMinute)
+    ) {
       return "One or more rental slots has an invalid date or time.";
     }
 
-    if (endsAt <= startsAt) {
+    const startMinutes = startHour * 60 + startMinute;
+    const endMinutes = endHour * 60 + endMinute;
+
+    if (endMinutes <= startMinutes) {
       return "Each slot must end after it starts.";
     }
 
@@ -131,9 +163,11 @@ function getClientValidationError(slots: Slot[]) {
 export default function FloorSpaceRentalForm({
   studioSlug,
   rooms,
+  studioTimeZone,
 }: {
   studioSlug: string;
   rooms: RoomOption[];
+  studioTimeZone: string;
 }) {
   const [state, formAction, pending] = useActionState(
     createFloorSpaceRentalAction,
@@ -146,7 +180,7 @@ export default function FloorSpaceRentalForm({
   const [slots, setSlots] = useState<Slot[]>([
     {
       ...makeSlot(),
-      date: getTodayDateInputValue(),
+      date: getStudioDateInputValue(studioTimeZone),
     },
   ]);
 
@@ -184,7 +218,7 @@ export default function FloorSpaceRentalForm({
       ...current,
       {
         ...makeSlot(),
-        date: current[current.length - 1]?.date || getTodayDateInputValue(),
+        date: current[current.length - 1]?.date || getStudioDateInputValue(studioTimeZone),
       },
     ]);
   }

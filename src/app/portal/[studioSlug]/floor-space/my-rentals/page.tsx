@@ -26,8 +26,23 @@ type RentalRow = {
     | null;
 };
 
-function formatDate(value: string) {
+
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+function getStudioTimeZone(value?: string | null) {
+  const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+function formatDate(value: string, timeZone = DEFAULT_TIME_ZONE) {
   return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -35,15 +50,17 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-function formatTime(value: string) {
+function formatTime(value: string, timeZone = DEFAULT_TIME_ZONE) {
   return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
 }
 
-function formatDateTime(value: string) {
+function formatDateTime(value: string, timeZone = DEFAULT_TIME_ZONE) {
   return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -169,13 +186,15 @@ export default async function MyFloorRentalsPage({
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
-    .select("id, name, slug, public_name")
+    .select("id, name, slug, public_name, timezone")
     .eq("slug", studioSlug)
     .single();
 
   if (studioError || !studio) {
     redirect("/login");
   }
+
+  const studioTimeZone = getStudioTimeZone(studio.timezone);
 
   const { data: client, error: clientError } = await supabase
     .from("clients")
@@ -414,10 +433,10 @@ export default async function MyFloorRentalsPage({
                         </div>
 
                         <p className="mt-3 text-sm text-slate-700">
-                          {formatDate(rental.starts_at)}
+                          {formatDate(rental.starts_at, studioTimeZone)}
                         </p>
                         <p className="mt-1 text-sm text-slate-600">
-                          {formatTime(rental.starts_at)} – {formatTime(rental.ends_at)}
+                          {formatTime(rental.starts_at, studioTimeZone)} – {formatTime(rental.ends_at, studioTimeZone)}
                         </p>
                         <p className="mt-1 text-sm text-slate-500">
                           {getRoomName(rental.rooms)}
@@ -486,7 +505,7 @@ export default async function MyFloorRentalsPage({
                           {rental.title || "Floor Space Rental"}
                         </p>
                         <p className="mt-1 text-sm text-slate-600">
-                          {formatDateTime(rental.starts_at)}
+                          {formatDateTime(rental.starts_at, studioTimeZone)}
                         </p>
                         <p className="mt-1 text-sm text-slate-500">
                           {getRoomName(rental.rooms)}
@@ -542,7 +561,7 @@ export default async function MyFloorRentalsPage({
               <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <span>Next Rental</span>
                 <span className="font-medium text-slate-900">
-                  {nextRental ? formatDateTime(nextRental.starts_at) : "None scheduled"}
+                  {nextRental ? formatDateTime(nextRental.starts_at, studioTimeZone) : "None scheduled"}
                 </span>
               </div>
 

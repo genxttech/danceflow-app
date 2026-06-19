@@ -10,6 +10,120 @@ export type ImportActionState = {
   error: string;
 };
 
+
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+function getStudioTimeZone(value?: string | null) {
+  const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+function getZonedDateTimeParts(value: Date | string, timeZone: string) {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const lookup = new Map(parts.map((part) => [part.type, part.value]));
+  const hourValue = Number(lookup.get("hour") ?? "0");
+
+  return {
+    year: lookup.get("year") ?? "0000",
+    month: lookup.get("month") ?? "01",
+    day: lookup.get("day") ?? "01",
+    hour: String(hourValue === 24 ? 0 : hourValue).padStart(2, "0"),
+    minute: lookup.get("minute") ?? "00",
+    second: lookup.get("second") ?? "00",
+  };
+}
+
+function getZonedOffsetMs(date: Date, timeZone: string) {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second)
+  );
+
+  return asUtc - date.getTime();
+}
+
+function zonedDateTimeToUtcDate(date: string, time: string, timeZone: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour = 0, minute = 0, second = 0] = time.split(":").map(Number);
+
+  let utcMs = Date.UTC(year, month - 1, day, hour, minute, second, 0);
+
+  for (let i = 0; i < 2; i += 1) {
+    const offsetMs = getZonedOffsetMs(new Date(utcMs), timeZone);
+    utcMs = Date.UTC(year, month - 1, day, hour, minute, second, 0) - offsetMs;
+  }
+
+  return new Date(utcMs);
+}
+
+function parseImportedDateTime(value: string | null | undefined, timeZone: string) {
+  const raw = (value ?? "").trim();
+  if (!raw) return null;
+
+  if (/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)) {
+    const date = new Date(raw);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const isoLike = raw.match(
+    /^(\d{4})-(\d{2})-(\d{2})(?:[T\s]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/
+  );
+
+  if (isoLike) {
+    const [, year, month, day, hour = "00", minute = "00", second = "00"] = isoLike;
+    return zonedDateTimeToUtcDate(
+      `${year}-${month}-${day}`,
+      `${hour.padStart(2, "0")}:${minute}:${second}`,
+      timeZone
+    );
+  }
+
+  const usLike = raw.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:[,\s]+(\d{1,2})(?::(\d{2}))?\s*(AM|PM)?)?$/i
+  );
+
+  if (usLike) {
+    const [, monthRaw, dayRaw, yearRaw, hourRaw = "00", minuteRaw = "00", meridiemRaw] = usLike;
+    const yearNumber = Number(yearRaw.length === 2 ? `20${yearRaw}` : yearRaw);
+    let hourNumber = Number(hourRaw);
+    const meridiem = meridiemRaw?.toUpperCase();
+
+    if (meridiem === "PM" && hourNumber < 12) hourNumber += 12;
+    if (meridiem === "AM" && hourNumber === 12) hourNumber = 0;
+
+    return zonedDateTimeToUtcDate(
+      `${yearNumber}-${String(Number(monthRaw)).padStart(2, "0")}-${String(Number(dayRaw)).padStart(2, "0")}`,
+      `${String(hourNumber).padStart(2, "0")}:${String(Number(minuteRaw)).padStart(2, "0")}:00`,
+      timeZone
+    );
+  }
+
+  const fallback = new Date(raw);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+}
+
 function isNextRedirectError(error: unknown) {
   return (
     typeof error === "object" &&
@@ -1413,6 +1527,13 @@ export async function validateAppointmentImportBatchAction(formData: FormData) {
 
   try {
     const { supabase, studioId } = await getImportContext();
+    const { data: studioTimeZoneRow } = await supabase
+      .from("studios")
+      .select("timezone")
+      .eq("id", studioId)
+      .maybeSingle<{ timezone: string | null }>();
+    const studioTimeZone = getStudioTimeZone(studioTimeZoneRow?.timezone);
+
     const batch = await getBatchForStudio({ supabase, studioId, batchId });
     if (!batch) redirect("/app/settings/import?error=batch_not_found");
     if (batch.import_type !== "appointments") {
@@ -1673,18 +1794,20 @@ export async function validateAppointmentImportBatchAction(formData: FormData) {
 
     const parsedStartDates = rows
       .map((row) => buildAppointmentCandidate(row).startsAt)
-      .filter((value) => value && !Number.isNaN(Date.parse(value)))
-      .map((value) => new Date(value));
+      .map((value) => parseImportedDateTime(value, studioTimeZone))
+      .filter((value): value is Date => value instanceof Date);
 
     const parsedEndDates = rows
       .map((row) => {
         const candidate = buildAppointmentCandidate(row);
-        if (candidate.endsAt && !Number.isNaN(Date.parse(candidate.endsAt))) {
-          return new Date(candidate.endsAt);
+        const parsedEnd = parseImportedDateTime(candidate.endsAt, studioTimeZone);
+        if (parsedEnd) return parsedEnd;
+
+        const parsedStart = parseImportedDateTime(candidate.startsAt, studioTimeZone);
+        if (parsedStart) {
+          return new Date(parsedStart.getTime() + 60 * 60 * 1000);
         }
-        if (candidate.startsAt && !Number.isNaN(Date.parse(candidate.startsAt))) {
-          return new Date(new Date(candidate.startsAt).getTime() + 60 * 60 * 1000);
-        }
+
         return null;
       })
       .filter((value): value is Date => value instanceof Date);
@@ -1747,7 +1870,7 @@ export async function validateAppointmentImportBatchAction(formData: FormData) {
           raw_value: "",
           row_data: row,
         });
-      } else if (Number.isNaN(Date.parse(candidate.startsAt))) {
+      } else if (!parseImportedDateTime(candidate.startsAt, studioTimeZone)) {
         rowHasBlockingError = true;
         batchErrors.push({
           import_batch_id: batchId,
@@ -1761,7 +1884,7 @@ export async function validateAppointmentImportBatchAction(formData: FormData) {
         });
       }
 
-      if (candidate.endsAt && Number.isNaN(Date.parse(candidate.endsAt))) {
+      if (candidate.endsAt && !parseImportedDateTime(candidate.endsAt, studioTimeZone)) {
         rowHasBlockingError = true;
         batchErrors.push({
           import_batch_id: batchId,
@@ -1900,11 +2023,13 @@ export async function validateAppointmentImportBatchAction(formData: FormData) {
       }
 
       if (!rowHasBlockingError && candidate.startsAt) {
-        const rowStart = new Date(candidate.startsAt);
+        const parsedRowStart = parseImportedDateTime(candidate.startsAt, studioTimeZone);
+        if (!parsedRowStart) continue;
+
+        const rowStart = parsedRowStart;
         const rowEnd =
-          candidate.endsAt && !Number.isNaN(Date.parse(candidate.endsAt))
-            ? new Date(candidate.endsAt)
-            : new Date(rowStart.getTime() + 60 * 60 * 1000);
+          parseImportedDateTime(candidate.endsAt, studioTimeZone) ??
+          new Date(rowStart.getTime() + 60 * 60 * 1000);
 
         const overlaps = existingAppointments.filter((appt) => {
           const apptStart = new Date(appt.starts_at);
@@ -2862,6 +2987,13 @@ export async function executeAppointmentImportBatchAction(formData: FormData) {
 
   try {
     const { supabase, studioId } = await getImportContext();
+    const { data: studioTimeZoneRow } = await supabase
+      .from("studios")
+      .select("timezone")
+      .eq("id", studioId)
+      .maybeSingle<{ timezone: string | null }>();
+    const studioTimeZone = getStudioTimeZone(studioTimeZoneRow?.timezone);
+
     const batch = await getBatchForStudio({ supabase, studioId, batchId });
     if (!batch) redirect("/app/settings/import?error=batch_not_found");
     if (batch.import_type !== "appointments") redirect("/app/settings/import?error=wrong_import_type");
@@ -3021,10 +3153,17 @@ export async function executeAppointmentImportBatchAction(formData: FormData) {
           matchedAppointmentId = appointmentMatch?.id ?? null;
         }
 
-        const startsAtIso = new Date(candidate.startsAt).toISOString();
-        const endsAtIso = candidate.endsAt
-          ? new Date(candidate.endsAt).toISOString()
-          : new Date(new Date(candidate.startsAt).getTime() + 60 * 60 * 1000).toISOString();
+        const parsedStartsAt = parseImportedDateTime(candidate.startsAt, studioTimeZone);
+        if (!parsedStartsAt) {
+          throw new Error("Imported appointment start time is invalid.");
+        }
+
+        const parsedEndsAt =
+          parseImportedDateTime(candidate.endsAt, studioTimeZone) ??
+          new Date(parsedStartsAt.getTime() + 60 * 60 * 1000);
+
+        const startsAtIso = parsedStartsAt.toISOString();
+        const endsAtIso = parsedEndsAt.toISOString();
 
         const appointmentPayload = {
           studio_id: studioId,

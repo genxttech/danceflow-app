@@ -34,39 +34,118 @@ type InstructorSummary = {
   revenue: number;
 };
 
-function startOfTodayLocal() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+function getStudioTimeZone(value?: string | null) {
+  const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
 }
 
-function startOfMonthLocal() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), 1);
+function getZonedDateTimeParts(value: Date | string, timeZone: string) {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const lookup = new Map(parts.map((part) => [part.type, part.value]));
+  const hourValue = Number(lookup.get("hour") ?? "0");
+
+  return {
+    year: lookup.get("year") ?? "0000",
+    month: lookup.get("month") ?? "01",
+    day: lookup.get("day") ?? "01",
+    hour: String(hourValue === 24 ? 0 : hourValue).padStart(2, "0"),
+    minute: lookup.get("minute") ?? "00",
+    second: lookup.get("second") ?? "00",
+  };
 }
 
-function startOfLast30DaysLocal() {
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30);
+function getZonedOffsetMs(date: Date, timeZone: string) {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second)
+  );
+
+  return asUtc - date.getTime();
 }
 
-function startOfQuarterLocal() {
-  const now = new Date();
-  const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
-  return new Date(now.getFullYear(), quarterStartMonth, 1);
+function zonedDateTimeToUtcDate(date: string, time: string, timeZone: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour = 0, minute = 0, second = 0] = time.split(":").map(Number);
+
+  let utcMs = Date.UTC(year, month - 1, day, hour, minute, second, 0);
+
+  for (let i = 0; i < 2; i += 1) {
+    const offsetMs = getZonedOffsetMs(new Date(utcMs), timeZone);
+    utcMs = Date.UTC(year, month - 1, day, hour, minute, second, 0) - offsetMs;
+  }
+
+  return new Date(utcMs);
 }
 
-function startOfYearLocal() {
-  const now = new Date();
-  return new Date(now.getFullYear(), 0, 1);
+function zonedDateTimeToUtcIso(date: string, time: string, timeZone: string) {
+  return zonedDateTimeToUtcDate(date, time, timeZone).toISOString();
 }
 
-function getRangeStart(range: string) {
-  if (range === "today") return startOfTodayLocal();
-  if (range === "last30") return startOfLast30DaysLocal();
-  if (range === "quarter") return startOfQuarterLocal();
-  if (range === "year") return startOfYearLocal();
-  return startOfMonthLocal();
+function getZonedDateKey(value: Date | string, timeZone: string) {
+  const parts = getZonedDateTimeParts(value, timeZone);
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0, 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function getRangeStartDateKey(range: string, timeZone: string) {
+  const nowParts = getZonedDateTimeParts(new Date(), timeZone);
+  const year = Number(nowParts.year);
+  const month = Number(nowParts.month);
+
+  if (range === "today") {
+    return `${nowParts.year}-${nowParts.month}-${nowParts.day}`;
+  }
+
+  if (range === "last_30" || range === "last30") {
+    return addDaysToDateKey(`${nowParts.year}-${nowParts.month}-${nowParts.day}`, -30);
+  }
+
+  if (range === "quarter") {
+    const quarterStartMonth = Math.floor((month - 1) / 3) * 3 + 1;
+    return `${year}-${String(quarterStartMonth).padStart(2, "0")}-01`;
+  }
+
+  if (range === "year") {
+    return `${year}-01-01`;
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}-01`;
+}
+
+function getRangeStartIso(range: string, timeZone: string) {
+  return zonedDateTimeToUtcIso(getRangeStartDateKey(range, timeZone), "00:00", timeZone);
+}
+
 
 function csvEscape(value: unknown) {
   if (value === null || value === undefined) return "";
@@ -99,8 +178,6 @@ function percentage(part: number, total: number) {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const range = url.searchParams.get("range") ?? "month";
-  const rangeStart = getRangeStart(range).toISOString();
-  const nowIso = new Date().toISOString();
 
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
@@ -108,6 +185,16 @@ export async function GET(request: Request) {
   if (!canViewReports(context.studioRole ?? "") || !context.studioId) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
+
+  const { data: studioTimeZoneRow } = await supabase
+    .from("studios")
+    .select("timezone")
+    .eq("id", context.studioId)
+    .maybeSingle<{ timezone: string | null }>();
+
+  const studioTimeZone = getStudioTimeZone(studioTimeZoneRow?.timezone);
+  const rangeStart = getRangeStartIso(range, studioTimeZone);
+  const nowIso = new Date().toISOString();
 
   const [appointmentsResult, instructorsResult] = await Promise.all([
     supabase

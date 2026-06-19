@@ -7,6 +7,142 @@ import {
   getAuthUserFullName,
 } from "@/lib/auth/portal-linking";
 
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+function getStudioTimeZone(value?: string | null) {
+  const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+function getZonedDateTimeParts(value: Date | string, timeZone: string) {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value ?? "0");
+  const hourPart = part("hour");
+
+  return {
+    year: part("year"),
+    month: part("month"),
+    day: part("day"),
+    hour: hourPart === 24 ? 0 : hourPart,
+    minute: part("minute"),
+    second: part("second"),
+  };
+}
+
+function getZonedOffsetMs(date: Date, timeZone: string) {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+
+  return asUtc - date.getTime();
+}
+
+function zonedDateTimeToUtcDate(date: string, time: string, timeZone: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = time.split(":").map(Number);
+
+  let utcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0);
+
+  for (let index = 0; index < 3; index += 1) {
+    const offsetMs = getZonedOffsetMs(new Date(utcMs), timeZone);
+    utcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0) - offsetMs;
+  }
+
+  return new Date(utcMs);
+}
+
+function zonedDateTimeToUtcIso(date: string, time: string, timeZone: string) {
+  return zonedDateTimeToUtcDate(date, time, timeZone).toISOString();
+}
+
+function getZonedDateKey(value: Date | string, timeZone: string) {
+  const parts = getZonedDateTimeParts(value, timeZone);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0, 0));
+
+  return date.toISOString().slice(0, 10);
+}
+
+function getZonedWeekday(dateKey: string, timeZone: string) {
+  const date = zonedDateTimeToUtcDate(dateKey, "12:00", timeZone);
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+  }).format(date);
+
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
+}
+
+function getLocalDayUtcRange(dateKey: string, timeZone: string) {
+  const safeTimeZone = getStudioTimeZone(timeZone);
+  const nextDateKey = addDaysToDateKey(dateKey, 1);
+
+  return {
+    startIso: zonedDateTimeToUtcIso(dateKey, "00:00", safeTimeZone),
+    endIso: zonedDateTimeToUtcIso(nextDateKey, "00:00", safeTimeZone),
+  };
+}
+
+function formatStudioDate(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "Unknown";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioDateTime(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "Not requested";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioTime(value: string | null | undefined, timeZone: string) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 type Params = Promise<{
   studioSlug: string;
 }>;
@@ -207,14 +343,8 @@ type UpcomingItem = {
   title: string;
 };
 
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
+function formatDateTime(value: string, timeZone: string) {
+  return formatStudioDateTime(value, timeZone, { weekday: "short", year: undefined });
 }
 
 function formatDate(value: string | null) {
@@ -223,7 +353,8 @@ function formatDate(value: string | null) {
     month: "short",
     day: "numeric",
     year: "numeric",
-  }).format(new Date(`${value}T00:00:00`));
+    timeZone: "UTC",
+  }).format(new Date(`${value}T12:00:00.000Z`));
 }
 
 function formatCurrency(value: number | null) {
@@ -233,13 +364,8 @@ function formatCurrency(value: number | null) {
   }).format(Number(value ?? 0));
 }
 
-function formatTimeRange(start: string, end: string) {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
-
-  return `${fmt.format(new Date(start))} – ${fmt.format(new Date(end))}`;
+function formatTimeRange(start: string, end: string, timeZone: string) {
+  return `${formatStudioTime(start, timeZone)} – ${formatStudioTime(end, timeZone)}`;
 }
 
 function formatEventDateTime(event: PortalEventSummaryRow | null) {
@@ -251,7 +377,8 @@ function formatEventDateTime(event: PortalEventSummaryRow | null) {
   return `${datePart} at ${new Intl.DateTimeFormat("en-US", {
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(`${event.start_date}T${event.start_time}`))}`;
+    timeZone: "UTC",
+  }).format(new Date(`${event.start_date}T${event.start_time}Z`))}`;
 }
 
 function eventLocationLabel(event: PortalEventSummaryRow | null) {
@@ -548,6 +675,16 @@ export default async function PortalHomePage({
   }
 
   const typedStudio = studio as StudioRow;
+
+  const { data: settingsRow } = await supabase
+    .from("studio_settings")
+    .select("timezone")
+    .eq("studio_id", typedStudio.id)
+    .maybeSingle();
+
+  const studioTimeZone = getStudioTimeZone(
+    (settingsRow as { timezone?: string | null } | null)?.timezone,
+  );
   const studioLabel = typedStudio.public_name?.trim() || typedStudio.name;
 
   let typedClient: ClientRow | null = null;
@@ -1103,6 +1240,7 @@ export default async function PortalHomePage({
             title: "Upcoming schedule reminder",
             description: `${nextUpItem.title} is next on ${formatDateTime(
               nextUpItem.starts_at,
+              studioTimeZone,
             )}.`,
             tone: "sky" as const,
             href: `/portal/${encodeURIComponent(typedStudio.slug)}/schedule`,
@@ -1516,10 +1654,10 @@ export default async function PortalHomePage({
                     {nextUpItem.title}
                   </p>
                   <p className="mt-2 text-sm leading-6 text-sky-900">
-                    {formatDateTime(nextUpItem.starts_at)}
+                    {formatDateTime(nextUpItem.starts_at, studioTimeZone)}
                   </p>
                   <p className="mt-1 text-sm text-sky-800">
-                    {formatTimeRange(nextUpItem.starts_at, nextUpItem.ends_at)}
+                    {formatTimeRange(nextUpItem.starts_at, nextUpItem.ends_at, studioTimeZone)}
                   </p>
                 </>
               ) : (
@@ -1772,7 +1910,7 @@ export default async function PortalHomePage({
               </p>
               <p className="mt-2 text-sm leading-6 text-sky-900">
                 {nextUpItem
-                  ? formatDateTime(nextUpItem.starts_at)
+                  ? formatDateTime(nextUpItem.starts_at, studioTimeZone)
                   : "Your next lesson or class will appear here after the studio schedules it."}
               </p>
             </div>
@@ -2589,7 +2727,7 @@ export default async function PortalHomePage({
                           appointmentTypeLabel(item.appointment_type)}
                       </p>
                       <p className="mt-1 text-sm text-slate-600">
-                        {formatDateTime(item.starts_at)}
+                        {formatDateTime(item.starts_at, studioTimeZone)}
                       </p>
                     </div>
 
@@ -2708,10 +2846,10 @@ export default async function PortalHomePage({
                       {item.title}
                     </p>
                     <p className="mt-1 text-sm text-slate-600">
-                      {formatDateTime(item.starts_at)}
+                      {formatDateTime(item.starts_at, studioTimeZone)}
                     </p>
                     <p className="mt-1 text-sm text-slate-500">
-                      {formatTimeRange(item.starts_at, item.ends_at)}
+                      {formatTimeRange(item.starts_at, item.ends_at, studioTimeZone)}
                     </p>
                   </div>
                 ))}
@@ -2753,8 +2891,8 @@ export default async function PortalHomePage({
                         </p>
                         <p className="mt-1 text-sm text-slate-600">
                           {payment.paid_at
-                            ? formatDateTime(payment.paid_at)
-                            : formatDateTime(payment.created_at)}
+                            ? formatDateTime(payment.paid_at, studioTimeZone)
+                            : formatDateTime(payment.created_at, studioTimeZone)}
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
                           {paymentMethodLabel(payment.payment_method)}
@@ -2826,10 +2964,10 @@ export default async function PortalHomePage({
                           Floor Space Rental
                         </p>
                         <p className="mt-1 text-sm text-slate-600">
-                          {formatDateTime(item.starts_at)}
+                          {formatDateTime(item.starts_at, studioTimeZone)}
                         </p>
                         <p className="mt-1 text-sm text-slate-500">
-                          {formatTimeRange(item.starts_at, item.ends_at)}
+                          {formatTimeRange(item.starts_at, item.ends_at, studioTimeZone)}
                         </p>
                       </div>
                     ))}

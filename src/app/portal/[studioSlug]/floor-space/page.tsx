@@ -81,23 +81,131 @@ function getBanner(search: { success?: string; error?: string }) {
   return null;
 }
 
-function formatDateTime(value: string) {
+
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+function getStudioTimeZone(value?: string | null) {
+  const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+function getZonedDateTimeParts(value: Date | string, timeZone: string) {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const lookup = new Map(parts.map((part) => [part.type, part.value]));
+  const hourValue = Number(lookup.get("hour") ?? "0");
+
+  return {
+    year: lookup.get("year") ?? "0000",
+    month: lookup.get("month") ?? "01",
+    day: lookup.get("day") ?? "01",
+    hour: String(hourValue === 24 ? 0 : hourValue).padStart(2, "0"),
+    minute: lookup.get("minute") ?? "00",
+    second: lookup.get("second") ?? "00",
+  };
+}
+
+function getZonedOffsetMs(date: Date, timeZone: string) {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  const asUtc = Date.UTC(
+    Number(parts.year),
+    Number(parts.month) - 1,
+    Number(parts.day),
+    Number(parts.hour),
+    Number(parts.minute),
+    Number(parts.second)
+  );
+
+  return asUtc - date.getTime();
+}
+
+function zonedDateTimeToUtcDate(date: string, time: string, timeZone: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour = 0, minute = 0, second = 0] = time.split(":").map(Number);
+
+  let utcMs = Date.UTC(year, month - 1, day, hour, minute, second, 0);
+
+  for (let i = 0; i < 2; i += 1) {
+    const offsetMs = getZonedOffsetMs(new Date(utcMs), timeZone);
+    utcMs = Date.UTC(year, month - 1, day, hour, minute, second, 0) - offsetMs;
+  }
+
+  return new Date(utcMs);
+}
+
+function zonedDateTimeToUtcIso(date: string, time: string, timeZone: string) {
+  return zonedDateTimeToUtcDate(date, time, timeZone).toISOString();
+}
+
+function getZonedDateKey(value: Date | string, timeZone: string) {
+  const parts = getZonedDateTimeParts(value, timeZone);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0, 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function formatStudioDate(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "—";
+
   return new Intl.DateTimeFormat("en-US", {
-    weekday: "short",
+    timeZone: getStudioTimeZone(timeZone),
     month: "short",
     day: "numeric",
+    year: "numeric",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioDateTime(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "—";
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioTime(value: string | null | undefined, timeZone: string) {
+  if (!value) return "—";
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
 }
 
-function formatTimeRange(start: string, end: string) {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function formatDateTime(value: string, timeZone: string) {
+  return formatStudioDateTime(value, timeZone, { weekday: "short" });
+}
 
-  return `${fmt.format(new Date(start))} – ${fmt.format(new Date(end))}`;
+function formatTimeRange(start: string, end: string, timeZone: string) {
+  return `${formatStudioTime(start, timeZone)} – ${formatStudioTime(end, timeZone)}`;
 }
 
 function getRoomName(value: { name: string } | { name: string }[] | null) {
@@ -128,7 +236,7 @@ export default async function FloorSpacePage({
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
-    .select("id, slug, name, public_name")
+    .select("id, slug, name, public_name, timezone")
     .eq("slug", studioSlug)
     .single();
 
@@ -198,6 +306,7 @@ export default async function FloorSpacePage({
     throw new Error(`Failed to load upcoming rentals: ${upcomingError.message}`);
   }
 
+  const studioTimeZone = getStudioTimeZone(studio.timezone);
   const typedRooms = (rooms ?? []) as RoomOption[];
   const typedUpcomingRentals = (upcomingRentals ?? []) as UpcomingRentalRow[];
   const fullName =
@@ -302,7 +411,7 @@ export default async function FloorSpacePage({
           </div>
 
           <div className="mt-6">
-            <FloorSpaceRentalForm studioSlug={studioSlug} rooms={typedRooms} />
+            <FloorSpaceRentalForm studioSlug={studioSlug} rooms={typedRooms} studioTimeZone={studioTimeZone} />
           </div>
         </section>
 
@@ -329,10 +438,10 @@ export default async function FloorSpacePage({
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-semibold text-slate-900">
-                          {formatDateTime(rental.starts_at)}
+                          {formatDateTime(rental.starts_at, studioTimeZone)}
                         </p>
                         <p className="mt-1 text-sm text-slate-600">
-                          {formatTimeRange(rental.starts_at, rental.ends_at)}
+                          {formatTimeRange(rental.starts_at, rental.ends_at, studioTimeZone)}
                         </p>
                         <p className="mt-1 text-sm text-slate-500">
                           {getRoomName(rental.rooms)}

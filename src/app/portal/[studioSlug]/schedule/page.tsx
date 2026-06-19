@@ -3,6 +3,142 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createPortalScheduleRequestAction } from "./actions";
 
+const DEFAULT_TIME_ZONE = "America/New_York";
+
+function getStudioTimeZone(value?: string | null) {
+  const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
+
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone }).format(new Date());
+    return timeZone;
+  } catch {
+    return DEFAULT_TIME_ZONE;
+  }
+}
+
+function getZonedDateTimeParts(value: Date | string, timeZone: string) {
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const part = (type: string) => Number(parts.find((item) => item.type === type)?.value ?? "0");
+  const hourPart = part("hour");
+
+  return {
+    year: part("year"),
+    month: part("month"),
+    day: part("day"),
+    hour: hourPart === 24 ? 0 : hourPart,
+    minute: part("minute"),
+    second: part("second"),
+  };
+}
+
+function getZonedOffsetMs(date: Date, timeZone: string) {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+
+  return asUtc - date.getTime();
+}
+
+function zonedDateTimeToUtcDate(date: string, time: string, timeZone: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = time.split(":").map(Number);
+
+  let utcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0);
+
+  for (let index = 0; index < 3; index += 1) {
+    const offsetMs = getZonedOffsetMs(new Date(utcMs), timeZone);
+    utcMs = Date.UTC(year, month - 1, day, hours, minutes, 0, 0) - offsetMs;
+  }
+
+  return new Date(utcMs);
+}
+
+function zonedDateTimeToUtcIso(date: string, time: string, timeZone: string) {
+  return zonedDateTimeToUtcDate(date, time, timeZone).toISOString();
+}
+
+function getZonedDateKey(value: Date | string, timeZone: string) {
+  const parts = getZonedDateTimeParts(value, timeZone);
+  return `${parts.year}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function addDaysToDateKey(dateKey: string, days: number) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days, 12, 0, 0, 0));
+
+  return date.toISOString().slice(0, 10);
+}
+
+function getZonedWeekday(dateKey: string, timeZone: string) {
+  const date = zonedDateTimeToUtcDate(dateKey, "12:00", timeZone);
+  const weekday = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+  }).format(date);
+
+  return ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekday);
+}
+
+function getLocalDayUtcRange(dateKey: string, timeZone: string) {
+  const safeTimeZone = getStudioTimeZone(timeZone);
+  const nextDateKey = addDaysToDateKey(dateKey, 1);
+
+  return {
+    startIso: zonedDateTimeToUtcIso(dateKey, "00:00", safeTimeZone),
+    endIso: zonedDateTimeToUtcIso(nextDateKey, "00:00", safeTimeZone),
+  };
+}
+
+function formatStudioDate(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "Unknown";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioDateTime(value: string | null | undefined, timeZone: string, options?: Intl.DateTimeFormatOptions) {
+  if (!value) return "Not requested";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    ...options,
+  }).format(new Date(value));
+}
+
+function formatStudioTime(value: string | null | undefined, timeZone: string) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: getStudioTimeZone(timeZone),
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 type PageProps = {
   params: Promise<{
     studioSlug: string;
@@ -63,6 +199,7 @@ type LessonRecapRow = {
 };
 
 type StudioSettingsRow = {
+  timezone: string | null;
   portal_self_scheduling_enabled: boolean | null;
   portal_self_scheduling_mode: string | null;
   portal_self_scheduling_window_days: number | null;
@@ -157,10 +294,8 @@ function getRequestInstructorName(
   return `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim() || "Instructor";
 }
 
-function getDefaultRequestDate() {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  return tomorrow.toISOString().slice(0, 10);
+function getDefaultRequestDate(timeZone: string) {
+  return addDaysToDateKey(getZonedDateKey(new Date(), timeZone), 1);
 }
 
 function getSingle<T>(value: T | T[] | null | undefined): T | null {
@@ -187,30 +322,25 @@ function getRoomName(
   return room?.name ?? "No room listed";
 }
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
+function formatDate(value: string, timeZone: string) {
+  return formatStudioDate(`${value}T12:00:00.000Z`, "UTC", {
     weekday: "long",
     month: "long",
     day: "numeric",
     year: "numeric",
-  }).format(new Date(`${value}T12:00:00`));
-}
-
-function formatTimeRange(start: string, end: string) {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
   });
-
-  return `${formatter.format(new Date(start))} – ${formatter.format(new Date(end))}`;
 }
 
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date(value));
+function formatTimeRange(start: string, end: string, timeZone: string) {
+  return `${formatStudioTime(start, timeZone)} – ${formatStudioTime(end, timeZone)}`;
+}
+
+function formatDateTime(value: string, timeZone: string) {
+  return formatStudioDate(value, timeZone);
+}
+
+function groupKeyForAppointment(value: string, timeZone: string) {
+  return getZonedDateKey(value, timeZone);
 }
 
 function formatStatusLabel(value: string) {
@@ -247,11 +377,11 @@ function typeLabel(type: string) {
   return type.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function groupByDay(rows: CalendarRow[]) {
+function groupByDay(rows: CalendarRow[], studioTimeZone: string) {
   const grouped = new Map<string, CalendarRow[]>();
 
   for (const row of rows) {
-    const key = row.starts_at.slice(0, 10);
+    const key = groupKeyForAppointment(row.starts_at, studioTimeZone);
     const current = grouped.get(key) ?? [];
     current.push(row);
     grouped.set(key, current);
@@ -268,11 +398,13 @@ function ScheduleCard({
   studioSlug,
   isIndependentInstructor,
   recap,
+  studioTimeZone,
 }: {
   item: CalendarRow;
   studioSlug: string;
   isIndependentInstructor: boolean;
   recap?: LessonRecapRow;
+  studioTimeZone: string;
 }) {
   const isRental = item.appointment_type === "floor_space_rental";
 
@@ -302,7 +434,7 @@ function ScheduleCard({
           </h3>
 
           <p className="mt-1 text-sm text-slate-600">
-            {formatTimeRange(item.starts_at, item.ends_at)}
+            {formatTimeRange(item.starts_at, item.ends_at, studioTimeZone)}
           </p>
 
           <div className="mt-2 space-y-1 text-sm text-slate-500">
@@ -315,7 +447,7 @@ function ScheduleCard({
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-semibold text-violet-950">Lesson Recap</p>
                 <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-violet-700 ring-1 ring-violet-100">
-                  Updated {formatDateTime(recap.updated_at)}
+                  Updated {formatDateTime(recap.updated_at, studioTimeZone)}
                 </span>
               </div>
               {recap.summary ? (
@@ -443,6 +575,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
   const { data: settingsData } = await supabase
     .from("studio_settings")
     .select(`
+      timezone,
       portal_self_scheduling_enabled,
       portal_self_scheduling_mode,
       portal_self_scheduling_window_days,
@@ -458,6 +591,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
     .maybeSingle<StudioSettingsRow>();
 
   const settings = settingsData ?? null;
+  const studioTimeZone = getStudioTimeZone(settings?.timezone);
   const portalSchedulingEnabled =
     settings?.portal_self_scheduling_enabled === true &&
     (settings.portal_self_scheduling_mode ?? "request_only") !== "disabled";
@@ -545,8 +679,8 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
     .sort((a, b) => b.starts_at.localeCompare(a.starts_at))
     .slice(0, 30);
 
-  const upcomingGroups = groupByDay(upcoming);
-  const recentGroups = groupByDay(recent);
+  const upcomingGroups = groupByDay(upcoming, studioTimeZone);
+  const recentGroups = groupByDay(recent, studioTimeZone);
 
   const rentalCount = appointments.filter(
     (row) => row.appointment_type === "floor_space_rental"
@@ -725,8 +859,8 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
                 type="date"
                 name="requestedDate"
                 required
-                min={getDefaultRequestDate()}
-                defaultValue={getDefaultRequestDate()}
+                min={getDefaultRequestDate(studioTimeZone)}
+                defaultValue={getDefaultRequestDate(studioTimeZone)}
                 className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
               />
             </label>
@@ -820,7 +954,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
                       {request.title || typeLabel(request.appointment_type)}
                     </h3>
                     <p className="mt-1 text-sm text-slate-600">
-                      {formatTimeRange(request.requested_starts_at, request.requested_ends_at)}
+                      {formatTimeRange(request.requested_starts_at, request.requested_ends_at, studioTimeZone)}
                     </p>
                     <p className="mt-1 text-sm text-slate-500">
                       Instructor: {getRequestInstructorName(request.instructors)}
@@ -832,7 +966,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
                     ) : null}
                   </div>
                   <p className="text-xs text-slate-500">
-                    Sent {formatDateTime(request.created_at)}
+                    Sent {formatDateTime(request.created_at, studioTimeZone)}
                   </p>
                 </div>
               </article>
@@ -859,7 +993,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
               <div key={group.date}>
                 <div className="mb-3 flex items-center gap-3">
                   <h3 className="text-sm font-semibold text-slate-900">
-                    {formatDate(group.date)}
+                    {formatDate(group.date, studioTimeZone)}
                   </h3>
                   <div className="h-px flex-1 bg-slate-200" />
                 </div>
@@ -872,6 +1006,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
                       studioSlug={studioSlug}
                       isIndependentInstructor={isIndependentInstructor}
                       recap={recapByAppointmentId.get(item.id)}
+                      studioTimeZone={studioTimeZone}
                     />
                   ))}
                 </div>
@@ -899,7 +1034,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
               <div key={group.date}>
                 <div className="mb-3 flex items-center gap-3">
                   <h3 className="text-sm font-semibold text-slate-900">
-                    {formatDate(group.date)}
+                    {formatDate(group.date, studioTimeZone)}
                   </h3>
                   <div className="h-px flex-1 bg-slate-200" />
                 </div>
@@ -912,6 +1047,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
                       studioSlug={studioSlug}
                       isIndependentInstructor={isIndependentInstructor}
                       recap={recapByAppointmentId.get(item.id)}
+                      studioTimeZone={studioTimeZone}
                     />
                   ))}
                 </div>
