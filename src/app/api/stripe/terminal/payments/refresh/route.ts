@@ -51,7 +51,7 @@ async function markLocalPaymentSucceeded(params: {
     .update({
       status: "paid",
       paid_at: nowIso,
-      payment_method: "card_present",
+      payment_method: "card",
       source: "stripe",
       payment_channel: "terminal",
       terminal_payment_session_id: sessionId,

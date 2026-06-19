@@ -3474,6 +3474,501 @@ Review coach slots before publishing or sharing the coach schedule. Recheck avai
 `,
   },
 
+  {
+    slug: "taking-in-person-payments-with-tap-to-pay",
+    title: "Taking In-Person Payments with Tap to Pay",
+    category: "Billing & Payments",
+    audience: "public",
+    description:
+      "Use Stripe Dashboard Tap to Pay for quick front-desk payments, then keep DanceFlow payment records accurate.",
+    content: `
+## Overview
+
+Tap to Pay is the fastest way for a studio to collect an in-person card payment while DanceFlow's full card-reader workflow is being rolled out.
+
+Use this for front desk package sales, lesson payments, membership payments, client balances, floor rentals, and other in-person payments when your studio is using Stripe.
+
+## Before you begin
+
+Make sure:
+
+- Your studio has completed Stripe payout setup.
+- You can sign in to the Stripe Dashboard mobile app.
+- Your device supports Tap to Pay.
+- Tap to Pay is available for your Stripe account and region.
+- The staff member knows which DanceFlow client, package, membership, lesson, or balance the payment belongs to.
+
+## Take the payment in the Stripe Dashboard app
+
+1. Open the Stripe Dashboard mobile app.
+2. Start a new payment or charge.
+3. Enter the amount due.
+4. Choose Tap to Pay when available.
+5. Ask the customer to tap a contactless card or mobile wallet on the phone.
+6. Wait for the payment confirmation in Stripe.
+7. Return to DanceFlow and record or confirm the payment against the correct client record.
+
+## Record the payment in DanceFlow
+
+After the Stripe payment succeeds, open the correct place in DanceFlow:
+
+- Client profile for general client payments
+- Quick Sale & Payment for package sales or package payments
+- Memberships for membership payments
+- Schedule or Daily Closeout for lesson balances
+- Floor rental tools for rental balances
+
+Use:
+
+- Payment method: Card
+- Payment channel/source: In-person, Stripe Terminal, or Tap to Pay when available
+- Notes: Stripe Dashboard Tap to Pay
+
+## Why the DanceFlow record still matters
+
+A Tap to Pay payment taken directly in Stripe may not automatically know which DanceFlow record it belongs to.
+
+The payment must still be connected to the correct client, package, membership, appointment, or balance so reports and client history stay accurate.
+
+## Best practice
+
+Before charging the card, confirm the amount and the reason for payment in DanceFlow. After the Stripe payment succeeds, immediately record the payment in DanceFlow so the front desk does not have to reconcile it later.
+`,
+  },
+  {
+    slug: "registering-a-stripe-card-reader",
+    title: "Registering a Stripe Card Reader in DanceFlow",
+    category: "Billing & Payments",
+    audience: "app",
+    description:
+      "Create a Terminal location, register a Stripe reader, and refresh reader status from the Billing & Payouts page.",
+    content: `
+## Overview
+
+DanceFlow can store Stripe Terminal locations and card readers so studios can prepare for in-person card collection from the front desk.
+
+This setup is for physical Stripe readers used with DanceFlow-controlled payment collection. If you are using Tap to Pay through the Stripe Dashboard mobile app, you may not need to register a physical reader in DanceFlow.
+
+## Before you register a reader
+
+Confirm that:
+
+- Stripe payout setup is complete.
+- The studio is connected to Stripe.
+- The reader is powered on and connected to the internet.
+- The reader shows a registration code.
+- You have permission to manage billing or payment settings.
+
+## Create or confirm the Terminal location
+
+1. Go to Settings.
+2. Open Billing & Payouts.
+3. Find In-person payments or Card readers.
+4. Create or confirm the studio Terminal location.
+
+The location tells Stripe where the reader belongs.
+
+## Register the reader
+
+1. On the reader, find the registration code.
+2. In DanceFlow, enter the registration code.
+3. Add a clear label for the reader, such as Front Desk Reader.
+4. Submit the registration.
+5. Refresh the reader list.
+
+After registration, the reader should appear in the DanceFlow reader list.
+
+## Reader labels
+
+Use labels that staff can recognize quickly.
+
+Examples:
+
+- Front Desk Reader
+- Studio A Reader
+- Event Door Reader
+- Mobile Reader
+
+## Troubleshooting
+
+### The reader does not appear
+
+Refresh the reader list. Confirm the reader is online and that the registration code was entered correctly.
+
+### The registration code expired
+
+Generate a new registration code on the reader and try again.
+
+### The studio is not ready for reader setup
+
+Complete Stripe payout setup first, then return to Billing & Payouts.
+
+## Best practice
+
+Register one reader first and test it before adding multiple readers. Keep reader labels simple so front desk staff can choose the right device during payment collection.
+`,
+  },
+  {
+    slug: "collecting-in-person-card-payments-in-danceflow",
+    title: "Collecting In-Person Card Payments in DanceFlow",
+    category: "Billing & Payments",
+    audience: "app",
+    description:
+      "Use a registered Stripe reader to collect an in-person payment and attach it to the correct DanceFlow payment record.",
+    content: `
+## Overview
+
+DanceFlow's in-person card payment flow lets staff collect payment through a registered Stripe reader and connect the payment to a client, package, membership, appointment, or balance.
+
+This is different from recording a manual card payment. The DanceFlow reader flow creates a Stripe card-present payment and tracks the payment session.
+
+## Start from the payment workflow
+
+A staff member may start an in-person card payment from places such as:
+
+- Client Quick Sale & Payment
+- Payments page
+- Package sale workflow
+- Lesson or appointment payment workflow
+- Client balance workflow
+
+Choose the in-person card or card reader option when collecting payment at the front desk.
+
+## Select a reader
+
+On the Terminal payment page:
+
+1. Confirm the payment amount and client.
+2. Select the registered reader.
+3. Start card collection.
+4. Ask the customer to follow the prompt on the reader.
+5. Refresh the status after the payment is completed.
+
+## What happens after payment succeeds
+
+When the card-present payment succeeds, DanceFlow can update the local payment record and mark the related sale or balance as paid.
+
+For a package sale, the package can become active after payment succeeds.
+
+## Canceling a payment attempt
+
+If the customer changes their mind, the reader is unavailable, or the wrong payment was started, use the cancel option before trying again.
+
+## Best practice
+
+Always confirm the client, amount, and purchase type before sending the payment to the reader. This prevents card payments from being connected to the wrong record.
+`,
+  },
+  {
+    slug: "using-aria-revenue-insights",
+    title: "Using ARIA Revenue Insights",
+    category: "AI & Automations",
+    audience: "app",
+    description:
+      "Learn how ARIA helps studios find revenue opportunities, follow-up priorities, and event closeout risks.",
+    content: `
+## Overview
+
+ARIA is DanceFlow's AI Revenue Insights Assistant.
+
+ARIA helps studio owners and staff review the opportunities already visible in DanceFlow, such as low package balances, clients with no upcoming lesson, first-lesson follow-ups, pending booking requests, unsigned documents, and event profitability concerns.
+
+## What ARIA can help surface
+
+ARIA may highlight items such as:
+
+- Clients close to running out of package credits
+- Clients who have no future lesson scheduled
+- New leads or booking requests that need follow-up
+- First-lesson clients who should receive a follow-up message
+- Events with unpaid, pending, refunded, or risky closeout data
+- Events that may be ready for settlement review
+
+## Using ARIA goals
+
+ARIA goals help you focus the assistant around a business outcome.
+
+Examples:
+
+- Grow package renewals
+- Improve client retention
+- Fill group classes
+- Increase event revenue
+- Follow up with inactive clients
+
+After choosing a goal, review the suggested actions and decide which ones your team should handle first.
+
+## What ARIA does not replace
+
+ARIA is a decision-support tool. It does not replace the studio owner's judgment, staff follow-up, or professional accounting advice.
+
+Use ARIA to find priorities faster, then review the underlying client, schedule, payment, or event records before acting.
+
+## Best practice
+
+Review ARIA at the start of the day or week. Use it as a quick revenue and retention checklist before moving into normal front desk work.
+`,
+  },
+  {
+    slug: "using-automations-for-client-follow-up",
+    title: "Using Automations for Client Follow-Up",
+    category: "AI & Automations",
+    audience: "app",
+    description:
+      "Set up automation rules for low package balances, no upcoming lessons, pending booking requests, unsigned documents, and first-lesson follow-up.",
+    content: `
+## Overview
+
+Automations help studios spot follow-up opportunities without manually searching every client record.
+
+An automation can create a suggested action when a client or workflow needs attention.
+
+## Common automation rules
+
+DanceFlow automations may include:
+
+- Low package balance renewal
+- No upcoming lesson
+- Pending booking request
+- Unsigned document
+- First lesson follow-up
+
+## How to use automation drafts
+
+When an automation creates a suggested action, review the draft or task before contacting the client.
+
+Check:
+
+- The client record
+- Package or membership status
+- Upcoming schedule
+- Recent communication
+- Whether the suggested message still makes sense
+
+## Manual review matters
+
+Automations are meant to help staff notice opportunities. They should not replace human review, especially when the client has special circumstances or recent conversations.
+
+## Best practice
+
+Start with a small number of automations. Review the results regularly, adjust thresholds when needed, and make sure staff know who is responsible for follow-up.
+`,
+  },
+  {
+    slug: "event-profitability-and-closeout-review",
+    title: "Reviewing Event Profitability and Closeout",
+    category: "Events & Ticketing",
+    audience: "app",
+    description:
+      "Use event profitability, refunds, fees, expenses, labor, and check-in data to review an event before settlement.",
+    content: `
+## Overview
+
+Event profitability helps studios and organizers understand how an event performed financially.
+
+The closeout view brings together revenue, refunds, fees, expenses, labor, registrations, and check-in activity so staff can review the event before marking it settled.
+
+## What to review
+
+Before settling an event, review:
+
+- Gross ticket revenue
+- Refunds
+- Processing or platform fees
+- Net ticket revenue
+- Event expenses
+- Event labor costs
+- Total event costs
+- Final profit or loss
+- Paid, unpaid, pending, and refunded registrations
+- Ticket check-ins
+
+## Why closeout matters
+
+Closeout creates a final review point so the studio or organizer can catch missing expenses, late refunds, unpaid registrations, or labor costs before relying on the event numbers.
+
+## When an event needs attention
+
+An event may need review when:
+
+- Registrations are unpaid or pending
+- Refunds were issued
+- Payments exist without complete fee details
+- No expenses or labor were entered
+- Profit appears unusually high or low
+- Check-in activity does not match expected attendance
+
+## Best practice
+
+Do not settle an event until revenue, refunds, fees, labor, and expenses have been reviewed. Add closeout notes when something unusual happened so the history remains understandable later.
+`,
+  },
+  {
+    slug: "using-event-qr-tickets-and-scan-check-in",
+    title: "Using Event QR Tickets and Scan Check-In",
+    category: "Events & Ticketing",
+    audience: "app",
+    description:
+      "Issue QR tickets, resend confirmations, and use QR scanning or manual lookup at event check-in.",
+    content: `
+## Overview
+
+Event QR tickets help staff check attendees in quickly while keeping registration records connected to ticket codes.
+
+Each attendee can have a unique ticket or check-in code. When QR codes are enabled, the code can appear in the ticket confirmation email and on admin registration tools.
+
+## Before the event
+
+Review registrations before event day:
+
+- Confirm paid or approved registrations
+- Resend missing ticket confirmations if needed
+- Check that QR tickets were issued
+- Review unpaid, pending, or refunded registrations
+- Confirm required waivers or documents are signed when applicable
+
+## Check in with QR scan mode
+
+At the event:
+
+1. Open the event check-in page.
+2. Choose scan mode when available.
+3. Scan the attendee QR code.
+4. Confirm the attendee details.
+5. Mark the attendee checked in.
+
+## Manual lookup
+
+If a QR code cannot be scanned, staff can search by attendee name, email, phone, or ticket code.
+
+## Duplicate check-in protection
+
+If an attendee is already checked in, DanceFlow should help prevent duplicate attendance records.
+
+## Best practice
+
+Have a backup manual lookup process ready in case a phone camera, browser permission, or attendee email causes trouble at the door.
+`,
+  },
+  {
+    slug: "using-event-waivers-and-e-signatures",
+    title: "Using Event Waivers and E-Signatures",
+    category: "Documents & E-Signatures",
+    audience: "both",
+    description:
+      "Collect signed waivers or required documents during event registration and review signature status before check-in.",
+    content: `
+## Overview
+
+Event waivers and e-signatures help studios and organizers collect required agreements before participation.
+
+A waiver or document may be connected to an event registration so attendees can sign electronically before the event.
+
+## When to use event waivers
+
+Use event waivers for:
+
+- Workshops
+- Social dance events
+- Competitions
+- Showcases
+- Guest coach weekends
+- Physical activity releases
+- Photo or video releases
+- Event policies or conduct agreements
+
+## What attendees do
+
+When a waiver is required, the attendee reviews the document and signs electronically. The signed record is saved so staff can verify completion.
+
+## Where staff checks waiver status
+
+Staff can review signed document status from event registration, check-in, or document-related areas when available.
+
+Before event day, look for attendees who are missing required signatures.
+
+## Best practice
+
+Use clear waiver names and keep the document language specific to the event. If a waiver has legal importance, have the language reviewed by a qualified professional before using it.
+`,
+  },
+  {
+    slug: "organizer-contacts-and-event-audiences",
+    title: "Using Organizer Contacts and Event Audiences",
+    category: "Marketing",
+    audience: "app",
+    description:
+      "Understand how organizer event registrations can become useful contact records for future event communication.",
+    content: `
+## Overview
+
+Organizer contacts help event organizers keep track of people who register for events, attend events, or interact with organizer-run event pages.
+
+This gives organizers a cleaner way to understand their event audience over time.
+
+## What organizer contacts are useful for
+
+Organizer contacts can support:
+
+- Future event announcements
+- Attendee follow-up
+- Repeat attendee tracking
+- Event-specific audience review
+- Revenue and registration summaries
+
+## Studio CRM vs organizer contacts
+
+Studio CRM records and organizer contacts should stay separate when the business workflows are different.
+
+A studio-owned event may feed the studio CRM. An organizer-owned event may feed organizer contact and audience tools.
+
+This separation helps avoid mixing a studio's client list with an organizer's event audience.
+
+## Best practice
+
+After an event, review attendee contacts and decide whether to send a thank-you message, future event announcement, or feedback request.
+`,
+  },
+  {
+    slug: "using-client-identity-and-qr-verification",
+    title: "Using Client Identity and QR Verification",
+    category: "Client Portal",
+    audience: "app",
+    description:
+      "Understand how client identity, headshots, packages, memberships, and future QR check-in workflows work together.",
+    content: `
+## Overview
+
+Client identity tools help staff verify the correct client before handling check-in, package balances, membership status, or account activity.
+
+A client identity page or QR identity workflow can show important client details in one place.
+
+## What staff may see
+
+Depending on setup, staff may see:
+
+- Client name
+- Client photo or initials
+- Membership status
+- Active package balances
+- Upcoming lessons or eligible check-ins
+- Account or balance notes
+
+## Why photos help
+
+A clear client photo helps front desk staff and instructors confirm they are working with the right person, especially when clients have similar names.
+
+## Future QR check-in use
+
+Client identity and QR verification are part of the foundation for faster check-ins for lessons, group classes, memberships, and events.
+
+## Best practice
+
+Add client photos when possible and keep package and membership records current. Accurate records make QR verification more useful when check-in workflows expand.
+`,
+  },
+
+
 
 ];
 

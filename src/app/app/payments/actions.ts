@@ -113,7 +113,7 @@ export async function createPaymentAction(
       paymentAction === "manual"
         ? getString(formData, "paymentMethod")
         : paymentAction === "terminal"
-          ? "card_present"
+          ? "card"
           : "card";
     const status = paymentAction === "manual" ? getString(formData, "status") || "paid" : "pending";
     const notes = getString(formData, "notes");

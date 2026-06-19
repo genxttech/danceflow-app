@@ -189,7 +189,7 @@ export async function POST(request: NextRequest) {
     await supabase
       .from("payments")
       .update({
-        payment_method: "card_present",
+        payment_method: "card",
         source: "stripe",
         payment_channel: "terminal",
         terminal_payment_session_id: session.id,
