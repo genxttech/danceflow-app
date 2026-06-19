@@ -112,7 +112,7 @@ export async function submitPortalBookingRequestAction(formData: FormData) {
 
     const { data: linkedClient, error: linkedClientError } = await supabase
       .from("clients")
-      .select("id, first_name, last_name, email")
+      .select("id, first_name, last_name, email, phone")
       .eq("studio_id", studio.id)
       .eq("portal_user_id", user.id)
       .maybeSingle();
@@ -164,7 +164,16 @@ export async function submitPortalBookingRequestAction(formData: FormData) {
       client_id: clientId,
       source: "client_portal_request",
       status: "pending",
+      appointment_type: requestType,
+      title: `${typeLabel} request from ${linkedClient ? `${linkedClient.first_name ?? ""} ${linkedClient.last_name ?? ""}`.trim() || "portal student" : "portal student"}`,
       requested_starts_at: null,
+      requested_ends_at: null,
+      customer_first_name: linkedClient?.first_name ?? null,
+      customer_last_name: linkedClient?.last_name ?? null,
+      customer_email: linkedClient?.email ?? user.email ?? null,
+      customer_phone: linkedClient?.phone ?? null,
+      dance_interests: preferenceLabel,
+      notes: noteParts.join("\n"),
     });
 
     if (requestError) {

@@ -90,6 +90,10 @@ function normalizeNavLabel(item: NavItem) {
     return "Event Check-In";
   }
 
+  if (item.href === "/app/schedule/requests") {
+    return "Booking Requests";
+  }
+
   if (item.href === "/app/documents") {
     return "Waivers & Documents";
   }
@@ -960,6 +964,62 @@ function injectDirectTaskLinks(sections: NavSectionType[]): NavSectionType[] {
   ];
 }
 
+
+function injectBookingRequestsLink(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const hasScheduleAccess = flatItems.some((item) => item.href === "/app/schedule");
+
+  if (!hasScheduleAccess || flatItems.some((item) => item.href === "/app/schedule/requests")) {
+    return sections;
+  }
+
+  const bookingRequestsItem: NavItem = {
+    label: "Booking Requests",
+    href: "/app/schedule/requests",
+    icon: "schedule",
+  };
+
+  const scheduleSectionIndex = sections.findIndex((section) =>
+    section.items.some((item) => item.href === "/app/schedule"),
+  );
+
+  if (scheduleSectionIndex >= 0) {
+    return sections.map((section, index) => {
+      if (index !== scheduleSectionIndex) {
+        return section;
+      }
+
+      const scheduleIndex = section.items.findIndex(
+        (item) => item.href === "/app/schedule",
+      );
+
+      if (scheduleIndex >= 0) {
+        return {
+          ...section,
+          items: [
+            ...section.items.slice(0, scheduleIndex + 1),
+            bookingRequestsItem,
+            ...section.items.slice(scheduleIndex + 1),
+          ],
+        };
+      }
+
+      return {
+        ...section,
+        items: [...section.items, bookingRequestsItem],
+      };
+    });
+  }
+
+  return [
+    {
+      title: "Daily Operations",
+      items: [bookingRequestsItem],
+    },
+    ...sections,
+  ];
+}
+
 function routeKey(href: string) {
   return href.replace(/\/$/, "");
 }
@@ -1023,6 +1083,7 @@ function optimizeNavigationForTasks(sections: NavSectionType[], options: Normali
     ]),
     makeSection("Daily Operations", available, used, [
       "/app/schedule",
+      "/app/schedule/requests",
       "/app/calendar",
       "/app/clients",
       "/app/clients/new",
@@ -1178,7 +1239,8 @@ export function normalizeSections(input: unknown, options: NormalizeSectionsOpti
   const withDocumentsLink = injectDocumentsLink(withSyllabusLink);
   const withAutomationsLink = injectAutomationsLink(withDocumentsLink);
   const withInstructorPayLink = injectInstructorPayLink(withAutomationsLink);
-  const withDirectTaskLinks = injectDirectTaskLinks(withInstructorPayLink);
+  const withBookingRequestsLink = injectBookingRequestsLink(withInstructorPayLink);
+  const withDirectTaskLinks = injectDirectTaskLinks(withBookingRequestsLink);
 
   return optimizeNavigationForTasks(withDirectTaskLinks, options);
 }
