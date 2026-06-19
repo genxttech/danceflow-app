@@ -30,6 +30,7 @@ type Props = {
   appointment: DrawerAppointment | null;
   open?: boolean;
   onClose: () => void;
+  studioTimeZone?: string;
 };
 
 function formatStatusLabel(value: string) {
@@ -103,8 +104,11 @@ function getRoomName(value: { name: string } | { name: string }[] | null) {
   return room?.name ?? "No room";
 }
 
-function formatDateTime(value: string) {
+const DEFAULT_STUDIO_TIME_ZONE = "America/New_York";
+
+function formatDateTime(value: string, timeZone = DEFAULT_STUDIO_TIME_ZONE) {
   return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -114,18 +118,18 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
-function formatTimeRange(startsAt: string, endsAt: string) {
-  const start = new Intl.DateTimeFormat("en-US", {
+function formatTimeRange(
+  startsAt: string,
+  endsAt: string,
+  timeZone = DEFAULT_STUDIO_TIME_ZONE,
+) {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
-  }).format(new Date(startsAt));
+  });
 
-  const end = new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(endsAt));
-
-  return `${start} – ${end}`;
+  return `${formatter.format(new Date(startsAt))} – ${formatter.format(new Date(endsAt))}`;
 }
 
 function DetailCard({
@@ -149,6 +153,7 @@ export default function ScheduleEventDrawer({
   appointment,
   open = true,
   onClose,
+  studioTimeZone = DEFAULT_STUDIO_TIME_ZONE,
 }: Props) {
   if (!appointment || !open) return null;
 
@@ -185,7 +190,7 @@ export default function ScheduleEventDrawer({
                 {appointment.title || appointmentTypeLabel(appointment.appointment_type)}
               </h3>
               <p className="mt-2 text-sm text-slate-600">
-                {formatDateTime(appointment.starts_at)}
+                {formatDateTime(appointment.starts_at, studioTimeZone)}
               </p>
             </div>
 
@@ -233,14 +238,14 @@ export default function ScheduleEventDrawer({
                 label="Instructor"
                 value={isFloorRental ? "Independent instructor rental" : instructorName}
               />
-              <DetailCard label="Time" value={formatTimeRange(appointment.starts_at, appointment.ends_at)} />
+              <DetailCard label="Time" value={formatTimeRange(appointment.starts_at, appointment.ends_at, studioTimeZone)} />
               <DetailCard label="Room" value={roomName} />
             </div>
           </section>
 
           <section className="grid gap-3 sm:grid-cols-2">
-            <DetailCard label="Starts" value={formatDateTime(appointment.starts_at)} />
-            <DetailCard label="Ends" value={formatDateTime(appointment.ends_at)} />
+            <DetailCard label="Starts" value={formatDateTime(appointment.starts_at, studioTimeZone)} />
+            <DetailCard label="Ends" value={formatDateTime(appointment.ends_at, studioTimeZone)} />
           </section>
 
           {isFloorRental ? (

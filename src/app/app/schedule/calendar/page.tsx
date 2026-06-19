@@ -112,32 +112,73 @@ type RoomOption = {
   name: string;
 };
 
-function addDays(date: Date, amount: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + amount);
-  return next;
-}
 
 function getBaseDate(raw?: string) {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
   return new Date().toISOString().slice(0, 10);
 }
 
-function isoDate(date: Date) {
+function addDaysToDateString(value: string, amount: number) {
+  const date = new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
   return date.toISOString().slice(0, 10);
 }
 
-function startOfLocalDate(date: string) {
-  return new Date(`${date}T00:00:00`);
-}
-
 function buildDays(baseDate: string, view: "day" | "week" | "agenda") {
-  const start = startOfLocalDate(baseDate);
   const dayCount = view === "day" ? 1 : 7;
 
   return Array.from({ length: dayCount }, (_, index) =>
-    isoDate(addDays(start, index)),
+    addDaysToDateString(baseDate, index),
   );
+}
+
+function getTimeZoneOffsetMs(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+
+  const hour = values.hour === "24" ? "00" : values.hour;
+
+  const zonedTimeAsUtc = Date.UTC(
+    Number(values.year),
+    Number(values.month) - 1,
+    Number(values.day),
+    Number(hour),
+    Number(values.minute),
+    Number(values.second),
+  );
+
+  return zonedTimeAsUtc - date.getTime();
+}
+
+function studioLocalDateTimeToUtcIso(
+  date: string,
+  time: string,
+  timeZone: string,
+) {
+  const normalizedTime = time.length === 5 ? `${time}:00` : time;
+  const guess = new Date(`${date}T${normalizedTime}Z`);
+  const firstPass = new Date(
+    guess.getTime() - getTimeZoneOffsetMs(guess, timeZone),
+  );
+  const secondPass = new Date(
+    guess.getTime() - getTimeZoneOffsetMs(firstPass, timeZone),
+  );
+
+  return secondPass.toISOString();
 }
 
 function normalizeView(value?: string): "day" | "week" | "agenda" {
@@ -341,11 +382,16 @@ export default async function ScheduleCalendarPage({
   const selectedSource = normalizeSource(params.source);
   const groupBy = normalizeGroupBy(params.groupBy);
 
-  const rangeStart = addDays(startOfLocalDate(days[0]), -1).toISOString();
-  const rangeEnd = addDays(
-    startOfLocalDate(days[days.length - 1]),
-    2,
-  ).toISOString();
+  const rangeStart = studioLocalDateTimeToUtcIso(
+    days[0],
+    "00:00:00",
+    studioTimezone,
+  );
+  const rangeEnd = studioLocalDateTimeToUtcIso(
+    addDaysToDateString(days[days.length - 1], 1),
+    "00:00:00",
+    studioTimezone,
+  );
 
   let appointmentsQuery = supabase
     .from("appointments")
@@ -527,6 +573,7 @@ export default async function ScheduleCalendarPage({
           selectedStatus={selectedStatus}
           selectedSource={selectedSource}
           groupBy={groupBy}
+          studioTimeZone={studioTimezone}
         />
       </div>
     );
@@ -547,6 +594,7 @@ export default async function ScheduleCalendarPage({
         selectedAppointmentType={selectedAppointmentType}
         selectedStatus={selectedStatus}
         selectedSource={selectedSource}
+        studioTimeZone={studioTimezone}
       />
     </div>
   );

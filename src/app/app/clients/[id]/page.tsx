@@ -484,17 +484,27 @@ function appointmentTypeBadgeClass(value: string) {
   return "bg-slate-100 text-slate-700";
 }
 
-function fmtDateTime(value: string) {
-  return new Date(value).toLocaleString();
+const CLIENT_DETAIL_DEFAULT_TIME_ZONE = "America/New_York";
+
+function fmtDateTime(value: string, timeZone = CLIENT_DETAIL_DEFAULT_TIME_ZONE) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
 }
 
-function fmtShortDateTime(value: string) {
-  return new Date(value).toLocaleString([], {
+function fmtShortDateTime(value: string, timeZone = CLIENT_DETAIL_DEFAULT_TIME_ZONE) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+  }).format(new Date(value));
 }
 
 function fmtShortDate(value: string | null) {
@@ -1490,7 +1500,7 @@ export default async function ClientDetailPage({
     { data: syllabusTemplates, error: syllabusTemplatesError },
     { data: syllabusAssignments, error: syllabusAssignmentsError },
   ] = await Promise.all([
-    supabase.from("studios").select("id, name, slug").eq("id", studioId).single(),
+    supabase.from("studios").select("id, name, slug, timezone").eq("id", studioId).single(),
 
     supabase
       .from("clients")
@@ -1917,7 +1927,11 @@ export default async function ClientDetailPage({
     automationDeliveriesData = (deliveryRows ?? []) as ClientAutomationDeliveryRow[];
   }
 
-  const typedStudio = studio as StudioRecord;
+  const typedStudio = studio as StudioRecord & { timezone?: string | null };
+  const studioTimeZone =
+    typeof typedStudio.timezone === "string" && typedStudio.timezone.trim()
+      ? typedStudio.timezone.trim()
+      : CLIENT_DETAIL_DEFAULT_TIME_ZONE;
   const typedClient = client as ClientRecord;
   const typedInstructors = (instructors ?? []) as InstructorOption[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
@@ -3591,7 +3605,7 @@ export default async function ClientDetailPage({
                 </div>
 
                 <p className="mt-1 text-sm text-slate-600">
-                  {fmtShortDateTime(nextAppointment.starts_at)}
+                  {fmtShortDateTime(nextAppointment.starts_at, studioTimeZone)}
                 </p>
 
                 <p className="mt-1 text-sm text-slate-500">
@@ -4071,7 +4085,7 @@ export default async function ClientDetailPage({
                               {lessonTitle}
                             </p>
                             <p className="mt-1 text-xs text-slate-600">
-                              {fmtShortDateTime(appointment.starts_at)} · {getInstructorName(appointment.instructors)}
+                              {fmtShortDateTime(appointment.starts_at, studioTimeZone)} · {getInstructorName(appointment.instructors)}
                             </p>
                             <p className="mt-1 text-xs text-slate-600">
                               This records money and/or account credit directly against this lesson.
@@ -4643,7 +4657,7 @@ export default async function ClientDetailPage({
                               </div>
 
                               <p className="mt-1 text-sm text-slate-600">
-                                {fmtDateTime(appointment.starts_at)}
+                                {fmtDateTime(appointment.starts_at, studioTimeZone)}
                               </p>
                               <p className="mt-1 text-sm text-slate-500">
                                 {getRoomName(appointment.rooms) === "No room"
@@ -4694,7 +4708,7 @@ export default async function ClientDetailPage({
                               </div>
 
                               <p className="mt-1 text-sm text-slate-600">
-                                {fmtDateTime(appointment.starts_at)}
+                                {fmtDateTime(appointment.starts_at, studioTimeZone)}
                               </p>
                               <p className="mt-1 text-sm text-slate-500">
                                 {getRoomName(appointment.rooms) === "No room"
@@ -4739,7 +4753,7 @@ export default async function ClientDetailPage({
                       </p>
                       {nextAppointment ? (
                         <p className="mt-1 text-sm text-slate-600">
-                          Next: {fmtDateTime(nextAppointment.starts_at)} · {nextAppointment.title || appointmentTypeLabel(nextAppointment.appointment_type)}
+                          Next: {fmtDateTime(nextAppointment.starts_at, studioTimeZone)} · {nextAppointment.title || appointmentTypeLabel(nextAppointment.appointment_type)}
                         </p>
                       ) : (
                         <p className="mt-1 text-sm text-slate-500">
@@ -4790,7 +4804,7 @@ export default async function ClientDetailPage({
                               ) : null}
                             </div>
                             <p className="mt-1 text-sm text-slate-600">
-                              {fmtDateTime(appointment.starts_at)}
+                              {fmtDateTime(appointment.starts_at, studioTimeZone)}
                             </p>
                             <p className="mt-1 text-xs text-slate-500">
                               {isFloorRental(appointment.appointment_type)
@@ -4840,7 +4854,7 @@ export default async function ClientDetailPage({
                       </p>
                       {lastAppointment ? (
                         <p className="mt-1 text-sm text-slate-600">
-                          Last: {fmtDateTime(lastAppointment.starts_at)} · {lastAppointment.title || appointmentTypeLabel(lastAppointment.appointment_type)}
+                          Last: {fmtDateTime(lastAppointment.starts_at, studioTimeZone)} · {lastAppointment.title || appointmentTypeLabel(lastAppointment.appointment_type)}
                         </p>
                       ) : (
                         <p className="mt-1 text-sm text-slate-500">
@@ -4891,7 +4905,7 @@ export default async function ClientDetailPage({
                               ) : null}
                             </div>
                             <p className="mt-1 text-sm text-slate-600">
-                              {fmtDateTime(appointment.starts_at)}
+                              {fmtDateTime(appointment.starts_at, studioTimeZone)}
                             </p>
                             <p className="mt-1 text-xs text-slate-500">
                               {isFloorRental(appointment.appointment_type)

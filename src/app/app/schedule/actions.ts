@@ -139,6 +139,16 @@ function datePart(value: string) {
   return value.slice(0, 10);
 }
 
+function getDateInTimeZone(value: string, timeZone = CLOSEOUT_TIME_ZONE) {
+  const parts = getTimeZoneParts(new Date(value), timeZone);
+  return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
+}
+
+function getTimeInTimeZone(value: string, timeZone = CLOSEOUT_TIME_ZONE) {
+  const parts = getTimeZoneParts(new Date(value), timeZone);
+  return `${String(parts.hour).padStart(2, "0")}:${String(parts.minute).padStart(2, "0")}`;
+}
+
 const CLOSEOUT_TIME_ZONE = "America/New_York";
 
 function getTimeZoneParts(value: Date, timeZone: string) {
@@ -1608,7 +1618,7 @@ export async function createAppointmentAction(
       return { error: "Only weekly recurrence is supported right now." };
     }
 
-    const startDate = datePart(startsAt);
+    const startDate = getDateInTimeZone(startsAt, studioTimeZone);
 
     const occurrenceDates = generateWeeklyOccurrenceDates({
       startDate,
@@ -1624,19 +1634,17 @@ export async function createAppointmentAction(
       return { error: "No recurring dates were generated." };
     }
 
-    const startTime = new Date(startsAt).toISOString().slice(11, 16);
+    const startTime = getTimeInTimeZone(startsAt, studioTimeZone);
     const durationMs =
       new Date(endsAt).getTime() - new Date(startsAt).getTime();
     const recurrenceSeriesId = crypto.randomUUID();
     const rows: Array<Record<string, unknown>> = [];
 
     for (const occurrenceDate of occurrenceDates) {
-      const occurrenceStart = toIsoDateTime(occurrenceDate, startTime);
+      const occurrenceStart = toIsoDateTime(occurrenceDate, startTime, studioTimeZone);
       const occurrenceEnd = new Date(
         new Date(occurrenceStart).getTime() + durationMs,
-      )
-        .toISOString()
-        .slice(0, 19);
+      ).toISOString();
 
       const conflict = await validateAppointmentConflicts({
         studioId,
@@ -2504,11 +2512,12 @@ export async function bulkMarkDailyAppointmentsAttendedAction(
 
   try {
     const { supabase, studioId } = await requireAttendanceAccess();
+    const studioTimeZone = await getStudioTimeZone(supabase, studioId);
 
     const selectedDate =
-      getString(formData, "date") || new Date().toISOString().slice(0, 10);
+      getString(formData, "date") || getDateInTimeZone(new Date().toISOString(), studioTimeZone);
     const { startIso: startsAtMin, endIso: startsAtMax } =
-      getLocalDayUtcRange(selectedDate);
+      getLocalDayUtcRange(selectedDate, studioTimeZone);
 
     const { data: appointments, error: appointmentsError } = await supabase
       .from("appointments")

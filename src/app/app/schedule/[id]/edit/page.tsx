@@ -92,6 +92,27 @@ type ClientRelationshipRow = {
   relationship_type: string;
 };
 
+const DEFAULT_STUDIO_TIME_ZONE = "America/New_York";
+
+async function getStudioTimezone(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+}) {
+  const { supabase, studioId } = params;
+
+  const { data, error } = await supabase
+    .from("studio_settings")
+    .select("timezone")
+    .eq("studio_id", studioId)
+    .maybeSingle<{ timezone: string | null }>();
+
+  if (error) {
+    console.error("Could not load studio timezone for appointment edit:", error.message);
+  }
+
+  return data?.timezone || DEFAULT_STUDIO_TIME_ZONE;
+}
+
 export default async function EditAppointmentPage({
   params,
 }: {
@@ -100,6 +121,7 @@ export default async function EditAppointmentPage({
   const { id } = await params;
   const { studioId } = await getCurrentStudioContext();
   const supabase = await createClient();
+  const studioTimeZone = await getStudioTimezone({ supabase, studioId });
 
   const [
     { data: appointment, error: appointmentError },
@@ -319,6 +341,7 @@ export default async function EditAppointmentPage({
       clientPackages={(clientPackages ?? []) as ClientPackageOption[]}
       clientMemberships={clientMemberships}
       linkedPartnersByClientId={linkedPartnersByClientId}
+      studioTimeZone={studioTimeZone}
     />
   );
 }

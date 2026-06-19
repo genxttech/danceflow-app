@@ -3,10 +3,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
-  addDays,
   formatDateHeading,
   formatShortDate,
-  formatTime,
 } from "@/lib/utils/schedule";
 import ScheduleEventDrawer, {
   type DrawerAppointment,
@@ -107,11 +105,13 @@ type Props = {
   selectedStatus?: string;
   selectedSource?: "all" | "appointments" | "events";
   groupBy?: "none" | "instructor";
+  studioTimeZone?: string;
 };
 
 type AgendaItemRowProps = {
   item: CalendarItem;
   onOpen: (appointment: DrawerAppointment) => void;
+  studioTimeZone: string;
 };
 
 function buildQuery(params: Record<string, string | undefined>) {
@@ -123,6 +123,59 @@ function buildQuery(params: Record<string, string | undefined>) {
 
   const query = search.toString();
   return query ? `?${query}` : "";
+}
+
+const DEFAULT_STUDIO_TIME_ZONE = "America/New_York";
+
+function getDatePartsInTimeZone(value: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(value));
+
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+
+  return {
+    year: values.year,
+    month: values.month,
+    day: values.day,
+  };
+}
+
+function addDaysToDateString(value: string, amount: number) {
+  const date = new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function getTodayInTimeZone(timeZone: string) {
+  const parts = getDatePartsInTimeZone(new Date().toISOString(), timeZone);
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+function formatStudioTime(value: string, timeZone: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function getHourInTimeZone(value: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(value));
+
+  const hour = parts.find((part) => part.type === "hour")?.value ?? "0";
+  return Number(hour === "24" ? "0" : hour);
 }
 
 function formatRangeLabel(days: string[]) {
@@ -363,9 +416,9 @@ function statusDotClass(status: string) {
   return "bg-slate-400";
 }
 
-function formatAgendaItemTime(item: CalendarItem) {
+function formatAgendaItemTime(item: CalendarItem, timeZone: string) {
   if (item.kind === "event" && item.is_all_day) return "All day";
-  return `${formatTime(item.starts_at)} - ${formatTime(item.ends_at)}`;
+  return `${formatStudioTime(item.starts_at, timeZone)} - ${formatStudioTime(item.ends_at, timeZone)}`;
 }
 
 function getGroupKey(item: CalendarItem) {
@@ -397,7 +450,7 @@ function sortItemsForDisplay(items: CalendarItem[]) {
   });
 }
 
-function AgendaItemRow({ item, onOpen }: AgendaItemRowProps) {
+function AgendaItemRow({ item, onOpen, studioTimeZone }: AgendaItemRowProps) {
   const accent = leftAccentClass(item);
   const typeBadge = typeBadgeClass(item);
 
@@ -416,7 +469,7 @@ function AgendaItemRow({ item, onOpen }: AgendaItemRowProps) {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass(item.status)}`} />
-              <p className="text-xs font-medium text-slate-600">{formatAgendaItemTime(item)}</p>
+              <p className="text-xs font-medium text-slate-600">{formatAgendaItemTime(item, studioTimeZone)}</p>
               <span
                 className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${typeBadge}`}
               >
@@ -456,7 +509,7 @@ function AgendaItemRow({ item, onOpen }: AgendaItemRowProps) {
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass(item.status)}`} />
-            <p className="text-xs font-medium text-slate-600">{formatTime(item.starts_at)}</p>
+            <p className="text-xs font-medium text-slate-600">{formatStudioTime(item.starts_at, studioTimeZone)}</p>
             <span
               className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${typeBadge}`}
             >
@@ -477,7 +530,7 @@ function AgendaItemRow({ item, onOpen }: AgendaItemRowProps) {
           </p>
 
           <p className="mt-1 text-sm text-slate-700">{subtitle}</p>
-          <p className="mt-1 text-xs text-slate-500 md:text-sm">{formatAgendaItemTime(item)}</p>
+          <p className="mt-1 text-xs text-slate-500 md:text-sm">{formatAgendaItemTime(item, studioTimeZone)}</p>
           <p className="mt-1 text-xs text-slate-500 md:text-sm">
             {isFloorRental ? "Floor rental" : instructor}
             {!isFloorRental && room !== "No room" ? ` • ${room}` : ""}
@@ -779,12 +832,14 @@ function DaySection({
   todayDate,
   groupBy,
   onOpen,
+  studioTimeZone,
 }: {
   day: string;
   items: CalendarItem[];
   todayDate: string;
   groupBy?: "none" | "instructor";
   onOpen: (appointment: DrawerAppointment) => void;
+  studioTimeZone: string;
 }) {
   const sortedItems = useMemo(() => sortItemsForDisplay(items), [items]);
 
@@ -868,6 +923,7 @@ function DaySection({
                       key={`${item.kind}-${item.id}-${item.display_date ?? day}`}
                       item={item}
                       onOpen={onOpen}
+                      studioTimeZone={studioTimeZone}
                     />
                   ))}
                 </div>
@@ -881,6 +937,7 @@ function DaySection({
                 key={`${item.kind}-${item.id}-${item.display_date ?? day}`}
                 item={item}
                 onOpen={onOpen}
+                studioTimeZone={studioTimeZone}
               />
             ))}
           </div>
@@ -902,14 +959,14 @@ export default function ScheduleAgendaView({
   selectedStatus,
   selectedSource,
   groupBy,
+  studioTimeZone = DEFAULT_STUDIO_TIME_ZONE,
 }: Props) {
   const [selectedAppointment, setSelectedAppointment] =
     useState<DrawerAppointment | null>(null);
 
-  const currentDate = new Date(`${baseDate}T00:00:00`);
-  const previousDate = addDays(currentDate, -7).toISOString().slice(0, 10);
-  const nextDate = addDays(currentDate, 7).toISOString().slice(0, 10);
-  const todayDate = new Date().toISOString().slice(0, 10);
+  const previousDate = addDaysToDateString(baseDate, -7);
+  const nextDate = addDaysToDateString(baseDate, 7);
+  const todayDate = getTodayInTimeZone(studioTimeZone);
 
   const totalItems = days.reduce(
     (sum, day) => sum + (groupedAppointments[day] ?? []).length,
@@ -1031,6 +1088,7 @@ export default function ScheduleAgendaView({
               todayDate={todayDate}
               groupBy={groupBy}
               onOpen={setSelectedAppointment}
+              studioTimeZone={studioTimeZone}
             />
           ))}
         </div>
@@ -1040,6 +1098,7 @@ export default function ScheduleAgendaView({
         appointment={selectedAppointment}
         open={selectedAppointment !== null}
         onClose={() => setSelectedAppointment(null)}
+        studioTimeZone={studioTimeZone}
       />
     </>
   );

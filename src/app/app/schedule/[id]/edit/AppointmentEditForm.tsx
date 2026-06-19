@@ -92,12 +92,40 @@ type PackageHealth =
   | "expired"
   | "unknown";
 
-function toLocalDateTimeInputValue(value: string) {
-  const date = new Date(value);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate(),
-  )}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+const DEFAULT_STUDIO_TIME_ZONE = "America/New_York";
+
+function getDateTimePartsInTimeZone(value: string, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(value));
+
+  const values = Object.fromEntries(
+    parts
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value]),
+  );
+
+  return {
+    year: values.year,
+    month: values.month,
+    day: values.day,
+    hour: values.hour === "24" ? "00" : values.hour,
+    minute: values.minute,
+  };
+}
+
+function toStudioDateTimeInputValue(
+  value: string,
+  timeZone = DEFAULT_STUDIO_TIME_ZONE,
+) {
+  const parts = getDateTimePartsInTimeZone(value, timeZone);
+  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
 }
 
 function getLowestRemainingValue(items: ClientPackageItem[]) {
@@ -328,6 +356,7 @@ export default function AppointmentEditForm({
   clientPackages,
   clientMemberships,
   linkedPartnersByClientId = {},
+  studioTimeZone = DEFAULT_STUDIO_TIME_ZONE,
 }: {
   appointment: Appointment;
   clients: ClientOption[];
@@ -336,6 +365,7 @@ export default function AppointmentEditForm({
   clientPackages: ClientPackageOption[];
   clientMemberships: ClientMembershipOption[];
   linkedPartnersByClientId?: Record<string, ClientOption[]>;
+  studioTimeZone?: string;
 }) {
   const [state, formAction, pending] = useActionState(
     updateAppointmentAction,
@@ -592,7 +622,7 @@ export default function AppointmentEditForm({
                 name="startsAt"
                 type="datetime-local"
                 required
-                defaultValue={toLocalDateTimeInputValue(appointment.starts_at)}
+                defaultValue={toStudioDateTimeInputValue(appointment.starts_at, studioTimeZone)}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2"
               />
             </div>
@@ -609,7 +639,7 @@ export default function AppointmentEditForm({
                 name="endsAt"
                 type="datetime-local"
                 required
-                defaultValue={toLocalDateTimeInputValue(appointment.ends_at)}
+                defaultValue={toStudioDateTimeInputValue(appointment.ends_at, studioTimeZone)}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2"
               />
             </div>

@@ -130,9 +130,9 @@ type LessonRecapRow = {
 
 const APPOINTMENT_DISPLAY_TIME_ZONE = "America/New_York";
 
-function formatDateTime(value: string) {
+function formatDateTime(value: string, timeZone = APPOINTMENT_DISPLAY_TIME_ZONE) {
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: APPOINTMENT_DISPLAY_TIME_ZONE,
+    timeZone,
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -142,9 +142,9 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
-function formatDateOnly(value: string) {
+function formatDateOnly(value: string, timeZone = APPOINTMENT_DISPLAY_TIME_ZONE) {
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: APPOINTMENT_DISPLAY_TIME_ZONE,
+    timeZone,
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -152,9 +152,9 @@ function formatDateOnly(value: string) {
   }).format(new Date(value));
 }
 
-function formatTimeOnly(value: string) {
+function formatTimeOnly(value: string, timeZone = APPOINTMENT_DISPLAY_TIME_ZONE) {
   return new Intl.DateTimeFormat("en-US", {
-    timeZone: APPOINTMENT_DISPLAY_TIME_ZONE,
+    timeZone,
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
@@ -373,6 +373,7 @@ export default async function AppointmentDetailPage({
     { data: appointment, error },
     { data: lessonRecap },
     { data: floorRentalPayments },
+    { data: studioTimeZoneRow },
   ] = await Promise.all([
     supabase
       .from("appointments")
@@ -435,11 +436,21 @@ export default async function AppointmentDetailPage({
       .eq("studio_id", studioId)
       .eq("external_reference", id)
       .order("paid_at", { ascending: false }),
+    supabase
+      .from("studios")
+      .select("timezone")
+      .eq("id", studioId)
+      .maybeSingle(),
   ]);
 
   if (error || !appointment) {
     throw new Error(`Failed to load appointment: ${error?.message ?? "Not found"}`);
   }
+
+  const studioTimeZone =
+    typeof studioTimeZoneRow?.timezone === "string" && studioTimeZoneRow.timezone.trim()
+      ? studioTimeZoneRow.timezone.trim()
+      : APPOINTMENT_DISPLAY_TIME_ZONE;
 
   const typedAppointment = appointment as AppointmentRow;
   const typedLessonRecap = (lessonRecap ?? null) as LessonRecapRow | null;
@@ -590,7 +601,7 @@ export default async function AppointmentDetailPage({
                 Time
               </p>
               <p className="mt-1 text-sm font-semibold text-slate-950">
-                {formatDateOnly(typedAppointment.starts_at)} · {formatTimeOnly(typedAppointment.starts_at)}
+                {formatDateOnly(typedAppointment.starts_at, studioTimeZone)} · {formatTimeOnly(typedAppointment.starts_at, studioTimeZone)}
               </p>
             </div>
 
@@ -669,15 +680,15 @@ export default async function AppointmentDetailPage({
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">Date</p>
                 <p className="mt-1 text-sm font-medium text-slate-900">
-                  {formatDateOnly(typedAppointment.starts_at)}
+                  {formatDateOnly(typedAppointment.starts_at, studioTimeZone)}
                 </p>
               </div>
 
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">Time</p>
                 <p className="mt-1 text-sm font-medium text-slate-900">
-                  {formatTimeOnly(typedAppointment.starts_at)} -{" "}
-                  {formatTimeOnly(typedAppointment.ends_at)}
+                  {formatTimeOnly(typedAppointment.starts_at, studioTimeZone)} -{" "}
+                  {formatTimeOnly(typedAppointment.ends_at, studioTimeZone)}
                 </p>
               </div>
 
@@ -704,7 +715,7 @@ export default async function AppointmentDetailPage({
                 <p className="text-xs uppercase tracking-wide text-slate-400">Created</p>
                 <p className="mt-1 text-sm font-medium text-slate-900">
                   {typedAppointment.created_at
-                    ? formatDateTime(typedAppointment.created_at)
+                    ? formatDateTime(typedAppointment.created_at, studioTimeZone)
                     : "—"}
                 </p>
               </div>
@@ -787,7 +798,7 @@ export default async function AppointmentDetailPage({
                   ) : null}
 
                   <div className="border-t pt-4 text-xs text-slate-500">
-                    Last updated {formatDateTime(typedLessonRecap.updated_at)}
+                    Last updated {formatDateTime(typedLessonRecap.updated_at, studioTimeZone)}
                   </div>
                 </div>
               ) : null}
@@ -824,7 +835,7 @@ export default async function AppointmentDetailPage({
 
                       {typedLessonRecap?.video_uploaded_at ? (
                         <span className="text-xs text-slate-500">
-                          Uploaded {formatDateTime(typedLessonRecap.video_uploaded_at)}
+                          Uploaded {formatDateTime(typedLessonRecap.video_uploaded_at, studioTimeZone)}
                         </span>
                       ) : null}
                     </div>
@@ -1363,7 +1374,7 @@ export default async function AppointmentDetailPage({
                             </p>
                             <p className="text-xs text-slate-500">
                               {payment.paid_at
-                                ? formatDateTime(payment.paid_at)
+                                ? formatDateTime(payment.paid_at, studioTimeZone)
                                 : "Date unavailable"}
                             </p>
                           </div>

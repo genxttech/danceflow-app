@@ -276,13 +276,16 @@ function isOrganizerRole(role: string | null | undefined) {
   return normalized.startsWith("organizer_");
 }
 
-function fmtDateTime(value: string) {
-  return new Date(value).toLocaleString([], {
+const WORKSPACE_DEFAULT_TIME_ZONE = "America/New_York";
+
+function fmtDateTime(value: string, timeZone = WORKSPACE_DEFAULT_TIME_ZONE) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+  }).format(new Date(value));
 }
 
 function appointmentTypeLabel(value: string | null | undefined) {
@@ -984,6 +987,17 @@ export default async function AppDashboardPage({
     accessibleStudios.find((workspace) => workspace.studioId === studioId) ??
     accessibleStudios.find((workspace) => workspace.isSelected) ??
     null;
+
+  const { data: studioTimeZoneRow } = await supabase
+    .from("studios")
+    .select("timezone")
+    .eq("id", studioId)
+    .maybeSingle();
+
+  const studioTimeZone =
+    typeof studioTimeZoneRow?.timezone === "string" && studioTimeZoneRow.timezone.trim()
+      ? studioTimeZoneRow.timezone.trim()
+      : WORKSPACE_DEFAULT_TIME_ZONE;
 
   let hostStudioPortalLinks: HostStudioPortalLink[] = [];
 
@@ -2087,7 +2101,7 @@ export default async function AppDashboardPage({
           </div>
         </section>
 
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
           <QuickActionCard
             href="/app/events/new"
             title="Create Event"
@@ -2208,6 +2222,21 @@ export default async function AppDashboardPage({
   if (instructorsError) {
     throw new Error(
       `Failed to load dashboard instructors: ${instructorsError.message}`,
+    );
+  }
+
+  const {
+    count: pendingBookingRequestCount,
+    error: pendingBookingRequestCountError,
+  } = await supabase
+    .from("booking_requests")
+    .select("id", { count: "exact", head: true })
+    .eq("studio_id", studioId)
+    .in("status", ["pending", "new", "in_review"]);
+
+  if (pendingBookingRequestCountError) {
+    throw new Error(
+      `Failed to load booking request count: ${pendingBookingRequestCountError.message}`,
     );
   }
 
@@ -2371,7 +2400,7 @@ export default async function AppDashboardPage({
       context: compactList([
         client.referral_source ? `Source: ${client.referral_source}` : null,
         activity.follow_up_due_at
-          ? `Follow-up due: ${fmtDateTime(activity.follow_up_due_at)}`
+          ? `Follow-up due: ${fmtDateTime(activity.follow_up_due_at, studioTimeZone)}`
           : null,
       ]),
       href: `/app/leads?focus=${client.id}`,
@@ -2839,6 +2868,12 @@ export default async function AppDashboardPage({
                 New Appointment
               </Link>
               <Link
+                href="/app/schedule/requests"
+                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+              >
+                Booking Requests
+              </Link>
+              <Link
                 href="/app/clients/new"
                 className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[#4C1D95] hover:bg-white/90"
               >
@@ -2849,7 +2884,7 @@ export default async function AppDashboardPage({
         </div>
 
         <div className="border-t border-[#E9D5FF] bg-[#FCF8FF] px-6 py-5 md:px-8">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <StatCard
               label="Clients"
               value={typedClients.length}
@@ -2865,6 +2900,12 @@ export default async function AppDashboardPage({
               label="Active Memberships"
               value={activeMembershipsCount}
               icon={CreditCard}
+            />
+            <StatCard
+              label="Booking Requests"
+              value={pendingBookingRequestCount ?? 0}
+              icon={ClipboardList}
+              subtext="New or in review"
             />
             <StatCard
               label="Unread Alerts"
@@ -2920,6 +2961,12 @@ export default async function AppDashboardPage({
           description="Schedule a private lesson, intro lesson, coaching session, class, or rental."
           icon={CalendarDays}
           primary
+        />
+        <QuickActionCard
+          href="/app/schedule/requests"
+          title="Booking Requests"
+          description="Review portal scheduling requests and move them toward the calendar."
+          icon={ClipboardList}
         />
         <QuickActionCard
           href="/app/clients/new"
@@ -3090,7 +3137,7 @@ export default async function AppDashboardPage({
                           </span>
                         </div>
                         <p className="mt-2 text-sm font-medium text-slate-700">
-                          {fmtDateTime(appointment.starts_at)}
+                          {fmtDateTime(appointment.starts_at, studioTimeZone)}
                         </p>
                         <p className="mt-1 text-sm text-slate-500">
                           {compactList([

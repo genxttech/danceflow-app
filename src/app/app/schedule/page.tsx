@@ -221,9 +221,9 @@ function getDateInTimeZone(value: string, timeZone = CLOSEOUT_TIME_ZONE) {
   return `${String(parts.year).padStart(4, "0")}-${String(parts.month).padStart(2, "0")}-${String(parts.day).padStart(2, "0")}`;
 }
 
-function getBaseDate(raw?: string) {
+function getBaseDate(raw?: string, timeZone = CLOSEOUT_TIME_ZONE) {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-  return new Date().toISOString().slice(0, 10);
+  return getDateInTimeZone(new Date().toISOString(), timeZone);
 }
 
 function formatDateTime(value: string, timeZone = CLOSEOUT_TIME_ZONE) {
@@ -436,8 +436,8 @@ function hasPaymentCleared(appointment: AppointmentRow) {
   return ["paid", "waived", "comped", "free", "included"].includes(status);
 }
 
-function isSameLocalDate(value: string, date: string) {
-  return getDateInTimeZone(value) === date;
+function isSameLocalDate(value: string, date: string, timeZone = CLOSEOUT_TIME_ZONE) {
+  return getDateInTimeZone(value, timeZone) === date;
 }
 
 function mayNeedPaymentReview(appointment: AppointmentRow) {
@@ -735,7 +735,6 @@ export default async function SchedulePage({
   const roomFilter = params.room ?? "all";
   const statusFilter = params.status ?? "all";
   const sourceFilter = params.source ?? "all";
-  const baseDate = getBaseDate(params.date);
   const banner = getBanner(params);
 
   const supabase = await createClient();
@@ -744,10 +743,22 @@ export default async function SchedulePage({
   const role = context.studioRole ?? "";
   const studioId = context.studioId;
 
+  const { data: studioTimeZoneRow } = await supabase
+    .from("studios")
+    .select("timezone")
+    .eq("id", studioId)
+    .maybeSingle();
+
+  const studioTimeZone =
+    typeof studioTimeZoneRow?.timezone === "string" && studioTimeZoneRow.timezone.trim()
+      ? studioTimeZoneRow.timezone.trim()
+      : CLOSEOUT_TIME_ZONE;
+
+  const baseDate = getBaseDate(params.date, studioTimeZone);
   const { startIso: todayStart, endIso: todayEnd } =
-    getLocalDayUtcRange(baseDate);
+    getLocalDayUtcRange(baseDate, studioTimeZone);
   const next7LocalDate = addDaysLocal(baseDate, 7).toISOString().slice(0, 10);
-  const next7End = getLocalDayUtcRange(next7LocalDate).startIso;
+  const next7End = getLocalDayUtcRange(next7LocalDate, studioTimeZone).startIso;
 
   let appointmentsQuery = supabase
     .from("appointments")
@@ -964,7 +975,7 @@ export default async function SchedulePage({
   const closeoutClientIds = Array.from(
     new Set(
       typedAppointments
-        .filter((appointment) => isSameLocalDate(appointment.starts_at, baseDate))
+        .filter((appointment) => isSameLocalDate(appointment.starts_at, baseDate, studioTimeZone))
         .map((appointment) => appointment.client_id)
         .filter((clientId): clientId is string => Boolean(clientId)),
     ),
@@ -1053,7 +1064,7 @@ export default async function SchedulePage({
   ).length;
   const dailyCloseoutAppointments = typedAppointments.filter(
     (appointment) =>
-      isSameLocalDate(appointment.starts_at, baseDate) &&
+      isSameLocalDate(appointment.starts_at, baseDate, studioTimeZone) &&
       isCloseoutCandidate(appointment),
   );
   const dailyCloseoutNeedsReview =
@@ -1154,7 +1165,7 @@ export default async function SchedulePage({
         </div>
 
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
               <h2 className="text-lg font-semibold text-sky-950">
                 See your day at a glance
@@ -1184,6 +1195,17 @@ export default async function SchedulePage({
                 and make quick changes without losing your place.
               </p>
             </div>
+            <Link
+              href="/app/schedule/requests"
+              className="rounded-2xl border border-purple-200 bg-purple-50 p-5 transition hover:border-purple-300 hover:bg-purple-100/70"
+            >
+              <h2 className="text-lg font-semibold text-purple-950">
+                Review booking requests
+              </h2>
+              <p className="mt-2 text-sm leading-7 text-purple-900">
+                See portal scheduling requests, update their status, and turn approved requests into appointments.
+              </p>
+            </Link>
           </div>
         </div>
       </section>
@@ -1339,7 +1361,7 @@ export default async function SchedulePage({
                     <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
-                          <span>{formatDateTime(appointment.starts_at)}</span>
+                          <span>{formatDateTime(appointment.starts_at, studioTimeZone)}</span>
                           <span>•</span>
                           <span>{appointmentTypeLabel(appointment.appointment_type)}</span>
                           <span>•</span>
@@ -1873,7 +1895,7 @@ export default async function SchedulePage({
                           Start
                         </p>
                         <p className="mt-1 text-sm font-medium text-slate-900">
-                          {formatDateTime(appointment.starts_at)}
+                          {formatDateTime(appointment.starts_at, studioTimeZone)}
                         </p>
                       </div>
 
