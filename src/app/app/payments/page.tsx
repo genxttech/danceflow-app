@@ -30,6 +30,7 @@ type PaymentRow = {
   notes: string | null;
   source: string | null;
   payment_type: string | null;
+  payment_channel: string | null;
   currency: string | null;
   stripe_invoice_id: string | null;
   stripe_payment_intent_id: string | null;
@@ -114,6 +115,7 @@ function paymentTypeBadgeClass(type: string) {
 
 function sourceLabel(source: string | null) {
   if (source === "stripe") return "Stripe";
+  if (source === "terminal") return "Card Reader";
   if (source === "manual") return "Manual";
   if (source === "schedule_closeout") return "Daily Closeout";
   if (source === "appointment_detail") return "Lesson Detail";
@@ -135,7 +137,15 @@ function paymentTypeLabel(type: string | null) {
 function methodLabel(method: string) {
   if (method === "bank_transfer") return "Bank Transfer";
   if (method === "ach") return "ACH";
+  if (method === "card_present") return "In-person card";
   return method.replaceAll("_", " ");
+}
+
+function channelLabel(channel: string | null) {
+  if (channel === "terminal") return "Card Reader";
+  if (channel === "online") return "Online";
+  if (channel === "manual") return "Manual";
+  return null;
 }
 
 function startOfTodayLocal() {
@@ -219,6 +229,7 @@ export default async function PaymentsPage({
       notes,
       source,
       payment_type,
+      payment_channel,
       currency,
       stripe_invoice_id,
       stripe_payment_intent_id,
@@ -307,6 +318,7 @@ export default async function PaymentsPage({
       payment.status,
       payment.source ?? "",
       payment.payment_type ?? "",
+      payment.payment_channel ?? "",
       payment.notes ?? "",
       payment.stripe_invoice_id ?? "",
       payment.external_reference ?? "",
@@ -650,6 +662,11 @@ export default async function PaymentsPage({
                         <p className="mt-1 text-sm font-medium capitalize text-slate-900">
                           {methodLabel(payment.payment_method)}
                         </p>
+                        {channelLabel(payment.payment_channel) ? (
+                          <p className="mt-1 text-xs text-slate-500">
+                            {channelLabel(payment.payment_channel)}
+                          </p>
+                        ) : null}
                       </div>
 
                       <div className="min-w-0">
@@ -666,7 +683,15 @@ export default async function PaymentsPage({
                           Linked Record
                         </p>
                         <p className="mt-1 text-sm font-medium text-slate-900">
-                          {payment.payment_type === "pay_as_you_go_lesson" &&
+                          {payment.payment_channel === "terminal" &&
+                        payment.status !== "paid" ? (
+                          <Link
+                            href={`/app/payments/terminal/${payment.id}`}
+                            className="font-medium text-[var(--brand-primary)] underline"
+                          >
+                            Open card reader collection
+                          </Link>
+                        ) : payment.payment_type === "pay_as_you_go_lesson" &&
                           payment.external_reference ? (
                             <Link
                               href={`/app/schedule/${payment.external_reference}`}

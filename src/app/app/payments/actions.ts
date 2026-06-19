@@ -79,6 +79,7 @@ function applyDiscount(baseAmount: number, discountPercent: number | null, disco
 function normalizePaymentAction(value: string) {
   if (value === "charge_now") return "charge_now";
   if (value === "send_to_portal") return "send_to_portal";
+  if (value === "terminal") return "terminal";
   return "manual";
 }
 
@@ -108,7 +109,12 @@ export async function createPaymentAction(
     const packageTemplateId = getString(formData, "packageTemplateId");
     const salePriceRaw = getString(formData, "salePrice");
     const amountRaw = getString(formData, "amount");
-    const paymentMethod = paymentAction === "manual" ? getString(formData, "paymentMethod") : "card";
+    const paymentMethod =
+      paymentAction === "manual"
+        ? getString(formData, "paymentMethod")
+        : paymentAction === "terminal"
+          ? "card_present"
+          : "card";
     const status = paymentAction === "manual" ? getString(formData, "status") || "paid" : "pending";
     const notes = getString(formData, "notes");
     const accountCreditToApplyRaw = getString(formData, "accountCreditToApply");
@@ -322,7 +328,9 @@ export async function createPaymentAction(
         ? "Created for Charge Now Stripe Checkout."
         : paymentAction === "send_to_portal"
           ? "Created as a client portal payment request."
-          : null;
+          : paymentAction === "terminal"
+            ? "Created for in-person card reader collection."
+            : null;
     const finalNotes = [
       notes,
       discountNote,
@@ -347,6 +355,12 @@ export async function createPaymentAction(
         created_by: user.id,
         payment_type: paymentType,
         source: paymentAction === "manual" ? "manual" : "stripe",
+        payment_channel:
+          paymentAction === "terminal"
+            ? "terminal"
+            : paymentAction === "manual"
+              ? "manual"
+              : "online",
         currency: "usd",
       })
       .select("id")
@@ -383,6 +397,12 @@ export async function createPaymentAction(
       checkoutRedirectUrl = `/api/stripe/client-checkout?paymentId=${encodeURIComponent(
         insertedPayment.id
       )}&returnTo=${encodeURIComponent(returnTo)}&cancelTo=${encodeURIComponent(cancelTo)}`;
+    }
+
+    if (paymentAction === "terminal") {
+      checkoutRedirectUrl = `/app/payments/terminal/${encodeURIComponent(
+        insertedPayment.id
+      )}?success=terminal_payment_ready`;
     }
   } catch (error) {
     return {

@@ -138,7 +138,7 @@ export default function QuickPaymentPanel({
   const [accountCreditToApply, setAccountCreditToApply] = useState("");
   const [paymentDate, setPaymentDate] = useState(getTodayDateValue());
   const [activePaymentAction, setActivePaymentAction] = useState<
-    "manual" | "charge_now" | "send_to_portal" | null
+    "manual" | "charge_now" | "terminal" | "send_to_portal" | null
   >(null);
 
   const selectedPackageTemplate = useMemo(
@@ -606,7 +606,7 @@ export default function QuickPaymentPanel({
       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <p className="text-sm font-semibold text-slate-950">Choose how to collect this payment</p>
         <p className="mt-1 text-sm leading-6 text-slate-600">
-          Record Manual Payment saves a payment you already collected. Charge Now opens Stripe Checkout immediately. Submit to Client Portal creates a pending payment request the client can pay later.
+          Record Manual Payment saves a payment you already collected. Charge Now opens Stripe Checkout. In-person Card Reader starts a front-desk reader payment. Submit to Client Portal creates a pending payment request the client can pay later.
         </p>
 
         <div className="mt-4 flex flex-wrap gap-3">
@@ -634,6 +634,19 @@ export default function QuickPaymentPanel({
             {pending && activePaymentAction === "charge_now"
               ? "Opening Stripe..."
               : "Charge Now"}
+          </button>
+
+          <button
+            type="submit"
+            name="paymentAction"
+            value="terminal"
+            disabled={pending}
+            onClick={() => setActivePaymentAction("terminal")}
+            className="rounded-xl bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700 disabled:opacity-60"
+          >
+            {pending && activePaymentAction === "terminal"
+              ? "Opening reader..."
+              : "In-person Card Reader"}
           </button>
 
           <button
