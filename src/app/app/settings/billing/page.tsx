@@ -9,6 +9,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import {
@@ -45,6 +46,30 @@ type StudioBillingRow = {
   stripe_connect_charges_enabled: boolean | null;
   stripe_connect_payouts_enabled: boolean | null;
   stripe_connect_onboarding_complete: boolean | null;
+};
+
+type TerminalLocationRow = {
+  id: string;
+  stripe_location_id: string;
+  display_name: string;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
+  active: boolean | null;
+  created_at: string;
+};
+
+type TerminalReaderRow = {
+  id: string;
+  terminal_location_id: string | null;
+  stripe_reader_id: string;
+  label: string | null;
+  device_type: string | null;
+  status: string | null;
+  ip_address: string | null;
+  last_seen_at: string | null;
+  active: boolean | null;
+  created_at: string;
 };
 
 type SubscriptionRow = {
@@ -319,6 +344,30 @@ function getSuccessMessage(
     };
   }
 
+  if (success === "terminal_location_created" || success === "terminal_location_ready") {
+    return {
+      title: "Card reader location ready",
+      body: "The front desk Terminal location is ready for in-person card reader setup.",
+      tone: "green",
+    };
+  }
+
+  if (success === "terminal_reader_registered") {
+    return {
+      title: "Card reader registered",
+      body: "The reader was added to this workspace. Refresh status before the first test payment.",
+      tone: "green",
+    };
+  }
+
+  if (success === "terminal_readers_synced") {
+    return {
+      title: "Card readers refreshed",
+      body: "Reader status was refreshed from Stripe.",
+      tone: "green",
+    };
+  }
+
   return null;
 }
 
@@ -344,6 +393,17 @@ function getErrorMessage(error?: string) {
     organizer_suite_checkout_failed: "Organizer Suite checkout could not be completed.",
     organizer_suite_remove_failed: "Organizer Suite could not be removed.",
     billing_access_denied: "Only a workspace owner or admin can manage billing add-ons.",
+    terminal_stripe_not_connected: "Connect Stripe payouts before setting up in-person card readers.",
+    terminal_stripe_not_ready: "Stripe still needs to finish payment capability approval before card readers can be set up.",
+    terminal_location_missing_address: "Add the studio address in Settings before creating a card reader location.",
+    terminal_location_lookup_failed: "Could not check the current card reader location.",
+    terminal_location_save_failed: "The card reader location was created in Stripe but could not be saved in DanceFlow.",
+    terminal_location_failed: "Card reader location setup failed.",
+    terminal_location_required: "Create a card reader location before registering a reader.",
+    terminal_reader_missing_code: "Enter the reader registration code shown on the Stripe reader.",
+    terminal_reader_save_failed: "The reader was registered in Stripe but could not be saved in DanceFlow.",
+    terminal_reader_failed: "Card reader registration failed.",
+    terminal_reader_sync_failed: "Card reader status could not be refreshed from Stripe.",
   };
 
   return messages[error] ?? "Something went wrong while loading billing.";
@@ -380,6 +440,194 @@ function InfoCard({
 function getUsagePercent(allowance: UsageAllowanceResult) {
   if (allowance.totalAllowance <= 0) return 0;
   return Math.min(100, Math.round((allowance.quantityUsed / allowance.totalAllowance) * 100));
+}
+
+function terminalReaderStatusClass(status: string | null | undefined) {
+  const normalized = (status ?? "").toLowerCase();
+  if (normalized === "online") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200";
+  if (normalized === "offline") return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
+  return "bg-amber-50 text-amber-700 ring-1 ring-amber-200";
+}
+
+function terminalReaderStatusLabel(status: string | null | undefined) {
+  if (!status) return "Unknown";
+  return status.replaceAll("_", " ");
+}
+
+function formatTerminalDateTime(value: string | null) {
+  if (!value) return "Not synced yet";
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function TerminalReadersCard({
+  connectReadiness,
+  locations,
+  readers,
+  canManage,
+}: {
+  connectReadiness: StudioConnectReadiness;
+  locations: TerminalLocationRow[];
+  readers: TerminalReaderRow[];
+  canManage: boolean;
+}) {
+  const stripeReady = Boolean(
+    connectReadiness.connectedAccountId &&
+      connectReadiness.chargesEnabled &&
+      connectReadiness.cardPaymentsEnabled
+  );
+  const primaryLocation = locations[0] ?? null;
+  const canRegisterReader = canManage && stripeReady && Boolean(primaryLocation);
+
+  return (
+    <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+          <CreditCard className="h-5 w-5" />
+        </div>
+
+        <div className="min-w-0">
+          <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">
+            In-person payments
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+            Card readers
+          </h2>
+          <p className="mt-2 text-sm leading-7 text-slate-600">
+            Set up Stripe Terminal readers for front desk package, membership, lesson, and balance payments.
+          </p>
+        </div>
+      </div>
+
+      {!stripeReady ? (
+        <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          Connect Stripe and complete card payment approval before adding readers.
+        </div>
+      ) : null}
+
+      <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-slate-950">Terminal location</p>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              {primaryLocation
+                ? `${primaryLocation.display_name}${primaryLocation.city ? ` · ${primaryLocation.city}${primaryLocation.state ? `, ${primaryLocation.state}` : ""}` : ""}`
+                : "Create a front desk location before registering readers."}
+            </p>
+          </div>
+
+          {primaryLocation ? (
+            <span className="inline-flex w-fit rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200">
+              Ready
+            </span>
+          ) : (
+            <form action="/api/stripe/terminal/location" method="post">
+              <button
+                type="submit"
+                disabled={!canManage || !stripeReady}
+                className="rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              >
+                Create Location
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-sm font-semibold text-slate-950">Registered readers</p>
+          <p className="mt-1 text-sm leading-6 text-slate-600">
+            {readers.length > 0
+              ? `${readers.length} reader${readers.length === 1 ? "" : "s"} connected to this workspace.`
+              : "No readers registered yet."}
+          </p>
+        </div>
+
+        <form action="/api/stripe/terminal/readers/sync" method="post">
+          <button
+            type="submit"
+            disabled={!canManage || !stripeReady}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            Refresh Status
+          </button>
+        </form>
+      </div>
+
+      {readers.length > 0 ? (
+        <div className="mt-4 space-y-3">
+          {readers.map((reader) => (
+            <div key={reader.id} className="rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="font-semibold text-slate-950">{reader.label ?? "Card reader"}</p>
+                  <p className="mt-1 text-xs font-medium text-slate-500">
+                    {reader.device_type?.replaceAll("_", " ") ?? "Reader"} · Last synced {formatTerminalDateTime(reader.last_seen_at)}
+                  </p>
+                </div>
+
+                <span className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium capitalize ${terminalReaderStatusClass(reader.status)}`}>
+                  {terminalReaderStatusLabel(reader.status)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      <details className="mt-6 rounded-2xl border border-slate-200 bg-slate-50">
+        <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-slate-900 [&::-webkit-details-marker]:hidden">
+          Register a reader
+        </summary>
+        <form action="/api/stripe/terminal/readers/register" method="post" className="space-y-4 border-t border-slate-200 p-4">
+          <input type="hidden" name="terminalLocationId" value={primaryLocation?.id ?? ""} />
+
+          <div>
+            <label htmlFor="readerLabel" className="text-sm font-medium text-slate-700">
+              Reader label
+            </label>
+            <input
+              id="readerLabel"
+              name="readerLabel"
+              type="text"
+              placeholder="Front desk reader"
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="registrationCode" className="text-sm font-medium text-slate-700">
+              Reader registration code
+            </label>
+            <input
+              id="registrationCode"
+              name="registrationCode"
+              type="text"
+              placeholder="Shown on the Stripe reader"
+              required
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
+            />
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Use the registration code displayed on the reader during setup.
+            </p>
+          </div>
+
+          <button
+            type="submit"
+            disabled={!canRegisterReader}
+            className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            Register Reader
+          </button>
+        </form>
+      </details>
+    </div>
+  );
 }
 
 function UsageAllowanceCard({
@@ -846,6 +1094,7 @@ export default async function BillingSettingsPage({
   searchParams?: SearchParams;
 }) {
   const supabase = await createClient();
+  const adminSupabase = createAdminClient();
   const stripe = getStripe();
   const resolvedSearchParams = (await searchParams) ?? {};
 
@@ -1083,6 +1332,31 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
       console.error("Failed to retrieve connected account readiness", error);
     }
   }
+
+  const { data: terminalLocationsRows, error: terminalLocationsError } = await adminSupabase
+    .from("stripe_terminal_locations")
+    .select("id, stripe_location_id, display_name, city, state, postal_code, active, created_at")
+    .eq("studio_id", studio.id)
+    .eq("active", true)
+    .order("created_at", { ascending: true });
+
+  if (terminalLocationsError) {
+    console.error("Failed to load Terminal locations", terminalLocationsError);
+  }
+
+  const { data: terminalReaderRows, error: terminalReadersError } = await adminSupabase
+    .from("stripe_terminal_readers")
+    .select("id, terminal_location_id, stripe_reader_id, label, device_type, status, ip_address, last_seen_at, active, created_at")
+    .eq("studio_id", studio.id)
+    .eq("active", true)
+    .order("created_at", { ascending: true });
+
+  if (terminalReadersError) {
+    console.error("Failed to load Terminal readers", terminalReadersError);
+  }
+
+  const terminalLocations = (terminalLocationsRows ?? []) as TerminalLocationRow[];
+  const terminalReaders = (terminalReaderRows ?? []) as TerminalReaderRow[];
 
   const connectStatus = getConnectStatus(connectReadiness);
   const successMessage = getSuccessMessage(successParam, selectedAudience);
@@ -1386,6 +1660,15 @@ const reasonParam = parseSingleSearchParam(resolvedSearchParams.reason);
                   </div>
                 ) : null}
               </div>
+            ) : null}
+
+            {showPayoutsCard ? (
+              <TerminalReadersCard
+                connectReadiness={connectReadiness}
+                locations={terminalLocations}
+                readers={terminalReaders}
+                canManage={canAccessBilling}
+              />
             ) : null}
 
             <div className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
