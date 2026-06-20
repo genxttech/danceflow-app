@@ -62,6 +62,10 @@ function normalizeNavLabel(item: NavItem) {
     return "Consult with ARIA";
   }
 
+  if (item.href === "/app/analytics" || lower === "analytics" || lower === "studio analytics") {
+    return "Studio Analytics";
+  }
+
   if (item.href === "/app/reports" || lower === "reports") {
     return "Reports & Accounting";
   }
@@ -1134,6 +1138,7 @@ function optimizeNavigationForTasks(sections: NavSectionType[], options: Normali
       "/app/discovery",
     ]),
     makeSection("Insights", available, used, [
+      "/app/analytics",
       "/app/reports",
       "/app/aria",
     ]),

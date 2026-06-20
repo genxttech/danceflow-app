@@ -81,6 +81,36 @@ type ClientRow = {
   created_at: string;
 };
 
+type ConversionClientRow = {
+  id: string;
+  created_at: string;
+};
+
+type ConversionAppointmentRow = {
+  id: string;
+  client_id: string | null;
+  appointment_type: string | null;
+  status: string | null;
+  starts_at: string;
+};
+
+type ConversionPackageRow = {
+  id: string;
+  client_id: string | null;
+  created_at: string;
+  purchase_date: string | null;
+};
+
+type ConversionMembershipRow = {
+  id: string;
+  client_id: string | null;
+  created_at: string;
+};
+
+type ConversionPurchase = {
+  date: Date;
+};
+
 type AriaGoalRow = {
   id: string;
   title: string;
@@ -201,6 +231,51 @@ function formatCurrency(value: number | string | null | undefined) {
 function formatPercent(value: number | null | undefined) {
   if (value === null || value === undefined || Number.isNaN(value)) return "—";
   return `${value.toFixed(1)}%`;
+}
+
+function conversionPercent(numerator: number, denominator: number) {
+  if (!denominator) return "—";
+  return `${Math.round((numerator / denominator) * 100)}%`;
+}
+
+function daysBetween(start: Date, end: Date) {
+  return (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+}
+
+function isIntroAppointmentType(value: string | null) {
+  const normalized = `${value ?? ""}`.toLowerCase();
+  return normalized.includes("intro") || normalized.includes("consult");
+}
+
+function isCanceledConversionStatus(value: string | null) {
+  const normalized = `${value ?? ""}`.toLowerCase();
+  return (
+    normalized.includes("cancel") ||
+    normalized.includes("declin") ||
+    normalized.includes("no_show") ||
+    normalized.includes("no-show")
+  );
+}
+
+function isCompletedConversionStatus(value: string | null) {
+  const normalized = `${value ?? ""}`.toLowerCase();
+  return (
+    normalized.includes("complete") ||
+    normalized.includes("attend") ||
+    normalized.includes("done") ||
+    normalized.includes("closed")
+  );
+}
+
+function hasPurchaseWithinWindow(
+  purchases: ConversionPurchase[],
+  start: Date,
+  windowDays: number,
+) {
+  return purchases.some((purchase) => {
+    const elapsed = daysBetween(start, purchase.date);
+    return elapsed >= 0 && elapsed <= windowDays;
+  });
 }
 
 function isOrganizerRole(role: string | null | undefined) {
@@ -922,9 +997,11 @@ export default async function AriaOpportunityHubPage() {
   }
 
   const nowIso = new Date().toISOString();
+  const now = new Date(nowIso);
   const ninetyDaysAgoIso = new Date(
     Date.now() - 90 * 24 * 60 * 60 * 1000,
   ).toISOString();
+  const ninetyDaysAgo = new Date(ninetyDaysAgoIso);
 
   const [
     packagesResult,
@@ -935,6 +1012,10 @@ export default async function AriaOpportunityHubPage() {
     futureAppointmentsResult,
     activeClientsResult,
     ariaGoalsResult,
+    conversionClientsResult,
+    conversionAppointmentsResult,
+    conversionPackagesResult,
+    conversionMembershipsResult,
   ] = await Promise.all([
     supabase
       .from("client_packages")
@@ -1015,6 +1096,38 @@ export default async function AriaOpportunityHubPage() {
       .eq("status", "active")
       .order("updated_at", { ascending: false })
       .limit(3),
+
+    supabase
+      .from("clients")
+      .select("id, created_at")
+      .eq("studio_id", studioId)
+      .gte("created_at", ninetyDaysAgoIso)
+      .lte("created_at", nowIso)
+      .order("created_at", { ascending: false })
+      .limit(1000),
+
+    supabase
+      .from("appointments")
+      .select("id, client_id, appointment_type, status, starts_at")
+      .eq("studio_id", studioId)
+      .gte("starts_at", ninetyDaysAgoIso)
+      .lte("starts_at", nowIso)
+      .order("starts_at", { ascending: true })
+      .limit(1500),
+
+    supabase
+      .from("client_packages")
+      .select("id, client_id, created_at, purchase_date")
+      .eq("studio_id", studioId)
+      .order("created_at", { ascending: true })
+      .limit(2000),
+
+    supabase
+      .from("client_memberships")
+      .select("id, client_id, created_at")
+      .eq("studio_id", studioId)
+      .order("created_at", { ascending: true })
+      .limit(2000),
   ]);
 
   if (packagesResult.error) {
@@ -1065,6 +1178,30 @@ export default async function AriaOpportunityHubPage() {
     );
   }
 
+  if (conversionClientsResult.error) {
+    throw new Error(
+      `Failed to load ARIA conversion clients: ${conversionClientsResult.error.message}`,
+    );
+  }
+
+  if (conversionAppointmentsResult.error) {
+    throw new Error(
+      `Failed to load ARIA conversion appointments: ${conversionAppointmentsResult.error.message}`,
+    );
+  }
+
+  if (conversionPackagesResult.error) {
+    throw new Error(
+      `Failed to load ARIA conversion packages: ${conversionPackagesResult.error.message}`,
+    );
+  }
+
+  if (conversionMembershipsResult.error) {
+    throw new Error(
+      `Failed to load ARIA conversion memberships: ${conversionMembershipsResult.error.message}`,
+    );
+  }
+
   const packages = (packagesResult.data ?? []) as ClientPackageRow[];
   const pendingRequests = (pendingRequestsResult.data ??
     []) as BookingRequestRow[];
@@ -1079,6 +1216,14 @@ export default async function AriaOpportunityHubPage() {
   const activeClients = (activeClientsResult.data ?? []) as ClientRow[];
   const activeGoals = (ariaGoalsResult.data ?? []) as AriaGoalRow[];
   const activeGoal = activeGoals[0] ?? null;
+  const conversionClients = (conversionClientsResult.data ??
+    []) as ConversionClientRow[];
+  const conversionAppointments = (conversionAppointmentsResult.data ??
+    []) as ConversionAppointmentRow[];
+  const conversionPackages = (conversionPackagesResult.data ??
+    []) as ConversionPackageRow[];
+  const conversionMemberships = (conversionMembershipsResult.data ??
+    []) as ConversionMembershipRow[];
 
   const lowBalancePackages = packages.filter((pkg) => {
     const lowestRemaining = packageLowestRemaining(pkg);
@@ -1128,8 +1273,147 @@ export default async function AriaOpportunityHubPage() {
     "first_lesson_follow_up",
   ].filter((key) => !enabledRuleKeys.has(key)).length;
 
+  const conversionIntroAppointments = conversionAppointments.filter(
+    (appointment) =>
+      appointment.client_id &&
+      isIntroAppointmentType(appointment.appointment_type) &&
+      !isCanceledConversionStatus(appointment.status),
+  );
+  const conversionIntroByClient = new Map<
+    string,
+    ConversionAppointmentRow[]
+  >();
+  conversionIntroAppointments.forEach((appointment) => {
+    if (!appointment.client_id) return;
+    const existing = conversionIntroByClient.get(appointment.client_id) ?? [];
+    existing.push(appointment);
+    conversionIntroByClient.set(appointment.client_id, existing);
+  });
+
+  const completedIntroByClient = new Map<string, ConversionAppointmentRow>();
+  conversionIntroAppointments
+    .filter((appointment) =>
+      isCompletedConversionStatus(appointment.status),
+    )
+    .forEach((appointment) => {
+      if (
+        appointment.client_id &&
+        !completedIntroByClient.has(appointment.client_id)
+      ) {
+        completedIntroByClient.set(appointment.client_id, appointment);
+      }
+    });
+
+  const conversionPurchasesByClient = new Map<string, ConversionPurchase[]>();
+  const conversionPurchases = [
+    ...conversionPackages
+      .filter((row) => row.client_id)
+      .map((row) => ({
+        clientId: row.client_id as string,
+        date: new Date(row.purchase_date ?? row.created_at),
+      })),
+    ...conversionMemberships
+      .filter((row) => row.client_id)
+      .map((row) => ({
+        clientId: row.client_id as string,
+        date: new Date(row.created_at),
+      })),
+  ].sort((a, b) => a.date.getTime() - b.date.getTime());
+  conversionPurchases.forEach((purchase) => {
+    const existing = conversionPurchasesByClient.get(purchase.clientId) ?? [];
+    existing.push({ date: purchase.date });
+    conversionPurchasesByClient.set(purchase.clientId, existing);
+  });
+
+  const leadToIntroClientIds = conversionClients
+    .filter((client) =>
+      (conversionIntroByClient.get(client.id) ?? []).some(
+        (intro) => new Date(intro.starts_at) >= new Date(client.created_at),
+      ),
+    )
+    .map((client) => client.id);
+  const completedIntroClientIds = Array.from(completedIntroByClient.keys());
+  const introConvertedClientIds = completedIntroClientIds.filter(
+    (clientId) => {
+      const intro = completedIntroByClient.get(clientId);
+      const firstPurchase = conversionPurchasesByClient.get(clientId)?.[0];
+      if (!intro || !firstPurchase) return false;
+      return hasPurchaseWithinWindow(
+        [firstPurchase],
+        new Date(intro.starts_at),
+        30,
+      );
+    },
+  );
+  const firstPurchaseClientIds = Array.from(
+    conversionPurchasesByClient.entries(),
+  )
+    .filter(([, purchases]) => {
+      const firstPurchase = purchases[0];
+      return Boolean(
+        firstPurchase &&
+          firstPurchase.date >= ninetyDaysAgo &&
+          firstPurchase.date <= now,
+      );
+    })
+    .map(([clientId]) => clientId);
+  const retainedClientIds = firstPurchaseClientIds.filter((clientId) => {
+    const purchases = conversionPurchasesByClient.get(clientId) ?? [];
+    const firstPurchase = purchases[0];
+    return Boolean(
+      firstPurchase &&
+        hasPurchaseWithinWindow(purchases.slice(1), firstPurchase.date, 90),
+    );
+  });
+
+  const leadsWithoutIntroCount = conversionClients.filter(
+    (client) =>
+      daysBetween(new Date(client.created_at), now) >= 3 &&
+      !leadToIntroClientIds.includes(client.id),
+  ).length;
+  const introsWithoutPurchaseCount = completedIntroClientIds.filter(
+    (clientId) => {
+      const intro = completedIntroByClient.get(clientId);
+      return Boolean(
+        intro &&
+          daysBetween(new Date(intro.starts_at), now) >= 7 &&
+          !introConvertedClientIds.includes(clientId),
+      );
+    },
+  ).length;
+  const firstPurchaseWithoutRetentionCount = firstPurchaseClientIds.filter(
+    (clientId) => {
+      const firstPurchase = conversionPurchasesByClient.get(clientId)?.[0];
+      return Boolean(
+        firstPurchase &&
+          daysBetween(firstPurchase.date, now) >= 30 &&
+          !retainedClientIds.includes(clientId),
+      );
+    },
+  ).length;
+
   const nextBestMove =
-    lowBalancePackages.length > 0
+    pendingRequests.length > 0
+      ? {
+          title: "Booking requests need timely follow-up.",
+          insight: `${pendingRequests.length} booking request${pendingRequests.length === 1 ? " is" : "s are"} waiting for staff review.`,
+          recommendation:
+            "Approve, decline, or contact those clients before the request turns into a missed opportunity.",
+          href: "/app/schedule/requests?status=pending",
+          label: "Review requests",
+          metric: `${pendingRequests.length} pending`,
+        }
+      : introsWithoutPurchaseCount > 0
+        ? {
+            title: "Completed intros need a purchase follow-up.",
+            insight: `${introsWithoutPurchaseCount} completed intro client${introsWithoutPurchaseCount === 1 ? " has" : "s have"} not made a first purchase after at least 7 days.`,
+            recommendation:
+              "Review the conversion list, contact the warmest opportunities, and ask what is preventing the next step.",
+            href: "/app/analytics?range=90",
+            label: "Review intro gaps",
+            metric: `${introsWithoutPurchaseCount} follow-up${introsWithoutPurchaseCount === 1 ? "" : "s"}`,
+          }
+        : lowBalancePackages.length > 0
       ? {
           title: "Package renewals are the fastest revenue opportunity.",
           insight: `${lowBalancePackages.length} active package${lowBalancePackages.length === 1 ? "" : "s"} have 2 or fewer credits remaining, including ${depletedPackages.length} depleted package${depletedPackages.length === 1 ? "" : "s"}.`,
@@ -1139,15 +1423,15 @@ export default async function AriaOpportunityHubPage() {
           label: "Review balances",
           metric: `${lowBalancePackages.length} renewal lead${lowBalancePackages.length === 1 ? "" : "s"}`,
         }
-      : pendingRequests.length > 0
+      : firstPurchaseWithoutRetentionCount > 0
         ? {
-            title: "Booking requests need timely follow-up.",
-            insight: `${pendingRequests.length} booking request${pendingRequests.length === 1 ? " is" : "s are"} waiting for staff review.`,
+            title: "First-purchase clients need a retention plan.",
+            insight: `${firstPurchaseWithoutRetentionCount} first-purchase client${firstPurchaseWithoutRetentionCount === 1 ? " has" : "s have"} gone at least 30 days without buying again.`,
             recommendation:
-              "Approve, decline, or contact those clients before the request turns into a missed opportunity.",
-            href: "/app/schedule/requests?status=pending",
-            label: "Review requests",
-            metric: `${pendingRequests.length} pending`,
+              "Review their lesson activity and package usage, then prioritize a personal rebooking or renewal conversation.",
+            href: "/app/analytics?range=90",
+            label: "Review retention gaps",
+            metric: `${firstPurchaseWithoutRetentionCount} at risk`,
           }
         : rebookingClientIds.length > 0
           ? {
@@ -1159,7 +1443,17 @@ export default async function AriaOpportunityHubPage() {
               label: "Open automations",
               metric: `${rebookingClientIds.length} rebooking lead${rebookingClientIds.length === 1 ? "" : "s"}`,
             }
-          : {
+          : leadsWithoutIntroCount > 0
+            ? {
+                title: "New leads need an intro path.",
+                insight: `${leadsWithoutIntroCount} lead${leadsWithoutIntroCount === 1 ? " has" : "s have"} gone at least 3 days without intro activity.`,
+                recommendation:
+                  "Review the lead list and offer a clear next step while their interest is still fresh.",
+                href: "/app/analytics?range=90",
+                label: "Review lead gaps",
+                metric: `${leadsWithoutIntroCount} waiting`,
+              }
+            : {
               title: "Your studio is ready for the next growth layer.",
               insight:
                 "ARIA did not find an urgent renewal or booking backlog right now.",
@@ -1258,7 +1552,7 @@ export default async function AriaOpportunityHubPage() {
         recommendation={nextBestMove.recommendation}
         metric={nextBestMove.metric}
         primaryAction={{ href: nextBestMove.href, label: nextBestMove.label }}
-        secondaryAction={{ href: "/app/aria", label: "Refresh hub" }}
+        secondaryAction={{ href: "/app/analytics?range=90", label: "View analytics" }}
       />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -1298,6 +1592,69 @@ export default async function AriaOpportunityHubPage() {
           href="/app/automations"
           actionLabel="Open rules"
         />
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
+              ARIA Conversion Pulse
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+              Where clients are moving and where they are getting stuck
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              A 90-day view using the same conversion definitions as Studio
+              Analytics.
+            </p>
+          </div>
+          <Link
+            href="/app/analytics?range=90"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-[#6B21A8] hover:underline"
+          >
+            Open Studio Analytics
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <OpportunityCard
+            tone="booking"
+            icon={Target}
+            title="Lead to intro"
+            metric={conversionPercent(
+              leadToIntroClientIds.length,
+              conversionClients.length,
+            )}
+            description={`${leadsWithoutIntroCount} lead${leadsWithoutIntroCount === 1 ? " is" : "s are"} overdue for an intro next step after the 3-day follow-up window.`}
+            href="/app/analytics?range=90"
+            actionLabel="Review lead gaps"
+          />
+          <OpportunityCard
+            tone="revenue"
+            icon={CheckCircle2}
+            title="Intro to first purchase"
+            metric={conversionPercent(
+              introConvertedClientIds.length,
+              completedIntroClientIds.length,
+            )}
+            description={`${introsWithoutPurchaseCount} completed intro client${introsWithoutPurchaseCount === 1 ? " needs" : "s need"} purchase follow-up after the 7-day grace period.`}
+            href="/app/analytics?range=90"
+            actionLabel="Review conversion gaps"
+          />
+          <OpportunityCard
+            tone="retention"
+            icon={TrendingUp}
+            title="First purchase to retention"
+            metric={conversionPercent(
+              retainedClientIds.length,
+              firstPurchaseClientIds.length,
+            )}
+            description={`${firstPurchaseWithoutRetentionCount} first-purchase client${firstPurchaseWithoutRetentionCount === 1 ? " is" : "s are"} due for retention attention after 30 days.`}
+            href="/app/analytics?range=90"
+            actionLabel="Review retention gaps"
+          />
+        </div>
       </section>
 
       <section className="grid gap-8 xl:grid-cols-[1.1fr_0.9fr]">

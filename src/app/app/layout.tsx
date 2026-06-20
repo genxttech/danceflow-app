@@ -689,6 +689,11 @@ function buildStudioSections(params: {
                 icon: "memberships" as const,
               },
               {
+                label: "Studio Analytics",
+                href: "/app/analytics",
+                icon: "reports" as const,
+              },
+              {
                 label: "Reports",
                 href: "/app/reports",
                 icon: "reports" as const,

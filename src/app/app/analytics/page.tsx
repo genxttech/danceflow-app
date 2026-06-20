@@ -90,6 +90,12 @@ const RANGE_OPTIONS = [
   { value: "365", label: "Last 12 months", days: 365 },
 ];
 
+const INTRO_PURCHASE_WINDOW_DAYS = 30;
+const RETENTION_WINDOW_DAYS = 90;
+const LEAD_FOLLOW_UP_GRACE_DAYS = 3;
+const INTRO_FOLLOW_UP_GRACE_DAYS = 7;
+const RETENTION_FOLLOW_UP_GRACE_DAYS = 30;
+
 function getRangeDays(range: string | undefined) {
   return RANGE_OPTIONS.find((option) => option.value === range)?.days ?? 90;
 }
@@ -130,6 +136,21 @@ function fmtDays(value: number | null) {
 
 function daysBetween(start: Date, end: Date) {
   return (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+}
+
+function isDateInRange(date: Date, start: Date, end: Date) {
+  return date >= start && date <= end;
+}
+
+function findPurchaseWithinWindow(
+  purchases: PurchaseEvent[],
+  start: Date,
+  windowDays: number,
+) {
+  return purchases.find((purchase) => {
+    const elapsed = daysBetween(start, purchase.date);
+    return elapsed >= 0 && elapsed <= windowDays;
+  });
 }
 
 function average(values: number[]) {
@@ -195,14 +216,14 @@ function StatCard({
   icon: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-sm font-medium text-slate-500">{label}</p>
           <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
           <p className="mt-2 text-sm text-slate-500">{helper}</p>
         </div>
-        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+        <div className="rounded-lg bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
           <Icon className="h-5 w-5" />
         </div>
       </div>
@@ -212,7 +233,7 @@ function StatCard({
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+    <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
       {message}
     </div>
   );
@@ -254,9 +275,8 @@ export default async function AnalyticsPage({
       .from("clients")
       .select("id, first_name, last_name, status, created_at, referral_source")
       .eq("studio_id", studioId)
-      .gte("created_at", rangeStartIso)
       .order("created_at", { ascending: false })
-      .limit(1000),
+      .limit(3000),
     supabase
       .from("appointments")
       .select(
@@ -319,8 +339,9 @@ export default async function AnalyticsPage({
   const typedInstructors = (instructors ?? []) as InstructorRow[];
 
   const clientById = new Map(typedClients.map((client) => [client.id, client]));
-  const instructorById = new Map(
-    typedInstructors.map((instructor) => [instructor.id, instructor]),
+
+  const leadCohort = typedClients.filter((client) =>
+    isDateInRange(new Date(client.created_at), rangeStart, now),
   );
 
   const introAppointments = typedAppointments.filter(
@@ -372,42 +393,78 @@ export default async function AnalyticsPage({
     existing.push(appointment);
     introByClient.set(appointment.client_id, existing);
   });
+  introByClient.forEach((items) =>
+    items.sort(
+      (a, b) =>
+        new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime(),
+    ),
+  );
 
-  const completedIntroByClient = new Map<string, AppointmentRow[]>();
-  completedIntroAppointments.forEach((appointment) => {
-    if (!appointment.client_id) return;
-    const existing = completedIntroByClient.get(appointment.client_id) ?? [];
-    existing.push(appointment);
-    completedIntroByClient.set(appointment.client_id, existing);
-  });
-
-  const leadCount = typedClients.length;
-  const leadToIntroClientIds = typedClients
-    .filter((client) => introByClient.has(client.id))
+  const leadCount = leadCohort.length;
+  const leadToIntroClientIds = leadCohort
+    .filter((client) => {
+      const createdAt = new Date(client.created_at);
+      return (introByClient.get(client.id) ?? []).some(
+        (intro) => new Date(intro.starts_at) >= createdAt,
+      );
+    })
     .map((client) => client.id);
-  const completedIntroClientIds = Array.from(completedIntroByClient.keys());
+  const completedIntroCohort = completedIntroAppointments
+    .filter((intro) =>
+      isDateInRange(new Date(intro.starts_at), rangeStart, now),
+    )
+    .sort(
+      (a, b) =>
+        new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime(),
+    );
+  const firstCompletedIntroByClient = new Map<string, AppointmentRow>();
+  completedIntroCohort.forEach((intro) => {
+    if (!intro.client_id || firstCompletedIntroByClient.has(intro.client_id)) {
+      return;
+    }
+    firstCompletedIntroByClient.set(intro.client_id, intro);
+  });
+  const completedIntroClientIds = Array.from(
+    firstCompletedIntroByClient.keys(),
+  );
 
   const introToFirstPurchaseClientIds = completedIntroClientIds.filter(
     (clientId) => {
-      const firstIntro = completedIntroByClient.get(clientId)?.[0];
+      const firstIntro = firstCompletedIntroByClient.get(clientId);
       if (!firstIntro) return false;
       const introDate = new Date(firstIntro.starts_at);
-      return (purchasesByClient.get(clientId) ?? []).some(
-        (purchase) => purchase.date >= introDate,
+      return Boolean(
+        findPurchaseWithinWindow(
+          (purchasesByClient.get(clientId) ?? []).slice(0, 1),
+          introDate,
+          INTRO_PURCHASE_WINDOW_DAYS,
+        ),
       );
     },
   );
 
-  const retentionClientIds = Array.from(purchasesByClient.entries())
-    .filter(([, clientPurchases]) => clientPurchases.length >= 2)
+  const firstPurchaseClientIds = Array.from(purchasesByClient.entries())
+    .filter(([, clientPurchases]) => {
+      const firstPurchase = clientPurchases[0];
+      return Boolean(
+        firstPurchase &&
+          isDateInRange(firstPurchase.date, rangeStart, now),
+      );
+    })
     .map(([clientId]) => clientId);
 
-  const firstPurchaseClientIds = Array.from(purchasesByClient.keys()).filter(
-    (clientId) =>
-      (purchasesByClient.get(clientId) ?? []).some(
-        (purchase) => purchase.date >= rangeStart,
+  const retentionClientIds = firstPurchaseClientIds.filter((clientId) => {
+    const clientPurchases = purchasesByClient.get(clientId) ?? [];
+    const firstPurchase = clientPurchases[0];
+    if (!firstPurchase) return false;
+    return Boolean(
+      findPurchaseWithinWindow(
+        clientPurchases.slice(1),
+        firstPurchase.date,
+        RETENTION_WINDOW_DAYS,
       ),
-  );
+    );
+  });
 
   const leadToIntroDays = leadToIntroClientIds
     .map((clientId) => {
@@ -423,11 +480,13 @@ export default async function AnalyticsPage({
 
   const introToPurchaseDays = introToFirstPurchaseClientIds
     .map((clientId) => {
-      const intro = completedIntroByClient.get(clientId)?.[0];
+      const intro = firstCompletedIntroByClient.get(clientId);
       if (!intro) return null;
       const introDate = new Date(intro.starts_at);
-      const purchase = (purchasesByClient.get(clientId) ?? []).find(
-        (item) => item.date >= introDate,
+      const purchase = findPurchaseWithinWindow(
+        (purchasesByClient.get(clientId) ?? []).slice(0, 1),
+        introDate,
+        INTRO_PURCHASE_WINDOW_DAYS,
       );
       if (!purchase) return null;
       return daysBetween(introDate, purchase.date);
@@ -437,18 +496,27 @@ export default async function AnalyticsPage({
   const firstToRetentionDays = retentionClientIds
     .map((clientId) => {
       const clientPurchases = purchasesByClient.get(clientId) ?? [];
-      if (clientPurchases.length < 2) return null;
-      return daysBetween(clientPurchases[0].date, clientPurchases[1].date);
+      const firstPurchase = clientPurchases[0];
+      if (!firstPurchase) return null;
+      const retentionPurchase = findPurchaseWithinWindow(
+        clientPurchases.slice(1),
+        firstPurchase.date,
+        RETENTION_WINDOW_DAYS,
+      );
+      if (!retentionPurchase) return null;
+      return daysBetween(firstPurchase.date, retentionPurchase.date);
     })
     .filter((value): value is number => value !== null);
 
   const convertedRevenue = introToFirstPurchaseClientIds.reduce(
     (sum, clientId) => {
-      const firstIntro = completedIntroByClient.get(clientId)?.[0];
+      const firstIntro = firstCompletedIntroByClient.get(clientId);
       if (!firstIntro) return sum;
       const introDate = new Date(firstIntro.starts_at);
-      const firstPurchase = (purchasesByClient.get(clientId) ?? []).find(
-        (purchase) => purchase.date >= introDate,
+      const firstPurchase = findPurchaseWithinWindow(
+        (purchasesByClient.get(clientId) ?? []).slice(0, 1),
+        introDate,
+        INTRO_PURCHASE_WINDOW_DAYS,
       );
       return sum + (firstPurchase?.amount ?? 0);
     },
@@ -457,7 +525,7 @@ export default async function AnalyticsPage({
 
   const instructorStats = typedInstructors
     .map((instructor) => {
-      const intros = completedIntroAppointments.filter(
+      const intros = Array.from(firstCompletedIntroByClient.values()).filter(
         (appointment) => appointment.instructor_id === instructor.id,
       );
       const uniqueClientIds = Array.from(
@@ -472,16 +540,13 @@ export default async function AnalyticsPage({
         retentionClientIds.includes(clientId),
       );
       const influencedRevenue = convertedClientIds.reduce((sum, clientId) => {
-        const firstIntro =
-          completedIntroByClient
-            .get(clientId)
-            ?.find(
-              (appointment) => appointment.instructor_id === instructor.id,
-            ) ?? completedIntroByClient.get(clientId)?.[0];
+        const firstIntro = firstCompletedIntroByClient.get(clientId);
         if (!firstIntro) return sum;
         const introDate = new Date(firstIntro.starts_at);
-        const firstPurchase = (purchasesByClient.get(clientId) ?? []).find(
-          (purchase) => purchase.date >= introDate,
+        const firstPurchase = findPurchaseWithinWindow(
+          (purchasesByClient.get(clientId) ?? []).slice(0, 1),
+          introDate,
+          INTRO_PURCHASE_WINDOW_DAYS,
         );
         return sum + (firstPurchase?.amount ?? 0);
       }, 0);
@@ -501,9 +566,18 @@ export default async function AnalyticsPage({
     .sort((a, b) => b.converted - a.converted || b.intros - a.intros)
     .slice(0, 10);
 
-  const lostLeads: Opportunity[] = typedClients
-    .filter((client) => !introByClient.has(client.id))
-    .slice(0, 6)
+  const lostLeadOpportunities: Opportunity[] = leadCohort
+    .filter((client) => {
+      const age = daysBetween(new Date(client.created_at), now);
+      return (
+        age >= LEAD_FOLLOW_UP_GRACE_DAYS &&
+        !leadToIntroClientIds.includes(client.id)
+      );
+    })
+    .sort(
+      (a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    )
     .map((client) => ({
       clientId: client.id,
       clientName: getClientName(client),
@@ -512,12 +586,26 @@ export default async function AnalyticsPage({
         : "No intro booked yet",
       action: "Book intro",
     }));
+  const lostLeads = lostLeadOpportunities.slice(0, 6);
 
-  const introsNoPurchase: Opportunity[] = completedIntroClientIds
-    .filter((clientId) => !introToFirstPurchaseClientIds.includes(clientId))
+  const introNoPurchaseOpportunities: Opportunity[] = completedIntroClientIds
+    .filter((clientId) => {
+      const intro = firstCompletedIntroByClient.get(clientId);
+      return Boolean(
+        intro &&
+          daysBetween(new Date(intro.starts_at), now) >=
+            INTRO_FOLLOW_UP_GRACE_DAYS &&
+          !introToFirstPurchaseClientIds.includes(clientId),
+      );
+    })
+    .sort((a, b) => {
+      const aDate = firstCompletedIntroByClient.get(a)?.starts_at ?? "";
+      const bDate = firstCompletedIntroByClient.get(b)?.starts_at ?? "";
+      return new Date(aDate).getTime() - new Date(bDate).getTime();
+    })
     .map((clientId) => {
       const client = clientById.get(clientId);
-      const intro = completedIntroByClient.get(clientId)?.[0];
+      const intro = firstCompletedIntroByClient.get(clientId);
       const daysAgo = intro
         ? Math.max(0, Math.round(daysBetween(new Date(intro.starts_at), now)))
         : 0;
@@ -529,11 +617,25 @@ export default async function AnalyticsPage({
           : "Intro completed",
         action: "Follow up",
       };
-    })
-    .slice(0, 6);
+    });
+  const introsNoPurchase = introNoPurchaseOpportunities.slice(0, 6);
 
-  const firstPurchaseNoRetention: Opportunity[] = firstPurchaseClientIds
-    .filter((clientId) => !retentionClientIds.includes(clientId))
+  const firstPurchaseNoRetentionOpportunities: Opportunity[] =
+    firstPurchaseClientIds
+    .filter((clientId) => {
+      const firstPurchase = purchasesByClient.get(clientId)?.[0];
+      return Boolean(
+        firstPurchase &&
+          daysBetween(firstPurchase.date, now) >=
+            RETENTION_FOLLOW_UP_GRACE_DAYS &&
+          !retentionClientIds.includes(clientId),
+      );
+    })
+    .sort((a, b) => {
+      const aDate = purchasesByClient.get(a)?.[0]?.date.getTime() ?? 0;
+      const bDate = purchasesByClient.get(b)?.[0]?.date.getTime() ?? 0;
+      return aDate - bDate;
+    })
     .map((clientId) => {
       const client = clientById.get(clientId);
       const firstPurchase = purchasesByClient.get(clientId)?.[0];
@@ -548,11 +650,12 @@ export default async function AnalyticsPage({
           : "First purchase only",
         action: "Retain",
       };
-    })
-    .slice(0, 6);
+    });
+  const firstPurchaseNoRetention =
+    firstPurchaseNoRetentionOpportunities.slice(0, 6);
 
   const sourceStats = Array.from(
-    typedClients
+    leadCohort
       .reduce((map, client) => {
         const key = client.referral_source?.trim() || "Unknown / not set";
         const current = map.get(key) ?? {
@@ -562,8 +665,10 @@ export default async function AnalyticsPage({
           buyers: 0,
         };
         current.leads += 1;
-        if (introByClient.has(client.id)) current.intros += 1;
-        if (purchasesByClient.has(client.id)) current.buyers += 1;
+        if (leadToIntroClientIds.includes(client.id)) current.intros += 1;
+        if (introToFirstPurchaseClientIds.includes(client.id)) {
+          current.buyers += 1;
+        }
         map.set(key, current);
         return map;
       }, new Map<string, { source: string; leads: number; intros: number; buyers: number }>())
@@ -582,46 +687,65 @@ export default async function AnalyticsPage({
     {
       label: "Conversion focus",
       status:
-        conversionHealth >= 0.5
-          ? "strong"
-          : conversionHealth >= 0.3
-            ? "watch"
-            : "risk",
+        completedIntroClientIds.length === 0
+          ? "neutral"
+          : introNoPurchaseOpportunities.length === 0 &&
+              introToFirstPurchaseClientIds.length === 0
+            ? "neutral"
+          : conversionHealth >= 0.5
+            ? "strong"
+            : conversionHealth >= 0.3
+              ? "watch"
+              : "risk",
       text:
         completedIntroClientIds.length === 0
           ? "No completed intros are in this range yet. Start by driving intro bookings and completion."
-          : `${introsNoPurchase.length} completed intro${introsNoPurchase.length === 1 ? "" : "s"} still need a first-purchase follow-up.`,
+          : introNoPurchaseOpportunities.length === 0
+            ? "No completed intro follow-ups are currently overdue."
+          : `${introNoPurchaseOpportunities.length} completed intro${introNoPurchaseOpportunities.length === 1 ? "" : "s"} still need a first-purchase follow-up.`,
     },
     {
       label: "Retention focus",
       status:
-        retentionHealth >= 0.5
-          ? "strong"
-          : retentionHealth >= 0.3
-            ? "watch"
-            : "risk",
+        firstPurchaseClientIds.length === 0
+          ? "neutral"
+          : firstPurchaseNoRetentionOpportunities.length === 0 &&
+              retentionClientIds.length === 0
+            ? "neutral"
+          : retentionHealth >= 0.5
+            ? "strong"
+            : retentionHealth >= 0.3
+              ? "watch"
+              : "risk",
       text:
-        firstPurchaseNoRetention.length === 0
+        firstPurchaseNoRetentionOpportunities.length === 0
           ? "No first-purchase retention gaps are visible in this range."
-          : `${firstPurchaseNoRetention.length} first-purchase client${firstPurchaseNoRetention.length === 1 ? "" : "s"} should be checked before they go cold.`,
+          : `${firstPurchaseNoRetentionOpportunities.length} first-purchase client${firstPurchaseNoRetentionOpportunities.length === 1 ? "" : "s"} should be checked before they go cold.`,
     },
     {
       label: "Lead flow",
       status:
-        leadToIntroClientIds.length / Math.max(leadCount, 1) >= 0.6
-          ? "strong"
-          : "watch",
+        leadCount === 0
+          ? "neutral"
+          : lostLeadOpportunities.length === 0 &&
+              leadToIntroClientIds.length === 0
+            ? "neutral"
+          : leadToIntroClientIds.length / leadCount >= 0.6
+            ? "strong"
+            : "watch",
       text:
-        lostLeads.length === 0
-          ? "New leads in this range have intro activity. Keep the follow-up cadence consistent."
-          : `${lostLeads.length} new lead${lostLeads.length === 1 ? "" : "s"} in this range do not have intro activity yet.`,
+        lostLeadOpportunities.length === 0
+          ? leadToIntroClientIds.length > 0
+            ? "New leads in this range have intro activity. Keep the follow-up cadence consistent."
+            : "No lead follow-ups are overdue in this range."
+          : `${lostLeadOpportunities.length} new lead${lostLeadOpportunities.length === 1 ? "" : "s"} in this range do not have intro activity yet.`,
     },
   ];
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-8 px-4 py-6 sm:px-6 lg:px-8">
-      <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-        <div className="bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6 text-white sm:p-8">
+      <section className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950 shadow-sm">
+        <div className="p-6 text-white sm:p-8">
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <div className="mb-4 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white/80">
@@ -659,6 +783,15 @@ export default async function AnalyticsPage({
         </div>
       </section>
 
+      <section className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+        <span className="font-semibold text-slate-900">How rates work:</span>{" "}
+        the lead stage begins when a client record is created. Leads and
+        completed intros are grouped by the selected date range. First purchase
+        must happen within {INTRO_PURCHASE_WINDOW_DAYS} days of the completed
+        intro. Retention means a second package or membership purchase within{" "}
+        {RETENTION_WINDOW_DAYS} days of the first purchase.
+      </section>
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Lead → Intro"
@@ -672,7 +805,7 @@ export default async function AnalyticsPage({
             introToFirstPurchaseClientIds.length,
             completedIntroClientIds.length,
           )}
-          helper={`${introToFirstPurchaseClientIds.length} of ${completedIntroClientIds.length} completed intro clients purchased`}
+          helper={`${introToFirstPurchaseClientIds.length} of ${completedIntroClientIds.length} completed intro clients purchased within ${INTRO_PURCHASE_WINDOW_DAYS} days`}
           icon={UserCheck}
         />
         <StatCard
@@ -681,7 +814,7 @@ export default async function AnalyticsPage({
             retentionClientIds.length,
             firstPurchaseClientIds.length,
           )}
-          helper={`${retentionClientIds.length} of ${firstPurchaseClientIds.length} first-purchase clients bought again`}
+          helper={`${retentionClientIds.length} of ${firstPurchaseClientIds.length} first-purchase clients bought again within ${RETENTION_WINDOW_DAYS} days`}
           icon={TrendingUp}
         />
         <StatCard
@@ -693,7 +826,7 @@ export default async function AnalyticsPage({
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-semibold text-slate-950">
             Avg. lead to intro
           </p>
@@ -704,7 +837,7 @@ export default async function AnalyticsPage({
             Average time from new lead/client creation to intro activity.
           </p>
         </div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-semibold text-slate-950">
             Avg. intro to purchase
           </p>
@@ -715,7 +848,7 @@ export default async function AnalyticsPage({
             Average time from completed intro to first package or membership.
           </p>
         </div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <p className="text-sm font-semibold text-slate-950">
             Avg. first to retention purchase
           </p>
@@ -729,10 +862,10 @@ export default async function AnalyticsPage({
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
-        <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 p-5">
             <div className="flex items-center gap-3">
-              <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+              <div className="rounded-lg bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
                 <Users className="h-5 w-5" />
               </div>
               <div>
@@ -784,9 +917,9 @@ export default async function AnalyticsPage({
           </div>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-3">
-            <div className="rounded-2xl bg-purple-50 p-3 text-purple-700">
+            <div className="rounded-lg bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
               <Brain className="h-5 w-5" />
             </div>
             <div>
@@ -802,7 +935,7 @@ export default async function AnalyticsPage({
             {ariaInsights.map((insight) => (
               <div
                 key={insight.label}
-                className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+                className="rounded-lg border border-slate-100 bg-slate-50 p-4"
               >
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-sm font-semibold text-slate-950">
@@ -815,7 +948,9 @@ export default async function AnalyticsPage({
                       ? "Strong"
                       : insight.status === "risk"
                         ? "Needs action"
-                        : "Watch"}
+                        : insight.status === "neutral"
+                          ? "Not enough data"
+                          : "Watch"}
                   </span>
                 </div>
                 <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -828,7 +963,7 @@ export default async function AnalyticsPage({
       </section>
 
       <section className="grid gap-6 lg:grid-cols-3">
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-3">
             <AlertTriangle className="h-5 w-5 text-amber-600" />
             <h2 className="text-lg font-semibold text-slate-950">
@@ -840,7 +975,7 @@ export default async function AnalyticsPage({
             empty="No new leads without intro activity in this range."
           />
         </div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-3">
             <CalendarCheck className="h-5 w-5 text-rose-600" />
             <h2 className="text-lg font-semibold text-slate-950">
@@ -852,7 +987,7 @@ export default async function AnalyticsPage({
             empty="No completed intro clients are missing a first purchase in this range."
           />
         </div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center gap-3">
             <Clock3 className="h-5 w-5 text-blue-600" />
             <h2 className="text-lg font-semibold text-slate-950">
@@ -866,10 +1001,10 @@ export default async function AnalyticsPage({
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+      <section className="rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 p-5">
           <div className="flex items-center gap-3">
-            <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+            <div className="rounded-lg bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
               <BarChart3 className="h-5 w-5" />
             </div>
             <div>
@@ -918,7 +1053,7 @@ export default async function AnalyticsPage({
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
+      <section className="rounded-lg border border-slate-200 bg-slate-50 p-5">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-950">
@@ -957,7 +1092,7 @@ function OpportunityList({
       {items.map((item) => (
         <div
           key={`${item.clientId}-${item.action}`}
-          className="rounded-2xl border border-slate-100 bg-slate-50 p-4"
+          className="rounded-lg border border-slate-100 bg-slate-50 p-4"
         >
           <div className="flex items-start justify-between gap-3">
             <div>
