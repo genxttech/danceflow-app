@@ -500,6 +500,26 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
     );
   }
 
+  const clientName =
+    `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() ||
+    "A portal client";
+  const { error: notificationError } = await supabase
+    .from("notifications")
+    .insert({
+      studio_id: studio.id,
+      type: "portal_schedule_request",
+      title: "New portal schedule request",
+      body: `${clientName} requested a ${typeLabel(appointmentType)} for ${formatRequestDateTime(requestedStart.toISOString(), studioTimeZone)}.`,
+      client_id: client.id,
+    });
+
+  if (notificationError) {
+    console.error(
+      "Failed to create portal schedule request notification",
+      notificationError.message,
+    );
+  }
+
   await queuePortalScheduleRequestEmails({
     supabase,
     studio,

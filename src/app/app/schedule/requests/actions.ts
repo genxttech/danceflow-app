@@ -273,6 +273,103 @@ async function queueBookingDecisionEmail(params: {
   }
 }
 
+async function queueApprovedInstructorEmail(params: {
+  supabase: Awaited<ReturnType<typeof requireAppointmentCreateAccess>>["supabase"];
+  studioId: string;
+  bookingRequestId: string;
+  instructorId: string;
+  clientId: string;
+  appointmentTitle: string;
+  requestedStartsAt: string;
+  staffNote: string | null;
+}) {
+  const [{ data: instructor }, { data: client }, { data: studio }, { data: settingsRow }] =
+    await Promise.all([
+      params.supabase
+        .from("instructors")
+        .select("first_name, last_name, email")
+        .eq("id", params.instructorId)
+        .eq("studio_id", params.studioId)
+        .maybeSingle(),
+      params.supabase
+        .from("clients")
+        .select("first_name, last_name")
+        .eq("id", params.clientId)
+        .eq("studio_id", params.studioId)
+        .maybeSingle(),
+      params.supabase
+        .from("studios")
+        .select("name")
+        .eq("id", params.studioId)
+        .maybeSingle(),
+      params.supabase
+        .from("studio_settings")
+        .select("timezone")
+        .eq("studio_id", params.studioId)
+        .maybeSingle(),
+    ]);
+
+  const instructorRow = instructor as {
+    first_name?: string | null;
+    last_name?: string | null;
+    email?: string | null;
+  } | null;
+  const recipientEmail = instructorRow?.email?.trim();
+  if (!recipientEmail) return;
+
+  const clientRow = client as {
+    first_name?: string | null;
+    last_name?: string | null;
+  } | null;
+  const instructorFirstName = instructorRow?.first_name?.trim() || "there";
+  const clientName =
+    [clientRow?.first_name, clientRow?.last_name].filter(Boolean).join(" ") ||
+    "a client";
+  const studioName =
+    (studio as { name?: string | null } | null)?.name ?? "The studio";
+  const studioTimeZone = getStudioTimeZone(
+    (settingsRow as { timezone?: string | null } | null)?.timezone,
+  );
+  const appointmentTime = formatBookingRequestDateTime(
+    params.requestedStartsAt,
+    studioTimeZone,
+  );
+
+  const { error } = await params.supabase.from("outbound_deliveries").insert({
+    studio_id: params.studioId,
+    channel: "email",
+    template_key: "booking_request_approved_instructor",
+    recipient_email: recipientEmail,
+    subject: `New appointment assigned: ${clientName}`,
+    body_text: [
+      `Hi ${instructorFirstName},`,
+      "",
+      `${studioName} approved ${params.appointmentTitle} with ${clientName} for ${appointmentTime}.`,
+      "",
+      "The appointment is now on the studio schedule.",
+      params.staffNote ? `Studio note: ${params.staffNote}` : null,
+      "",
+      "Thanks,",
+      studioName,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    body_html: null,
+    related_table: "booking_requests",
+    related_id: params.bookingRequestId,
+    dedupe_key: `booking-request-approved-instructor:${params.bookingRequestId}:${params.instructorId}`,
+    status: "queued",
+    updated_at: new Date().toISOString(),
+  });
+
+  if (error && error.code !== "23505") {
+    console.error(
+      "Failed to queue approved booking request instructor email",
+      error.message,
+    );
+  }
+}
+
 type BookingRequestRow = {
   id: string;
   studio_id: string;
@@ -420,6 +517,20 @@ export async function approveBookingRequestAction(formData: FormData) {
     staffNote: staffNote || null,
     appointmentId: appointment.id,
   });
+
+  if (typedRequest.instructor_id) {
+    await queueApprovedInstructorEmail({
+      supabase,
+      studioId,
+      bookingRequestId: typedRequest.id,
+      instructorId: typedRequest.instructor_id,
+      clientId: typedRequest.client_id,
+      appointmentTitle:
+        typedRequest.title?.replace(" Request", "") || "Intro Lesson",
+      requestedStartsAt: typedRequest.requested_starts_at,
+      staffNote: staffNote || null,
+    });
+  }
 
   revalidatePath("/app/schedule/requests");
   revalidatePath("/app/schedule");
