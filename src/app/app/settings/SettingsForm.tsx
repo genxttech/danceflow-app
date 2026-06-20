@@ -25,6 +25,7 @@ type StudioRow = {
 };
 
 type StudioSettingsRow = {
+  lumi_enabled: boolean | null;
   timezone: string | null;
   currency: string | null;
   cancellation_window_hours: number | null;
@@ -169,6 +170,7 @@ export default function SettingsForm({
   rooms,
   role,
   billingSummary,
+  lumiAvailable,
 }: {
   studio: StudioRow;
   settings: StudioSettingsRow;
@@ -177,6 +179,7 @@ export default function SettingsForm({
   rooms: RoomOption[];
   role: string;
   billingSummary: BillingSummary;
+  lumiAvailable: boolean;
 }) {
   const [state, formAction, pending] = useActionState(
     updateStudioSettingsAction,
@@ -835,6 +838,36 @@ export default function SettingsForm({
                 </fieldset>
               </div>
             </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-fuchsia-200 bg-white p-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-fuchsia-700">
+            Student AI Experience
+          </p>
+          <h3 className="mt-2 text-xl font-semibold">LUMI Dance Journey Assistant</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Give active students portal guidance based on their shared lesson recaps, syllabus progress, goals, and upcoming lessons. Instructors remain the authority for coaching decisions.
+          </p>
+          <div className="mt-5">
+            <label htmlFor="lumiEnabled" className="mb-1 block text-sm font-medium">
+              Student portal access
+            </label>
+            <select
+              id="lumiEnabled"
+              name="lumiEnabled"
+              defaultValue={settings.lumi_enabled ? "true" : "false"}
+              disabled={!canEdit || !lumiAvailable}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-50"
+            >
+              <option value="false">Disabled</option>
+              <option value="true">Enabled for eligible students</option>
+            </select>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              {lumiAvailable
+                ? "LUMI uses the studio's shared monthly AI allowance."
+                : "LUMI requires an active Growth or Pro plan."}
+            </p>
           </div>
         </div>
 

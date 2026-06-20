@@ -5,6 +5,7 @@ import SettingsForm from "./SettingsForm";
 import { updateStudioMarketingFooterAction } from "./actions";
 import { canManageSettings } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { studioHasFeature } from "@/lib/billing/access";
 
 type StudioRow = {
   id: string;
@@ -34,6 +35,7 @@ type StudioRow = {
 };
 
 type StudioSettingsRow = {
+  lumi_enabled: boolean | null;
   timezone: string | null;
   currency: string | null;
   cancellation_window_hours: number | null;
@@ -106,6 +108,7 @@ export default async function SettingsPage() {
   }
 
   const studioId = context.studioId;
+  const lumiAvailable = await studioHasFeature("ai_assistant");
 
   const [
     { data: studio, error: studioError },
@@ -150,6 +153,7 @@ export default async function SettingsPage() {
     supabase
       .from("studio_settings")
       .select(`
+        lumi_enabled,
         timezone,
         currency,
         cancellation_window_hours,
@@ -514,6 +518,7 @@ export default async function SettingsPage() {
         rooms={(rooms ?? []) as RoomOption[]}
         role={context.studioRole ?? ""}
         billingSummary={billingSummary}
+        lumiAvailable={lumiAvailable}
       />
     </div>
   );

@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { requireSettingsManageAccess } from "@/lib/auth/serverRoleGuard";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { buildStudioLocationQuery, geocodeAddress } from "@/lib/geocoding";
+import { studioHasFeature } from "@/lib/billing/access";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -148,6 +149,7 @@ export async function updateStudioSettingsAction(
     const allowNegativeBalance = getString(formData, "allowNegativeBalance");
     const blockDepletedPackageBooking = getString(formData, "blockDepletedPackageBooking");
     const warnLowPackageBalance = getString(formData, "warnLowPackageBalance");
+    const lumiEnabled = getString(formData, "lumiEnabled");
 
     const publicName = getString(formData, "publicName");
     const publicShortDescription = getString(formData, "publicShortDescription");
@@ -203,6 +205,10 @@ export async function updateStudioSettingsAction(
     if (!studioName) return { error: "Studio name is required." };
     if (!timezone) return { error: "Timezone is required." };
     if (!currency) return { error: "Currency is required." };
+
+    if (lumiEnabled === "true" && !(await studioHasFeature("ai_assistant"))) {
+      return { error: "LUMI requires an active Growth or Pro plan." };
+    }
 
     const cancellationWindowHours = Number.parseInt(cancellationWindowHoursRaw, 10);
     const bookingLeadTimeHours = Number.parseInt(bookingLeadTimeHoursRaw, 10);
@@ -501,6 +507,7 @@ export async function updateStudioSettingsAction(
     const { error: settingsError } = await supabase
       .from("studio_settings")
       .update({
+        lumi_enabled: lumiEnabled === "true",
         timezone,
         currency,
         cancellation_window_hours: cancellationWindowHours,

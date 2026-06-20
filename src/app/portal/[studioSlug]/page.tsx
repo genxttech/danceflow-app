@@ -678,13 +678,16 @@ export default async function PortalHomePage({
 
   const { data: settingsRow } = await supabase
     .from("studio_settings")
-    .select("timezone")
+    .select("timezone, lumi_enabled")
     .eq("studio_id", typedStudio.id)
     .maybeSingle();
 
   const studioTimeZone = getStudioTimeZone(
     (settingsRow as { timezone?: string | null } | null)?.timezone,
   );
+  const lumiEnabled =
+    (settingsRow as { lumi_enabled?: boolean | null } | null)?.lumi_enabled ===
+    true;
   const studioLabel = typedStudio.public_name?.trim() || typedStudio.name;
 
   let typedClient: ClientRow | null = null;
@@ -2172,6 +2175,14 @@ export default async function PortalHomePage({
             description="See upcoming lessons and recent activity."
             tone="sky"
           />
+          {!isInstructorPortal && lumiEnabled ? (
+            <ActionTile
+              href={`/portal/${encodeURIComponent(typedStudio.slug)}/journey`}
+              title="My Dance Journey"
+              description="Set goals and ask LUMI what to practice next."
+              tone="violet"
+            />
+          ) : null}
           {!isInstructorPortal ? (
             <ActionTile
               href="#booking-request"
