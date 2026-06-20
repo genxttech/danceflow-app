@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, Receipt, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CreditCard, Loader2, Receipt, XCircle } from "lucide-react";
 
 type ReaderOption = {
   id: string;
@@ -85,6 +85,7 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
   const [customAmount, setCustomAmount] = useState("");
   const [guestName, setGuestName] = useState("");
   const [notes, setNotes] = useState("");
+  const [externalReference, setExternalReference] = useState("");
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [lastSuccess, setLastSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -143,6 +144,36 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
     }
   }
 
+  async function recordExternalCharge(params: { category: string; label: string; amount: number }) {
+    if (!Number.isFinite(params.amount) || params.amount <= 0) {
+      setError("Enter a valid payment amount before recording the external card payment.");
+      return;
+    }
+
+    setError(null);
+    setLastSuccess(null);
+    setBusy(true);
+
+    try {
+      const result = await postJson("/api/stripe/terminal/quick-charge/record-external", {
+        category: params.category,
+        amount: params.amount,
+        guestName,
+        notes,
+        externalReference,
+      });
+
+      setLastSuccess(`${result.categoryLabel ?? params.label} recorded: ${formatCurrency(result.amount ?? params.amount)}`);
+      setGuestName("");
+      setNotes("");
+      setExternalReference("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not record the external card payment.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function refreshStatus(session = activeSession) {
     if (!session) return;
 
@@ -166,6 +197,7 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
         setActiveSession(null);
         setGuestName("");
         setNotes("");
+        setExternalReference("");
         setPolling(false);
         return;
       }
@@ -280,6 +312,21 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
         </div>
       </section>
 
+      <section className="rounded-[28px] border border-sky-200 bg-sky-50 p-5 shadow-sm">
+        <div className="flex items-start gap-3">
+          <div className="rounded-2xl bg-white p-3 text-sky-700">
+            <CreditCard className="h-5 w-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-semibold text-sky-950">Tap to Pay / external card fallback</h2>
+            <p className="mt-1 text-sm leading-6 text-sky-900">
+              If staff collect the card payment outside DanceFlow, such as in the Stripe Dashboard mobile app, use
+              <span className="font-semibold"> Record external card</span>. This marks the payment paid immediately without sending anything to a reader.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {activeSession ? (
         <section className="rounded-[28px] border border-indigo-200 bg-indigo-50 p-5 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -329,17 +376,33 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
 
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {PRESETS.map((preset) => (
-            <button
+            <div
               key={preset.category}
-              type="button"
-              onClick={() => startCharge(preset)}
-              disabled={busy || Boolean(activeSession) || !readerId || !selectedReaderOnline}
-              className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left transition hover:border-[var(--brand-primary)] hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-2xl border border-slate-200 bg-slate-50 p-5 transition hover:border-[var(--brand-primary)] hover:bg-white"
             >
               <p className="text-sm font-medium text-slate-500">{preset.helper}</p>
               <p className="mt-2 text-xl font-semibold text-slate-950">{preset.label}</p>
               <p className="mt-3 text-2xl font-bold text-[var(--brand-primary)]">{formatCurrency(preset.amount)}</p>
-            </button>
+
+              <div className="mt-4 grid gap-2">
+                <button
+                  type="button"
+                  onClick={() => startCharge(preset)}
+                  disabled={busy || Boolean(activeSession) || !readerId || !selectedReaderOnline}
+                  className="rounded-xl bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Send to reader
+                </button>
+                <button
+                  type="button"
+                  onClick={() => recordExternalCharge(preset)}
+                  disabled={busy || Boolean(activeSession)}
+                  className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Record external card
+                </button>
+              </div>
+            </div>
           ))}
         </div>
       </section>
@@ -352,7 +415,7 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
           </p>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-5">
+        <div className="grid gap-4 lg:grid-cols-6">
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="quickCategory">
               Category
@@ -417,7 +480,21 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
             />
           </div>
 
-          <div className="flex items-end">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="externalReference">
+              External ref optional
+            </label>
+            <input
+              id="externalReference"
+              value={externalReference}
+              onChange={(event) => setExternalReference(event.target.value)}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              placeholder="Stripe receipt/ref"
+              disabled={busy || Boolean(activeSession)}
+            />
+          </div>
+
+          <div className="grid content-end gap-2">
             <button
               type="button"
               onClick={() =>
@@ -437,7 +514,26 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
               }
               className="w-full rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {busy ? "Sending..." : "Collect"}
+              {busy ? "Sending..." : "Send to reader"}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                recordExternalCharge({
+                  category: customCategory,
+                  label: customCategoryLabel,
+                  amount: customAmountNumber,
+                })
+              }
+              disabled={
+                busy ||
+                Boolean(activeSession) ||
+                !Number.isFinite(customAmountNumber) ||
+                customAmountNumber <= 0
+              }
+              className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Record external card
             </button>
           </div>
         </div>
