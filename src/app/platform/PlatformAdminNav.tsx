@@ -18,13 +18,25 @@ function isActivePath(currentPath: string, href: string) {
 
 export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
-  const normalizedItems = items.some((item) => item.href === "/platform/alerts")
-    ? items
-    : [
-        ...items.slice(0, 1),
-        { href: "/platform/alerts", label: "Alerts" },
-        ...items.slice(1),
-      ];
+  const normalizedItems = [...items];
+
+  if (!normalizedItems.some((item) => item.href === "/platform/alerts")) {
+    normalizedItems.splice(1, 0, {
+      href: "/platform/alerts",
+      label: "Alerts",
+    });
+  }
+
+  if (!normalizedItems.some((item) => item.href === "/platform/wave")) {
+    const billingIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/billing",
+    );
+    const insertAt = billingIndex >= 0 ? billingIndex + 1 : normalizedItems.length;
+    normalizedItems.splice(insertAt, 0, {
+      href: "/platform/wave",
+      label: "Wave Rollout",
+    });
+  }
 
   return (
     <nav className="space-y-2">

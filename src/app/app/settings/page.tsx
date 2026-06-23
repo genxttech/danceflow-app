@@ -108,7 +108,10 @@ export default async function SettingsPage() {
   }
 
   const studioId = context.studioId;
-  const lumiAvailable = await studioHasFeature("ai_assistant");
+  const [lumiAvailable, waveAvailable] = await Promise.all([
+    studioHasFeature("ai_assistant"),
+    studioHasFeature("wave_accounting"),
+  ]);
 
   const [
     { data: studio, error: studioError },
@@ -360,6 +363,21 @@ export default async function SettingsPage() {
           </h2>
           <p className="mt-2 text-sm text-slate-600">
             Review billing status, subscription details, and payment setup.
+          </p>
+        </Link>
+
+        <Link
+          href={waveAvailable ? "/app/settings/integrations/wave" : "/app/settings/billing?feature=wave_accounting"}
+          className="rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
+        >
+          <p className="text-sm font-medium text-slate-500">Accounting Integration</p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-900">
+            Wave accounting
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            {waveAvailable
+              ? "Connect a Wave business, map accounts, and review read-only posting previews."
+              : "Available on the Pro plan."}
           </p>
         </Link>
       </div>

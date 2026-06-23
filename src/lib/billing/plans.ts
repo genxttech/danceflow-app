@@ -12,6 +12,7 @@ export type BillingFeature =
   | "basic_reporting"
   | "advanced_reporting"
   | "report_exports"
+  | "wave_accounting"
   | "marketing_campaigns"
   | "marketing_event_audiences"
   | "ai_assistant"
@@ -122,6 +123,7 @@ export const BILLING_PLANS: BillingPlan[] = [
       "basic_reporting",
       "advanced_reporting",
       "report_exports",
+      "wave_accounting",
       "marketing_campaigns",
       "ai_assistant",
       "documents",
@@ -129,6 +131,7 @@ export const BILLING_PLANS: BillingPlan[] = [
     highlights: [
       "Everything in Growth",
       "Advanced reports and CSV exports",
+      "Read-only Wave accounting connection and posting previews",
       "Advanced automations, documents, and team controls",
       "Studio ARIA insights and larger AI allowance",
       "Basic public event listings for DanceFlow Discovery",
@@ -204,6 +207,7 @@ export const PLAN_FEATURES: Record<StudioPlanCode, BillingFeature[]> = {
     "basic_reporting",
     "advanced_reporting",
     "report_exports",
+    "wave_accounting",
     "marketing_campaigns",
     "ai_assistant",
     "documents",
@@ -336,6 +340,7 @@ export function featureLabel(feature: BillingFeature) {
   if (feature === "advanced_reporting") return "Advanced Reporting";
   if (feature === "basic_reporting") return "Basic Reporting";
   if (feature === "report_exports") return "Report Exports";
+  if (feature === "wave_accounting") return "Wave Accounting";
   if (feature === "marketing_campaigns") return "Marketing Campaigns";
   if (feature === "marketing_event_audiences")
     return "Event Marketing Audiences";
