@@ -56,6 +56,9 @@ export default async function PublicProfileSettingsPage({
     { data: studio, error: studioError },
     { data: styles, error: stylesError },
     { data: offerings, error: offeringsError },
+    { data: settings, error: settingsError },
+    { data: instructors, error: instructorsError },
+    { data: rooms, error: roomsError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -76,6 +79,11 @@ export default async function PublicProfileSettingsPage({
           public_website_url,
           public_logo_url,
           public_hero_image_url,
+          public_lead_enabled,
+          public_lead_headline,
+          public_lead_description,
+          public_primary_color,
+          public_lead_cta_text,
           beginner_friendly
         `
       )
@@ -91,6 +99,36 @@ export default async function PublicProfileSettingsPage({
       .from("studio_public_offerings")
       .select("offering_key")
       .eq("studio_id", context.studioId),
+
+    supabase
+      .from("studio_settings")
+      .select(`
+        public_intro_booking_enabled,
+        intro_lesson_duration_minutes,
+        intro_booking_window_days,
+        intro_default_instructor_id,
+        intro_default_room_id,
+        booking_request_allowed_weekdays,
+        booking_request_start_time,
+        booking_request_end_time,
+        public_intro_bookable_instructor_ids
+      `)
+      .eq("studio_id", context.studioId)
+      .single(),
+
+    supabase
+      .from("instructors")
+      .select("id, first_name, last_name")
+      .eq("studio_id", context.studioId)
+      .eq("active", true)
+      .order("first_name"),
+
+    supabase
+      .from("rooms")
+      .select("id, name")
+      .eq("studio_id", context.studioId)
+      .eq("active", true)
+      .order("name"),
   ]);
 
   if (studioError || !studio) {
@@ -108,6 +146,9 @@ export default async function PublicProfileSettingsPage({
   if (offeringsError) {
     throw new Error(`Failed to load offerings: ${offeringsError.message}`);
   }
+  if (settingsError || !settings) throw new Error(`Failed to load public booking settings: ${settingsError?.message ?? "Settings not found."}`);
+  if (instructorsError) throw new Error(`Failed to load instructors: ${instructorsError.message}`);
+  if (roomsError) throw new Error(`Failed to load rooms: ${roomsError.message}`);
 
   const selectedStyles = new Set((styles ?? []).map((item) => item.style_key));
   const selectedOfferings = new Set(
@@ -118,14 +159,14 @@ export default async function PublicProfileSettingsPage({
   const effectiveSlug = studio.slug ?? buildDefaultSlug(effectivePublicName);
 
   return (
-    <div className="mx-auto max-w-6xl space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_24%)] p-1">
-      <section className="rounded-[32px] border border-white/15 bg-[linear-gradient(135deg,#0d1536_0%,#111b45_50%,#5b145e_100%)] p-6 text-white shadow-sm md:p-8">
+    <div className="mx-auto max-w-6xl space-y-6 p-1">
+      <section className="rounded-lg border border-white/15 bg-[#2D0B45] p-6 text-white shadow-sm md:p-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">DanceFlow</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">Public Profile</h1>
+            <h1 className="mt-3 text-3xl font-semibold md:text-4xl">Public Presence &amp; Booking</h1>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-white/75">
-              Control how your studio appears in DanceFlow discovery, including public details, photos, and lead-friendly contact information.
+              Publish your studio, manage inquiries, and control the intro lesson experience from one place.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -143,10 +184,10 @@ export default async function PublicProfileSettingsPage({
         </div>
       ) : null}
 
-      <form action={savePublicProfileAction} className="space-y-8">
+      <form action={savePublicProfileAction} encType="multipart/form-data" className="space-y-6">
         <input type="hidden" name="studio_name_fallback" value={studio.name} />
 
-        <section className="rounded-3xl border bg-white p-6 shadow-sm">
+        <section className="rounded-lg border border-l-4 border-l-emerald-500 bg-white p-6 shadow-sm">
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">
               Discovery settings
@@ -196,7 +237,7 @@ export default async function PublicProfileSettingsPage({
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-white p-6 shadow-sm">
+        <section className="rounded-lg border border-l-4 border-l-violet-600 bg-white p-6 shadow-sm">
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">
               Public identity
@@ -261,7 +302,7 @@ export default async function PublicProfileSettingsPage({
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-white p-6 shadow-sm">
+        <section className="rounded-lg border border-l-4 border-l-sky-500 bg-white p-6 shadow-sm">
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">
               Location and contact
@@ -345,7 +386,7 @@ export default async function PublicProfileSettingsPage({
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-white p-6 shadow-sm">
+        <section className="rounded-lg border border-l-4 border-l-fuchsia-500 bg-white p-6 shadow-sm">
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">
               Branding assets
@@ -358,31 +399,33 @@ export default async function PublicProfileSettingsPage({
           <div className="grid gap-5 md:grid-cols-2">
             <div>
               <label className="block text-sm font-medium text-slate-700">
-                Logo URL
+                Studio logo
               </label>
               <input
-                name="public_logo_url"
-                defaultValue={studio.public_logo_url ?? ""}
-                placeholder="https://..."
+                type="file"
+                name="public_logo_file"
+                accept="image/png,image/jpeg,image/webp"
                 className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none ring-0 transition focus:border-slate-400"
               />
+              <p className="mt-2 text-xs text-slate-500">PNG, JPG, or WebP. Maximum 2 MB.{studio.public_logo_url ? " Your current logo remains until replaced." : ""}</p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-slate-700">
-                Hero image URL
+                Hero image
               </label>
               <input
-                name="public_hero_image_url"
-                defaultValue={studio.public_hero_image_url ?? ""}
-                placeholder="https://..."
+                type="file"
+                name="public_hero_image_file"
+                accept="image/png,image/jpeg,image/webp"
                 className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none ring-0 transition focus:border-slate-400"
               />
+              <p className="mt-2 text-xs text-slate-500">PNG, JPG, or WebP. Maximum 5 MB.{studio.public_hero_image_url ? " Your current image remains until replaced." : ""}</p>
             </div>
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-white p-6 shadow-sm">
+        <section className="rounded-lg border border-l-4 border-l-indigo-500 bg-white p-6 shadow-sm">
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">
               Dance styles
@@ -411,7 +454,7 @@ export default async function PublicProfileSettingsPage({
           </div>
         </section>
 
-        <section className="rounded-3xl border bg-white p-6 shadow-sm">
+        <section className="rounded-lg border border-l-4 border-l-orange-500 bg-white p-6 shadow-sm">
           <div className="mb-6">
             <h2 className="text-xl font-semibold text-slate-900">
               Public offerings
@@ -440,13 +483,51 @@ export default async function PublicProfileSettingsPage({
           </div>
         </section>
 
+        <section className="rounded-lg border border-l-4 border-l-pink-500 bg-white p-6 shadow-sm">
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold text-slate-900">Inquiry page</h2>
+            <p className="mt-1 text-sm text-slate-600">This content is shared by your focused lead and intro-booking pages.</p>
+          </div>
+          <label className="flex items-start gap-3 rounded-lg border border-fuchsia-100 bg-fuchsia-50 p-4">
+            <input type="checkbox" name="public_lead_enabled" defaultChecked={Boolean(studio.public_lead_enabled)} className="mt-1 h-4 w-4 rounded" />
+            <span><span className="block font-medium text-slate-900">Accept public inquiries</span><span className="mt-1 block text-sm text-slate-600">Makes the studio inquiry page available to prospective dancers.</span></span>
+          </label>
+          <div className="mt-5 grid gap-5 md:grid-cols-2">
+            <label className="text-sm font-medium text-slate-700">Headline<input name="public_lead_headline" defaultValue={studio.public_lead_headline ?? ""} placeholder={`Start dancing at ${effectivePublicName}`} className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 font-normal" /></label>
+            <label className="text-sm font-medium text-slate-700">Button text<input name="public_lead_cta_text" defaultValue={studio.public_lead_cta_text ?? ""} placeholder="Request an intro lesson" className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 font-normal" /></label>
+            <label className="text-sm font-medium text-slate-700 md:col-span-2">Supporting message<textarea name="public_lead_description" defaultValue={studio.public_lead_description ?? ""} rows={3} className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 font-normal" /></label>
+            <label className="text-sm font-medium text-slate-700">Brand color<input type="color" name="public_primary_color" defaultValue={studio.public_primary_color ?? "#5B197A"} className="mt-2 h-12 w-full rounded-lg border border-slate-300 p-1" /></label>
+          </div>
+        </section>
+
+        <section className="rounded-lg border border-l-4 border-l-amber-500 bg-white p-6 shadow-sm">
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold text-slate-900">Intro lesson booking</h2>
+            <p className="mt-1 text-sm text-slate-600">Set the choices new dancers see. Requests still follow the existing staff-review workflow.</p>
+          </div>
+          <label className="flex items-start gap-3 rounded-lg border border-orange-100 bg-orange-50 p-4">
+            <input type="checkbox" name="public_intro_booking_enabled" defaultChecked={Boolean(settings.public_intro_booking_enabled)} className="mt-1 h-4 w-4 rounded" />
+            <span><span className="block font-medium text-slate-900">Accept intro lesson requests</span><span className="mt-1 block text-sm text-slate-600">Makes the public intro-booking page available.</span></span>
+          </label>
+          <div className="mt-5 grid gap-5 md:grid-cols-2">
+            <label className="text-sm font-medium text-slate-700">Lesson duration<input type="number" min="15" step="15" name="intro_lesson_duration_minutes" defaultValue={settings.intro_lesson_duration_minutes ?? 30} className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 font-normal" /></label>
+            <label className="text-sm font-medium text-slate-700">Booking window in days<input type="number" min="1" name="intro_booking_window_days" defaultValue={settings.intro_booking_window_days ?? 7} className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 font-normal" /></label>
+            <label className="text-sm font-medium text-slate-700">Default instructor<select name="intro_default_instructor_id" defaultValue={settings.intro_default_instructor_id ?? ""} className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 font-normal"><option value="">Assign during review</option>{(instructors ?? []).map((item) => <option key={item.id} value={item.id}>{item.first_name} {item.last_name}</option>)}</select></label>
+            <label className="text-sm font-medium text-slate-700">Default room<select name="intro_default_room_id" defaultValue={settings.intro_default_room_id ?? ""} className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 font-normal"><option value="">Assign during review</option>{(rooms ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+            <label className="text-sm font-medium text-slate-700">Earliest request time<input type="time" name="booking_request_start_time" defaultValue={(settings.booking_request_start_time ?? "09:00").slice(0, 5)} className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 font-normal" /></label>
+            <label className="text-sm font-medium text-slate-700">Latest request time<input type="time" name="booking_request_end_time" defaultValue={(settings.booking_request_end_time ?? "21:00").slice(0, 5)} className="mt-2 w-full rounded-lg border border-slate-300 px-4 py-3 font-normal" /></label>
+          </div>
+          <fieldset className="mt-5"><legend className="text-sm font-medium text-slate-700">Requestable days</legend><div className="mt-2 grid grid-cols-4 gap-2 md:grid-cols-7">{[[1,"Mon"],[2,"Tue"],[3,"Wed"],[4,"Thu"],[5,"Fri"],[6,"Sat"],[0,"Sun"]].map(([value,label]) => <label key={value} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"><input type="checkbox" name="booking_request_allowed_weekdays" value={value} defaultChecked={(settings.booking_request_allowed_weekdays ?? [1,2,3,4,5,6]).includes(Number(value))} />{label}</label>)}</div></fieldset>
+          <fieldset className="mt-5"><legend className="text-sm font-medium text-slate-700">Available intro instructors</legend><div className="mt-2 grid gap-2 md:grid-cols-2">{(instructors ?? []).map((item) => <label key={item.id} className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"><input type="checkbox" name="public_intro_bookable_instructor_ids" value={item.id} defaultChecked={(settings.public_intro_bookable_instructor_ids ?? []).includes(item.id)} />{item.first_name} {item.last_name}</label>)}</div></fieldset>
+        </section>
+
         <div className="sticky bottom-4 flex justify-end">
           <div className="rounded-2xl border bg-white p-3 shadow-lg">
             <button
               type="submit"
               className="inline-flex items-center rounded-xl bg-slate-900 px-5 py-3 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
             >
-              Save public profile
+              Save public presence
             </button>
           </div>
         </div>

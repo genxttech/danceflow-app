@@ -290,8 +290,8 @@ export default async function SettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="overflow-hidden rounded-3xl border bg-white shadow-sm">
-        <div className="bg-gradient-to-r from-violet-700 via-fuchsia-600 to-pink-500 p-6 text-white">
+      <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
+        <div className="bg-[#2D0B45] p-6 text-white">
           <p className="text-sm font-semibold uppercase tracking-[0.25em] text-white/80">
             DanceFlow Studio Admin
           </p>
@@ -301,7 +301,7 @@ export default async function SettingsPage() {
                 Studio setup and controls
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-white/90 md:text-base">
-                Manage the settings that keep your studio running smoothly: studio policies, public branding, client booking rules, notifications, billing access, and data import.
+                Manage internal policies, student portal controls, notifications, billing, integrations, and data import.
               </p>
             </div>
 
@@ -324,15 +324,15 @@ export default async function SettingsPage() {
         </div>
 
         <div className="grid gap-4 p-5 md:grid-cols-3">
-          <div className="rounded-2xl border bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-900">Studio profile</p>
-            <p className="mt-1 text-sm text-slate-600">Keep public branding, booking options, self-scheduling controls, and contact details current.</p>
-          </div>
-          <div className="rounded-2xl border bg-slate-50 p-4">
+          <Link href="/app/settings/public-profile" className="rounded-lg border border-fuchsia-200 bg-fuchsia-50 p-4 hover:border-fuchsia-300">
+            <p className="text-sm font-semibold text-fuchsia-900">Public Presence &amp; Booking</p>
+            <p className="mt-1 text-sm text-fuchsia-800">Manage discovery, branding, inquiries, and public intro booking in one place.</p>
+          </Link>
+          <div className="rounded-lg border border-t-4 border-t-orange-500 bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-900">Policies and reminders</p>
             <p className="mt-1 text-sm text-slate-600">Control cancellation windows, booking lead time, low-balance warnings, and notifications.</p>
           </div>
-          <div className="rounded-2xl border bg-slate-50 p-4">
+          <div className="rounded-lg border border-t-4 border-t-sky-500 bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-900">Launch tools</p>
             <p className="mt-1 text-sm text-slate-600">Use import and billing setup to prepare the studio before inviting clients.</p>
           </div>
@@ -341,8 +341,16 @@ export default async function SettingsPage() {
 
       <div className="grid gap-4 md:grid-cols-2">
         <Link
+          href="/app/settings/public-profile"
+          className="rounded-lg border border-fuchsia-200 bg-white p-5 shadow-sm transition hover:border-fuchsia-400"
+        >
+          <p className="text-sm font-semibold uppercase tracking-wide text-fuchsia-700">Public Presence &amp; Booking</p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-900">Publish and accept new dancers</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Control the directory profile, public branding, inquiry page, and intro lesson requests.</p>
+        </Link>
+        <Link
           href="/app/settings/import"
-          className="rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
+          className="rounded-lg border border-t-4 border-t-violet-500 bg-white p-5 shadow-sm transition hover:border-violet-300"
         >
           <p className="text-sm font-semibold uppercase tracking-wide text-violet-600">Data Import</p>
           <h2 className="mt-2 text-xl font-semibold text-slate-900">
@@ -355,7 +363,7 @@ export default async function SettingsPage() {
 
         <Link
           href="/app/settings/billing"
-          className="rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
+          className="rounded-lg border border-t-4 border-t-emerald-500 bg-white p-5 shadow-sm transition hover:border-emerald-300"
         >
           <p className="text-sm font-medium text-slate-500">Billing</p>
           <h2 className="mt-2 text-xl font-semibold text-slate-900">
@@ -368,7 +376,7 @@ export default async function SettingsPage() {
 
         <Link
           href={waveAvailable ? "/app/settings/integrations/wave" : "/app/settings/billing?feature=wave_accounting"}
-          className="rounded-2xl border bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
+          className="rounded-lg border border-t-4 border-t-sky-500 bg-white p-5 shadow-sm transition hover:border-sky-300"
         >
           <p className="text-sm font-medium text-slate-500">Accounting Integration</p>
           <h2 className="mt-2 text-xl font-semibold text-slate-900">
@@ -384,7 +392,7 @@ export default async function SettingsPage() {
 
       <form
         action={updateStudioMarketingFooterAction}
-        className="rounded-3xl border bg-white p-5 shadow-sm"
+        className="rounded-lg border border-t-4 border-t-fuchsia-500 bg-white p-5 shadow-sm"
       >
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div>
@@ -533,7 +541,6 @@ export default async function SettingsPage() {
         settings={settings as StudioSettingsRow}
         notificationSettings={typedNotificationSettings}
         instructors={(instructors ?? []) as InstructorOption[]}
-        rooms={(rooms ?? []) as RoomOption[]}
         role={context.studioRole ?? ""}
         billingSummary={billingSummary}
         lumiAvailable={lumiAvailable}
