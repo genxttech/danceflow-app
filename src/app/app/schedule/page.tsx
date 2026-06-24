@@ -1083,6 +1083,12 @@ export default async function SchedulePage({
     date: baseDate,
   })}`;
   const eventCount = typedEvents.length;
+  const calendarViews = [
+    { view: "month", label: "Month" },
+    { view: "week", label: "Week" },
+    { view: "day", label: "Day" },
+    { view: "agenda", label: "Agenda" },
+  ] as const;
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -1115,39 +1121,37 @@ export default async function SchedulePage({
               </p>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <Link
-                href={`/app/schedule/calendar${buildQuery({
-                  view: "week",
-                  date: baseDate,
-                  instructor:
-                    instructorFilter !== "all" ? instructorFilter : undefined,
-                  room: roomFilter !== "all" ? roomFilter : undefined,
-                  status: statusFilter !== "all" ? statusFilter : undefined,
-                })}`}
-                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-              >
-                Week Calendar
-              </Link>
+            <div className="flex flex-col gap-3">
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-white/65">
+                  Open calendar
+                </p>
+                <div className="grid grid-cols-4 rounded-lg border border-white/20 bg-white/10 p-1">
+                  {calendarViews.map((item) => (
+                    <Link
+                      key={item.view}
+                      href={`/app/schedule/calendar${buildQuery({
+                        view: item.view,
+                        date: baseDate,
+                        instructor:
+                          instructorFilter !== "all" ? instructorFilter : undefined,
+                        room: roomFilter !== "all" ? roomFilter : undefined,
+                        status: statusFilter !== "all" ? statusFilter : undefined,
+                        source:
+                          sourceFilter !== "all" ? sourceFilter : undefined,
+                      })}`}
+                      className="rounded-md px-3 py-2 text-center text-sm font-semibold text-white hover:bg-white/15"
+                    >
+                      {item.label}
+                    </Link>
+                  ))}
+                </div>
+              </div>
 
-              <Link
-                href={`/app/schedule/calendar${buildQuery({
-                  view: "agenda",
-                  date: baseDate,
-                  instructor:
-                    instructorFilter !== "all" ? instructorFilter : undefined,
-                  room: roomFilter !== "all" ? roomFilter : undefined,
-                  status: statusFilter !== "all" ? statusFilter : undefined,
-                })}`}
-                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-              >
-                Agenda View
-              </Link>
-
-
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <Link
                 href="/app/schedule/requests"
-                className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-center text-sm font-medium text-white hover:bg-white/15"
               >
                 Booking Requests
               </Link>
@@ -1155,11 +1159,12 @@ export default async function SchedulePage({
               {canCreateAppointments(role) ? (
                 <Link
                   href="/app/schedule/new"
-                  className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
+                  className="rounded-lg bg-white px-4 py-2 text-center text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
                 >
                   New Appointment
                 </Link>
               ) : null}
+              </div>
             </div>
           </div>
         </div>

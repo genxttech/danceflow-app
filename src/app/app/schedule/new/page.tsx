@@ -6,6 +6,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 
 type SearchParams = Promise<{
   clientId?: string;
+  date?: string;
 }>;
 
 type MembershipBenefit = {
@@ -112,6 +113,10 @@ export default async function NewAppointmentPage({
   const requestedClientId =
     typeof resolvedSearchParams.clientId === "string"
       ? resolvedSearchParams.clientId
+      : "";
+  const requestedDate =
+    typeof resolvedSearchParams.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(resolvedSearchParams.date)
+      ? resolvedSearchParams.date
       : "";
 
   const [
@@ -493,6 +498,7 @@ if (hostStudioIds.length > 0) {
         clientPackagesByClientId={clientPackagesByClientId as any}
         clientMembershipsByClientId={hydratedClientMembershipsByClientId as any}
         initialClientId={validInitialClientId}
+        initialDate={requestedDate}
         linkedPartnersByClientId={linkedPartnersByClientId as any}
         canBookHostStudioFloorSpace={canBookHostStudioFloorSpace}
         linkedHostStudios={linkedHostStudios}

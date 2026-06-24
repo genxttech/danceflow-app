@@ -84,6 +84,7 @@ type AppointmentCreateFormProps = {
   clientMembershipsByClientId: Record<string, ClientMembershipOption[]>;
   linkedPartnersByClientId: Record<string, LinkedPartnerOption[]>;
   initialClientId?: string;
+  initialDate?: string;
   canBookHostStudioFloorSpace?: boolean;
   linkedHostStudios?: LinkedHostStudioOption[];
 };
@@ -413,6 +414,7 @@ export default function AppointmentCreateForm({
   clientMembershipsByClientId,
   linkedPartnersByClientId,
   initialClientId = "",
+  initialDate = "",
   canBookHostStudioFloorSpace = false,
   linkedHostStudios = [],
 }: AppointmentCreateFormProps) {
@@ -831,6 +833,7 @@ export default function AppointmentCreateForm({
                   type="datetime-local"
                   required={!isFloorRental}
                   disabled={isFloorRental}
+                  defaultValue={initialDate ? `${initialDate}T09:00` : ""}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 />
               </div>
@@ -848,6 +851,7 @@ export default function AppointmentCreateForm({
                   type="datetime-local"
                   required={!isFloorRental}
                   disabled={isFloorRental}
+                  defaultValue={initialDate ? `${initialDate}T10:00` : ""}
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100 disabled:text-slate-400"
                 />
               </div>

@@ -9,11 +9,15 @@ import {
 
 export type DrawerAppointment = {
   id: string;
+  client_id?: string | null;
   title: string | null;
   starts_at: string;
   ends_at: string;
   status: string;
   appointment_type: string;
+  payment_status?: string | null;
+  price_amount?: number | null;
+  notes?: string | null;
   is_recurring?: boolean | null;
   clients:
     | { first_name: string; last_name: string }
@@ -140,7 +144,7 @@ function DetailCard({
   value: string;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
       <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--brand-accent-dark)]">
         {label}
       </p>
@@ -229,7 +233,7 @@ export default function ScheduleEventDrawer({
         </div>
 
         <div className="flex-1 space-y-5 overflow-y-auto px-5 py-5 sm:px-6">
-          <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-black/[0.02]">
+          <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <h4 className="text-sm font-semibold text-slate-900">At a glance</h4>
 
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -248,15 +252,23 @@ export default function ScheduleEventDrawer({
             <DetailCard label="Ends" value={formatDateTime(appointment.ends_at, studioTimeZone)} />
           </section>
 
+          {appointment.payment_status || appointment.notes ? (
+            <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <h4 className="text-sm font-semibold text-slate-900">CRM context</h4>
+              {appointment.payment_status ? <p className="mt-3 text-sm text-slate-700"><span className="font-medium">Payment:</span> {formatStatusLabel(appointment.payment_status)}</p> : null}
+              {appointment.notes ? <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">{appointment.notes}</p> : null}
+            </section>
+          ) : null}
+
           {isFloorRental ? (
-            <section className="rounded-3xl border border-indigo-100 bg-indigo-50 p-4 text-sm text-indigo-900 shadow-sm">
+            <section className="rounded-lg border border-indigo-100 bg-indigo-50 p-4 text-sm text-indigo-900 shadow-sm">
               Floor space rentals do not use the standard lesson attendance flow and do not deduct
               from lesson packages.
             </section>
           ) : null}
 
           {canShowAttendanceActions ? (
-            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-black/[0.02]">
+            <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <h4 className="text-sm font-semibold text-slate-900">Attendance Actions</h4>
               <div className="mt-4 grid gap-3">
                 <form action={markAppointmentAttendedAction}>
@@ -283,7 +295,7 @@ export default function ScheduleEventDrawer({
           ) : null}
 
           {canShowCancelAction ? (
-            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-black/[0.02]">
+            <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               <h4 className="text-sm font-semibold text-slate-900">Appointment Action</h4>
               <div className="mt-4">
                 <form action={cancelAppointmentAction}>
@@ -302,6 +314,14 @@ export default function ScheduleEventDrawer({
 
         <div className="border-t border-slate-200 bg-white px-5 py-4 shadow-sm sm:px-6">
           <div className="flex flex-wrap gap-3">
+            {appointment.client_id ? (
+              <Link
+                href={`/app/clients/${appointment.client_id}`}
+                className="rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-4 py-2 text-sm font-medium text-fuchsia-800 hover:bg-fuchsia-100"
+              >
+                Client Profile
+              </Link>
+            ) : null}
             <Link
               href={`/app/schedule/${appointment.id}`}
               className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"

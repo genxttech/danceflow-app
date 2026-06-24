@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import ScheduleCalendarView from "./ScheduleCalendarView";
 import ScheduleAgendaView from "./ScheduleAgendaView";
+import ScheduleMonthView from "./ScheduleMonthView";
 
 type SearchParams = Promise<{
   view?: string;
@@ -124,12 +125,26 @@ function addDaysToDateString(value: string, amount: number) {
   return date.toISOString().slice(0, 10);
 }
 
-function buildDays(baseDate: string, view: "day" | "week" | "agenda") {
-  const dayCount = view === "day" ? 1 : 7;
+function startOfWeek(value: string) {
+  const date = new Date(`${value}T12:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - date.getUTCDay());
+  return date.toISOString().slice(0, 10);
+}
 
-  return Array.from({ length: dayCount }, (_, index) =>
-    addDaysToDateString(baseDate, index),
-  );
+function buildDays(baseDate: string, view: "month" | "day" | "week" | "agenda") {
+  if (view === "day") return [baseDate];
+  if (view === "week" || view === "agenda") {
+    const first = startOfWeek(baseDate);
+    return Array.from({ length: 7 }, (_, index) => addDaysToDateString(first, index));
+  }
+  const monthStart = `${baseDate.slice(0, 7)}-01`;
+  const gridStart = startOfWeek(monthStart);
+  const monthDate = new Date(`${monthStart}T12:00:00Z`);
+  const nextMonth = new Date(Date.UTC(monthDate.getUTCFullYear(), monthDate.getUTCMonth() + 1, 1));
+  const finalMonthDay = new Date(nextMonth.getTime() - 86400000).toISOString().slice(0, 10);
+  const gridEnd = addDaysToDateString(startOfWeek(finalMonthDay), 6);
+  const dayCount = Math.round((new Date(`${gridEnd}T12:00:00Z`).getTime() - new Date(`${gridStart}T12:00:00Z`).getTime()) / 86400000) + 1;
+  return Array.from({ length: dayCount }, (_, index) => addDaysToDateString(gridStart, index));
 }
 
 function getTimeZoneOffsetMs(date: Date, timeZone: string) {
@@ -181,7 +196,8 @@ function studioLocalDateTimeToUtcIso(
   return secondPass.toISOString();
 }
 
-function normalizeView(value?: string): "day" | "week" | "agenda" {
+function normalizeView(value?: string): "month" | "day" | "week" | "agenda" {
+  if (value === "month") return "month";
   if (value === "day") return "day";
   if (value === "agenda") return "agenda";
   return "week";
@@ -559,9 +575,31 @@ export default async function ScheduleCalendarPage({
 
   if (view === "agenda") {
     return (
-      <div className="space-y-6">
-        <CompactScheduleHeader />
+      <div className="space-y-4">
         <ScheduleAgendaView
+          view="agenda"
+          baseDate={baseDate}
+          days={days}
+          groupedAppointments={groupedAppointments}
+          instructors={(instructors ?? []) as InstructorOption[]}
+          rooms={(rooms ?? []) as RoomOption[]}
+          selectedInstructorId={selectedInstructorId}
+          selectedRoomId={selectedRoomId}
+          selectedAppointmentType={selectedAppointmentType}
+          selectedStatus={selectedStatus}
+          selectedSource={selectedSource}
+          groupBy={groupBy}
+          studioTimeZone={studioTimezone}
+        />
+      </div>
+    );
+  }
+
+  if (view === "month") {
+    return (
+      <div className="space-y-4">
+        <ScheduleMonthView
+          view="month"
           baseDate={baseDate}
           days={days}
           groupedAppointments={groupedAppointments}
@@ -580,8 +618,7 @@ export default async function ScheduleCalendarPage({
   }
 
   return (
-    <div className="space-y-6">
-      <CompactScheduleHeader />
+    <div className="space-y-4">
       <ScheduleCalendarView
         view={view}
         baseDate={baseDate}
