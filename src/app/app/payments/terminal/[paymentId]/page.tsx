@@ -127,6 +127,9 @@ function messageForError(value: string | undefined) {
   if (value === "terminal_payment_failed") return "The card reader payment did not complete.";
   if (value === "terminal_payment_cancel_failed") return "Could not cancel the card reader payment.";
   if (value === "terminal_location_required") return "Create a Terminal location and register a reader before collecting payment.";
+  if (value === "terminal_membership_consent_missing") return "Recurring payment consent is missing. Return to the membership sale and begin again.";
+  if (value === "terminal_membership_client_missing") return "The membership client could not be loaded.";
+  if (value === "terminal_membership_enrollment_update_failed") return "The membership enrollment could not be prepared. No reader payment was started.";
   return value ? value.replaceAll("_", " ") : null;
 }
 

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
+import { ensureConnectedStripeCustomer } from "@/lib/payments/customer";
 
 function getBaseUrl() {
   return (
@@ -89,7 +90,7 @@ export async function POST(request: NextRequest) {
 
     const { data: payment, error: paymentError } = await supabase
       .from("payments")
-      .select("id, studio_id, client_id, amount, currency, status, payment_type, source, client_package_id, external_reference, notes")
+      .select("id, studio_id, client_id, client_membership_id, amount, currency, status, payment_type, fulfillment_type, source, client_package_id, external_reference, notes")
       .eq("id", paymentId)
       .eq("studio_id", studio.id)
       .single();
@@ -139,6 +140,48 @@ export async function POST(request: NextRequest) {
 
     const currency = clean(payment.currency || "usd").toLowerCase() || "usd";
     const amountCents = Math.round(amount * 100);
+    const isMembershipEnrollment =
+      payment.fulfillment_type === "activate_membership" &&
+      Boolean(payment.client_membership_id) &&
+      Boolean(payment.client_id);
+    let connectedCustomerId: string | null = null;
+    let enrollmentId: string | null = null;
+
+    if (isMembershipEnrollment) {
+      const [{ data: enrollment, error: enrollmentError }, { data: client, error: clientError }] =
+        await Promise.all([
+          supabase
+            .from("membership_terminal_enrollments")
+            .select("id, consented_at, consent_text, status")
+            .eq("studio_id", studio.id)
+            .eq("payment_id", payment.id)
+            .eq("client_membership_id", payment.client_membership_id)
+            .single(),
+          supabase
+            .from("clients")
+            .select("id, first_name, last_name, email")
+            .eq("studio_id", studio.id)
+            .eq("id", payment.client_id)
+            .single(),
+        ]);
+
+      if (enrollmentError || !enrollment?.consented_at || !enrollment.consent_text) {
+        return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_membership_consent_missing" }));
+      }
+      if (clientError || !client) {
+        return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_membership_client_missing" }));
+      }
+
+      enrollmentId = enrollment.id;
+      connectedCustomerId = await ensureConnectedStripeCustomer({
+        supabase,
+        studioId: studio.id,
+        clientId: client.id,
+        email: client.email ?? null,
+        name: `${client.first_name} ${client.last_name}`.trim() || null,
+        stripeAccountId: connectedAccountId,
+      });
+    }
 
     const paymentIntent = await stripe.paymentIntents.create(
       {
@@ -146,12 +189,19 @@ export async function POST(request: NextRequest) {
         currency,
         payment_method_types: ["card_present"],
         capture_method: "automatic",
+        ...(connectedCustomerId
+          ? {
+              customer: connectedCustomerId,
+              setup_future_usage: "off_session" as const,
+            }
+          : {}),
         metadata: {
           source: "danceflow_terminal",
           studioId: studio.id,
           paymentId: payment.id,
           clientId: payment.client_id ?? "",
           paymentType: payment.payment_type ?? "general",
+          membershipEnrollmentId: enrollmentId ?? "",
         },
       },
       { stripeAccount: connectedAccountId }
@@ -184,6 +234,26 @@ export async function POST(request: NextRequest) {
     if (sessionError || !session) {
       await stripe.paymentIntents.cancel(paymentIntent.id, {}, { stripeAccount: connectedAccountId }).catch(() => null);
       return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_session_create_failed" }));
+    }
+
+
+    if (enrollmentId) {
+      const { error: enrollmentUpdateError } = await supabase
+        .from("membership_terminal_enrollments")
+        .update({
+          stripe_account_id: connectedAccountId,
+          stripe_customer_id: connectedCustomerId,
+          stripe_payment_intent_id: paymentIntent.id,
+          status: "reader_processing",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", enrollmentId)
+        .eq("studio_id", studio.id);
+
+      if (enrollmentUpdateError) {
+        await stripe.paymentIntents.cancel(paymentIntent.id, {}, { stripeAccount: connectedAccountId }).catch(() => null);
+        return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_membership_enrollment_update_failed" }));
+      }
     }
 
     await supabase

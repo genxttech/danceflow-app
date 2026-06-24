@@ -36,6 +36,7 @@ type CreateConnectedMembershipSubscriptionParams = Omit<
 > & {
   stripeAccountId: string;
   renewalAnchor: number;
+  idempotencyKey: string;
 };
 
 function getRecurringConfig(billingInterval: string) {
@@ -226,7 +227,10 @@ export async function ensureConnectedStripeRecurringPrice({
   const stripe = getStripe();
   const product = await stripe.products.create(
     { name: planName, metadata: { membershipPlanId, studioId } },
-    { stripeAccount: stripeAccountId }
+    {
+      stripeAccount: stripeAccountId,
+      idempotencyKey: `membership-product-${membershipPlanId}-${amountCents}-${billingInterval}`,
+    }
   );
   const recurring = getRecurringConfig(billingInterval);
   const stripePrice = await stripe.prices.create(
@@ -237,7 +241,10 @@ export async function ensureConnectedStripeRecurringPrice({
       recurring: { interval: recurring.interval, interval_count: recurring.intervalCount },
       metadata: { membershipPlanId, studioId },
     },
-    { stripeAccount: stripeAccountId }
+    {
+      stripeAccount: stripeAccountId,
+      idempotencyKey: `membership-price-${membershipPlanId}-${amountCents}-${billingInterval}`,
+    }
   );
 
   const { error: saveError } = await supabase
@@ -270,6 +277,7 @@ export async function createConnectedStripeMembershipSubscription({
   membershipPlanId,
   stripeAccountId,
   renewalAnchor,
+  idempotencyKey,
 }: CreateConnectedMembershipSubscriptionParams) {
   const stripe = getStripe();
   return stripe.subscriptions.create(
@@ -288,6 +296,6 @@ export async function createConnectedStripeMembershipSubscription({
         source: "terminal_membership_sale",
       },
     },
-    { stripeAccount: stripeAccountId }
+    { stripeAccount: stripeAccountId, idempotencyKey }
   );
 }

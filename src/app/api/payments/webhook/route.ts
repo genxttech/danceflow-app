@@ -7,6 +7,7 @@ import {
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
+import { finalizeTerminalMembership } from "@/lib/payments/terminal-membership-finalization";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import {
   buildEventConfirmedEmailTemplate,
@@ -77,6 +78,11 @@ async function handleTerminalPaymentIntentSucceeded(
     studioId,
     paymentId,
     sessionId: session.id,
+    paymentIntentId: paymentIntent.id,
+  });
+
+  await finalizeTerminalMembership({
+    supabase,
     paymentIntentId: paymentIntent.id,
   });
 
@@ -270,7 +276,8 @@ async function upsertStripePaymentMethodRecord(
 
 async function upsertStripeSubscriptionRecord(
   supabase: SupabaseClient,
-  subscription: Stripe.Subscription
+  subscription: Stripe.Subscription,
+  stripeAccountId?: string | null
 ) {
   const stripeSubscriptionId = subscription.id;
   const stripeCustomerId = getString(subscription.customer);
@@ -316,6 +323,7 @@ async function upsertStripeSubscriptionRecord(
     cancel_at_period_end: Boolean(subscription.cancel_at_period_end),
     default_payment_method_id: defaultPaymentMethodId,
     latest_invoice_id: latestInvoiceId,
+    stripe_account_id: stripeAccountId ?? null,
     updated_at: new Date().toISOString(),
   };
 
@@ -2722,7 +2730,8 @@ async function handleCheckoutSessionCompleted(
 async function handleInvoicePaid(
   supabase: SupabaseClient,
   stripe: Stripe,
-  invoice: Stripe.Invoice
+  invoice: Stripe.Invoice,
+  stripeAccountId?: string | null
 ) {
   const studioInvoiceHandled = await upsertStudioInvoice({
     supabase,
@@ -2732,7 +2741,11 @@ async function handleInvoicePaid(
   const stripeSubscriptionId = getInvoiceSubscriptionId(invoice);
 
   if (studioInvoiceHandled && stripeSubscriptionId) {
-    const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+    const subscription = await stripe.subscriptions.retrieve(
+      stripeSubscriptionId,
+      {},
+      stripeAccountId ? { stripeAccount: stripeAccountId } : undefined
+    );
     await upsertStudioSubscription({
       supabase,
       stripe,
@@ -2787,7 +2800,11 @@ async function handleInvoicePaid(
   }
 
   if ((!resolvedStudioId || !resolvedClientId) && stripeSubscriptionId) {
-    const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+    const subscription = await stripe.subscriptions.retrieve(
+      stripeSubscriptionId,
+      {},
+      stripeAccountId ? { stripeAccount: stripeAccountId } : undefined
+    );
 
     const studioIdFromMetadata = getString(subscription.metadata?.studioId);
     const clientIdFromMetadata = getString(subscription.metadata?.clientId);
@@ -3521,8 +3538,8 @@ case "customer.subscription.deleted": {
     subscription,
   });
 
-  if (handled) {
-    await upsertStripeSubscriptionRecord(supabase, subscription);
+  if (!handled) {
+    await upsertStripeSubscriptionRecord(supabase, subscription, event.account);
   }
 
   break;
@@ -3532,7 +3549,8 @@ case "customer.subscription.deleted": {
         await handleInvoicePaid(
           supabase,
           stripe,
-          event.data.object as Stripe.Invoice
+          event.data.object as Stripe.Invoice,
+          event.account
         );
         break;
       }

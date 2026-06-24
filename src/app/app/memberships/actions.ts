@@ -768,6 +768,155 @@ export async function sellMembershipAction(formData: FormData) {
   }
 }
 
+export async function startTerminalMembershipEnrollmentAction(formData: FormData) {
+  const returnTo = getString(formData, "returnTo") || "/app/memberships/sell";
+
+  try {
+    const supabase = await createClient();
+    const context = await getCurrentStudioContext();
+    const studioId = context.studioId;
+    const userId = context.userId;
+    const clientId = getString(formData, "clientId");
+    const membershipPlanId = getString(formData, "membershipPlanId");
+    const startsOn = getString(formData, "startsOn");
+    const consentAccepted = formData.get("recurringConsent") === "on";
+
+    if (!clientId || !membershipPlanId || !startsOn) {
+      redirect(addQueryParam(returnTo, "error", "missing_membership_details"));
+    }
+    if (!consentAccepted) {
+      redirect(addQueryParam(returnTo, "error", "recurring_consent_required"));
+    }
+
+    const [{ data: client }, { data: plan }, { data: existingMembership }] =
+      await Promise.all([
+        supabase
+          .from("clients")
+          .select("id")
+          .eq("id", clientId)
+          .eq("studio_id", studioId)
+          .single(),
+        supabase
+          .from("membership_plans")
+          .select("id, name, description, active, billing_interval, price, signup_fee")
+          .eq("id", membershipPlanId)
+          .eq("studio_id", studioId)
+          .single(),
+        supabase
+          .from("client_memberships")
+          .select("id")
+          .eq("studio_id", studioId)
+          .eq("client_id", clientId)
+          .in("status", ["active", "pending", "past_due", "unpaid"])
+          .limit(1)
+          .maybeSingle(),
+      ]);
+
+    if (!client) redirect(addQueryParam(returnTo, "error", "client_not_found"));
+    if (!plan || !plan.active) redirect(addQueryParam(returnTo, "error", "plan_not_found"));
+    if (existingMembership) {
+      redirect(addQueryParam(returnTo, "error", "active_membership_exists"));
+    }
+
+    const period = calculateMembershipPeriod(plan.billing_interval, startsOn);
+    if (!period) redirect(addQueryParam(returnTo, "error", "invalid_start"));
+
+    const initialAmount = Number(plan.price ?? 0) + Number(plan.signup_fee ?? 0);
+    if (!Number.isFinite(initialAmount) || initialAmount <= 0) {
+      redirect(addQueryParam(returnTo, "error", "terminal_membership_amount_required"));
+    }
+
+    const renewalDate = new Date(`${period.currentPeriodEnd}T12:00:00Z`);
+    renewalDate.setUTCDate(renewalDate.getUTCDate() + 1);
+    const consentText = `I authorize recurring ${plan.billing_interval} charges of ${Number(
+      plan.price
+    ).toFixed(2)} USD beginning ${renewalDate.toISOString().slice(0, 10)} until cancelled under the studio's membership terms.`;
+
+    const { data: membership, error: membershipError } = await supabase
+      .from("client_memberships")
+      .insert({
+        studio_id: studioId,
+        client_id: clientId,
+        membership_plan_id: membershipPlanId,
+        status: "pending",
+        starts_on: startsOn,
+        current_period_start: period.currentPeriodStart,
+        current_period_end: period.currentPeriodEnd,
+        auto_renew: true,
+        cancel_at_period_end: false,
+        name_snapshot: plan.name,
+        description_snapshot: plan.description,
+        price_snapshot: plan.price,
+        signup_fee_snapshot: plan.signup_fee,
+        billing_interval_snapshot: plan.billing_interval,
+        created_by: userId,
+      })
+      .select("id")
+      .single();
+
+    if (membershipError || !membership) {
+      throw new Error(membershipError?.message ?? "Membership creation failed.");
+    }
+
+    const { data: payment, error: paymentError } = await supabase
+      .from("payments")
+      .insert({
+        studio_id: studioId,
+        client_id: clientId,
+        client_membership_id: membership.id,
+        amount: Number(initialAmount.toFixed(2)),
+        payment_method: "card",
+        status: "pending",
+        notes: `Initial reader payment for ${plan.name}.`,
+        created_by: userId,
+        payment_type: "membership",
+        fulfillment_type: "activate_membership",
+        source: "stripe",
+        payment_channel: "terminal",
+        currency: "usd",
+      })
+      .select("id")
+      .single();
+
+    if (paymentError || !payment) {
+      await supabase.from("client_memberships").delete().eq("id", membership.id);
+      throw new Error(paymentError?.message ?? "Payment creation failed.");
+    }
+
+    const { error: enrollmentError } = await supabase
+      .from("membership_terminal_enrollments")
+      .insert({
+        studio_id: studioId,
+        client_id: clientId,
+        client_membership_id: membership.id,
+        payment_id: payment.id,
+        initial_amount: Number(initialAmount.toFixed(2)),
+        renewal_anchor: renewalDate.toISOString(),
+        consent_text: consentText,
+        consent_version: "terminal_membership_v1",
+        consented_at: new Date().toISOString(),
+        consented_by: userId,
+      });
+
+    if (enrollmentError) {
+      await supabase.from("payments").delete().eq("id", payment.id);
+      await supabase.from("client_memberships").delete().eq("id", membership.id);
+      throw new Error(enrollmentError.message);
+    }
+
+    redirect(`/app/payments/terminal/${payment.id}?success=terminal_payment_ready`);
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    redirect(
+      addQueryParam(
+        returnTo,
+        "error",
+        error instanceof Error ? error.message : "terminal_membership_failed"
+      )
+    );
+  }
+}
+
 export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
   const clientMembershipId = getString(formData, "clientMembershipId");
   const clientId = getString(formData, "clientId");
@@ -807,7 +956,7 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
     const { data: stripeSubscriptionRow, error: stripeSubscriptionError } =
       await supabase
         .from("stripe_subscriptions")
-        .select("id, stripe_subscription_id, status")
+        .select("id, stripe_subscription_id, stripe_account_id, status")
         .eq("client_membership_id", clientMembershipId)
         .eq("studio_id", studioId)
         .maybeSingle();
@@ -829,6 +978,9 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
       {
         cancel_at_period_end: true,
       },
+      stripeSubscriptionRow.stripe_account_id
+        ? { stripeAccount: stripeSubscriptionRow.stripe_account_id }
+        : undefined,
     );
 
     const primaryItem = updatedSubscription.items?.data?.[0] ?? null;
@@ -926,7 +1078,7 @@ export async function reactivateMembershipAutoRenewAction(formData: FormData) {
     const { data: stripeSubscriptionRow, error: stripeSubscriptionError } =
       await supabase
         .from("stripe_subscriptions")
-        .select("id, stripe_subscription_id, status")
+        .select("id, stripe_subscription_id, stripe_account_id, status")
         .eq("client_membership_id", clientMembershipId)
         .eq("studio_id", studioId)
         .maybeSingle();
@@ -948,6 +1100,9 @@ export async function reactivateMembershipAutoRenewAction(formData: FormData) {
       {
         cancel_at_period_end: false,
       },
+      stripeSubscriptionRow.stripe_account_id
+        ? { stripeAccount: stripeSubscriptionRow.stripe_account_id }
+        : undefined,
     );
 
     const primaryItem = updatedSubscription.items?.data?.[0] ?? null;
@@ -1118,7 +1273,7 @@ export async function retryDelinquentMembershipBillingAction(
       await supabase
         .from("stripe_subscriptions")
         .select(
-          "id, stripe_subscription_id, stripe_customer_id, default_payment_method_id",
+          "id, stripe_subscription_id, stripe_account_id, stripe_customer_id, default_payment_method_id",
         )
         .eq("client_membership_id", clientMembershipId)
         .eq("studio_id", studioId)
@@ -1172,13 +1327,21 @@ export async function retryDelinquentMembershipBillingAction(
         cancel_at_period_end: false,
         collection_method: "charge_automatically",
       },
+      stripeSubscriptionRow.stripe_account_id
+        ? { stripeAccount: stripeSubscriptionRow.stripe_account_id }
+        : undefined,
     );
 
-    const invoices = await stripe.invoices.list({
-      subscription: stripeSubscriptionRow.stripe_subscription_id,
-      status: "open",
-      limit: 10,
-    });
+    const invoices = await stripe.invoices.list(
+      {
+        subscription: stripeSubscriptionRow.stripe_subscription_id,
+        status: "open",
+        limit: 10,
+      },
+      stripeSubscriptionRow.stripe_account_id
+        ? { stripeAccount: stripeSubscriptionRow.stripe_account_id }
+        : undefined,
+    );
 
     const payableInvoice = invoices.data.find(
       (invoice) => invoice.collection_method === "charge_automatically",
@@ -1190,9 +1353,13 @@ export async function retryDelinquentMembershipBillingAction(
       );
     }
 
-    await stripe.invoices.pay(payableInvoice.id, {
-      payment_method: defaultPaymentMethodId,
-    });
+    await stripe.invoices.pay(
+      payableInvoice.id,
+      { payment_method: defaultPaymentMethodId },
+      stripeSubscriptionRow.stripe_account_id
+        ? { stripeAccount: stripeSubscriptionRow.stripe_account_id }
+        : undefined,
+    );
 
     redirect(addQueryParam(returnTo, "success", "membership_retry_submitted"));
   } catch (error) {

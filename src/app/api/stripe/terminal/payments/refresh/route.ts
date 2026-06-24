@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
+import { finalizeTerminalMembership } from "@/lib/payments/terminal-membership-finalization";
 
 function getBaseUrl() {
   return (
@@ -102,6 +103,11 @@ export async function POST(request: NextRequest) {
         studioId: context.studioId,
         paymentId,
         sessionId: session.id,
+        paymentIntentId: paymentIntent.id,
+      });
+
+      await finalizeTerminalMembership({
+        supabase,
         paymentIntentId: paymentIntent.id,
       });
 

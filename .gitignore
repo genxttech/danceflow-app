@@ -145,3 +145,5 @@ node_modules
 .env.local
 .env.*.local
 .vercel
+desktop.ini
+Thumbs.db

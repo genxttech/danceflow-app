@@ -6,6 +6,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   assignMembershipToClientAction,
   sellMembershipAction,
+  startTerminalMembershipEnrollmentAction,
 } from "@/app/app/memberships/actions";
 
 type SearchParams = Promise<{
@@ -277,7 +278,7 @@ export default async function ConfirmMembershipSalePage({
           </div>
         </div>
 
-        <div className="grid gap-5 lg:grid-cols-2">
+        <div className="grid gap-5 lg:grid-cols-3">
           <form action={sellMembershipAction} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
             <div className="flex items-start gap-3">
               <div className="rounded-2xl bg-white p-3 text-[var(--brand-primary)] shadow-sm">
@@ -321,6 +322,50 @@ export default async function ConfirmMembershipSalePage({
               className="mt-5 w-full rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Start Checkout
+            </button>
+          </form>
+
+          <form action={startTerminalMembershipEnrollmentAction} className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+            <div className="flex items-start gap-3">
+              <div className="rounded-2xl bg-white p-3 text-emerald-700 shadow-sm">
+                <CreditCard className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-slate-950">Enroll with card reader</h3>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Collect the first period and signup fee in person, then save the generated card for recurring renewals.
+                </p>
+              </div>
+            </div>
+
+            <input type="hidden" name="clientId" value={client.id} />
+            <input type="hidden" name="membershipPlanId" value={plan.id} />
+            <input type="hidden" name="returnTo" value={returnTo} />
+
+            <label className="mt-5 block">
+              <span className="mb-2 block text-sm font-medium text-slate-700">Start date</span>
+              <input
+                type="date"
+                name="startsOn"
+                defaultValue={today}
+                className="w-full rounded-xl border border-emerald-300 bg-white px-3 py-2.5 text-sm text-slate-900"
+                required
+              />
+            </label>
+
+            <label className="mt-4 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-white p-4 text-sm leading-6 text-slate-700">
+              <input type="checkbox" name="recurringConsent" required className="mt-1 h-4 w-4 rounded border-slate-300" />
+              <span>
+                The client authorizes the initial charge of {formatCurrency(Number(plan.price) + Number(plan.signup_fee ?? 0))} and recurring {billingIntervalLabel(plan.billing_interval).toLowerCase()} charges of {formatCurrency(plan.price)} until cancelled under the studio&apos;s membership terms.
+              </span>
+            </label>
+
+            <button
+              type="submit"
+              disabled={!plan.active || Boolean(existingMembership)}
+              className="mt-5 w-full rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-medium text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Continue to Card Reader
             </button>
           </form>
 
