@@ -121,6 +121,16 @@ export async function createPaymentAction(
     const accountCreditToApply = getNumber(accountCreditToApplyRaw || "0") ?? 0;
     const selectedPaymentDateIso = getPaymentDateIso(formData);
 
+    if (
+      accountCreditToApply > 0 &&
+      (paymentAction !== "manual" || !isPaidLikeStatus(status))
+    ) {
+      return {
+        error:
+          "Account credit can currently be applied only when recording a completed manual payment.",
+      };
+    }
+
     if (!clientId) {
       return { error: "Client is required." };
     }
@@ -354,6 +364,10 @@ export async function createPaymentAction(
         paid_at: isPaidLikeStatus(status) ? selectedPaymentDateIso : null,
         created_by: user.id,
         payment_type: paymentType,
+        fulfillment_type:
+          paymentAction === "terminal" && entryMode === "sell_package_and_pay"
+            ? "activate_package"
+            : null,
         source: paymentAction === "manual" ? "manual" : "stripe",
         payment_channel:
           paymentAction === "terminal"

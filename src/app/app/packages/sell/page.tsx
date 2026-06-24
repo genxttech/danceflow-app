@@ -409,15 +409,25 @@ export default async function SellPackagesPage({
             </label>
 
             <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900 lg:col-span-2">
-              This will create the client package and a payment record using the payment details above. Use the client record instead if you need a more complex sale, invoice, or balance-due workflow.
+              Complete manual sale records money already collected. Send to card reader keeps the package inactive until Stripe confirms the in-person payment. Account credit cannot be combined with the card reader yet.
             </div>
 
             <div className="flex flex-wrap gap-3 lg:col-span-2">
               <button
                 type="submit"
+                name="paymentAction"
+                value="manual"
                 className="rounded-xl bg-[var(--brand-primary)] px-5 py-2.5 text-sm font-medium text-white hover:opacity-95"
               >
-                Complete package sale
+                Complete manual sale
+              </button>
+              <button
+                type="submit"
+                name="paymentAction"
+                value="terminal"
+                className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                Send to card reader
               </button>
               <Link
                 href={`/app/packages/sell${selectedTemplate ? `?template=${selectedTemplate.id}` : ""}`}

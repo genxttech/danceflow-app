@@ -172,6 +172,7 @@ export default function QuickPaymentPanel({
     0,
     Number((packageSalePriceAmount - appliedAccountCreditAmount).toFixed(2))
   );
+  const hasAccountCreditApplied = appliedAccountCreditAmount > 0;
 
   const suggestedAmount = useMemo(() => {
     const parsedSalePrice = Number(salePrice || 0);
@@ -489,6 +490,11 @@ export default function QuickPaymentPanel({
             <p className="mt-2 text-xs leading-5 text-emerald-800">
               Applying credit creates a client account ledger entry and reduces the payment due today without changing the original credit record.
             </p>
+            {hasAccountCreditApplied ? (
+              <p className="mt-2 text-xs font-medium leading-5 text-amber-800">
+                Account credit is currently available with completed manual payments only. Clear the credit amount to use Stripe Checkout, the card reader, or the client portal.
+              </p>
+            ) : null}
           </div>
         </>
       ) : null}
@@ -627,7 +633,7 @@ export default function QuickPaymentPanel({
             type="submit"
             name="paymentAction"
             value="charge_now"
-            disabled={pending}
+            disabled={pending || hasAccountCreditApplied}
             onClick={() => setActivePaymentAction("charge_now")}
             className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-white hover:opacity-95 disabled:opacity-60"
           >
@@ -640,7 +646,7 @@ export default function QuickPaymentPanel({
             type="submit"
             name="paymentAction"
             value="terminal"
-            disabled={pending}
+            disabled={pending || hasAccountCreditApplied}
             onClick={() => setActivePaymentAction("terminal")}
             className="rounded-xl bg-emerald-600 px-4 py-2 text-white hover:bg-emerald-700 disabled:opacity-60"
           >
@@ -653,7 +659,7 @@ export default function QuickPaymentPanel({
             type="submit"
             name="paymentAction"
             value="send_to_portal"
-            disabled={pending}
+            disabled={pending || hasAccountCreditApplied}
             onClick={() => setActivePaymentAction("send_to_portal")}
             className="rounded-xl border border-slate-300 bg-white px-4 py-2 text-slate-700 hover:bg-slate-100 disabled:opacity-60"
           >

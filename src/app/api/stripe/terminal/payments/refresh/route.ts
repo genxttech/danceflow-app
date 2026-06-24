@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
+import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
 
 function getBaseUrl() {
   return (
@@ -25,57 +26,6 @@ function terminalPaymentUrl(paymentId: string, params: Record<string, string>) {
 function canCollectTerminal(role: string | null | undefined, isPlatformAdmin: boolean) {
   if (isPlatformAdmin) return true;
   return ["studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
-}
-
-async function markLocalPaymentSucceeded(params: {
-  supabase: ReturnType<typeof createAdminClient>;
-  studioId: string;
-  paymentId: string;
-  sessionId: string;
-  paymentIntentId: string;
-  nowIso: string;
-}) {
-  const { supabase, studioId, paymentId, sessionId, paymentIntentId, nowIso } = params;
-
-  const { data: payment, error: paymentError } = await supabase
-    .from("payments")
-    .select("id, client_package_id, payment_type, external_reference")
-    .eq("id", paymentId)
-    .eq("studio_id", studioId)
-    .single();
-
-  if (paymentError || !payment) return;
-
-  await supabase
-    .from("payments")
-    .update({
-      status: "paid",
-      paid_at: nowIso,
-      payment_method: "card",
-      source: "stripe",
-      payment_channel: "terminal",
-      terminal_payment_session_id: sessionId,
-      stripe_payment_intent_id: paymentIntentId,
-      updated_at: nowIso,
-    })
-    .eq("id", paymentId)
-    .eq("studio_id", studioId);
-
-  if (payment.client_package_id) {
-    await supabase
-      .from("client_packages")
-      .update({ active: true, updated_at: nowIso })
-      .eq("id", payment.client_package_id)
-      .eq("studio_id", studioId);
-  }
-
-  if (payment.external_reference && payment.payment_type === "pay_as_you_go_lesson") {
-    await supabase
-      .from("appointments")
-      .update({ payment_status: "paid", updated_at: nowIso })
-      .eq("id", payment.external_reference)
-      .eq("studio_id", studioId);
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -147,13 +97,12 @@ export async function POST(request: NextRequest) {
       .eq("id", session.id);
 
     if (status === "succeeded") {
-      await markLocalPaymentSucceeded({
+      await fulfillTerminalPayment({
         supabase,
         studioId: context.studioId,
         paymentId,
         sessionId: session.id,
         paymentIntentId: paymentIntent.id,
-        nowIso,
       });
 
       return NextResponse.redirect(terminalPaymentUrl(paymentId, { success: "terminal_payment_succeeded" }));

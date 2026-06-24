@@ -6,6 +6,7 @@ import {
   SupabaseClient,
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
+import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import {
   buildEventConfirmedEmailTemplate,
@@ -31,6 +32,55 @@ function getString(value: unknown): string | null {
 
 function getNumber(value: unknown): number | null {
   return typeof value === "number" ? value : null;
+}
+
+async function handleTerminalPaymentIntentSucceeded(
+  supabase: SupabaseClient,
+  paymentIntent: Stripe.PaymentIntent
+) {
+  if (getString(paymentIntent.metadata?.source) !== "danceflow_terminal") {
+    return false;
+  }
+
+  const studioId = getString(paymentIntent.metadata?.studioId);
+  const paymentId = getString(paymentIntent.metadata?.paymentId);
+
+  if (!studioId || !paymentId) {
+    throw new Error("Terminal PaymentIntent is missing fulfillment metadata.");
+  }
+
+  const { data: session, error: sessionError } = await supabase
+    .from("terminal_payment_sessions")
+    .select("id, amount_cents, currency")
+    .eq("studio_id", studioId)
+    .eq("payment_id", paymentId)
+    .eq("stripe_payment_intent_id", paymentIntent.id)
+    .maybeSingle();
+
+  if (sessionError) {
+    throw new Error(sessionError.message);
+  }
+
+  if (!session) {
+    throw new Error("Terminal payment session was not found.");
+  }
+
+  if (
+    Number(session.amount_cents) !== Number(paymentIntent.amount_received) ||
+    String(session.currency ?? "usd").toLowerCase() !== paymentIntent.currency.toLowerCase()
+  ) {
+    throw new Error("Terminal payment amount or currency does not match its session.");
+  }
+
+  await fulfillTerminalPayment({
+    supabase,
+    studioId,
+    paymentId,
+    sessionId: session.id,
+    paymentIntentId: paymentIntent.id,
+  });
+
+  return true;
 }
 
 function toIsoOrNull(unixSeconds: number | null): string | null {
@@ -3412,7 +3462,13 @@ export async function POST(request: Request) {
 
       case "payment_intent.succeeded": {
         const paymentIntent = event.data.object as Stripe.PaymentIntent;
-        await syncFeeDetailsForPaymentIntent(supabase, stripe, paymentIntent.id);
+        const handledTerminal = await handleTerminalPaymentIntentSucceeded(
+          supabase,
+          paymentIntent
+        );
+        if (!handledTerminal) {
+          await syncFeeDetailsForPaymentIntent(supabase, stripe, paymentIntent.id);
+        }
         break;
       }
 

@@ -60,13 +60,17 @@ export async function sellPackageToClientAction(
   prevState: { error: string },
   formData: FormData
 ) {
+  let terminalPaymentId: string | null = null;
+
   try {
     const { supabase, user, studioId } = await requirePackageSellAccess();
 
     const clientId = getString(formData, "clientId");
     const packageTemplateId = getString(formData, "packageTemplateId");
     const purchaseDateRaw = getString(formData, "purchaseDate");
-    const paymentMethod = getString(formData, "paymentMethod");
+    const paymentAction = getString(formData, "paymentAction");
+    const useTerminal = paymentAction === "terminal";
+    const paymentMethod = useTerminal ? "card" : getString(formData, "paymentMethod");
     const amountPaidRaw =
       getString(formData, "paymentAmount") || getString(formData, "amountPaid");
     const accountCreditRaw = getString(formData, "accountCreditToApply");
@@ -96,6 +100,13 @@ export async function sellPackageToClientAction(
 
     if (accountCreditToApply === null || accountCreditToApply < 0) {
       return { error: "Account credit must be a valid amount of $0 or greater." };
+    }
+
+    if (useTerminal && accountCreditToApply > 0) {
+      return {
+        error:
+          "Account credit can currently be applied only to a completed manual package payment.",
+      };
     }
 
     const { data: pkgTemplate, error: pkgTemplateError } = await supabase
@@ -198,7 +209,7 @@ export async function sellPackageToClientAction(
         price_snapshot: pkgTemplate.price,
         purchase_date: purchaseDateRaw,
         expiration_date: expirationDate,
-        active: true,
+        active: !useTerminal,
       })
       .select("id")
       .single();
@@ -240,26 +251,45 @@ export async function sellPackageToClientAction(
       .filter(Boolean)
       .join("\n");
 
-    const { error: paymentError } = await supabase.from("payments").insert({
-      studio_id: studioId,
-      client_id: clientId,
-      client_package_id: clientPackage.id,
-      amount: cashAmount,
-      payment_method: paymentMethod,
-      status: "paid",
-      notes: paymentNotes || null,
-      paid_at: new Date().toISOString(),
-      created_by: user.id,
-      payment_type: "package_sale",
-      source: "manual",
-      currency: "usd",
-    });
+    const { data: payment, error: paymentError } = await supabase
+      .from("payments")
+      .insert({
+        studio_id: studioId,
+        client_id: clientId,
+        client_package_id: clientPackage.id,
+        amount: cashAmount,
+        payment_method: paymentMethod,
+        status: useTerminal ? "pending" : "paid",
+        notes: [
+          paymentNotes || null,
+          useTerminal ? "Created for in-person card reader collection." : null,
+        ]
+          .filter(Boolean)
+          .join("\n") || null,
+        paid_at: useTerminal ? null : new Date().toISOString(),
+        created_by: user.id,
+        payment_type: "package_sale",
+        fulfillment_type: useTerminal ? "activate_package" : null,
+        source: useTerminal ? "stripe" : "manual",
+        payment_channel: useTerminal ? "terminal" : "manual",
+        currency: "usd",
+      })
+      .select("id")
+      .single();
 
     if (paymentError) {
       return { error: `Payment creation failed: ${paymentError.message}` };
     }
 
-    if (creditAmount > 0) {
+    if (!payment) {
+      return { error: "Payment creation failed: no payment was returned." };
+    }
+
+    if (useTerminal) {
+      terminalPaymentId = payment.id;
+    }
+
+    if (!useTerminal && creditAmount > 0) {
       const { error: creditLedgerError } = await supabase
         .from("client_account_ledger")
         .insert({
@@ -297,18 +327,18 @@ export async function sellPackageToClientAction(
       })
       .join(" | ");
 
-    const { error: transactionError } = await supabase
-      .from("lesson_transactions")
-      .insert({
-        studio_id: studioId,
-        client_id: clientId,
-        client_package_id: clientPackage.id,
-        transaction_type: "package_purchase",
-        lessons_delta: null,
-        balance_after: null,
-        notes: `Package purchased: ${pkgTemplate.name} (${summary})`,
-        created_by: user.id,
-      });
+    const { error: transactionError } = useTerminal
+      ? { error: null }
+      : await supabase.from("lesson_transactions").insert({
+          studio_id: studioId,
+          client_id: clientId,
+          client_package_id: clientPackage.id,
+          transaction_type: "package_purchase",
+          lessons_delta: null,
+          balance_after: null,
+          notes: `Package purchased: ${pkgTemplate.name} (${summary})`,
+          created_by: user.id,
+        });
 
     if (transactionError) {
       return {
@@ -319,6 +349,12 @@ export async function sellPackageToClientAction(
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
     };
+  }
+
+  if (terminalPaymentId) {
+    redirect(
+      `/app/payments/terminal/${encodeURIComponent(terminalPaymentId)}?success=terminal_payment_ready`
+    );
   }
 
   redirect("/app/packages/client-balances");
