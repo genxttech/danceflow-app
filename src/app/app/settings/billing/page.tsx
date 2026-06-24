@@ -481,14 +481,17 @@ function terminalReaderStatusLabel(status: string | null | undefined) {
   return status.replaceAll("_", " ");
 }
 
-function formatTerminalDateTime(value: string | null) {
+function formatTerminalDateTime(value: string | null, timeZone: string) {
   if (!value) return "Not synced yet";
-  return new Date(value).toLocaleString([], {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
     month: "short",
     day: "numeric",
+    year: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+    timeZoneName: "short",
+  }).format(new Date(value));
 }
 
 function TerminalReadersCard({
@@ -496,11 +499,13 @@ function TerminalReadersCard({
   locations,
   readers,
   canManage,
+  studioTimeZone,
 }: {
   connectReadiness: StudioConnectReadiness;
   locations: TerminalLocationRow[];
   readers: TerminalReaderRow[];
   canManage: boolean;
+  studioTimeZone: string;
 }) {
   const stripeReady = Boolean(
     connectReadiness.connectedAccountId &&
@@ -620,7 +625,7 @@ function TerminalReadersCard({
                   </p>
                   <p className="mt-1 text-xs font-medium text-slate-500">
                     {reader.device_type?.replaceAll("_", " ") ?? "Reader"} ·
-                    Last synced {formatTerminalDateTime(reader.last_seen_at)}
+                    Last synced {formatTerminalDateTime(reader.last_seen_at, studioTimeZone)}
                   </p>
                 </div>
 
@@ -1368,6 +1373,23 @@ export default async function BillingSettingsPage({
     redirect("/app");
   }
 
+  const { data: terminalTimeZoneRow, error: terminalTimeZoneError } =
+    await supabase
+      .from("studio_settings")
+      .select("timezone")
+      .eq("studio_id", studio.id)
+      .maybeSingle<{ timezone: string | null }>();
+
+  if (terminalTimeZoneError) {
+    console.error(
+      "Failed to load studio timezone for Terminal readers",
+      terminalTimeZoneError,
+    );
+  }
+
+  const terminalTimeZone =
+    terminalTimeZoneRow?.timezone?.trim() || "America/New_York";
+
   const { data: currentSubscriptionRow } = await supabase
     .from("studio_subscriptions")
     .select(
@@ -1883,6 +1905,7 @@ export default async function BillingSettingsPage({
                   locations={terminalLocations}
                   readers={terminalReaders}
                   canManage={canAccessBilling}
+                  studioTimeZone={terminalTimeZone}
                 />
               </div>
             </div>
