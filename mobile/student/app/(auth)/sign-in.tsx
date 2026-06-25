@@ -30,7 +30,7 @@ export default function SignInScreen() {
     try {
       await signIn(email.trim(), password);
       router.replace("/(tabs)/home");
-    } catch (err) {
+    } catch (_err) {
       setError("We could not sign you in. Check your email and password, then try again.");
     } finally {
       setSubmitting(false);
@@ -51,10 +51,9 @@ export default function SignInScreen() {
             style={styles.logo}
           />
           <AppText variant="eyebrow">DanceFlow</AppText>
-          <AppText variant="title">Student sign in</AppText>
+          <AppText variant="title">Welcome back</AppText>
           <AppText variant="caption">
-            Access your schedule, lesson recaps, syllabus progress, favorite studios,
-            tickets, balances, and LUMI.
+            Sign in to keep your schedule, tickets, favorites, progress, and LUMI in one place.
           </AppText>
         </View>
 
@@ -87,9 +86,15 @@ export default function SignInScreen() {
             loading={submitting}
             onPress={handleSubmit}
           />
-          <Link href="/(auth)/reset-password" style={styles.link}>
-            Forgot password?
-          </Link>
+
+          <View style={styles.links}>
+            <Link href="/(auth)/reset-password" style={styles.link}>
+              Forgot password?
+            </Link>
+            <Link href="/(auth)/sign-up" style={styles.linkStrong}>
+              Create DanceFlow account
+            </Link>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Screen>
@@ -127,11 +132,21 @@ const styles = StyleSheet.create({
   error: {
     color: colors.danger
   },
+  links: {
+    alignItems: "center",
+    gap: 12,
+    marginTop: 8
+  },
   link: {
     color: colors.primary,
     fontSize: 15,
     fontWeight: "700",
-    marginTop: 8,
+    textAlign: "center"
+  },
+  linkStrong: {
+    color: colors.accent,
+    fontSize: 15,
+    fontWeight: "800",
     textAlign: "center"
   }
 });

@@ -10,15 +10,31 @@ import {
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
+type SignUpInput = {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName: string;
+};
+
+type SignUpResult = {
+  emailConfirmationRequired: boolean;
+};
+
 type AuthContextValue = {
   session: Session | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
+  signUp: (input: SignUpInput) => Promise<SignUpResult>;
   sendPasswordReset: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+function cleanName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -51,6 +67,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (error) throw error;
   }, []);
 
+  const signUp = useCallback(async (input: SignUpInput): Promise<SignUpResult> => {
+    const firstName = cleanName(input.firstName);
+    const lastName = cleanName(input.lastName);
+    const fullName = [firstName, lastName].filter(Boolean).join(" ");
+
+    const { data, error } = await supabase.auth.signUp({
+      email: input.email.trim().toLowerCase(),
+      password: input.password,
+      options: {
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+          full_name: fullName,
+          app_origin: "danceflow_mobile"
+        }
+      }
+    });
+
+    if (error) throw error;
+
+    return {
+      emailConfirmationRequired: !data.session
+    };
+  }, []);
+
   const sendPasswordReset = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email);
     if (error) throw error;
@@ -62,8 +103,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ session, loading, signIn, sendPasswordReset, signOut }),
-    [loading, sendPasswordReset, session, signIn, signOut]
+    () => ({ session, loading, signIn, signUp, sendPasswordReset, signOut }),
+    [loading, sendPasswordReset, session, signIn, signOut, signUp]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
