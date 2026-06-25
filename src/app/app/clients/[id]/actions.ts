@@ -733,7 +733,12 @@ export async function sendPortalInviteAction(formData: FormData) {
       throw magicLinkError;
     }
 
-    const actionLink = magicLinkData.properties?.action_link;
+    const tokenHash = magicLinkData.properties?.hashed_token;
+    const actionLink = tokenHash
+      ? `${baseUrl}/callback?token_hash=${encodeURIComponent(
+          tokenHash
+        )}&type=magiclink&next=${encodeURIComponent(nextPath)}`
+      : magicLinkData.properties?.action_link;
 
     if (!actionLink) {
       throw new Error("Supabase did not return a portal invite action link.");

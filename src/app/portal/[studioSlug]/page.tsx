@@ -1532,6 +1532,14 @@ export default async function PortalHomePage({
                 >
                   My Account
                 </Link>
+                <Link
+                  href={`/reset-password?intent=public&next=${encodeURIComponent(
+                    `/portal/${typedStudio.slug}`,
+                  )}`}
+                  className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                >
+                  Create App Password
+                </Link>
 
                 <form action="/auth/logout" method="post">
                   <button

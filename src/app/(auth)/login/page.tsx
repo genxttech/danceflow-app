@@ -309,7 +309,8 @@ export default async function LoginPage({
                 </div>
 
                 {isPublic ? (
-                  <form action={submitLogin} className="mt-8 space-y-5">
+                  <>
+                    <form action={submitLogin} className="mt-8 space-y-5">
                     <input type="hidden" name="loginMode" value="magic_link" />
                     <input type="hidden" name="loginIntent" value="public" />
                     <input type="hidden" name="next" value={effectiveNext} />
@@ -345,7 +346,37 @@ export default async function LoginPage({
                         ? "This portal invite is tied to the email on your studio client record. If you use another email, DanceFlow will not be able to connect you to the studio portal."
                         : "Student/client portal access usually starts from a studio invite or event confirmation email. Use the same email address your studio has on file."}
                     </div>
-                  </form>
+                    </form>
+                    {isPortalAccess ? (
+                      <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-sm font-semibold text-slate-950">
+                          Need a password for the DanceFlow app?
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-slate-600">
+                          Send a password setup email to this same portal address.
+                          After creating a password, you can sign in to the mobile app.
+                        </p>
+                        <form action={submitReset} className="mt-4 flex flex-col gap-3 sm:flex-row">
+                          <input type="hidden" name="loginIntent" value="public" />
+                          <input type="hidden" name="next" value={effectiveNext} />
+                          <input
+                            name="email"
+                            type="email"
+                            required
+                            defaultValue={emailHint}
+                            placeholder="you@example.com"
+                            className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm outline-none focus:border-slate-500"
+                          />
+                          <button
+                            type="submit"
+                            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                          >
+                            Send Password Setup
+                          </button>
+                        </form>
+                      </div>
+                    ) : null}
+                  </>
                 ) : (
                   <form action={submitLogin} className="mt-8 space-y-5">
                     <input type="hidden" name="loginMode" value="password" />

@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "DanceFlow",
+    "slug": "danceflow-student",
+    "scheme": "danceflow",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.idanceflow.student"
+    },
+    "android": {
+      "package": "com.idanceflow.student",
+      "adaptiveIcon": {
+        "backgroundColor": "#071427"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": ""
+      }
+    }
+  }
+}

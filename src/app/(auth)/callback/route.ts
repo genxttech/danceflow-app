@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
+import type { EmailOtpType } from "@supabase/supabase-js";
 import { ensurePortalProfileAndClientLinks, getAuthUserFullName } from "@/lib/auth/portal-linking";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
@@ -297,9 +298,11 @@ function getPostAuthDestination(params: {
 export async function GET(request: NextRequest) {
   const requestUrl = new URL(request.url);
   const code = requestUrl.searchParams.get("code");
+  const tokenHash = requestUrl.searchParams.get("token_hash");
+  const otpType = requestUrl.searchParams.get("type") as EmailOtpType | null;
   const requestedNextPath = getRequestedNextPath(requestUrl);
 
-  if (!code) {
+  if (!code && !tokenHash) {
     return NextResponse.redirect(
       new URL("/login?error=missing-code", request.url)
     );
@@ -324,8 +327,12 @@ export async function GET(request: NextRequest) {
     }
   );
 
-  const { error: exchangeError } =
-    await supabase.auth.exchangeCodeForSession(code);
+  const { error: exchangeError } = tokenHash
+    ? await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: otpType ?? "magiclink",
+      })
+    : await supabase.auth.exchangeCodeForSession(code!);
 
   if (exchangeError) {
     return NextResponse.redirect(
