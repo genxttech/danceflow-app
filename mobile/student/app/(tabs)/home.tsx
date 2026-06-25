@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 
 const danceFlowLogo = require("../../assets/danceflow-logo.png");
+const lumiAvatar = require("../../assets/lumi-avatar.png");
 
 export default function HomeScreen() {
   const { session, signOut } = useAuth();
@@ -102,15 +103,42 @@ export default function HomeScreen() {
       />
 
       {hasPortalAccess ? (
-        <Link href="/lumi" asChild>
-          <AppButton label="Ask LUMI" />
-        </Link>
+        <View style={styles.lumiCard}>
+          <Image
+            accessibilityIgnoresInvertColors
+            resizeMode="cover"
+            source={lumiAvatar}
+            style={styles.lumiAvatar}
+          />
+          <View style={styles.lumiCopy}>
+            <AppText variant="eyebrow">LUMI</AppText>
+            <AppText variant="title">Your DanceFlow assistant</AppText>
+            <AppText variant="caption">
+              Ask LUMI about practice ideas, lesson recaps, syllabus progress,
+              and what to focus on next.
+            </AppText>
+            <Link href="/lumi" asChild>
+              <AppButton label="Ask LUMI" />
+            </Link>
+          </View>
+        </View>
       ) : (
-        <FeatureCard
-          label="LUMI"
-          title="Unlock with a studio portal"
-          detail="LUMI becomes available when a studio connects your DanceFlow portal, so it can personalize help from real lesson and progress data."
-        />
+        <View style={styles.lumiCard}>
+          <Image
+            accessibilityIgnoresInvertColors
+            resizeMode="cover"
+            source={lumiAvatar}
+            style={styles.lumiAvatar}
+          />
+          <View style={styles.lumiCopy}>
+            <AppText variant="eyebrow">LUMI</AppText>
+            <AppText variant="title">Unlock with a studio portal</AppText>
+            <AppText variant="caption">
+              LUMI becomes available when a studio connects your DanceFlow portal,
+              so it can personalize help from real lesson and progress data.
+            </AppText>
+          </View>
+        </View>
       )}
       <AppButton label="Sign out" onPress={signOut} variant="secondary" />
     </Screen>
@@ -128,5 +156,22 @@ const styles = StyleSheet.create({
     height: 42,
     marginBottom: 4,
     width: 150
+  },
+  lumiAvatar: {
+    borderRadius: 34,
+    height: 68,
+    width: 68
+  },
+  lumiCard: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 18,
+    flexDirection: "row",
+    gap: 14,
+    padding: 16
+  },
+  lumiCopy: {
+    flex: 1,
+    gap: 8
   }
 });
