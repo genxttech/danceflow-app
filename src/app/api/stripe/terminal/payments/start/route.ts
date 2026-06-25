@@ -17,6 +17,10 @@ function clean(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function getFormValue(formData: unknown, name: string) {
+  return (formData as unknown as { get(key: string): FormDataEntryValue | null }).get(name);
+}
+
 function terminalPaymentUrl(paymentId: string, params: Record<string, string>) {
   const url = new URL(`/app/payments/terminal/${paymentId}`, getBaseUrl());
   Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
@@ -71,8 +75,8 @@ async function getTerminalContext() {
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
-  const paymentId = clean(formData.get("paymentId"));
-  const readerId = clean(formData.get("readerId"));
+  const paymentId = clean(getFormValue(formData, "paymentId"));
+  const readerId = clean(getFormValue(formData, "readerId"));
 
   if (!paymentId) {
     return NextResponse.redirect(new URL("/app/payments?error=terminal_missing_payment", getBaseUrl()));
