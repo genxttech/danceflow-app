@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useRouter } from "expo-router";
 import * as Location from "expo-location";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
 import { AppText } from "@/components/AppText";
@@ -73,6 +74,7 @@ function SectionHeading({
 
 export default function DiscoverScreen() {
   const { session } = useAuth();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -402,20 +404,30 @@ export default function DiscoverScreen() {
                 }
               />
               {visibleStudios.map((studio) => (
-                <FeatureCard
+                <Pressable
                   key={studio.id}
-                  label={
-                    studio.favorited
-                      ? "Saved studio"
-                      : studio.beginnerFriendly
-                        ? "Beginner friendly"
-                        : "Studio"
-                  }
-                  title={studio.name}
-                  detail={`${studio.location}${formatDistance(studio.distanceMiles)}${
-                    studio.description ? ` · ${studio.description}` : ""
-                  }`}
-                />
+                  onPress={() =>
+  router.push({
+    pathname: "/studios/[id]",
+    params: { id: studio.id },
+  })
+}
+                  style={({ pressed }) => [pressed && styles.cardPressed]}
+                >
+                  <FeatureCard
+                    label={
+                      studio.favorited
+                        ? "Saved studio"
+                        : studio.beginnerFriendly
+                          ? "Beginner friendly"
+                          : "Studio"
+                    }
+                    title={studio.name}
+                    detail={`${studio.location}${formatDistance(studio.distanceMiles)}${
+                      studio.description ? ` · ${studio.description}` : ""
+                    } · Tap for details`}
+                  />
+                </Pressable>
               ))}
             </>
           ) : null}
@@ -431,20 +443,30 @@ export default function DiscoverScreen() {
                 }
               />
               {visibleEvents.map((event) => (
-                <FeatureCard
+                <Pressable
                   key={event.id}
-                  label={
-                    event.favorited
-                      ? "Saved event"
-                      : event.registrationRequired
-                        ? "Registration"
-                        : "Event"
-                  }
-                  title={event.name}
-                  detail={`${event.hostName} · ${event.schedule} · ${event.location}${formatDistance(
-                    event.distanceMiles
-                  )}${event.summary ? ` · ${event.summary}` : ""}`}
-                />
+                  onPress={() =>
+  router.push({
+    pathname: "/events/[id]",
+    params: { id: event.id },
+  })
+}
+                  style={({ pressed }) => [pressed && styles.cardPressed]}
+                >
+                  <FeatureCard
+                    label={
+                      event.favorited
+                        ? "Saved event"
+                        : event.registrationRequired
+                          ? "Tickets / registration"
+                          : "Event"
+                    }
+                    title={event.name}
+                    detail={`${event.hostName} · ${event.schedule} · ${event.location}${formatDistance(
+                      event.distanceMiles
+                    )}${event.summary ? ` · ${event.summary}` : ""} · Tap for details`}
+                  />
+                </Pressable>
               ))}
             </>
           ) : null}
@@ -553,6 +575,9 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 18,
     fontWeight: "900"
+  },
+  cardPressed: {
+    opacity: 0.78
   },
   errorText: {
     color: colors.danger,
