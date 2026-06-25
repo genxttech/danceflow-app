@@ -8,6 +8,11 @@ import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
+import {
+  formatScheduleTimeRange,
+  loadStudentScheduleOverview,
+  type StudentScheduleOverview
+} from "@/lib/studentSchedule";
 
 const danceFlowLogo = require("../../assets/danceflow-logo.png");
 const lumiAvatar = require("../../assets/lumi-avatar.png");
@@ -16,7 +21,9 @@ export default function HomeScreen() {
   const { session, signOut } = useAuth();
   const email = session?.user.email ?? "student";
   const [loadingAccess, setLoadingAccess] = useState(true);
+  const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
+  const [scheduleOverview, setScheduleOverview] = useState<StudentScheduleOverview | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -25,17 +32,37 @@ export default function HomeScreen() {
     if (!userId) {
       setLoadingAccess(false);
       setLinkedStudios([]);
+      setScheduleOverview(null);
       return;
     }
 
+    setLoadingAccess(true);
+
     getStudentAccess(userId)
-      .then((access) => {
+      .then(async (access) => {
         if (!mounted) return;
+
         setLinkedStudios(access.linkedStudios);
+
+        if (access.linkedStudios.length === 0) {
+          setScheduleOverview(null);
+          return;
+        }
+
+        setLoadingSchedule(true);
+
+        try {
+          const overview = await loadStudentScheduleOverview(access.linkedStudios);
+          if (!mounted) return;
+          setScheduleOverview(overview);
+        } finally {
+          if (mounted) setLoadingSchedule(false);
+        }
       })
       .catch(() => {
         if (!mounted) return;
         setLinkedStudios([]);
+        setScheduleOverview(null);
       })
       .finally(() => {
         if (!mounted) return;
@@ -49,6 +76,9 @@ export default function HomeScreen() {
 
   const primaryStudio = linkedStudios[0] ?? null;
   const hasPortalAccess = linkedStudios.length > 0;
+  const nextItem = scheduleOverview?.nextItem ?? null;
+  const pendingRequests = scheduleOverview?.bookingRequests.length ?? 0;
+  const recentCount = scheduleOverview?.recent.length ?? 0;
 
   return (
     <Screen>
@@ -73,13 +103,37 @@ export default function HomeScreen() {
         <>
           <FeatureCard
             label="Next"
-            title="Upcoming lessons"
-            detail="This area will show the student's next private lessons, classes, rentals, and event commitments."
+            title={loadingSchedule ? "Loading your schedule..." : nextItem?.title || "No upcoming lessons yet"}
+            detail={
+              loadingSchedule
+                ? "Checking your connected studio schedule."
+                : nextItem
+                  ? `${formatScheduleTimeRange(nextItem.startsAt, nextItem.endsAt, nextItem.timeZone)} · ${nextItem.studioName}`
+                  : "When your studio schedules a lesson, class, rental, or coaching, it will appear here."
+            }
           />
+
+          <View style={styles.quickGrid}>
+            <View style={styles.statCard}>
+              <AppText variant="eyebrow">Upcoming</AppText>
+              <AppText variant="title">{scheduleOverview?.upcoming.length ?? 0}</AppText>
+              <AppText variant="caption">confirmed items</AppText>
+            </View>
+            <View style={styles.statCard}>
+              <AppText variant="eyebrow">Requests</AppText>
+              <AppText variant="title">{pendingRequests}</AppText>
+              <AppText variant="caption">pending or approved</AppText>
+            </View>
+          </View>
+
           <FeatureCard
             label="Progress"
             title="Lesson recaps and syllabus"
-            detail="Connect this to journey data so students can review instructor notes, practice assignments, and skill progress."
+            detail={
+              recentCount > 0
+                ? `${recentCount} recent schedule items are ready to support recaps, notes, and LUMI guidance.`
+                : "Connect this to journey data so students can review instructor notes, practice assignments, and skill progress."
+            }
           />
         </>
       ) : (
@@ -96,6 +150,7 @@ export default function HomeScreen() {
           />
         </>
       )}
+
       <FeatureCard
         label="Favorites"
         title="Studios and events"
@@ -140,6 +195,7 @@ export default function HomeScreen() {
           </View>
         </View>
       )}
+
       <AppButton label="Sign out" onPress={signOut} variant="secondary" />
     </Screen>
   );
@@ -173,5 +229,16 @@ const styles = StyleSheet.create({
   lumiCopy: {
     flex: 1,
     gap: 8
+  },
+  quickGrid: {
+    flexDirection: "row",
+    gap: 12
+  },
+  statCard: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 18,
+    flex: 1,
+    gap: 6,
+    padding: 16
   }
 });
