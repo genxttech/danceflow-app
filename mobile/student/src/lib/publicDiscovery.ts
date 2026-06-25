@@ -4,6 +4,71 @@ function danceFlowWebUrl() {
   return (process.env.EXPO_PUBLIC_DANCEFLOW_WEB_URL ?? "https://idanceflow.com").replace(/\/$/, "");
 }
 
+
+
+export type FavoriteTargetType = "studio" | "event";
+
+export async function setPublicFavoriteForMobile({
+  favorited,
+  targetId,
+  targetType,
+  userId
+}: {
+  favorited: boolean;
+  targetId: string;
+  targetType: FavoriteTargetType;
+  userId?: string | null;
+}) {
+  if (!userId) {
+    throw new Error("Sign in to save favorites.");
+  }
+
+  const idColumn = targetType === "studio" ? "studio_id" : "event_id";
+
+  const deleteQuery = supabase
+    .from("user_favorites")
+    .delete()
+    .eq("user_id", userId)
+    .eq("target_type", targetType)
+    .eq(idColumn, targetId);
+
+  const { error: deleteError } = await deleteQuery;
+
+  if (deleteError) {
+    throw deleteError;
+  }
+
+  if (!favorited) {
+    return false;
+  }
+
+  if (targetType === "studio") {
+    const { error: insertError } = await supabase.from("user_favorites").insert({
+      user_id: userId,
+      target_type: "studio",
+      studio_id: targetId
+    });
+
+    if (insertError) {
+      throw insertError;
+    }
+
+    return true;
+  }
+
+  const { error: insertError } = await supabase.from("user_favorites").insert({
+    user_id: userId,
+    target_type: "event",
+    event_id: targetId
+  });
+
+  if (insertError) {
+    throw insertError;
+  }
+
+  return true;
+}
+
 export type PublicStudioItem = {
   id: string;
   slug: string;

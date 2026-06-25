@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth";
 import {
   getPublicEventsForMobile,
   getPublicStudiosForMobile,
+  setPublicFavoriteForMobile,
   type PublicEventItem,
   type PublicStudioItem
 } from "@/lib/publicDiscovery";
@@ -90,6 +91,8 @@ export default function DiscoverScreen() {
     latitude: number;
     longitude: number;
   } | null>(null);
+  const [favoriteBusyKey, setFavoriteBusyKey] = useState<string | null>(null);
+  const [favoriteMessage, setFavoriteMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -122,6 +125,54 @@ export default function DiscoverScreen() {
       mounted = false;
     };
   }, [session?.user.id]);
+
+  async function handleFavoriteToggle(
+    targetType: "studio" | "event",
+    targetId: string,
+    currentValue: boolean
+  ) {
+    const userId = session?.user.id ?? null;
+
+    if (!userId) {
+      setFavoriteMessage("Sign in to save studios and events.");
+      return;
+    }
+
+    const key = `${targetType}:${targetId}`;
+    setFavoriteBusyKey(key);
+    setFavoriteMessage(null);
+
+    try {
+      await setPublicFavoriteForMobile({
+        favorited: !currentValue,
+        targetId,
+        targetType,
+        userId
+      });
+
+      if (targetType === "studio") {
+        setStudios((items) =>
+          items.map((item) =>
+            item.id === targetId ? { ...item, favorited: !currentValue } : item
+          )
+        );
+      } else {
+        setEvents((items) =>
+          items.map((item) =>
+            item.id === targetId ? { ...item, favorited: !currentValue } : item
+          )
+        );
+      }
+
+      setFavoriteMessage(
+        !currentValue ? "Saved to your favorites." : "Removed from your favorites."
+      );
+    } catch {
+      setFavoriteMessage("We could not update your favorite yet. Please try again.");
+    } finally {
+      setFavoriteBusyKey(null);
+    }
+  }
 
   const favoriteStudios = studios.filter((studio) => studio.favorited);
   const favoriteEvents = events.filter((event) => event.favorited);
@@ -354,6 +405,10 @@ export default function DiscoverScreen() {
 
       {error ? <FeatureCard title="Discovery needs attention" detail={error} /> : null}
 
+      {favoriteMessage ? (
+        <FeatureCard title="Favorites" detail={favoriteMessage} />
+      ) : null}
+
       {!loading && !error ? (
         <>
           {linkedStudios.length ? (
@@ -403,32 +458,60 @@ export default function DiscoverScreen() {
                     : "A short preview. Search or use your location to see more."
                 }
               />
-              {visibleStudios.map((studio) => (
-                <Pressable
-                  key={studio.id}
-                  onPress={() =>
-  router.push({
-    pathname: "/studios/[id]",
-    params: { id: studio.id },
-  })
-}
-                  style={({ pressed }) => [pressed && styles.cardPressed]}
-                >
-                  <FeatureCard
-                    label={
-                      studio.favorited
-                        ? "Saved studio"
-                        : studio.beginnerFriendly
-                          ? "Beginner friendly"
-                          : "Studio"
-                    }
-                    title={studio.name}
-                    detail={`${studio.location}${formatDistance(studio.distanceMiles)}${
-                      studio.description ? ` · ${studio.description}` : ""
-                    } · Tap for details`}
-                  />
-                </Pressable>
-              ))}
+              {visibleStudios.map((studio) => {
+                const favoriteKey = `studio:${studio.id}`;
+                return (
+                  <View key={studio.id} style={styles.resultItem}>
+                    <Pressable
+                      onPress={() =>
+                        router.push({
+                          pathname: "/studios/[id]",
+                          params: { id: studio.id }
+                        })
+                      }
+                      style={({ pressed }) => [pressed && styles.cardPressed]}
+                    >
+                      <FeatureCard
+                        label={
+                          studio.favorited
+                            ? "Saved studio"
+                            : studio.beginnerFriendly
+                              ? "Beginner friendly"
+                              : "Studio"
+                        }
+                        title={studio.name}
+                        detail={`${studio.location}${formatDistance(studio.distanceMiles)}${
+                          studio.description ? ` · ${studio.description}` : ""
+                        } · Tap for details`}
+                      />
+                    </Pressable>
+                    <Pressable
+                      disabled={favoriteBusyKey === favoriteKey}
+                      onPress={() =>
+                        handleFavoriteToggle("studio", studio.id, studio.favorited)
+                      }
+                      style={[
+                        styles.favoriteButton,
+                        studio.favorited && styles.favoriteButtonActive,
+                        favoriteBusyKey === favoriteKey && styles.favoriteButtonDisabled
+                      ]}
+                    >
+                      <AppText
+                        style={[
+                          styles.favoriteButtonText,
+                          studio.favorited && styles.favoriteButtonTextActive
+                        ]}
+                      >
+                        {favoriteBusyKey === favoriteKey
+                          ? "Saving..."
+                          : studio.favorited
+                            ? "Saved"
+                            : "Save studio"}
+                      </AppText>
+                    </Pressable>
+                  </View>
+                );
+              })}
             </>
           ) : null}
 
@@ -442,32 +525,60 @@ export default function DiscoverScreen() {
                     : "A short preview. Search or use your location to see more."
                 }
               />
-              {visibleEvents.map((event) => (
-                <Pressable
-                  key={event.id}
-                  onPress={() =>
-  router.push({
-    pathname: "/events/[id]",
-    params: { id: event.id },
-  })
-}
-                  style={({ pressed }) => [pressed && styles.cardPressed]}
-                >
-                  <FeatureCard
-                    label={
-                      event.favorited
-                        ? "Saved event"
-                        : event.registrationRequired
-                          ? "Tickets / registration"
-                          : "Event"
-                    }
-                    title={event.name}
-                    detail={`${event.hostName} · ${event.schedule} · ${event.location}${formatDistance(
-                      event.distanceMiles
-                    )}${event.summary ? ` · ${event.summary}` : ""} · Tap for details`}
-                  />
-                </Pressable>
-              ))}
+              {visibleEvents.map((event) => {
+                const favoriteKey = `event:${event.id}`;
+                return (
+                  <View key={event.id} style={styles.resultItem}>
+                    <Pressable
+                      onPress={() =>
+                        router.push({
+                          pathname: "/events/[id]",
+                          params: { id: event.id }
+                        })
+                      }
+                      style={({ pressed }) => [pressed && styles.cardPressed]}
+                    >
+                      <FeatureCard
+                        label={
+                          event.favorited
+                            ? "Saved event"
+                            : event.registrationRequired
+                              ? "Tickets / registration"
+                              : "Event"
+                        }
+                        title={event.name}
+                        detail={`${event.hostName} · ${event.schedule} · ${event.location}${formatDistance(
+                          event.distanceMiles
+                        )}${event.summary ? ` · ${event.summary}` : ""} · Tap for details`}
+                      />
+                    </Pressable>
+                    <Pressable
+                      disabled={favoriteBusyKey === favoriteKey}
+                      onPress={() =>
+                        handleFavoriteToggle("event", event.id, event.favorited)
+                      }
+                      style={[
+                        styles.favoriteButton,
+                        event.favorited && styles.favoriteButtonActive,
+                        favoriteBusyKey === favoriteKey && styles.favoriteButtonDisabled
+                      ]}
+                    >
+                      <AppText
+                        style={[
+                          styles.favoriteButtonText,
+                          event.favorited && styles.favoriteButtonTextActive
+                        ]}
+                      >
+                        {favoriteBusyKey === favoriteKey
+                          ? "Saving..."
+                          : event.favorited
+                            ? "Saved"
+                            : "Save event"}
+                      </AppText>
+                    </Pressable>
+                  </View>
+                );
+              })}
             </>
           ) : null}
 
@@ -578,6 +689,33 @@ const styles = StyleSheet.create({
   },
   cardPressed: {
     opacity: 0.78
+  },
+  resultItem: {
+    gap: 8
+  },
+  favoriteButton: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 9
+  },
+  favoriteButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  favoriteButtonDisabled: {
+    opacity: 0.65
+  },
+  favoriteButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  favoriteButtonTextActive: {
+    color: "#fff"
   },
   errorText: {
     color: colors.danger,

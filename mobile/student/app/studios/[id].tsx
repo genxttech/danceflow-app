@@ -9,6 +9,7 @@ import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   getPublicStudioDetailForMobile,
+  setPublicFavoriteForMobile,
   type PublicStudioDetail
 } from "@/lib/publicDiscovery";
 
@@ -24,6 +25,8 @@ export default function StudioDetailScreen() {
   const [studio, setStudio] = useState<PublicStudioDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [favoriteMessage, setFavoriteMessage] = useState<string | null>(null);
+  const [savingFavorite, setSavingFavorite] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -57,6 +60,36 @@ export default function StudioDetailScreen() {
     };
   }, [studioId, session?.user.id]);
 
+  async function toggleFavorite() {
+    const userId = session?.user.id ?? null;
+
+    if (!studio || !userId) {
+      setFavoriteMessage("Sign in to save studios.");
+      return;
+    }
+
+    setSavingFavorite(true);
+    setFavoriteMessage(null);
+
+    try {
+      await setPublicFavoriteForMobile({
+        favorited: !studio.favorited,
+        targetId: studio.id,
+        targetType: "studio",
+        userId
+      });
+
+      setStudio({ ...studio, favorited: !studio.favorited });
+      setFavoriteMessage(
+        !studio.favorited ? "Studio saved to your favorites." : "Studio removed from your favorites."
+      );
+    } catch {
+      setFavoriteMessage("We could not update your favorite yet. Please try again.");
+    } finally {
+      setSavingFavorite(false);
+    }
+  }
+
   return (
     <Screen>
       <AppButton label="Back to Discover" variant="ghost" onPress={() => router.back()} />
@@ -78,6 +111,17 @@ export default function StudioDetailScreen() {
           </AppText>
           <AppText variant="title">{studio.name}</AppText>
           <AppText variant="caption">{studio.location}</AppText>
+
+          <AppButton
+            label={studio.favorited ? "Saved — remove" : "Save studio"}
+            loading={savingFavorite}
+            onPress={toggleFavorite}
+            variant={studio.favorited ? "secondary" : "primary"}
+          />
+
+          {favoriteMessage ? (
+            <FeatureCard title="Favorites" detail={favoriteMessage} />
+          ) : null}
 
           <FeatureCard
             title="About this studio"

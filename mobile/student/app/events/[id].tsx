@@ -9,6 +9,7 @@ import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   getPublicEventDetailForMobile,
+  setPublicFavoriteForMobile,
   type PublicEventDetail
 } from "@/lib/publicDiscovery";
 
@@ -25,6 +26,8 @@ export default function EventDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
+  const [favoriteMessage, setFavoriteMessage] = useState<string | null>(null);
+  const [savingFavorite, setSavingFavorite] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -58,6 +61,36 @@ export default function EventDetailScreen() {
     };
   }, [eventId, session?.user.id]);
 
+  async function toggleFavorite() {
+    const userId = session?.user.id ?? null;
+
+    if (!event || !userId) {
+      setFavoriteMessage("Sign in to save events.");
+      return;
+    }
+
+    setSavingFavorite(true);
+    setFavoriteMessage(null);
+
+    try {
+      await setPublicFavoriteForMobile({
+        favorited: !event.favorited,
+        targetId: event.id,
+        targetType: "event",
+        userId
+      });
+
+      setEvent({ ...event, favorited: !event.favorited });
+      setFavoriteMessage(
+        !event.favorited ? "Event saved to your favorites." : "Event removed from your favorites."
+      );
+    } catch {
+      setFavoriteMessage("We could not update your favorite yet. Please try again.");
+    } finally {
+      setSavingFavorite(false);
+    }
+  }
+
   async function openRegistration() {
     if (!event?.registerUrl) return;
     setOpening(true);
@@ -85,6 +118,17 @@ export default function EventDetailScreen() {
           </AppText>
           <AppText variant="title">{event.name}</AppText>
           <AppText variant="caption">{event.hostName}</AppText>
+
+          <AppButton
+            label={event.favorited ? "Saved — remove" : "Save event"}
+            loading={savingFavorite}
+            onPress={toggleFavorite}
+            variant={event.favorited ? "secondary" : "primary"}
+          />
+
+          {favoriteMessage ? (
+            <FeatureCard title="Favorites" detail={favoriteMessage} />
+          ) : null}
 
           <View style={styles.details}>
             <FeatureCard title="When" detail={event.schedule} />
