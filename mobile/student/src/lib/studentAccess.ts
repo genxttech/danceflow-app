@@ -6,6 +6,10 @@ export type LinkedStudioAccess = {
   studioSlug: string;
   studioName: string;
   studioPublicName: string | null;
+  clientFirstName: string | null;
+  clientLastName: string | null;
+  clientEmail: string | null;
+  clientPhone: string | null;
   isIndependentInstructor: boolean;
   lumiEnabled: boolean;
 };
@@ -15,6 +19,8 @@ type ClientAccessRow = {
   studio_id: string;
   first_name: string | null;
   last_name: string | null;
+  email: string | null;
+  phone: string | null;
   is_independent_instructor: boolean | null;
   studios:
     | {
@@ -45,6 +51,8 @@ export async function getStudentAccess(userId: string) {
       studio_id,
       first_name,
       last_name,
+      email,
+      phone,
       is_independent_instructor,
       studios (
         id,
@@ -95,6 +103,10 @@ export async function getStudentAccess(userId: string) {
         studioSlug: studio.slug,
         studioName: studio.name ?? "Studio",
         studioPublicName: studio.public_name,
+        clientFirstName: row.first_name,
+        clientLastName: row.last_name,
+        clientEmail: row.email,
+        clientPhone: row.phone,
         isIndependentInstructor: row.is_independent_instructor === true,
         lumiEnabled: lumiByStudioId.get(studio.id) === true
       };
