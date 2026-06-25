@@ -1,4 +1,4 @@
-import { Link } from "expo-router";
+import { Link, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import { Image, StyleSheet, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
@@ -20,7 +20,25 @@ import {
 
 const lumiAvatar = require("../../assets/lumi-avatar.png");
 
+function isPrivateLesson(item: StudentScheduleItem) {
+  const type = (item.appointmentType ?? "").toLowerCase();
+  const title = item.title.toLowerCase();
+  const subtitle = item.subtitle.toLowerCase();
+
+  return type.includes("private") || title.includes("private") || subtitle.includes("private");
+}
+
 function ScheduleItemCard({ item }: { item: StudentScheduleItem }) {
+  const router = useRouter();
+  const showLessonActions = isPrivateLesson(item);
+
+  function openAppointment(action?: "reschedule" | "cancel") {
+    router.push({
+      pathname: "/appointments/[id]",
+      params: action ? { id: item.id, action } : { id: item.id }
+    });
+  }
+
   return (
     <View style={styles.itemCard}>
       <View style={styles.itemHeader}>
@@ -32,6 +50,24 @@ function ScheduleItemCard({ item }: { item: StudentScheduleItem }) {
         {formatScheduleTimeRange(item.startsAt, item.endsAt, item.timeZone)}
       </AppText>
       <AppText variant="caption">{item.subtitle}</AppText>
+
+      {showLessonActions ? (
+        <View style={styles.actionRow}>
+          <AppButton label="View" onPress={() => openAppointment()} variant="secondary" />
+          <AppButton
+            label="Reschedule"
+            onPress={() => openAppointment("reschedule")}
+            variant="secondary"
+          />
+          <AppButton
+            label="Cancel"
+            onPress={() => openAppointment("cancel")}
+            variant="secondary"
+          />
+        </View>
+      ) : (
+        <AppButton label="View details" onPress={() => openAppointment()} variant="secondary" />
+      )}
     </View>
   );
 }
@@ -212,6 +248,12 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     gap: 7,
     padding: 14
+  },
+  actionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 6
   },
   itemHeader: {
     alignItems: "center",

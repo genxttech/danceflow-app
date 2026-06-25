@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { useRouter } from "expo-router";
+import { useRouter, Link } from "expo-router";
 import * as Location from "expo-location";
-import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { Pressable, Share, StyleSheet, TextInput, View } from "react-native";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
@@ -210,6 +211,15 @@ export default function DiscoverScreen() {
     setRadiusMiles(25);
   }
 
+  async function shareDiscoveryItem(title: string, url: string) {
+    await Share.share({
+      message: `${title}\n${url}`,
+      url,
+      title
+    });
+  }
+
+
   const filteredStudios = studios
     .map<ResultWithDistance<PublicStudioItem>>((studio) => {
       const distanceMiles =
@@ -406,7 +416,7 @@ export default function DiscoverScreen() {
       {error ? <FeatureCard title="Discovery needs attention" detail={error} /> : null}
 
       {favoriteMessage ? (
-        <FeatureCard title="Favorites" detail={favoriteMessage} />
+        <AppText variant="caption">{favoriteMessage}</AppText>
       ) : null}
 
       {!loading && !error ? (
@@ -422,21 +432,29 @@ export default function DiscoverScreen() {
           ) : null}
 
           {favoriteStudios.length || favoriteEvents.length ? (
+            <View style={styles.savedPreview}>
+              <View style={styles.savedHeader}>
+                <View style={{ flex: 1 }}>
+                  <AppText variant="eyebrow">Saved</AppText>
+                  <AppText variant="subtitle">Your favorites</AppText>
+                </View>
+                <Link href="/favorites" asChild>
+                  <Pressable style={styles.savedLink}>
+                    <AppText style={styles.savedLinkText}>View all</AppText>
+                  </Pressable>
+                </Link>
+              </View>
+              {[...favoriteStudios.slice(0, 2), ...favoriteEvents.slice(0, 2)].slice(0, 4).map((item) => (
+                <AppText key={item.id} variant="caption">♥ {item.name}</AppText>
+              ))}
+            </View>
+          ) : (
             <FeatureCard
               label="Saved"
-              title="Favorites"
-              detail={[
-                favoriteStudios.length
-                  ? `${favoriteStudios.length} saved studio${favoriteStudios.length === 1 ? "" : "s"}`
-                  : null,
-                favoriteEvents.length
-                  ? `${favoriteEvents.length} saved event${favoriteEvents.length === 1 ? "" : "s"}`
-                  : null
-              ]
-                .filter(Boolean)
-                .join(" · ")}
+              title="Save your favorites"
+              detail="Tap the heart on studios or events to keep them here."
             />
-          ) : null}
+          )}
 
           <FeatureCard
             label={hasActiveDiscoveryIntent ? "Results" : "Start here"}
@@ -485,30 +503,33 @@ export default function DiscoverScreen() {
                         } · Tap for details`}
                       />
                     </Pressable>
-                    <Pressable
-                      disabled={favoriteBusyKey === favoriteKey}
-                      onPress={() =>
-                        handleFavoriteToggle("studio", studio.id, studio.favorited)
-                      }
-                      style={[
-                        styles.favoriteButton,
-                        studio.favorited && styles.favoriteButtonActive,
-                        favoriteBusyKey === favoriteKey && styles.favoriteButtonDisabled
-                      ]}
-                    >
-                      <AppText
+                    <View style={styles.cardActions}>
+                      <Pressable
+                        accessibilityLabel={studio.favorited ? "Remove saved studio" : "Save studio"}
+                        disabled={favoriteBusyKey === favoriteKey}
+                        onPress={() =>
+                          handleFavoriteToggle("studio", studio.id, studio.favorited)
+                        }
                         style={[
-                          styles.favoriteButtonText,
-                          studio.favorited && styles.favoriteButtonTextActive
+                          styles.iconButton,
+                          studio.favorited && styles.iconButtonActive,
+                          favoriteBusyKey === favoriteKey && styles.favoriteButtonDisabled
                         ]}
                       >
-                        {favoriteBusyKey === favoriteKey
-                          ? "Saving..."
-                          : studio.favorited
-                            ? "Saved"
-                            : "Save studio"}
-                      </AppText>
-                    </Pressable>
+                        <Ionicons
+                          color={studio.favorited ? "#fff" : colors.primary}
+                          name={studio.favorited ? "heart" : "heart-outline"}
+                          size={20}
+                        />
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel="Share studio"
+                        onPress={() => shareDiscoveryItem(studio.name, studio.webUrl)}
+                        style={styles.iconButton}
+                      >
+                        <Ionicons color={colors.primary} name="share-outline" size={20} />
+                      </Pressable>
+                    </View>
                   </View>
                 );
               })}
@@ -552,30 +573,33 @@ export default function DiscoverScreen() {
                         )}${event.summary ? ` · ${event.summary}` : ""} · Tap for details`}
                       />
                     </Pressable>
-                    <Pressable
-                      disabled={favoriteBusyKey === favoriteKey}
-                      onPress={() =>
-                        handleFavoriteToggle("event", event.id, event.favorited)
-                      }
-                      style={[
-                        styles.favoriteButton,
-                        event.favorited && styles.favoriteButtonActive,
-                        favoriteBusyKey === favoriteKey && styles.favoriteButtonDisabled
-                      ]}
-                    >
-                      <AppText
+                    <View style={styles.cardActions}>
+                      <Pressable
+                        accessibilityLabel={event.favorited ? "Remove saved event" : "Save event"}
+                        disabled={favoriteBusyKey === favoriteKey}
+                        onPress={() =>
+                          handleFavoriteToggle("event", event.id, event.favorited)
+                        }
                         style={[
-                          styles.favoriteButtonText,
-                          event.favorited && styles.favoriteButtonTextActive
+                          styles.iconButton,
+                          event.favorited && styles.iconButtonActive,
+                          favoriteBusyKey === favoriteKey && styles.favoriteButtonDisabled
                         ]}
                       >
-                        {favoriteBusyKey === favoriteKey
-                          ? "Saving..."
-                          : event.favorited
-                            ? "Saved"
-                            : "Save event"}
-                      </AppText>
-                    </Pressable>
+                        <Ionicons
+                          color={event.favorited ? "#fff" : colors.primary}
+                          name={event.favorited ? "heart" : "heart-outline"}
+                          size={20}
+                        />
+                      </Pressable>
+                      <Pressable
+                        accessibilityLabel="Share event"
+                        onPress={() => shareDiscoveryItem(event.name, event.webUrl)}
+                        style={styles.iconButton}
+                      >
+                        <Ionicons color={colors.primary} name="share-outline" size={20} />
+                      </Pressable>
+                    </View>
                   </View>
                 );
               })}
@@ -693,29 +717,51 @@ const styles = StyleSheet.create({
   resultItem: {
     gap: 8
   },
-  favoriteButton: {
-    alignSelf: "flex-start",
+  cardActions: {
+    flexDirection: "row",
+    gap: 10
+  },
+  iconButton: {
+    alignItems: "center",
     backgroundColor: colors.surfaceAlt,
     borderColor: colors.border,
     borderRadius: 999,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 9
+    height: 42,
+    justifyContent: "center",
+    width: 42
   },
-  favoriteButtonActive: {
+  iconButtonActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary
   },
   favoriteButtonDisabled: {
     opacity: 0.65
   },
-  favoriteButtonText: {
+  savedHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12
+  },
+  savedLink: {
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  savedLinkText: {
     color: colors.primary,
     fontSize: 14,
     fontWeight: "900"
   },
-  favoriteButtonTextActive: {
-    color: "#fff"
+  savedPreview: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 8,
+    padding: 14
   },
   errorText: {
     color: colors.danger,

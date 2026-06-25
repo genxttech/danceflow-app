@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Linking, StyleSheet, View } from "react-native";
+import { Linking, Pressable, Share, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -91,6 +92,18 @@ export default function EventDetailScreen() {
     }
   }
 
+  async function shareEvent() {
+    if (!event) return;
+
+    const url = event.registerUrl || event.webUrl;
+
+    await Share.share({
+      title: event.name,
+      message: `${event.name}\n${url}`,
+      url
+    });
+  }
+
   async function openRegistration() {
     if (!event?.registerUrl) return;
     setOpening(true);
@@ -119,16 +132,25 @@ export default function EventDetailScreen() {
           <AppText variant="title">{event.name}</AppText>
           <AppText variant="caption">{event.hostName}</AppText>
 
-          <AppButton
-            label={event.favorited ? "Saved — remove" : "Save event"}
-            loading={savingFavorite}
-            onPress={toggleFavorite}
-            variant={event.favorited ? "secondary" : "primary"}
-          />
+          <View style={styles.iconRow}>
+            <Pressable
+              accessibilityLabel={event.favorited ? "Remove saved event" : "Save event"}
+              disabled={savingFavorite}
+              onPress={toggleFavorite}
+              style={[styles.iconButton, event.favorited && styles.iconButtonActive]}
+            >
+              <Ionicons
+                color={event.favorited ? "#fff" : colors.primary}
+                name={event.favorited ? "heart" : "heart-outline"}
+                size={22}
+              />
+            </Pressable>
+            <Pressable accessibilityLabel="Share event" onPress={shareEvent} style={styles.iconButton}>
+              <Ionicons color={colors.primary} name="share-outline" size={22} />
+            </Pressable>
+          </View>
 
-          {favoriteMessage ? (
-            <FeatureCard title="Favorites" detail={favoriteMessage} />
-          ) : null}
+          {favoriteMessage ? <AppText variant="caption">{favoriteMessage}</AppText> : null}
 
           <View style={styles.details}>
             <FeatureCard title="When" detail={event.schedule} />
@@ -160,5 +182,24 @@ export default function EventDetailScreen() {
 const styles = StyleSheet.create({
   details: {
     gap: 12
+  },
+  iconRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
+  },
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  iconButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
   }
 });

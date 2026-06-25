@@ -8,6 +8,7 @@ export type StudentScheduleItem = {
   studioSlug: string;
   title: string;
   subtitle: string;
+  appointmentType: string | null;
   status: string;
   startsAt: string;
   endsAt: string | null;
@@ -192,6 +193,7 @@ function toScheduleItem(
     studioSlug: studio.studioSlug,
     title,
     subtitle: details || typeLabel,
+    appointmentType: row.appointment_type,
     status: row.status || "scheduled",
     startsAt: row.starts_at,
     endsAt: row.ends_at,

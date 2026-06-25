@@ -7,6 +7,7 @@ import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { getPublicEventsForMobile, getPublicStudiosForMobile, type PublicEventItem, type PublicStudioItem } from "@/lib/publicDiscovery";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
   formatScheduleTimeRange,
@@ -24,6 +25,8 @@ export default function HomeScreen() {
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [scheduleOverview, setScheduleOverview] = useState<StudentScheduleOverview | null>(null);
+  const [favoriteStudios, setFavoriteStudios] = useState<PublicStudioItem[]>([]);
+  const [favoriteEvents, setFavoriteEvents] = useState<PublicEventItem[]>([]);
 
   useEffect(() => {
     let mounted = true;
@@ -33,10 +36,27 @@ export default function HomeScreen() {
       setLoadingAccess(false);
       setLinkedStudios([]);
       setScheduleOverview(null);
+      setFavoriteStudios([]);
+      setFavoriteEvents([]);
       return;
     }
 
     setLoadingAccess(true);
+
+    Promise.all([
+      getPublicStudiosForMobile(userId),
+      getPublicEventsForMobile(userId)
+    ])
+      .then(([studios, events]) => {
+        if (!mounted) return;
+        setFavoriteStudios(studios.filter((studio) => studio.favorited).slice(0, 3));
+        setFavoriteEvents(events.filter((event) => event.favorited).slice(0, 3));
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setFavoriteStudios([]);
+        setFavoriteEvents([]);
+      });
 
     getStudentAccess(userId)
       .then(async (access) => {
@@ -79,6 +99,7 @@ export default function HomeScreen() {
   const nextItem = scheduleOverview?.nextItem ?? null;
   const pendingRequests = scheduleOverview?.bookingRequests.length ?? 0;
   const recentCount = scheduleOverview?.recent.length ?? 0;
+  const favoritePreview = [...favoriteStudios, ...favoriteEvents].slice(0, 4);
 
   return (
     <Screen>
@@ -151,11 +172,28 @@ export default function HomeScreen() {
         </>
       )}
 
-      <FeatureCard
-        label="Favorites"
-        title="Studios and events"
-        detail="Saved studios, events, and registrations stay available whether you are connected to a studio yet or still exploring."
-      />
+      <View style={styles.savedCard}>
+        <View style={styles.savedHeader}>
+          <View style={{ flex: 1 }}>
+            <AppText variant="eyebrow">Saved</AppText>
+            <AppText variant="subtitle">
+              {favoritePreview.length ? "Your favorite studios and events" : "Save studios and events"}
+            </AppText>
+          </View>
+          <Link href="/favorites" asChild>
+            <AppButton label="View all" variant="secondary" />
+          </Link>
+        </View>
+        {favoritePreview.length ? (
+          favoritePreview.map((item) => (
+            <AppText key={item.id} variant="caption">♥ {item.name}</AppText>
+          ))
+        ) : (
+          <AppText variant="caption">
+            Tap the heart on studios and events in Discover to keep them here.
+          </AppText>
+        )}
+      </View>
 
       {hasPortalAccess ? (
         <View style={styles.lumiCard}>
@@ -229,6 +267,19 @@ const styles = StyleSheet.create({
   lumiCopy: {
     flex: 1,
     gap: 8
+  },
+  savedCard: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 8,
+    padding: 16
+  },
+  savedHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12
   },
   quickGrid: {
     flexDirection: "row",

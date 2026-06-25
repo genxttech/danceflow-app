@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, Share, StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -90,6 +91,16 @@ export default function StudioDetailScreen() {
     }
   }
 
+  async function shareStudio() {
+    if (!studio) return;
+
+    await Share.share({
+      title: studio.name,
+      message: `${studio.name}\n${studio.webUrl}`,
+      url: studio.webUrl
+    });
+  }
+
   return (
     <Screen>
       <AppButton label="Back to Discover" variant="ghost" onPress={() => router.back()} />
@@ -112,16 +123,25 @@ export default function StudioDetailScreen() {
           <AppText variant="title">{studio.name}</AppText>
           <AppText variant="caption">{studio.location}</AppText>
 
-          <AppButton
-            label={studio.favorited ? "Saved — remove" : "Save studio"}
-            loading={savingFavorite}
-            onPress={toggleFavorite}
-            variant={studio.favorited ? "secondary" : "primary"}
-          />
+          <View style={styles.iconRow}>
+            <Pressable
+              accessibilityLabel={studio.favorited ? "Remove saved studio" : "Save studio"}
+              disabled={savingFavorite}
+              onPress={toggleFavorite}
+              style={[styles.iconButton, studio.favorited && styles.iconButtonActive]}
+            >
+              <Ionicons
+                color={studio.favorited ? "#fff" : colors.primary}
+                name={studio.favorited ? "heart" : "heart-outline"}
+                size={22}
+              />
+            </Pressable>
+            <Pressable accessibilityLabel="Share studio" onPress={shareStudio} style={styles.iconButton}>
+              <Ionicons color={colors.primary} name="share-outline" size={22} />
+            </Pressable>
+          </View>
 
-          {favoriteMessage ? (
-            <FeatureCard title="Favorites" detail={favoriteMessage} />
-          ) : null}
+          {favoriteMessage ? <AppText variant="caption">{favoriteMessage}</AppText> : null}
 
           <FeatureCard
             title="About this studio"
@@ -130,9 +150,7 @@ export default function StudioDetailScreen() {
 
           <View style={styles.sectionHeading}>
             <AppText style={styles.sectionTitle}>Upcoming events</AppText>
-            <AppText variant="caption">
-              Tap an event to see details or register.
-            </AppText>
+            <AppText variant="caption">Tap an event to see details or register.</AppText>
           </View>
 
           {studio.upcomingEvents.length ? (
@@ -140,11 +158,11 @@ export default function StudioDetailScreen() {
               <Pressable
                 key={event.id}
                 onPress={() =>
-  router.push({
-    pathname: "/events/[id]",
-    params: { id: event.id },
-  })
-}
+                  router.push({
+                    pathname: "/events/[id]",
+                    params: { id: event.id }
+                  })
+                }
                 style={({ pressed }) => [pressed && styles.cardPressed]}
               >
                 <FeatureCard
@@ -179,5 +197,24 @@ const styles = StyleSheet.create({
   },
   cardPressed: {
     opacity: 0.78
+  },
+  iconRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10
+  },
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  iconButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
   }
 });
