@@ -1,6 +1,7 @@
 import type React from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { ScrollView, StyleSheet, View, type ViewStyle } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { colors } from "@/constants/theme";
 
 type ScreenProps = {
@@ -12,25 +13,35 @@ type ScreenProps = {
 export function Screen({ children, scroll = true, style }: ScreenProps) {
   if (!scroll) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={[styles.content, style]}>{children}</View>
-      </SafeAreaView>
+      <LinearGradient colors={colors.appBackgroundGradient} style={styles.gradient}>
+        <SafeAreaView style={styles.safe}>
+          <View style={[styles.content, style]}>{children}</View>
+        </SafeAreaView>
+      </LinearGradient>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <ScrollView contentContainerStyle={[styles.content, style]}>
-        {children}
-      </ScrollView>
-    </SafeAreaView>
+    <LinearGradient colors={colors.appBackgroundGradient} style={styles.gradient}>
+      <SafeAreaView style={styles.safe}>
+        <ScrollView
+          contentContainerStyle={[styles.content, style]}
+          keyboardShouldPersistTaps="handled"
+        >
+          {children}
+        </ScrollView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
+  gradient: {
+    flex: 1
+  },
   safe: {
     flex: 1,
-    backgroundColor: colors.background
+    backgroundColor: "transparent"
   },
   content: {
     flexGrow: 1,

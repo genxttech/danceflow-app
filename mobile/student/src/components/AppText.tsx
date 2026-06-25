@@ -14,13 +14,15 @@ const styles = StyleSheet.create({
     color: colors.text
   },
   title: {
+    color: colors.white,
     fontSize: 30,
-    fontWeight: "800",
+    fontWeight: "900",
     lineHeight: 36
   },
   subtitle: {
+    color: colors.white,
     fontSize: 20,
-    fontWeight: "700",
+    fontWeight: "800",
     lineHeight: 26
   },
   body: {
@@ -35,8 +37,8 @@ const styles = StyleSheet.create({
   eyebrow: {
     color: colors.accent,
     fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 3,
+    fontWeight: "900",
+    letterSpacing: 2.6,
     textTransform: "uppercase"
   }
 });
