@@ -31,7 +31,7 @@ export default function SignInScreen() {
       await signIn(email.trim(), password);
       router.replace("/(tabs)/home");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign in failed.");
+      setError("We could not sign you in. Check your email and password, then try again.");
     } finally {
       setSubmitting(false);
     }

@@ -92,7 +92,7 @@ export default function HomeScreen() {
         <AppText variant="title">Today</AppText>
         <AppText variant="caption">
           {loadingAccess
-            ? "Loading your DanceFlow access..."
+            ? "Loading your DanceFlow..."
             : hasPortalAccess
               ? `${email} · ${primaryStudio?.studioPublicName || primaryStudio?.studioName}`
               : `${email} · Dancer account`}
@@ -141,12 +141,12 @@ export default function HomeScreen() {
           <FeatureCard
             label="Explore"
             title="Find studios and events"
-            detail="Browse public studios, save favorites, and discover events without needing a studio portal connection."
+            detail="Browse public studios, save favorites, and discover events before joining a studio."
           />
           <FeatureCard
             label="Get started"
             title="Connect with a studio"
-            detail="Once a studio links your portal, DanceFlow can show lessons, packages, recaps, syllabus progress, and LUMI."
+            detail="Once your studio connects your DanceFlow account, you can see lessons, packages, recaps, syllabus progress, and LUMI."
           />
         </>
       )}
@@ -154,7 +154,7 @@ export default function HomeScreen() {
       <FeatureCard
         label="Favorites"
         title="Studios and events"
-        detail="Saved studios, events, and registrations will stay available whether or not you are linked to a studio."
+        detail="Saved studios, events, and registrations stay available whether you are connected to a studio yet or still exploring."
       />
 
       {hasPortalAccess ? (
@@ -187,9 +187,9 @@ export default function HomeScreen() {
           />
           <View style={styles.lumiCopy}>
             <AppText variant="eyebrow">LUMI</AppText>
-            <AppText variant="title">Unlock with a studio portal</AppText>
+            <AppText variant="title">Connect with your studio</AppText>
             <AppText variant="caption">
-              LUMI becomes available when a studio connects your DanceFlow portal,
+              LUMI becomes available when your studio connects your DanceFlow account,
               so it can personalize help from real lesson and progress data.
             </AppText>
           </View>

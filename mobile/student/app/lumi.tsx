@@ -82,8 +82,8 @@ export default function LumiScreen() {
           />
           <View style={styles.cardCopy}>
             <AppText variant="eyebrow">LUMI</AppText>
-            <AppText variant="title">Checking access</AppText>
-            <AppText variant="caption">Loading your linked studio portal access.</AppText>
+            <AppText variant="title">Getting LUMI ready</AppText>
+            <AppText variant="caption">Checking your studio connection.</AppText>
           </View>
         </View>
       </Screen>
@@ -104,8 +104,8 @@ export default function LumiScreen() {
             <AppText variant="eyebrow">LUMI</AppText>
             <AppText variant="title">Connect a studio to unlock LUMI</AppText>
             <AppText variant="caption">
-              LUMI uses your studio-linked lessons, recaps, syllabus progress, memberships,
-              packages, and event activity. Ask your studio to connect your DanceFlow portal.
+              LUMI uses your lessons, recaps, syllabus progress, memberships,
+              packages, and event activity. Ask your studio to connect your DanceFlow account.
             </AppText>
           </View>
         </View>
@@ -127,7 +127,7 @@ export default function LumiScreen() {
             <AppText variant="eyebrow">LUMI</AppText>
             <AppText variant="title">LUMI is not enabled for this studio yet</AppText>
             <AppText variant="caption">
-              Your portal is connected, but LUMI access depends on the studio's DanceFlow settings.
+              Your studio connection is ready, but LUMI is not enabled for this studio yet.
             </AppText>
           </View>
         </View>
@@ -161,7 +161,7 @@ export default function LumiScreen() {
       <View style={styles.contextCard}>
         <AppText variant="eyebrow">Context LUMI can use</AppText>
         <AppText variant="subtitle">
-          {primaryStudio?.studioPublicName || primaryStudio?.studioName || "Linked studio"}
+          {primaryStudio?.studioPublicName || primaryStudio?.studioName || "Your studio"}
         </AppText>
         <AppText variant="caption">
           {latestLesson

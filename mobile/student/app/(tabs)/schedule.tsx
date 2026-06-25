@@ -125,7 +125,7 @@ export default function ScheduleScreen() {
         <>
           <FeatureCard
             title="Connect with a studio"
-            detail="Once a studio links your portal, your lessons, classes, rentals, and booking requests will appear here."
+            detail="Once your studio connects your DanceFlow account, your lessons, classes, rentals, and booking requests will appear here."
           />
           <Link href="/(tabs)/discover" asChild>
             <AppButton label="Find studios and events" />
@@ -172,7 +172,7 @@ export default function ScheduleScreen() {
           ) : (
             <FeatureCard
               title="No active booking requests"
-              detail="Booking requests from your portal will show here while your studio reviews them."
+              detail="Booking requests will show here while your studio reviews them."
             />
           )}
 

@@ -9,12 +9,20 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.idanceflow.student"
+      "bundleIdentifier": "com.idanceflow.student",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "DanceFlow uses your location to find nearby studios and events."
+      }
     },
     "android": {
       "package": "com.idanceflow.student",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
       "adaptiveIcon": {
-        "backgroundColor": "#071427"
+        "backgroundColor": "#071427",
+        "foregroundImage": "./assets/danceflow-logo.png"
       }
     },
     "plugins": [
@@ -28,6 +36,12 @@
       "eas": {
         "projectId": ""
       }
+    },
+    "icon": "./assets/danceflow-logo.png",
+    "splash": {
+      "image": "./assets/danceflow-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#071427"
     }
   }
 }

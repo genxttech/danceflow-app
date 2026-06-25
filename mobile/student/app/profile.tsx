@@ -98,7 +98,7 @@ export default function ProfileScreen() {
       setProfiles(nextProfiles);
       setSelectedClientId(nextProfiles[0]?.clientId ?? null);
     } catch {
-      setErrorMessage("Your profile could not be loaded. Try again in a moment.");
+      setErrorMessage("We could not load your profile yet. Try again in a moment.");
     } finally {
       setLoading(false);
     }
@@ -115,7 +115,7 @@ export default function ProfileScreen() {
       await updateStudentProfile(selectedProfile);
       setMessage("Profile updated.");
     } catch {
-      setErrorMessage("Your profile could not be saved. Try again or contact your studio.");
+      setErrorMessage("We could not save your changes yet. Try again or contact your studio.");
     } finally {
       setSaving(false);
     }
@@ -134,15 +134,15 @@ export default function ProfileScreen() {
       <AppText variant="title">My information</AppText>
       <AppText variant="caption">Keep your studio contact information and dance interests up to date.</AppText>
 
-      {loading ? <FeatureCard title="Loading profile..." detail="Checking your connected studio profile." /> : null}
+      {loading ? <FeatureCard title="Loading your profile..." detail="Loading your profile." /> : null}
 
-      {!loading && errorMessage ? <FeatureCard title="Profile unavailable" detail={errorMessage} /> : null}
+      {!loading && errorMessage ? <FeatureCard title="Profile not available yet" detail={errorMessage} /> : null}
       {!loading && message ? <FeatureCard title="Saved" detail={message} /> : null}
 
       {!loading && !linkedStudios.length ? (
         <FeatureCard
-          title="Profile unlocks after portal connection"
-          detail="A studio needs to link your DanceFlow portal before you can manage your student profile in the app."
+          title="Connect with your studio"
+          detail="Your studio needs to connect your DanceFlow account before you can manage your student profile in the app."
         />
       ) : null}
 
@@ -166,7 +166,7 @@ export default function ProfileScreen() {
 
           <FeatureCard
             title={selectedProfile.studioName}
-            detail="Changes update your student record for this studio. Your login email may need to be changed from the web portal."
+            detail="Updates are shared with this studio. Email changes may need to be handled from your web account."
           />
 
           <View style={styles.row}>

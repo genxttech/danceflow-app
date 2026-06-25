@@ -51,7 +51,7 @@ function StudentPassCard({ linkedStudios }: { linkedStudios: LinkedStudioAccess[
   const primary = linkedStudios[0];
   const qrUrl = studentPassQrUrl(linkedStudios);
   const name = studentDisplayName(linkedStudios);
-  const studioName = primary?.studioPublicName || primary?.studioName || "Linked studio";
+  const studioName = primary?.studioPublicName || primary?.studioName || "Connected studio";
 
   return (
     <View style={styles.passCard}>
@@ -235,8 +235,8 @@ export default function WalletScreen() {
 
       {!loading && !hasPortalAccess ? (
         <FeatureCard
-          title="Studio wallet unlocks after portal connection"
-          detail="Memberships, lesson packages, and studio-linked tickets appear after a studio links your DanceFlow portal."
+          title="Connect with your studio"
+          detail="Memberships, lesson packages, and tickets appear here after your studio connects your DanceFlow account."
         />
       ) : null}
 
