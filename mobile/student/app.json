@@ -11,8 +11,11 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.idanceflow.student",
       "infoPlist": {
-        "NSLocationWhenInUseUsageDescription": "DanceFlow uses your location to find nearby studios and events."
-      }
+        "NSLocationWhenInUseUsageDescription": "DanceFlow uses your location to find nearby studios and events.",
+        "NSUserNotificationsUsageDescription": "DanceFlow sends reminders for lessons, tickets, events, and saved studio updates when you enable notifications.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "usesAppleSignIn": false
     },
     "android": {
       "package": "com.idanceflow.student",
@@ -24,7 +27,8 @@
       "adaptiveIcon": {
         "backgroundColor": "#071427",
         "foregroundImage": "./assets/danceflow-logo.png"
-      }
+      },
+      "versionCode": 1
     },
     "plugins": [
       "expo-router",
@@ -36,14 +40,23 @@
     },
     "extra": {
       "eas": {
-        "projectId": ""
-      }
+        "projectId": "122aaca5-d8eb-4ad9-84bc-f05c0e3bb8d1"
+      },
+      "router": {}
     },
     "icon": "./assets/danceflow-logo.png",
     "splash": {
       "image": "./assets/danceflow-logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#071427"
-    }
+    },
+    "description": "DanceFlow helps dancers discover studios and events, keep tickets handy, view their schedule, track their learning, and get support from LUMI.",
+    "privacy": "unlisted",
+    "notification": {
+      "icon": "./assets/danceflow-logo.png",
+      "color": "#FF4FA3",
+      "iosDisplayInForeground": true
+    },
+    "owner": "idanceflow"
   }
 }
