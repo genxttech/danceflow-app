@@ -1,17 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
-import * as Notifications from "expo-notifications";
 import { supabase } from "@/lib/supabase";
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: false,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true
-  })
-});
 
 export type NotificationPreferences = {
   pushEnabled: boolean;
@@ -39,6 +29,33 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
   learningUpdates: false,
   accountUpdates: true
 };
+
+let notificationHandlerConfigured = false;
+
+function isExpoGo() {
+  return Constants.appOwnership === "expo";
+}
+
+async function getNotificationsModule() {
+  if (isExpoGo()) return null;
+
+  const Notifications = await import("expo-notifications");
+
+  if (!notificationHandlerConfigured) {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldPlaySound: false,
+        shouldSetBadge: true,
+        shouldShowBanner: true,
+        shouldShowList: true
+      })
+    });
+
+    notificationHandlerConfigured = true;
+  }
+
+  return Notifications;
+}
 
 function toPreferenceRow(userId: string, preferences: NotificationPreferences) {
   return {
@@ -70,11 +87,23 @@ function projectId() {
 }
 
 export async function getNotificationPermissionStatus() {
+  const Notifications = await getNotificationsModule();
+
+  if (!Notifications) {
+    return "development_build_required";
+  }
+
   const current = await Notifications.getPermissionsAsync();
   return current.status;
 }
 
 export async function requestNotificationPermission() {
+  const Notifications = await getNotificationsModule();
+
+  if (!Notifications) {
+    return false;
+  }
+
   const current = await Notifications.getPermissionsAsync();
 
   if (current.granted) {
@@ -86,6 +115,12 @@ export async function requestNotificationPermission() {
 }
 
 export async function registerPushToken(userId: string, askPermission = false) {
+  const Notifications = await getNotificationsModule();
+
+  if (!Notifications) {
+    return null;
+  }
+
   const status = await Notifications.getPermissionsAsync();
 
   if (!status.granted) {
@@ -187,7 +222,7 @@ export function usePushNotificationBootstrap(userId: string | null | undefined) 
 
 export function useNotificationPreferences(userId: string | null | undefined) {
   const [preferences, setPreferences] = useState<NotificationPreferences>(DEFAULT_PREFERENCES);
-  const [permissionStatus, setPermissionStatus] = useState<string>("undetermined");
+  const [permissionStatus, setPermissionStatus] = useState<string>(isExpoGo() ? "development_build_required" : "undetermined");
   const [loading, setLoading] = useState(Boolean(userId));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -243,6 +278,12 @@ export function useNotificationPreferences(userId: string | null | undefined) {
     setMessage(null);
 
     try {
+      if (isExpoGo()) {
+        setPermissionStatus("development_build_required");
+        setMessage("Push notifications require a DanceFlow development build.");
+        return;
+      }
+
       const token = await registerPushToken(userId, true);
       const status = await getNotificationPermissionStatus();
       setPermissionStatus(status);
