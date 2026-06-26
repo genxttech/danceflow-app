@@ -1,4 +1,4 @@
-import { Link, router } from "expo-router";
+import { router } from "expo-router";
 import { useState } from "react";
 import {
   Image,
@@ -17,21 +17,22 @@ import { useAuth } from "@/lib/auth";
 const danceFlowLogo = require("../../assets/danceflow-logo.png");
 
 export default function SignInScreen() {
-  const { signIn } = useAuth();
+  const { continueWithEmail } = useAuth();
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit() {
+  async function handleContinue() {
     setError(null);
+    setMessage(null);
     setSubmitting(true);
 
     try {
-      await signIn(email.trim(), password);
-      router.replace("/(tabs)/home");
+      await continueWithEmail(email);
+      setMessage("Check your email. Open the secure link to continue in DanceFlow.");
     } catch (_err) {
-      setError("We could not sign you in. Check your email and password, then try again.");
+      setError("We could not send that link yet. Check your email address and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -51,13 +52,29 @@ export default function SignInScreen() {
             style={styles.logo}
           />
           <AppText variant="eyebrow">DanceFlow</AppText>
-          <AppText variant="title">Welcome back</AppText>
+          <AppText variant="title">Find your next dance moment</AppText>
           <AppText variant="caption">
-            Sign in to keep your schedule, tickets, favorites, progress, and LUMI in one place.
+            Discover studios and events without an account. Continue with email when you want to save favorites, keep tickets handy, or connect with your studio.
           </AppText>
         </View>
 
         <View style={styles.form}>
+          <AppButton
+            label="Start exploring"
+            onPress={() => router.replace("/(tabs)/discover")}
+          />
+
+          <View style={styles.dividerRow}>
+            <View style={styles.divider} />
+            <AppText style={styles.dividerText}>or</AppText>
+            <View style={styles.divider} />
+          </View>
+
+          <AppText variant="subtitle">Continue with email</AppText>
+          <AppText variant="caption">
+            New or returning, use your email and we’ll send a secure link. No password needed.
+          </AppText>
+
           <TextInput
             autoCapitalize="none"
             autoComplete="email"
@@ -69,32 +86,17 @@ export default function SignInScreen() {
             textContentType="emailAddress"
             value={email}
           />
-          <TextInput
-            autoCapitalize="none"
-            onChangeText={setPassword}
-            placeholder="Password"
-            placeholderTextColor={colors.muted}
-            secureTextEntry
-            style={styles.input}
-            textContentType="password"
-            value={password}
-          />
-          {error ? <AppText style={styles.error}>{error}</AppText> : null}
-          <AppButton
-            disabled={!email.trim() || !password}
-            label="Sign in"
-            loading={submitting}
-            onPress={handleSubmit}
-          />
 
-          <View style={styles.links}>
-            <Link href="/(auth)/reset-password" style={styles.link}>
-              Forgot password?
-            </Link>
-            <Link href="/(auth)/sign-up" style={styles.linkStrong}>
-              Create DanceFlow account
-            </Link>
-          </View>
+          {message ? <AppText style={styles.success}>{message}</AppText> : null}
+          {error ? <AppText style={styles.error}>{error}</AppText> : null}
+
+          <AppButton
+            disabled={!email.trim()}
+            label="Send secure link"
+            loading={submitting}
+            onPress={handleContinue}
+            variant="secondary"
+          />
         </View>
       </KeyboardAvoidingView>
     </Screen>
@@ -129,24 +131,26 @@ const styles = StyleSheet.create({
     minHeight: 52,
     paddingHorizontal: 14
   },
+  dividerRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 12,
+    marginVertical: 6
+  },
+  divider: {
+    backgroundColor: colors.border,
+    flex: 1,
+    height: 1
+  },
+  dividerText: {
+    color: colors.muted,
+    fontSize: 13,
+    fontWeight: "700"
+  },
+  success: {
+    color: colors.success
+  },
   error: {
     color: colors.danger
-  },
-  links: {
-    alignItems: "center",
-    gap: 12,
-    marginTop: 8
-  },
-  link: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: "700",
-    textAlign: "center"
-  },
-  linkStrong: {
-    color: colors.accent,
-    fontSize: 15,
-    fontWeight: "800",
-    textAlign: "center"
   }
 });

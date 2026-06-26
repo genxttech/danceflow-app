@@ -1,8 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Redirect, Tabs } from "expo-router";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { Tabs } from "expo-router";
+import { StyleSheet } from "react-native";
 import { colors } from "@/constants/theme";
-import { useAuth } from "@/lib/auth";
 
 type TabIconName =
   | "home-outline"
@@ -18,20 +17,6 @@ function tabIcon(name: TabIconName) {
 }
 
 export default function TabsLayout() {
-  const { loading, session } = useAuth();
-
-  if (loading) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator color={colors.primary} size="large" />
-      </View>
-    );
-  }
-
-  if (!session) {
-    return <Redirect href="/(auth)/sign-in" />;
-  }
-
   return (
     <Tabs
       screenOptions={{
@@ -66,12 +51,6 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  loading: {
-    alignItems: "center",
-    backgroundColor: colors.background,
-    flex: 1,
-    justifyContent: "center"
-  },
   tabBar: {
     borderTopColor: colors.border
   }

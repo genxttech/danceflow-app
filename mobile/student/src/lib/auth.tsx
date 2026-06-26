@@ -7,93 +7,128 @@ import {
   useMemo,
   useState
 } from "react";
+import * as Linking from "expo-linking";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-
-type SignUpInput = {
-  email: string;
-  password: string;
-  firstName: string;
-  lastName: string;
-};
-
-type SignUpResult = {
-  emailConfirmationRequired: boolean;
-};
 
 type AuthContextValue = {
   session: Session | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (input: SignUpInput) => Promise<SignUpResult>;
+  continueWithEmail: (email: string) => Promise<void>;
+  handleAuthUrl: (url: string) => Promise<boolean>;
   sendPasswordReset: (email: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function cleanName(value: string) {
-  return value.trim().replace(/\s+/g, " ");
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function extractAuthParams(url: string) {
+  const normalized = url.replace("#", "?");
+
+  try {
+    const parsed = new URL(normalized);
+    return {
+      code: parsed.searchParams.get("code"),
+      accessToken: parsed.searchParams.get("access_token"),
+      refreshToken: parsed.searchParams.get("refresh_token")
+    };
+  } catch (_error) {
+    return {
+      code: null,
+      accessToken: null,
+      refreshToken: null
+    };
+  }
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const handleAuthUrl = useCallback(async (url: string) => {
+    const { code, accessToken, refreshToken } = extractAuthParams(url);
+
+    if (code) {
+      const { error } = await supabase.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+      return true;
+    }
+
+    if (accessToken && refreshToken) {
+      const { error } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken
+      });
+      if (error) throw error;
+      return true;
+    }
+
+    return false;
+  }, []);
+
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session);
-      setLoading(false);
-    });
+    async function bootstrap() {
+      try {
+        const initialUrl = await Linking.getInitialURL();
+        if (initialUrl) {
+          await handleAuthUrl(initialUrl);
+        }
 
-    const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+        const { data } = await supabase.auth.getSession();
+        if (!mounted) return;
+        setSession(data.session);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    bootstrap();
+
+    const authSubscription = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       setLoading(false);
+    }).data.subscription;
+
+    const urlSubscription = Linking.addEventListener("url", async ({ url }) => {
+      try {
+        await handleAuthUrl(url);
+      } catch (_error) {
+        // The sign-in screen will let the dancer request a fresh link.
+      }
     });
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
+      authSubscription.unsubscribe();
+      urlSubscription.remove();
     };
-  }, []);
+  }, [handleAuthUrl]);
 
-  const signIn = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
-  }, []);
+  const continueWithEmail = useCallback(async (email: string) => {
+    const redirectTo = Linking.createURL("auth/callback");
 
-  const signUp = useCallback(async (input: SignUpInput): Promise<SignUpResult> => {
-    const firstName = cleanName(input.firstName);
-    const lastName = cleanName(input.lastName);
-    const fullName = [firstName, lastName].filter(Boolean).join(" ");
-
-    const { data, error } = await supabase.auth.signUp({
-      email: input.email.trim().toLowerCase(),
-      password: input.password,
+    const { error } = await supabase.auth.signInWithOtp({
+      email: normalizeEmail(email),
       options: {
+        emailRedirectTo: redirectTo,
+        shouldCreateUser: true,
         data: {
-          first_name: firstName,
-          last_name: lastName,
-          full_name: fullName,
           app_origin: "danceflow_mobile"
         }
       }
     });
 
     if (error) throw error;
-
-    return {
-      emailConfirmationRequired: !data.session
-    };
   }, []);
 
   const sendPasswordReset = useCallback(async (email: string) => {
-    const { error } = await supabase.auth.resetPasswordForEmail(email);
+    const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email));
     if (error) throw error;
   }, []);
 
@@ -103,8 +138,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ session, loading, signIn, signUp, sendPasswordReset, signOut }),
-    [loading, sendPasswordReset, session, signIn, signOut, signUp]
+    () => ({ session, loading, continueWithEmail, handleAuthUrl, sendPasswordReset, signOut }),
+    [continueWithEmail, handleAuthUrl, loading, sendPasswordReset, session, signOut]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
