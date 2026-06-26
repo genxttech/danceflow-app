@@ -14,6 +14,10 @@ import {
   isAllowedOptionValue,
   normalizeOptionValue,
 } from "@/lib/forms/options";
+import {
+  sendEventUpdatedPush,
+  sendFavoriteNewEventPush,
+} from "@/lib/notifications/eventPush";
 
 type ActionState = {
   error?: string;
@@ -1215,6 +1219,9 @@ async function replaceEventStyles(params: {
   const existingStyleKeys = new Set(
     (existingRows ?? []).map((row) => String(row.style_key)),
   );
+  const styleKeysToAdd = styleKeys.filter(
+    (styleKey) => !existingStyleKeys.has(styleKey),
+  );
 
   const styleKeysToRemove = (existingRows ?? [])
     .filter((row) => !styleKeys.includes(String(row.style_key)))
@@ -1233,11 +1240,11 @@ async function replaceEventStyles(params: {
     }
   }
 
-  if (styleKeys.length === 0) {
+  if (styleKeysToAdd.length === 0) {
     return;
   }
 
-  const rows = styleKeys.map((styleKey) => ({
+  const rows = styleKeysToAdd.map((styleKey) => ({
     event_id: eventId,
     style_key: styleKey,
     display_name:
@@ -1245,14 +1252,12 @@ async function replaceEventStyles(params: {
       styleKey,
   }));
 
-  const { error: upsertError } = await supabase
+  const { error: insertError } = await supabase
     .from("event_public_styles")
-    .upsert(rows, {
-      onConflict: "event_id,style_key",
-    });
+    .insert(rows);
 
-  if (upsertError) {
-    throw new Error(`Failed to save event styles: ${upsertError.message}`);
+  if (insertError) {
+    throw new Error(`Failed to save event styles: ${insertError.message}`);
   }
 }
 
@@ -2412,6 +2417,12 @@ export async function createEventAction(
         timezone: effectivePayload.timezone,
       });
     }
+
+    await sendFavoriteNewEventPush({
+      supabase,
+      eventId: event.id,
+      studioId,
+    });
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
@@ -2478,7 +2489,7 @@ export async function updateEventAction(
 
     const { data: existingEvent, error: existingEventError } = await supabase
       .from("events")
-      .select("id, cover_image_url, public_cover_image_url")
+      .select("id, cover_image_url, public_cover_image_url, status, visibility, public_directory_enabled")
       .eq("id", id)
       .eq("studio_id", studioId)
       .single();
@@ -2606,6 +2617,30 @@ export async function updateEventAction(
         timezone: effectivePayload.timezone,
       });
     }
+
+    const wasPublicDiscoverable =
+      existingEvent.status === "published" &&
+      (existingEvent.visibility === "public" ||
+        existingEvent.public_directory_enabled === true);
+
+    const isNowPublicDiscoverable =
+      effectivePayload.status === "published" &&
+      (effectivePayload.visibility === "public" ||
+        effectivePayload.publicDirectoryEnabled === true);
+
+    if (!wasPublicDiscoverable && isNowPublicDiscoverable) {
+      await sendFavoriteNewEventPush({
+        supabase,
+        eventId: id,
+        studioId,
+      });
+    }
+
+    await sendEventUpdatedPush({
+      supabase,
+      eventId: id,
+      studioId,
+    });
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",

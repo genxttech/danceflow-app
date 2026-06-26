@@ -11,6 +11,7 @@ import {
   buildEventWaitlistEmailTemplate,
   buildEventWaitlistSmsTemplate,
 } from "@/lib/notifications/templates";
+import { sendEventRegistrationPush } from "@/lib/notifications/eventPush";
 
 type StudioSubscriptionPlanRow = {
   status: string | null;
@@ -1073,6 +1074,12 @@ export async function createEventRegistrationAction(
         quantity,
         totalPrice,
         currency,
+      });
+
+      await sendEventRegistrationPush({
+        supabase,
+        registrationId: registration.id,
+        reason: "ticket_ready",
       });
 
       redirect(eventUrlWithQuery(event.slug, "success", "registered"));

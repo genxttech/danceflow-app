@@ -5,6 +5,7 @@ import {
   buildEventConfirmedEmailTemplate,
   buildEventConfirmedSmsTemplate,
 } from "@/lib/notifications/templates";
+import { sendEventRegistrationPush } from "@/lib/notifications/eventPush";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -196,6 +197,11 @@ async function queueUpcomingEventReminders() {
         relatedTable: "event_registrations",
         relatedId: row.id,
         dedupeKey: `event_registration_reminder_24h:sms:${row.id}:${reminderKey}`,
+      }),
+      sendEventRegistrationPush({
+        supabase,
+        registrationId: row.id,
+        reason: "reminder",
       }),
     ]);
 
