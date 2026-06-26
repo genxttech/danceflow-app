@@ -7,6 +7,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
 import { generateWeeklyOccurrenceDates } from "@/lib/utils/recurrence";
 import { stageInstructorEarningForAppointment } from "@/lib/compensation/earnings";
+import { sendAppointmentSchedulePush } from "@/lib/notifications/schedulePush";
 import {
   requireAppointmentCreateAccess,
   requireAppointmentEditAccess,
@@ -546,6 +547,13 @@ async function queueAppointmentOutboundDelivery(params: {
     ) {
       queueRecipient(partnerClient, "partner");
     }
+
+    await sendAppointmentSchedulePush({
+      supabase,
+      studioId,
+      appointmentId,
+      reason,
+    });
 
     if (rows.length === 0) return;
 
