@@ -1,10 +1,15 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { AuthProvider } from "@/lib/auth";
+import { AuthProvider, useAuth } from "@/lib/auth";
+import { usePushNotificationBootstrap } from "@/lib/pushNotifications";
 
-export default function RootLayout() {
+function AppStack() {
+  const { session } = useAuth();
+
+  usePushNotificationBootstrap(session?.user.id);
+
   return (
-    <AuthProvider>
+    <>
       <StatusBar style="auto" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
@@ -19,6 +24,14 @@ export default function RootLayout() {
           }}
         />
       </Stack>
+    </>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <AuthProvider>
+      <AppStack />
     </AuthProvider>
   );
 }

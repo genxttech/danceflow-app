@@ -4,6 +4,7 @@ import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
+import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
@@ -253,6 +254,9 @@ export default function ProfileScreen() {
 
           <AppButton label={saving ? "Saving..." : "Save profile"} onPress={saveProfile} />
           <AppButton label="Refresh profile" onPress={loadProfile} variant="secondary" />
+
+          <NotificationPreferencesCard userId={session?.user.id} />
+
           <AppButton label="Sign out" onPress={signOut} variant="secondary" />
         </View>
       ) : null}
