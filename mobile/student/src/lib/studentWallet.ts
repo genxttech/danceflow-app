@@ -139,6 +139,7 @@ type EventRegistrationRow = {
   payment_status: string | null;
   quantity: number | null;
   total_amount: number | null;
+  total_price?: number | null;
   events: Joined<{
     id: string;
     name: string | null;
@@ -157,6 +158,7 @@ type TicketRow = {
   event_id: string;
   first_name: string | null;
   last_name: string | null;
+  email?: string | null;
   sort_order: number | null;
   checked_in_at: string | null;
   waiver_signed_at: string | null;
@@ -200,98 +202,161 @@ export function packageItemLabel(item: StudentPackageItem) {
   return label;
 }
 
-export async function loadStudentWallet(linkedStudios: LinkedStudioAccess[]): Promise<StudentWallet> {
+function registrationSelect() {
+  return `
+    id,
+    studio_id,
+    event_id,
+    status,
+    payment_status,
+    quantity,
+    total_amount,
+    total_price,
+    events (
+      id,
+      name,
+      slug,
+      start_date,
+      start_time,
+      venue_name,
+      city,
+      state
+    )
+  `;
+}
+
+function registrationToWallet(row: EventRegistrationRow, linkedStudios: LinkedStudioAccess[]): StudentEventRegistration {
+  const event = firstJoin(row.events);
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    studioId: row.studio_id,
+    studioName: studioNameFor(row.studio_id, linkedStudios),
+    eventName: event?.name ?? "Event",
+    eventSlug: event?.slug ?? null,
+    status: row.status ?? "confirmed",
+    paymentStatus: row.payment_status,
+    quantity: row.quantity,
+    totalAmount: moneyFromCents(row.total_amount ?? row.total_price ?? null),
+    eventDate: event?.start_date ?? null,
+    eventTime: event?.start_time ?? null,
+    venue: event?.venue_name ?? null,
+    city: event?.city ?? null,
+    state: event?.state ?? null
+  };
+}
+
+async function loadRegistrationsByClient(clientIds: string[], studioIds: string[]) {
+  if (!clientIds.length || !studioIds.length) return [] as EventRegistrationRow[];
+
+  const { data, error } = await supabase
+    .from("event_registrations")
+    .select(registrationSelect())
+    .in("studio_id", studioIds)
+    .in("client_id", clientIds)
+    .in("status", ["confirmed", "checked_in", "pending", "waitlisted"])
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) throw error;
+  return (data ?? []) as unknown as EventRegistrationRow[];
+}
+
+async function loadRegistrationsByEmail(email: string | null | undefined) {
+  const normalizedEmail = email?.trim().toLowerCase();
+  if (!normalizedEmail) return [] as EventRegistrationRow[];
+
+  const { data, error } = await supabase
+    .from("event_registrations")
+    .select(registrationSelect())
+    .eq("attendee_email", normalizedEmail)
+    .in("status", ["confirmed", "checked_in", "pending", "waitlisted"])
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  if (error) {
+    // Some deployments may not expose email-based ticket lookup to mobile yet.
+    // Keep Wallet usable and continue with studio-linked items.
+    return [];
+  }
+
+  return (data ?? []) as unknown as EventRegistrationRow[];
+}
+
+function dedupeRegistrations(rows: EventRegistrationRow[]) {
+  const byId = new Map<string, EventRegistrationRow>();
+  rows.forEach((row) => byId.set(row.id, row));
+  return Array.from(byId.values());
+}
+
+export async function loadStudentWallet(
+  linkedStudios: LinkedStudioAccess[],
+  accountEmail?: string | null
+): Promise<StudentWallet> {
   const clientIds = linkedStudios.map((item) => item.clientId).filter(Boolean);
   const studioIds = linkedStudios.map((item) => item.studioId).filter(Boolean);
 
-  if (!clientIds.length || !studioIds.length) {
-    return { memberships: [], packages: [], registrations: [], tickets: [] };
-  }
+  const [membershipsResult, packagesResult, clientRegistrationRows, emailRegistrationRows] = await Promise.all([
+    clientIds.length && studioIds.length
+      ? supabase
+          .from("client_memberships")
+          .select(
+            `
+            id,
+            studio_id,
+            status,
+            starts_on,
+            ends_on,
+            current_period_start,
+            current_period_end,
+            auto_renew,
+            cancel_at_period_end,
+            name_snapshot,
+            price_snapshot,
+            billing_interval_snapshot
+          `
+          )
+          .in("studio_id", studioIds)
+          .in("client_id", clientIds)
+          .in("status", ["active", "trialing", "past_due"])
+          .order("created_at", { ascending: false })
+          .limit(12)
+      : Promise.resolve({ data: [], error: null }),
 
-  const [membershipsResult, packagesResult, registrationsResult] = await Promise.all([
-    supabase
-      .from("client_memberships")
-      .select(
-        `
-        id,
-        studio_id,
-        status,
-        starts_on,
-        ends_on,
-        current_period_start,
-        current_period_end,
-        auto_renew,
-        cancel_at_period_end,
-        name_snapshot,
-        price_snapshot,
-        billing_interval_snapshot
-      `
-      )
-      .in("studio_id", studioIds)
-      .in("client_id", clientIds)
-      .in("status", ["active", "trialing", "past_due"])
-      .order("created_at", { ascending: false })
-      .limit(12),
+    clientIds.length && studioIds.length
+      ? supabase
+          .from("client_packages")
+          .select(
+            `
+            id,
+            studio_id,
+            active,
+            purchase_date,
+            name_snapshot,
+            expiration_date,
+            sold_price,
+            price_snapshot,
+            client_package_items (
+              usage_type,
+              quantity_total,
+              quantity_used,
+              quantity_remaining,
+              is_unlimited
+            )
+          `
+          )
+          .in("studio_id", studioIds)
+          .in("client_id", clientIds)
+          .order("purchase_date", { ascending: false })
+          .limit(30)
+      : Promise.resolve({ data: [], error: null }),
 
-    supabase
-      .from("client_packages")
-      .select(
-        `
-        id,
-        studio_id,
-        active,
-        purchase_date,
-        name_snapshot,
-        expiration_date,
-        sold_price,
-        price_snapshot,
-        client_package_items (
-          usage_type,
-          quantity_total,
-          quantity_used,
-          quantity_remaining,
-          is_unlimited
-        )
-      `
-      )
-      .in("studio_id", studioIds)
-      .in("client_id", clientIds)
-      .order("purchase_date", { ascending: false })
-      .limit(30),
-
-    supabase
-      .from("event_registrations")
-      .select(
-        `
-        id,
-        studio_id,
-        event_id,
-        status,
-        payment_status,
-        quantity,
-        total_amount,
-        events (
-          id,
-          name,
-          slug,
-          start_date,
-          start_time,
-          venue_name,
-          city,
-          state
-        )
-      `
-      )
-      .in("studio_id", studioIds)
-      .in("client_id", clientIds)
-      .in("status", ["confirmed", "checked_in", "pending", "waitlisted"])
-      .order("created_at", { ascending: false })
-      .limit(20)
+    loadRegistrationsByClient(clientIds, studioIds),
+    loadRegistrationsByEmail(accountEmail)
   ]);
 
   if (membershipsResult.error) throw membershipsResult.error;
   if (packagesResult.error) throw packagesResult.error;
-  if (registrationsResult.error) throw registrationsResult.error;
 
   const memberships = ((membershipsResult.data ?? []) as MembershipRow[]).map((row) => ({
     id: row.id,
@@ -310,12 +375,7 @@ export async function loadStudentWallet(linkedStudios: LinkedStudioAccess[]): Pr
   }));
 
   const packages = ((packagesResult.data ?? []) as PackageRow[])
-    .filter((row) => {
-      // Some older/package-import rows may not have active explicitly set, so do not
-      // hide a package unless it is clearly inactive. Remaining credits are displayed
-      // below from client_package_items.
-      return row.active !== false;
-    })
+    .filter((row) => row.active !== false)
     .map((row) => ({
       id: row.id,
       studioId: row.studio_id,
@@ -337,27 +397,8 @@ export async function loadStudentWallet(linkedStudios: LinkedStudioAccess[]): Pr
       }))
     }));
 
-  const registrationRows = (registrationsResult.data ?? []) as EventRegistrationRow[];
-  const registrations = registrationRows.map((row) => {
-    const event = firstJoin(row.events);
-    return {
-      id: row.id,
-      eventId: row.event_id,
-      studioId: row.studio_id,
-      studioName: studioNameFor(row.studio_id, linkedStudios),
-      eventName: event?.name ?? "Event",
-      eventSlug: event?.slug ?? null,
-      status: row.status ?? "confirmed",
-      paymentStatus: row.payment_status,
-      quantity: row.quantity,
-      totalAmount: moneyFromCents(row.total_amount),
-      eventDate: event?.start_date ?? null,
-      eventTime: event?.start_time ?? null,
-      venue: event?.venue_name ?? null,
-      city: event?.city ?? null,
-      state: event?.state ?? null
-    };
-  });
+  const registrationRows = dedupeRegistrations([...clientRegistrationRows, ...emailRegistrationRows]);
+  const registrations = registrationRows.map((row) => registrationToWallet(row, linkedStudios));
 
   const registrationIds = registrationRows.map((item) => item.id);
   let tickets: StudentTicket[] = [];
@@ -366,7 +407,7 @@ export async function loadStudentWallet(linkedStudios: LinkedStudioAccess[]): Pr
     const { data, error } = await supabase
       .from("event_registration_attendees")
       .select(
-        "id, registration_id, event_id, first_name, last_name, sort_order, checked_in_at, waiver_signed_at, ticket_code, ticket_issued_at"
+        "id, registration_id, event_id, first_name, last_name, email, sort_order, checked_in_at, waiver_signed_at, ticket_code, ticket_issued_at"
       )
       .in("registration_id", registrationIds)
       .order("sort_order", { ascending: true });
@@ -383,7 +424,7 @@ export async function loadStudentWallet(linkedStudios: LinkedStudioAccess[]): Pr
         registrationId: row.registration_id,
         eventId: row.event_id,
         studioId: registration?.studioId ?? "",
-        studioName: registration?.studioName ?? "Studio",
+        studioName: registration?.studioName ?? "Event",
         eventName: registration?.eventName ?? "Event",
         eventSlug: registration?.eventSlug ?? null,
         ticketName: attendeeName(row),

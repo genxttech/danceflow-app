@@ -9,247 +9,309 @@ import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
-  formatScheduleDateTime,
-  formatScheduleTimeRange,
-  loadStudentScheduleOverview,
-  statusLabel,
-  type StudentBookingRequest,
-  type StudentScheduleItem,
-  type StudentScheduleOverview
-} from "@/lib/studentSchedule";
+  loadStudentLearnOverview,
+  type StudentLearnLesson,
+  type StudentLearnOverview,
+  type StudentPracticeFocus
+} from "@/lib/studentLearn";
 
 const lumiAvatar = require("../../assets/lumi-avatar.png");
 
-function ScheduleItemCard({ item }: { item: StudentScheduleItem }) {
+const emptyOverview: StudentLearnOverview = {
+  recentLessons: [],
+  practiceFocus: [],
+  lumiPrompts: [
+    "What should I practice this week?",
+    "How do I set a dance goal?",
+    "How can I feel more confident at my next lesson?"
+  ]
+};
+
+function LessonCard({ lesson }: { lesson: StudentLearnLesson }) {
+  const detail = [
+    lesson.studioName,
+    lesson.instructorName ? `Instructor: ${lesson.instructorName}` : null,
+    lesson.roomName
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
   return (
     <View style={styles.itemCard}>
-      <View style={styles.itemHeader}>
-        <AppText variant="eyebrow">{statusLabel(item.status)}</AppText>
-        <AppText variant="caption">{item.studioName}</AppText>
-      </View>
-      <AppText variant="subtitle">{item.title}</AppText>
-      <AppText variant="caption">
-        {formatScheduleTimeRange(item.startsAt, item.endsAt, item.timeZone)}
-      </AppText>
-      <AppText variant="caption">{item.subtitle}</AppText>
+      <AppText variant="eyebrow">{lesson.typeLabel}</AppText>
+      <AppText variant="subtitle">{lesson.title}</AppText>
+      <AppText variant="caption">{lesson.timeText}</AppText>
+      {detail ? <AppText variant="caption">{detail}</AppText> : null}
     </View>
   );
 }
 
-function BookingRequestCard({ request }: { request: StudentBookingRequest }) {
+function FocusCard({ focus }: { focus: StudentPracticeFocus }) {
   return (
     <View style={styles.itemCard}>
-      <View style={styles.itemHeader}>
-        <AppText variant="eyebrow">{statusLabel(request.status)}</AppText>
-        <AppText variant="caption">{request.studioName}</AppText>
-      </View>
-      <AppText variant="subtitle">Booking request</AppText>
-      <AppText variant="caption">
-        {request.requestedStartsAt
-          ? formatScheduleDateTime(request.requestedStartsAt, request.timeZone)
-          : "Studio will follow up with available times."}
-      </AppText>
+      <AppText variant="subtitle">{focus.title}</AppText>
+      <AppText variant="caption">{focus.detail}</AppText>
     </View>
   );
 }
 
-export default function ScheduleScreen() {
-  const { session } = useAuth();
-  const [loading, setLoading] = useState(true);
-  const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
-  const [overview, setOverview] = useState<StudentScheduleOverview | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  async function loadSchedule() {
-    const userId = session?.user.id;
-
-    if (!userId) {
-      setLinkedStudios([]);
-      setOverview(null);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    setErrorMessage(null);
-
-    try {
-      const access = await getStudentAccess(userId);
-      setLinkedStudios(access.linkedStudios);
-
-      if (access.linkedStudios.length === 0) {
-        setOverview(null);
-        return;
-      }
-
-      const nextOverview = await loadStudentScheduleOverview(access.linkedStudios);
-      setOverview(nextOverview);
-    } catch {
-      setErrorMessage("Your schedule could not be loaded. Try again in a moment.");
-      setOverview(null);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    loadSchedule();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user.id]);
-
-  const hasPortalAccess = linkedStudios.length > 0;
-  const upcoming = overview?.upcoming ?? [];
-  const recent = overview?.recent ?? [];
-  const bookingRequests = overview?.bookingRequests ?? [];
-
+function LearnValueCard({ signedIn }: { signedIn: boolean }) {
   return (
-    <Screen>
-      <AppText variant="eyebrow">Schedule</AppText>
-      <AppText variant="title">Classes, lessons, and bookings</AppText>
-      <AppText variant="caption">
-        Your confirmed studio schedule and active booking requests in one place.
-      </AppText>
-
-      {loading ? (
-        <FeatureCard
-          title="Loading schedule..."
-          detail="Checking your connected studios for upcoming lessons, classes, rentals, and booking requests."
-        />
-      ) : null}
-
-      {!loading && errorMessage ? (
-        <FeatureCard title="Schedule unavailable" detail={errorMessage} />
-      ) : null}
-
-      {!loading && !hasPortalAccess ? (
-        <>
-          <FeatureCard
-            title="Connect with a studio"
-            detail="Once your studio connects your DanceFlow account, your lessons, classes, rentals, and booking requests will appear here."
-          />
-          <Link href="/(tabs)/discover" asChild>
-            <AppButton label="Find studios and events" />
-          </Link>
-        </>
-      ) : null}
-
-      {!loading && hasPortalAccess ? (
-        <>
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryCard}>
-              <AppText variant="eyebrow">Upcoming</AppText>
-              <AppText variant="title">{upcoming.length}</AppText>
-              <AppText variant="caption">confirmed schedule items</AppText>
-            </View>
-            <View style={styles.summaryCard}>
-              <AppText variant="eyebrow">Requests</AppText>
-              <AppText variant="title">{bookingRequests.length}</AppText>
-              <AppText variant="caption">pending or approved</AppText>
-            </View>
-          </View>
-
-          {upcoming.length > 0 ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Upcoming</AppText>
-              {upcoming.slice(0, 8).map((item) => (
-                <ScheduleItemCard key={item.id} item={item} />
-              ))}
-            </View>
-          ) : (
-            <FeatureCard
-              title="No upcoming schedule items"
-              detail="When your studio schedules a lesson, class, coaching, rental, or event commitment, it will appear here."
-            />
-          )}
-
-          {bookingRequests.length > 0 ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Booking requests</AppText>
-              {bookingRequests.slice(0, 5).map((request) => (
-                <BookingRequestCard key={request.id} request={request} />
-              ))}
-            </View>
-          ) : (
-            <FeatureCard
-              title="No active booking requests"
-              detail="Booking requests will show here while your studio reviews them."
-            />
-          )}
-
-          {recent.length > 0 ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Recent</AppText>
-              {recent.slice(0, 4).map((item) => (
-                <ScheduleItemCard key={item.id} item={item} />
-              ))}
-            </View>
-          ) : null}
-        </>
-      ) : null}
-
+    <>
       <View style={styles.lumiCard}>
-        <Image source={lumiAvatar} style={styles.lumiAvatar} resizeMode="contain" />
+        <Image
+          accessibilityIgnoresInvertColors
+          resizeMode="cover"
+          source={lumiAvatar}
+          style={styles.lumiAvatar}
+        />
         <View style={styles.lumiCopy}>
-          <AppText variant="subtitle">Need help planning?</AppText>
+          <AppText variant="eyebrow">Meet LUMI</AppText>
+          <AppText variant="title">Your practice coach</AppText>
           <AppText variant="caption">
-            LUMI can help you understand your schedule, prepare for lessons, and plan your next practice step.
+            When your studio connects your DanceFlow account, LUMI can help turn lesson notes, goals, and progress into focused practice steps between lessons.
           </AppText>
         </View>
       </View>
 
-      <Link href="/lumi" asChild>
-        <AppButton label="Ask LUMI about my schedule" variant="secondary" />
-      </Link>
+      <FeatureCard
+        label="Why connect with a studio?"
+        title="Your learning history becomes useful between lessons"
+        detail="Connected studios can share lesson recaps, practice assignments, syllabus progress, recent lessons, and next-step recommendations in this tab."
+      />
 
-      <AppButton label="Refresh schedule" onPress={loadSchedule} variant="secondary" />
+      <View style={styles.valueList}>
+        <FeatureCard
+          title="Lesson recaps"
+          detail="Review what your instructor covered so you know exactly what to practice next."
+        />
+        <FeatureCard
+          title="Practice focus"
+          detail="Turn recent lessons into small, clear goals you can work on before your next appointment."
+        />
+        <FeatureCard
+          title="Progress with LUMI"
+          detail="LUMI can help explain feedback, summarize priorities, and suggest questions to bring back to your instructor."
+        />
+      </View>
+
+      {signedIn ? (
+        <>
+          <Link href="/(tabs)/discover" asChild>
+            <AppButton label="Find studios to connect with" />
+          </Link>
+          <AppText variant="caption">
+            Already taking lessons? Ask your studio to connect your DanceFlow account so lesson recaps and progress can appear here.
+          </AppText>
+        </>
+      ) : (
+        <>
+          <Link href="/(auth)/sign-in" asChild>
+            <AppButton label="Create or access your free account" />
+          </Link>
+          <AppText variant="caption">
+            Returning dancer? Use the same email you use for DanceFlow, your studio, events, or tickets.
+          </AppText>
+        </>
+      )}
+    </>
+  );
+}
+
+export default function LearnScreen() {
+  const { session } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
+  const [overview, setOverview] = useState<StudentLearnOverview>(emptyOverview);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const userId = session?.user.id;
+
+    async function load() {
+      if (!userId) {
+        setLinkedStudios([]);
+        setOverview(emptyOverview);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setErrorMessage(null);
+
+      try {
+        const access = await getStudentAccess(userId);
+        const learnOverview = await loadStudentLearnOverview(access.linkedStudios);
+
+        if (!mounted) return;
+
+        setLinkedStudios(access.linkedStudios);
+        setOverview(learnOverview);
+      } catch {
+        if (!mounted) return;
+
+        setLinkedStudios([]);
+        setOverview(emptyOverview);
+        setErrorMessage("Learning history could not be loaded yet. Try again in a moment.");
+      } finally {
+        if (!mounted) return;
+        setLoading(false);
+      }
+    }
+
+    load();
+
+    return () => {
+      mounted = false;
+    };
+  }, [session?.user.id]);
+
+  const hasPortalAccess = linkedStudios.length > 0;
+  const isSignedIn = Boolean(session);
+  const recentLessons = overview.recentLessons;
+  const practiceFocus = overview.practiceFocus;
+  const latestLesson = recentLessons[0] ?? null;
+
+  return (
+    <Screen>
+      <AppText variant="eyebrow">Learn</AppText>
+      <AppText variant="title">Recaps and practice</AppText>
+      <AppText variant="caption">
+        Connect with a studio to bring lesson recaps, practice focus, progress tracking, and LUMI coaching support into DanceFlow.
+      </AppText>
+
+      {loading ? (
+        <FeatureCard
+          label="Loading"
+          title="Finding your learning history"
+          detail="DanceFlow is checking linked studios, recent lessons, and practice context."
+        />
+      ) : null}
+
+      {errorMessage ? (
+        <FeatureCard label="Needs review" title="Learning history unavailable" detail={errorMessage} />
+      ) : null}
+
+      {!loading && !hasPortalAccess ? <LearnValueCard signedIn={isSignedIn} /> : null}
+
+      {!loading && hasPortalAccess ? (
+        <>
+          {latestLesson ? (
+            <View style={styles.highlightCard}>
+              <AppText variant="eyebrow">Latest lesson</AppText>
+              <AppText variant="title">{latestLesson.title}</AppText>
+              <AppText variant="caption">{latestLesson.timeText}</AppText>
+              <AppText variant="caption">
+                {latestLesson.instructorName
+                  ? `Ask LUMI what to practice from your lesson with ${latestLesson.instructorName}.`
+                  : "Ask LUMI what to practice from this lesson."}
+              </AppText>
+            </View>
+          ) : (
+            <FeatureCard
+              label="No lessons yet"
+              title="Your learning history will appear here"
+              detail="After completed lessons or classes are visible to your portal, this tab will show recent activity and practice prompts."
+            />
+          )}
+
+          <View style={styles.section}>
+            <AppText variant="subtitle">Practice focus</AppText>
+            {practiceFocus.map((focus) => (
+              <FocusCard key={focus.id} focus={focus} />
+            ))}
+          </View>
+
+          <View style={styles.section}>
+            <AppText variant="subtitle">Recent lessons</AppText>
+            {recentLessons.length ? (
+              recentLessons.slice(0, 6).map((lesson) => <LessonCard key={lesson.id} lesson={lesson} />)
+            ) : (
+              <AppText variant="caption">
+                Completed lessons and classes will show here when your studio makes them visible.
+              </AppText>
+            )}
+          </View>
+
+          <View style={styles.lumiCard}>
+            <Image
+              accessibilityIgnoresInvertColors
+              resizeMode="cover"
+              source={lumiAvatar}
+              style={styles.lumiAvatar}
+            />
+            <View style={styles.lumiCopy}>
+              <AppText variant="eyebrow">LUMI</AppText>
+              <AppText variant="title">Practice coach</AppText>
+              <AppText variant="caption">
+                LUMI can turn recent lessons and upcoming goals into a focused practice plan.
+              </AppText>
+              <View style={styles.promptList}>
+                {overview.lumiPrompts.slice(0, 2).map((prompt) => (
+                  <View key={prompt} style={styles.promptChip}>
+                    <AppText variant="caption">{prompt}</AppText>
+                  </View>
+                ))}
+              </View>
+              <Link href="/lumi" asChild>
+                <AppButton label="Ask LUMI what to practice" variant="secondary" />
+              </Link>
+            </View>
+          </View>
+        </>
+      ) : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  itemCard: {
+  highlightCard: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: 18,
-    gap: 7,
-    padding: 14
+    gap: 8,
+    padding: 18
   },
-  itemHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 10
-  },
-  lumiCard: {
-    alignItems: "center",
-    backgroundColor: "rgba(236, 72, 153, 0.08)",
-    borderColor: "rgba(236, 72, 153, 0.22)",
-    borderRadius: 18,
+  itemCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
     borderWidth: 1,
-    flexDirection: "row",
-    gap: 14,
-    marginTop: 4,
+    gap: 6,
     padding: 14
   },
   lumiAvatar: {
-    height: 72,
-    width: 72
+    borderRadius: 34,
+    height: 68,
+    width: 68
+  },
+  lumiCard: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 18,
+    flexDirection: "row",
+    gap: 14,
+    padding: 16
   },
   lumiCopy: {
     flex: 1,
-    gap: 4
+    gap: 8
+  },
+  promptChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  promptList: {
+    gap: 8
   },
   section: {
     gap: 10
   },
-  summaryGrid: {
-    flexDirection: "row",
-    gap: 12
-  },
-  summaryCard: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 18,
-    flex: 1,
-    gap: 6,
-    padding: 16
+  valueList: {
+    gap: 10
   }
 });

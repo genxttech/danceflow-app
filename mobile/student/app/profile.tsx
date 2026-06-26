@@ -43,15 +43,15 @@ function Field({
   );
 }
 
-function studioOptions(linkedStudios: LinkedStudioAccess[]) {
-  return linkedStudios.map((studio) => ({
-    clientId: studio.clientId,
-    label: studio.studioPublicName || studio.studioName
+function profileOptions(profiles: StudentProfile[]) {
+  return profiles.map((profile) => ({
+    clientId: profile.clientId,
+    label: profile.isAccountProfile ? "DanceFlow account" : profile.studioName
   }));
 }
 
 export default function ProfileScreen() {
-  const { session } = useAuth();
+  const { session, signOut } = useAuth();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -72,9 +72,9 @@ export default function ProfileScreen() {
   }
 
   async function loadProfile() {
-    const userId = session?.user.id;
+    const user = session?.user;
 
-    if (!userId) {
+    if (!user) {
       setLinkedStudios([]);
       setProfiles([]);
       setLoading(false);
@@ -86,17 +86,12 @@ export default function ProfileScreen() {
     setErrorMessage(null);
 
     try {
-      const access = await getStudentAccess(userId);
+      const access = await getStudentAccess(user.id);
       setLinkedStudios(access.linkedStudios);
 
-      if (!access.hasPortalAccess) {
-        setProfiles([]);
-        return;
-      }
-
-      const nextProfiles = await loadStudentProfiles(access.linkedStudios);
+      const nextProfiles = await loadStudentProfiles(access.linkedStudios, user);
       setProfiles(nextProfiles);
-      setSelectedClientId(nextProfiles[0]?.clientId ?? null);
+      setSelectedClientId((current) => current ?? nextProfiles[0]?.clientId ?? null);
     } catch {
       setErrorMessage("We could not load your profile yet. Try again in a moment.");
     } finally {
@@ -115,7 +110,7 @@ export default function ProfileScreen() {
       await updateStudentProfile(selectedProfile);
       setMessage("Profile updated.");
     } catch {
-      setErrorMessage("We could not save your changes yet. Try again or contact your studio.");
+      setErrorMessage("We could not save your changes yet. Try again in a moment.");
     } finally {
       setSaving(false);
     }
@@ -126,23 +121,33 @@ export default function ProfileScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user.id]);
 
-  const options = studioOptions(linkedStudios);
+  const options = profileOptions(profiles);
+  const isLinkedStudent = linkedStudios.length > 0;
 
   return (
     <Screen>
       <AppText variant="eyebrow">Profile</AppText>
-      <AppText variant="title">My information</AppText>
-      <AppText variant="caption">Keep your studio contact information and dance interests up to date.</AppText>
+      <AppText variant="title">My DanceFlow profile</AppText>
+      <AppText variant="caption">
+        Complete your information so studios can recognize you when you register, request lessons, or connect later.
+      </AppText>
 
       {loading ? <FeatureCard title="Loading your profile..." detail="Loading your profile." /> : null}
 
       {!loading && errorMessage ? <FeatureCard title="Profile not available yet" detail={errorMessage} /> : null}
       {!loading && message ? <FeatureCard title="Saved" detail={message} /> : null}
 
-      {!loading && !linkedStudios.length ? (
+      {!loading && !session ? (
         <FeatureCard
-          title="Connect with your studio"
-          detail="Your studio needs to connect your DanceFlow account before you can manage your student profile in the app."
+          title="Continue with email"
+          detail="Create or access your free DanceFlow account to save a profile."
+        />
+      ) : null}
+
+      {!loading && session && !isLinkedStudent ? (
+        <FeatureCard
+          title="Dancer account"
+          detail="You can complete your DanceFlow profile now. Studio-specific schedule, packages, and progress appear after a studio connects your account."
         />
       ) : null}
 
@@ -166,7 +171,11 @@ export default function ProfileScreen() {
 
           <FeatureCard
             title={selectedProfile.studioName}
-            detail="Updates are shared with this studio. Email changes may need to be handled from your web account."
+            detail={
+              selectedProfile.isAccountProfile
+                ? "This is your main DanceFlow profile. Email changes are handled through your account access email."
+                : "Updates are shared with this connected studio."
+            }
           />
 
           <View style={styles.row}>
@@ -244,6 +253,7 @@ export default function ProfileScreen() {
 
           <AppButton label={saving ? "Saving..." : "Save profile"} onPress={saveProfile} />
           <AppButton label="Refresh profile" onPress={loadProfile} variant="secondary" />
+          <AppButton label="Sign out" onPress={signOut} variant="secondary" />
         </View>
       ) : null}
     </Screen>

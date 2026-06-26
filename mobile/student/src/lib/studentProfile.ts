@@ -17,6 +17,13 @@ export type StudentProfile = {
   postalCode: string;
   country: string;
   danceInterests: string;
+  isAccountProfile?: boolean;
+};
+
+type AuthUserForProfile = {
+  id: string;
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
 };
 
 type ClientProfileRow = {
@@ -41,14 +48,41 @@ function studioNameFor(studioId: string, linkedStudios: LinkedStudioAccess[]) {
   return studio?.studioPublicName || studio?.studioName || "Studio";
 }
 
-function clean(value: string | null | undefined) {
-  return value ?? "";
+function clean(value: unknown) {
+  return typeof value === "string" ? value : "";
 }
 
-export async function loadStudentProfiles(linkedStudios: LinkedStudioAccess[]): Promise<StudentProfile[]> {
+function accountProfileFor(user: AuthUserForProfile): StudentProfile {
+  const metadata = user.user_metadata ?? {};
+
+  return {
+    clientId: "danceflow-account",
+    studioId: "danceflow",
+    studioName: "DanceFlow account",
+    firstName: clean(metadata.first_name ?? metadata.firstName),
+    lastName: clean(metadata.last_name ?? metadata.lastName),
+    email: user.email ?? clean(metadata.email),
+    phone: clean(metadata.phone),
+    birthday: clean(metadata.birthday),
+    addressLine1: clean(metadata.address_line1 ?? metadata.addressLine1),
+    addressLine2: clean(metadata.address_line2 ?? metadata.addressLine2),
+    city: clean(metadata.city),
+    state: clean(metadata.state),
+    postalCode: clean(metadata.postal_code ?? metadata.postalCode),
+    country: clean(metadata.country),
+    danceInterests: clean(metadata.dance_interests ?? metadata.danceInterests),
+    isAccountProfile: true
+  };
+}
+
+export async function loadStudentProfiles(
+  linkedStudios: LinkedStudioAccess[],
+  user: AuthUserForProfile
+): Promise<StudentProfile[]> {
+  const accountProfile = accountProfileFor(user);
   const clientIds = linkedStudios.map((item) => item.clientId).filter(Boolean);
 
-  if (!clientIds.length) return [];
+  if (!clientIds.length) return [accountProfile];
 
   const { data, error } = await supabase
     .from("clients")
@@ -75,7 +109,7 @@ export async function loadStudentProfiles(linkedStudios: LinkedStudioAccess[]): 
 
   if (error) throw error;
 
-  return ((data ?? []) as ClientProfileRow[]).map((row) => ({
+  const studioProfiles = ((data ?? []) as ClientProfileRow[]).map((row) => ({
     clientId: row.id,
     studioId: row.studio_id,
     studioName: studioNameFor(row.studio_id, linkedStudios),
@@ -90,11 +124,35 @@ export async function loadStudentProfiles(linkedStudios: LinkedStudioAccess[]): 
     state: clean(row.state),
     postalCode: clean(row.postal_code),
     country: clean(row.country),
-    danceInterests: clean(row.dance_interests)
+    danceInterests: clean(row.dance_interests),
+    isAccountProfile: false
   }));
+
+  return [accountProfile, ...studioProfiles];
 }
 
 export async function updateStudentProfile(profile: StudentProfile) {
+  if (profile.isAccountProfile) {
+    const { error } = await supabase.auth.updateUser({
+      data: {
+        first_name: profile.firstName.trim() || null,
+        last_name: profile.lastName.trim() || null,
+        phone: profile.phone.trim() || null,
+        birthday: profile.birthday.trim() || null,
+        address_line1: profile.addressLine1.trim() || null,
+        address_line2: profile.addressLine2.trim() || null,
+        city: profile.city.trim() || null,
+        state: profile.state.trim() || null,
+        postal_code: profile.postalCode.trim() || null,
+        country: profile.country.trim() || null,
+        dance_interests: profile.danceInterests.trim() || null
+      }
+    });
+
+    if (error) throw error;
+    return;
+  }
+
   const { error } = await supabase
     .from("clients")
     .update({

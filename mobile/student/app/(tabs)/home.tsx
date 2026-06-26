@@ -18,9 +18,17 @@ import {
 const danceFlowLogo = require("../../assets/danceflow-logo.png");
 const lumiAvatar = require("../../assets/lumi-avatar.png");
 
+function displayNameFromSession(session: ReturnType<typeof useAuth>["session"]) {
+  const metadata = session?.user.user_metadata ?? {};
+  const firstName = typeof metadata.first_name === "string" ? metadata.first_name : "";
+  const lastName = typeof metadata.last_name === "string" ? metadata.last_name : "";
+  const fullName = [firstName, lastName].filter(Boolean).join(" ").trim();
+
+  return fullName || session?.user.email || "Dancer";
+}
+
 export default function HomeScreen() {
-  const { session, signOut } = useAuth();
-  const email = session?.user.email ?? "student";
+  const { session } = useAuth();
   const [loadingAccess, setLoadingAccess] = useState(true);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -34,6 +42,7 @@ export default function HomeScreen() {
 
     if (!userId) {
       setLoadingAccess(false);
+      setLoadingSchedule(false);
       setLinkedStudios([]);
       setScheduleOverview(null);
       setFavoriteStudios([]);
@@ -43,10 +52,7 @@ export default function HomeScreen() {
 
     setLoadingAccess(true);
 
-    Promise.all([
-      getPublicStudiosForMobile(userId),
-      getPublicEventsForMobile(userId)
-    ])
+    Promise.all([getPublicStudiosForMobile(userId), getPublicEventsForMobile(userId)])
       .then(([studios, events]) => {
         if (!mounted) return;
         setFavoriteStudios(studios.filter((studio) => studio.favorited).slice(0, 3));
@@ -94,6 +100,7 @@ export default function HomeScreen() {
     };
   }, [session?.user.id]);
 
+  const isGuest = !session;
   const primaryStudio = linkedStudios[0] ?? null;
   const hasPortalAccess = linkedStudios.length > 0;
   const nextItem = scheduleOverview?.nextItem ?? null;
@@ -104,23 +111,34 @@ export default function HomeScreen() {
   return (
     <Screen>
       <View style={styles.hero}>
-        <Image
-          accessibilityIgnoresInvertColors
-          resizeMode="contain"
-          source={danceFlowLogo}
-          style={styles.logo}
-        />
-        <AppText variant="title">Today</AppText>
+        <Image accessibilityIgnoresInvertColors resizeMode="contain" source={danceFlowLogo} style={styles.logo} />
+        <AppText variant="title">
+          {isGuest ? "Welcome to DanceFlow" : hasPortalAccess ? "Today" : `Welcome, ${displayNameFromSession(session)}`}
+        </AppText>
         <AppText variant="caption">
-          {loadingAccess
-            ? "Loading your DanceFlow..."
+          {isGuest
+            ? "Find dance studios, events, lessons, and social dancing near you."
             : hasPortalAccess
-              ? `${email} · ${primaryStudio?.studioPublicName || primaryStudio?.studioName}`
-              : `${email} · Dancer account`}
+              ? `${session.user.email ?? "DanceFlow"} · ${primaryStudio?.studioPublicName || primaryStudio?.studioName}`
+              : "Your dancer account is ready. Save favorites, keep tickets handy, and complete your profile."}
         </AppText>
       </View>
 
-      {hasPortalAccess ? (
+      {isGuest ? (
+        <>
+          <FeatureCard
+            label="Explore"
+            title="Browse without an account"
+            detail="Search studios and events, view details, share listings, and open public registration links."
+          />
+          <Link href="/(tabs)/discover" asChild>
+            <AppButton label="Start exploring" />
+          </Link>
+          <Link href="/(auth)/sign-in" asChild>
+            <AppButton label="Continue with email" variant="secondary" />
+          </Link>
+        </>
+      ) : hasPortalAccess ? (
         <>
           <FeatureCard
             label="Next"
@@ -153,88 +171,70 @@ export default function HomeScreen() {
             detail={
               recentCount > 0
                 ? `${recentCount} recent schedule items are ready to support recaps, notes, and LUMI guidance.`
-                : "Connect this to journey data so students can review instructor notes, practice assignments, and skill progress."
+                : "Lesson notes, practice assignments, and skill progress will appear as your studio adds them."
             }
           />
         </>
       ) : (
         <>
           <FeatureCard
-            label="Explore"
-            title="Find studios and events"
-            detail="Browse public studios, save favorites, and discover events before joining a studio."
+            label="Dancer account"
+            title="Save, profile, and discover"
+            detail="Complete your profile, save studios and events, and keep event tickets handy even before a studio connects your account."
           />
-          <FeatureCard
-            label="Get started"
-            title="Connect with a studio"
-            detail="Once your studio connects your DanceFlow account, you can see lessons, packages, recaps, syllabus progress, and LUMI."
-          />
+          <Link href="/profile" asChild>
+            <AppButton label="Complete profile" />
+          </Link>
+          <Link href="/(tabs)/discover" asChild>
+            <AppButton label="Find studios and events" variant="secondary" />
+          </Link>
         </>
       )}
 
-      <View style={styles.savedCard}>
-        <View style={styles.savedHeader}>
-          <View style={{ flex: 1 }}>
-            <AppText variant="eyebrow">Saved</AppText>
-            <AppText variant="subtitle">
-              {favoritePreview.length ? "Your favorite studios and events" : "Save studios and events"}
-            </AppText>
+      {!isGuest ? (
+        <View style={styles.savedCard}>
+          <View style={styles.savedHeader}>
+            <View style={{ flex: 1 }}>
+              <AppText variant="eyebrow">Saved</AppText>
+              <AppText variant="subtitle">
+                {favoritePreview.length ? "Your favorite studios and events" : "Save studios and events"}
+              </AppText>
+            </View>
+            <Link href="/favorites" asChild>
+              <AppButton label="View all" variant="secondary" />
+            </Link>
           </View>
-          <Link href="/favorites" asChild>
-            <AppButton label="View all" variant="secondary" />
-          </Link>
+          {favoritePreview.length ? (
+            favoritePreview.map((item) => (
+              <AppText key={item.id} variant="caption">
+                ♥ {item.name}
+              </AppText>
+            ))
+          ) : (
+            <AppText variant="caption">Tap the heart on studios and events in Discover to keep them here.</AppText>
+          )}
         </View>
-        {favoritePreview.length ? (
-          favoritePreview.map((item) => (
-            <AppText key={item.id} variant="caption">♥ {item.name}</AppText>
-          ))
-        ) : (
-          <AppText variant="caption">
-            Tap the heart on studios and events in Discover to keep them here.
-          </AppText>
-        )}
-      </View>
+      ) : null}
 
-      {hasPortalAccess ? (
-        <View style={styles.lumiCard}>
-          <Image
-            accessibilityIgnoresInvertColors
-            resizeMode="cover"
-            source={lumiAvatar}
-            style={styles.lumiAvatar}
-          />
-          <View style={styles.lumiCopy}>
-            <AppText variant="eyebrow">LUMI</AppText>
-            <AppText variant="title">Your DanceFlow assistant</AppText>
-            <AppText variant="caption">
-              Ask LUMI about practice ideas, lesson recaps, syllabus progress,
-              and what to focus on next.
-            </AppText>
+      <View style={styles.lumiCard}>
+        <Image accessibilityIgnoresInvertColors resizeMode="cover" source={lumiAvatar} style={styles.lumiAvatar} />
+        <View style={styles.lumiCopy}>
+          <AppText variant="eyebrow">LUMI</AppText>
+          <AppText variant="title">
+            {hasPortalAccess ? "Your DanceFlow assistant" : "Your dance journey assistant"}
+          </AppText>
+          <AppText variant="caption">
+            {hasPortalAccess
+              ? "Ask LUMI about practice ideas, lesson recaps, syllabus progress, and what to focus on next."
+              : "LUMI becomes available after a studio connects your account so guidance can use real lesson and progress data."}
+          </AppText>
+          {hasPortalAccess ? (
             <Link href="/lumi" asChild>
               <AppButton label="Ask LUMI" />
             </Link>
-          </View>
+          ) : null}
         </View>
-      ) : (
-        <View style={styles.lumiCard}>
-          <Image
-            accessibilityIgnoresInvertColors
-            resizeMode="cover"
-            source={lumiAvatar}
-            style={styles.lumiAvatar}
-          />
-          <View style={styles.lumiCopy}>
-            <AppText variant="eyebrow">LUMI</AppText>
-            <AppText variant="title">Connect with your studio</AppText>
-            <AppText variant="caption">
-              LUMI becomes available when your studio connects your DanceFlow account,
-              so it can personalize help from real lesson and progress data.
-            </AppText>
-          </View>
-        </View>
-      )}
-
-      <AppButton label="Sign out" onPress={signOut} variant="secondary" />
+      </View>
     </Screen>
   );
 }

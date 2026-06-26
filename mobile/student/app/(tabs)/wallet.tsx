@@ -188,12 +188,7 @@ export default function WalletScreen() {
       const access = await getStudentAccess(userId);
       setLinkedStudios(access.linkedStudios);
 
-      if (!access.hasPortalAccess) {
-        setWallet(null);
-        return;
-      }
-
-      const nextWallet = await loadStudentWallet(access.linkedStudios);
+      const nextWallet = await loadStudentWallet(access.linkedStudios, session?.user.email ?? null);
       setWallet(nextWallet);
     } catch {
       setErrorMessage("Your wallet could not be loaded. Try again in a moment.");
@@ -209,6 +204,7 @@ export default function WalletScreen() {
   }, [session?.user.id]);
 
   const hasPortalAccess = linkedStudios.length > 0;
+  const isSignedIn = Boolean(session);
   const memberships = wallet?.memberships ?? [];
   const packages = wallet?.packages ?? [];
   const tickets = wallet?.tickets ?? [];
@@ -217,15 +213,58 @@ export default function WalletScreen() {
   return (
     <Screen>
       <AppText variant="eyebrow">Wallet</AppText>
-      <AppText variant="title">Memberships, packages, and tickets</AppText>
+      <AppText variant="title">Your dance essentials in one place</AppText>
       <AppText variant="caption">
-        Pull up studio balances, active memberships, event tickets, and QR check-in codes.
+        Wallet keeps your event tickets, QR codes, studio pass, memberships, and lesson package balances handy as your DanceFlow account grows.
       </AppText>
+
+      {!isSignedIn || !hasPortalAccess ? (
+        <View style={styles.valueList}>
+          <FeatureCard
+            label="Event tickets"
+            title="Keep tickets and QR codes ready"
+            detail="When you register for DanceFlow events with your account email, your tickets and check-in codes can appear here."
+          />
+          <FeatureCard
+            label="Studio connection"
+            title="Unlock studio passes and balances"
+            detail="After a studio connects your account, Wallet can show your DanceFlow pass, lesson packages, memberships, and credits."
+          />
+          <FeatureCard
+            label="Fast access"
+            title="Less searching at the door or front desk"
+            detail="Use Wallet to keep important dance items easy to find before lessons, classes, events, and check-ins."
+          />
+        </View>
+      ) : null}
+
+      {!loading && !isSignedIn ? (
+        <View style={styles.ctaCard}>
+          <AppText variant="subtitle">Create or access your free account</AppText>
+          <AppText variant="caption">
+            Continue with email to save favorites, keep tickets handy, complete your profile, and connect with studios later.
+          </AppText>
+          <AppButton label="Continue with email" onPress={() => router.push("/(auth)/sign-in")} />
+        </View>
+      ) : null}
+
+      {!loading && isSignedIn && !hasPortalAccess ? (
+        <View style={styles.ctaCard}>
+          <AppText variant="subtitle">Ready when your studio connects</AppText>
+          <AppText variant="caption">
+            Your Wallet is active for your DanceFlow account. Studio passes, packages, and memberships will appear here after a studio connects your account.
+          </AppText>
+          <View style={styles.actionRow}>
+            <AppButton label="Find studios and events" onPress={() => router.push("/(tabs)/discover")} />
+            <AppButton label="Complete profile" onPress={() => router.push("/profile")} variant="secondary" />
+          </View>
+        </View>
+      ) : null}
 
       {loading ? (
         <FeatureCard
           title="Loading wallet..."
-          detail="Checking your connected studios for memberships, package balances, and event tickets."
+          detail="Checking your tickets, passes, and studio items."
         />
       ) : null}
 
@@ -233,16 +272,9 @@ export default function WalletScreen() {
         <FeatureCard title="Wallet unavailable" detail={errorMessage} />
       ) : null}
 
-      {!loading && !hasPortalAccess ? (
-        <FeatureCard
-          title="Connect with your studio"
-          detail="Memberships, lesson packages, and tickets appear here after your studio connects your DanceFlow account."
-        />
-      ) : null}
-
-      {!loading && hasPortalAccess ? (
+      {!loading && isSignedIn ? (
         <>
-          <StudentPassCard linkedStudios={linkedStudios} />
+          {hasPortalAccess ? <StudentPassCard linkedStudios={linkedStudios} /> : null}
 
           <View style={styles.summaryGrid}>
             <View style={styles.summaryCard}>
@@ -253,7 +285,7 @@ export default function WalletScreen() {
             <View style={styles.summaryCard}>
               <AppText variant="eyebrow">Balances</AppText>
               <AppText variant="title">{packages.length}</AppText>
-              <AppText variant="caption">active packages</AppText>
+              <AppText variant="caption">lesson packages</AppText>
             </View>
           </View>
 
@@ -272,46 +304,67 @@ export default function WalletScreen() {
           ) : (
             <FeatureCard
               title="No event tickets yet"
-              detail="Upcoming event tickets and check-in QR codes will appear here after registration."
+              detail="Register for DanceFlow events with this account email, and tickets or check-in QR codes can appear here."
             />
           )}
 
-          {memberships.length > 0 ? (
+          {hasPortalAccess && memberships.length > 0 ? (
             <View style={styles.section}>
               <AppText variant="subtitle">Memberships</AppText>
               {memberships.map((membership) => (
                 <MembershipCard key={membership.id} membership={membership} />
               ))}
             </View>
-          ) : (
+          ) : hasPortalAccess ? (
             <FeatureCard
               title="No active membership"
               detail="Active, trialing, or past-due memberships from your studio will appear here."
             />
+          ) : (
+            <FeatureCard
+              title="Studio memberships"
+              detail="Memberships appear here after a studio connects your DanceFlow account."
+            />
           )}
 
-          {packages.length > 0 ? (
+          {hasPortalAccess && packages.length > 0 ? (
             <View style={styles.section}>
               <AppText variant="subtitle">Packages</AppText>
               {packages.map((item) => (
                 <PackageCard key={item.id} item={item} />
               ))}
             </View>
-          ) : (
+          ) : hasPortalAccess ? (
             <FeatureCard
               title="No active lesson packages"
               detail="Lesson credits and package balances will show when you have an active package."
+            />
+          ) : (
+            <FeatureCard
+              title="Studio lesson packages"
+              detail="Lesson credits and package balances appear here after a studio connects your account."
             />
           )}
         </>
       ) : null}
 
-      <AppButton label="Refresh wallet" onPress={loadWallet} variant="secondary" />
+{isSignedIn ? <AppButton label="Refresh wallet" onPress={loadWallet} variant="secondary" /> : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  actionRow: {
+    gap: 10
+  },
+  ctaCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    padding: 18
+  },
   chip: {
     backgroundColor: colors.surface,
     borderRadius: 999,
@@ -392,5 +445,8 @@ const styles = StyleSheet.create({
   ticketMain: {
     flex: 1,
     gap: 7
+  },
+  valueList: {
+    gap: 12
   }
 });

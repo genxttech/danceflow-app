@@ -89,6 +89,64 @@ function BookingRequestCard({ request }: { request: StudentBookingRequest }) {
   );
 }
 
+function ScheduleValueCard({ signedIn }: { signedIn: boolean }) {
+  return (
+    <>
+      <View style={styles.lumiCard}>
+        <Image source={lumiAvatar} style={styles.lumiAvatar} resizeMode="contain" />
+        <View style={styles.lumiCopy}>
+          <AppText variant="eyebrow">Meet LUMI</AppText>
+          <AppText variant="subtitle">Your dance schedule coach</AppText>
+          <AppText variant="caption">
+            When your studio connects your DanceFlow account, LUMI can help you understand what is coming up, prepare for lessons, and turn your schedule into a simple practice plan.
+          </AppText>
+        </View>
+      </View>
+
+      <FeatureCard
+        label="Why connect with a studio?"
+        title="Your dance schedule becomes easier to manage"
+        detail="Connected studios can show your private lessons, group classes, coachings, floor rentals, event commitments, and booking requests in one place."
+      />
+
+      <View style={styles.valueList}>
+        <FeatureCard
+          title="Know what is next"
+          detail="See upcoming lessons, classes, and studio bookings without digging through messages."
+        />
+        <FeatureCard
+          title="Request changes"
+          detail="When supported by your studio, private lessons can include request options for rescheduling or cancellation."
+        />
+        <FeatureCard
+          title="Prepare with LUMI"
+          detail="LUMI can use your connected schedule to help you plan what to review before your next lesson."
+        />
+      </View>
+
+      {signedIn ? (
+        <>
+          <Link href="/(tabs)/discover" asChild>
+            <AppButton label="Find studios to connect with" />
+          </Link>
+          <AppText variant="caption">
+            Already taking lessons? Ask your studio to connect your DanceFlow account so your schedule can appear here.
+          </AppText>
+        </>
+      ) : (
+        <>
+          <Link href="/(auth)/sign-in" asChild>
+            <AppButton label="Create or access your free account" />
+          </Link>
+          <AppText variant="caption">
+            Returning dancer? Use the same email you use for DanceFlow, your studio, events, or tickets.
+          </AppText>
+        </>
+      )}
+    </>
+  );
+}
+
 export default function ScheduleScreen() {
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -134,6 +192,7 @@ export default function ScheduleScreen() {
   }, [session?.user.id]);
 
   const hasPortalAccess = linkedStudios.length > 0;
+  const isSignedIn = Boolean(session);
   const upcoming = overview?.upcoming ?? [];
   const recent = overview?.recent ?? [];
   const bookingRequests = overview?.bookingRequests ?? [];
@@ -143,7 +202,7 @@ export default function ScheduleScreen() {
       <AppText variant="eyebrow">Schedule</AppText>
       <AppText variant="title">Classes, lessons, and bookings</AppText>
       <AppText variant="caption">
-        Your confirmed studio schedule and active booking requests in one place.
+        Connect with a studio to bring your dance schedule, lesson requests, and LUMI planning support into DanceFlow.
       </AppText>
 
       {loading ? (
@@ -157,17 +216,7 @@ export default function ScheduleScreen() {
         <FeatureCard title="Schedule unavailable" detail={errorMessage} />
       ) : null}
 
-      {!loading && !hasPortalAccess ? (
-        <>
-          <FeatureCard
-            title="Connect with a studio"
-            detail="Once your studio connects your DanceFlow account, your lessons, classes, rentals, and booking requests will appear here."
-          />
-          <Link href="/(tabs)/discover" asChild>
-            <AppButton label="Find studios and events" />
-          </Link>
-        </>
-      ) : null}
+      {!loading && !hasPortalAccess ? <ScheduleValueCard signedIn={isSignedIn} /> : null}
 
       {!loading && hasPortalAccess ? (
         <>
@@ -220,24 +269,26 @@ export default function ScheduleScreen() {
               ))}
             </View>
           ) : null}
+
+          <View style={styles.lumiCard}>
+            <Image source={lumiAvatar} style={styles.lumiAvatar} resizeMode="contain" />
+            <View style={styles.lumiCopy}>
+              <AppText variant="subtitle">Need help planning?</AppText>
+              <AppText variant="caption">
+                LUMI can help you understand your schedule, prepare for lessons, and plan your next practice step.
+              </AppText>
+            </View>
+          </View>
+
+          <Link href="/lumi" asChild>
+            <AppButton label="Ask LUMI about my schedule" variant="secondary" />
+          </Link>
         </>
       ) : null}
 
-      <View style={styles.lumiCard}>
-        <Image source={lumiAvatar} style={styles.lumiAvatar} resizeMode="contain" />
-        <View style={styles.lumiCopy}>
-          <AppText variant="subtitle">Need help planning?</AppText>
-          <AppText variant="caption">
-            LUMI can help you understand your schedule, prepare for lessons, and plan your next practice step.
-          </AppText>
-        </View>
-      </View>
-
-      <Link href="/lumi" asChild>
-        <AppButton label="Ask LUMI about my schedule" variant="secondary" />
-      </Link>
-
-      <AppButton label="Refresh schedule" onPress={loadSchedule} variant="secondary" />
+      {isSignedIn ? (
+        <AppButton label="Refresh schedule" onPress={loadSchedule} variant="secondary" />
+      ) : null}
     </Screen>
   );
 }
@@ -249,6 +300,9 @@ const styles = StyleSheet.create({
     gap: 7,
     padding: 14
   },
+  valueList: {
+  gap: 12,
+},
   actionRow: {
     flexDirection: "row",
     flexWrap: "wrap",

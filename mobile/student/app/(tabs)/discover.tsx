@@ -3,6 +3,7 @@ import { useRouter, Link } from "expo-router";
 import * as Location from "expo-location";
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, Share, StyleSheet, TextInput, View } from "react-native";
+import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
@@ -135,7 +136,7 @@ export default function DiscoverScreen() {
     const userId = session?.user.id ?? null;
 
     if (!userId) {
-      setFavoriteMessage("Sign in to save studios and events.");
+      setFavoriteMessage("Continue with email to save studios and events to your DanceFlow account.");
       return;
     }
 
@@ -448,23 +449,32 @@ export default function DiscoverScreen() {
                 <AppText key={item.id} variant="caption">♥ {item.name}</AppText>
               ))}
             </View>
-          ) : (
+          ) : session ? (
             <FeatureCard
               label="Saved"
               title="Save your favorites"
-              detail="Tap the heart on studios or events to keep them here."
+              detail="Tap the heart on studios or events to keep them handy in your DanceFlow account."
             />
+          ) : (
+            <View style={styles.savedPreview}>
+              <AppText variant="eyebrow">Saved</AppText>
+              <AppText variant="subtitle">Save studios and events</AppText>
+              <AppText variant="caption">
+                Create or access your free DanceFlow account with a secure email link. Then tap hearts on studios and events to keep them handy.
+              </AppText>
+              <Link href="/(auth)/sign-in" asChild>
+                <AppButton label="Continue with email" />
+              </Link>
+            </View>
           )}
 
-          <FeatureCard
-            label={hasActiveDiscoveryIntent ? "Results" : "Start here"}
-            title={hasActiveDiscoveryIntent ? "Matching discovery results" : "Search-first discovery"}
-            detail={
-              hasActiveDiscoveryIntent
-                ? resultSummary
-                : "Use search, city/state, current location, or filters to see the full matching catalog. A small preview is shown below."
-            }
-          />
+          {hasActiveDiscoveryIntent ? (
+            <FeatureCard
+              label="Results"
+              title="Matching discovery results"
+              detail={resultSummary}
+            />
+          ) : null}
 
           {visibleStudios.length ? (
             <>
