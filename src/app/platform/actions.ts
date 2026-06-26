@@ -530,3 +530,56 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
   revalidatePath(`/platform/studios/${studioId}`);
   redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}portal_repair=1`);
 }
+
+
+function normalizeMobilePushCategory(value: FormDataEntryValue | null) {
+  const normalized = String(value ?? "account").trim().toLowerCase();
+
+  if (
+    normalized === "schedule" ||
+    normalized === "event" ||
+    normalized === "favorites" ||
+    normalized === "learning" ||
+    normalized === "account" ||
+    normalized === "system"
+  ) {
+    return normalized;
+  }
+
+  return "account";
+}
+
+export async function sendPlatformTestMobilePushAction(formData: FormData) {
+  await requirePlatformAdmin();
+
+  const userId = String(formData.get("userId") ?? "").trim();
+  const title =
+    String(formData.get("title") ?? "").trim() || "DanceFlow test notification";
+  const body =
+    String(formData.get("body") ?? "").trim() ||
+    "Your DanceFlow mobile push setup is working.";
+  const category = normalizeMobilePushCategory(formData.get("category"));
+
+  if (!userId) {
+    redirect("/platform/mobile-push?error=missing_user");
+  }
+
+  const { sendMobilePushToUser } = await import("@/lib/notifications/expoPush");
+
+  const result = await sendMobilePushToUser({
+    userId,
+    category,
+    title,
+    body,
+    data: {
+      source: "platform_test",
+    },
+  });
+
+  const status = result.status;
+  const sent = result.sent;
+  const failed = result.failed;
+
+  revalidatePath("/platform/mobile-push");
+  redirect(`/platform/mobile-push?status=${status}&sent=${sent}&failed=${failed}`);
+}
