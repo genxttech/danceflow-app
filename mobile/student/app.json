@@ -29,6 +29,7 @@
         "foregroundImage": "./assets/danceflow-logo.png"
       },
       "versionCode": 1
+      
     },
     "plugins": [
       "expo-router",

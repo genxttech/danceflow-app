@@ -147,3 +147,4 @@ node_modules
 .vercel
 desktop.ini
 Thumbs.db
+mobile/student/google-services.json

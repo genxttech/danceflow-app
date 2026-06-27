@@ -111,21 +111,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [handleAuthUrl]);
 
   const continueWithEmail = useCallback(async (email: string) => {
-    const redirectTo = Linking.createURL("auth/callback");
+  const { error } = await supabase.auth.signInWithOtp({
+    email: normalizeEmail(email),
+    options: {
+      emailRedirectTo: "danceflow://auth/callback",
+      shouldCreateUser: false,
+    },
+  });
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email: normalizeEmail(email),
-      options: {
-        emailRedirectTo: redirectTo,
-        shouldCreateUser: true,
-        data: {
-          app_origin: "danceflow_mobile"
-        }
-      }
-    });
-
-    if (error) throw error;
-  }, []);
+  if (error) throw error;
+}, []);
 
   const sendPasswordReset = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email));
