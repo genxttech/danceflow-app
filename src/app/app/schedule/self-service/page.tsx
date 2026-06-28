@@ -154,10 +154,10 @@ export default async function SelfServiceScheduleReviewPage({
                 Schedule
               </p>
               <h1 className="mt-1 text-2xl font-semibold">
-                Self-Service Requests
+                Schedule Requests
               </h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80">
-                Review student booking actions before they become appointments.
+                Review student booking, reschedule, and cancellation requests before they become appointments.
               </p>
             </div>
 
@@ -303,7 +303,7 @@ export default async function SelfServiceScheduleReviewPage({
           </div>
         ) : (
           <p className="p-8 text-center text-sm text-slate-600">
-            No self-service requests found for this status.
+            No schedule requests found for this status.
           </p>
         )}
       </div>
