@@ -66,7 +66,7 @@ export async function GET(request: Request) {
       .eq("studio_id", studio.id)
       .eq("client_id", client.id)
       .gte("ends_at", nowIso)
-      .in("status", ["scheduled", "confirmed"])
+      .in("status", ["scheduled"])
       .order("starts_at", { ascending: true })
       .limit(20);
 

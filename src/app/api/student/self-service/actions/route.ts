@@ -145,7 +145,7 @@ function validateUpcomingAppointment(
   appointment: AppointmentRow,
   settings: { portal_self_scheduling_cancellation_cutoff_hours: number | null }
 ) {
-  if (!["scheduled", "confirmed"].includes(appointment.status)) {
+  if (!["scheduled"].includes(appointment.status)) {
     throw new Error("Only upcoming scheduled appointments can be changed.");
   }
 

@@ -61,7 +61,6 @@ export type BuildSelfServiceSlotsParams = {
 const DEFAULT_TIME_ZONE = "America/New_York";
 const BLOCKING_APPOINTMENT_STATUSES = new Set([
   "scheduled",
-  "confirmed",
   "completed",
   "checked_in",
 ]);

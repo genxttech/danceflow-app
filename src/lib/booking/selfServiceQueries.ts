@@ -262,7 +262,7 @@ export async function loadStudentSelfServiceSlots(
     .eq("studio_id", studio.id)
     .lt("starts_at", range.endIso)
     .gt("ends_at", range.startIso)
-    .in("status", ["scheduled", "confirmed", "checked_in", "completed"]);
+    .in("status", ["scheduled", "checked_in", "completed"]);
 
   const [windows, blackouts, appointmentHolds] = await Promise.all([
     queryList<SelfServiceAvailabilityWindow>(windowsQuery, "Availability lookup failed"),

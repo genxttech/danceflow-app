@@ -68,8 +68,7 @@ export default function AppointmentSelfServiceActions({
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  const canRequestChange =
-    ["scheduled", "confirmed"].includes(status) && new Date(startsAt) > new Date();
+  const canRequestChange = status === "scheduled" && new Date(startsAt) > new Date();
 
   useEffect(() => {
     if (mode !== "reschedule") return;
@@ -181,32 +180,37 @@ export default function AppointmentSelfServiceActions({
   if (!canRequestChange) return null;
 
   return (
-    <div className="mt-3 border-t border-slate-100 pt-3">
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        Lesson changes
-      </p>
+    <div className="mt-4 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/30 p-4">
+      <div className="mb-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-[var(--brand-primary)]">
+          Lesson changes
+        </p>
+        <p className="mt-1 text-sm text-slate-600">
+          Request a new time or cancellation based on studio policy.
+        </p>
+      </div>
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => setMode(mode === "reschedule" ? "idle" : "reschedule")}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+          className={`rounded-xl border px-3 py-2 text-sm font-semibold shadow-sm ${
             mode === "reschedule"
-              ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)] text-[var(--brand-primary)]"
-              : "border-slate-200 bg-white text-slate-700 hover:border-[var(--brand-primary)]"
+              ? "border-[var(--brand-primary)] bg-white text-[var(--brand-primary)]"
+              : "border-slate-300 bg-white text-slate-700 hover:border-[var(--brand-primary)]"
           }`}
         >
-          Change time
+          Reschedule
         </button>
         <button
           type="button"
           onClick={() => setMode(mode === "cancel" ? "idle" : "cancel")}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${
+          className={`rounded-xl border px-3 py-2 text-sm font-semibold shadow-sm ${
             mode === "cancel"
               ? "border-rose-300 bg-rose-50 text-rose-800"
               : "border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
           }`}
         >
-          Cancel lesson
+          Cancel
         </button>
       </div>
 
@@ -222,7 +226,7 @@ export default function AppointmentSelfServiceActions({
       ) : null}
 
       {mode !== "idle" ? (
-        <div className="mt-3 space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <div className="mt-3 space-y-3">
           {mode === "reschedule" ? (
             <div>
               {loadingSlots ? (
@@ -237,7 +241,7 @@ export default function AppointmentSelfServiceActions({
                         key={key}
                         type="button"
                         onClick={() => setSelectedSlotKey(key)}
-                        className={`rounded-lg border bg-white p-2.5 text-left text-xs ${
+                        className={`rounded-xl border p-3 text-left text-sm shadow-sm ${
                           selected
                             ? "border-[var(--brand-primary)] bg-white text-slate-950 ring-2 ring-[var(--brand-primary)]/10"
                             : "border-slate-200 bg-white text-slate-700 hover:border-[var(--brand-primary)]"
@@ -267,7 +271,7 @@ export default function AppointmentSelfServiceActions({
             type="button"
             disabled={isPending || (mode === "reschedule" && !selectedSlot)}
             onClick={() => submit(mode === "cancel" ? "cancel" : "reschedule")}
-            className="rounded-lg bg-[var(--brand-primary)] px-3 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-50"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:opacity-95 disabled:opacity-50"
           >
             {isPending
               ? "Submitting..."
