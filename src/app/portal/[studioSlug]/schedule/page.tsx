@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { createPortalScheduleRequestAction } from "./actions";
 import AppointmentSelfServiceActions from "./AppointmentSelfServiceActions";
 import SelfServiceBookingPanel from "./SelfServiceBookingPanel";
 
@@ -201,12 +200,6 @@ type StudioSettingsRow = {
   portal_bookable_instructor_ids: string[] | null;
 };
 
-type InstructorOptionRow = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-};
-
 type BookingRequestRow = {
   id: string;
   status: string;
@@ -300,14 +293,6 @@ function requestStatusBadgeClass(status: string) {
   if (status === "approved") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (status === "declined") return "border-rose-200 bg-rose-50 text-rose-800";
   return "border-slate-200 bg-slate-50 text-slate-700";
-}
-
-function getInstructorOptionName(instructor: InstructorOptionRow) {
-  return `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim() || "Instructor";
-}
-
-function getDefaultRequestDate(timeZone: string) {
-  return addDaysToDateKey(getZonedDateKey(new Date(), timeZone), 1);
 }
 
 function getSingle<T>(value: T | T[] | null | undefined): T | null {
@@ -622,21 +607,6 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
   const allowedLessonTypes = settings?.portal_bookable_lesson_types?.length
     ? settings.portal_bookable_lesson_types
     : ["private_lesson"];
-
-  let instructorsQuery = supabase
-    .from("instructors")
-    .select("id, first_name, last_name")
-    .eq("studio_id", studio.id)
-    .order("first_name", { ascending: true });
-
-  const allowedInstructorIds = settings?.portal_bookable_instructor_ids ?? [];
-
-  if (allowedInstructorIds.length) {
-    instructorsQuery = instructorsQuery.in("id", allowedInstructorIds);
-  }
-
-  const { data: instructorOptions } = await instructorsQuery;
-  const requestInstructors = (instructorOptions ?? []) as InstructorOptionRow[];
 
   const { data: portalRequests } = await supabase
     .from("booking_requests")
@@ -966,117 +936,21 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
             </section>
           )}
 
-          <details className="rounded-2xl border border-slate-200 bg-white p-4">
-            <summary className="cursor-pointer text-sm font-semibold text-slate-950">
-              Request a specific time
-            </summary>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Send a preferred lesson time to the studio for review.
+          <section className="rounded-2xl border border-slate-200 bg-white p-4">
+            <h2 className="text-base font-semibold text-slate-950">Booking rules</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Available lesson times are controlled by the studio.
             </p>
-
-            {portalSchedulingEnabled ? (
-              <form action={createPortalScheduleRequestAction} className="mt-4 space-y-3">
-                <input type="hidden" name="studioSlug" value={studioSlug} />
-
-                <label className="block text-sm font-medium text-slate-700">
-                  Lesson type
-                  <select
-                    name="appointmentType"
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                    defaultValue={allowedLessonTypes[0] ?? "private_lesson"}
-                  >
-                    {allowedLessonTypes.map((lessonType) => (
-                      <option key={lessonType} value={lessonType}>
-                        {typeLabel(lessonType)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="block text-sm font-medium text-slate-700">
-                  Preferred instructor
-                  <select
-                    name="instructorId"
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                    defaultValue=""
-                  >
-                    <option value="">Any available instructor</option>
-                    {requestInstructors.map((instructor) => (
-                      <option key={instructor.id} value={instructor.id}>
-                        {getInstructorOptionName(instructor)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-                  <label className="block text-sm font-medium text-slate-700">
-                    Preferred date
-                    <input
-                      type="date"
-                      name="requestedDate"
-                      required
-                      min={getDefaultRequestDate(studioTimeZone)}
-                      defaultValue={getDefaultRequestDate(studioTimeZone)}
-                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </label>
-
-                  <label className="block text-sm font-medium text-slate-700">
-                    Preferred time
-                    <input
-                      type="time"
-                      name="requestedTime"
-                      required
-                      min={requestStartTime}
-                      max={requestEndTime}
-                      defaultValue={requestStartTime}
-                      className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                    />
-                  </label>
-                </div>
-
-                <label className="block text-sm font-medium text-slate-700">
-                  Preferred length
-                  <select
-                    name="durationMinutes"
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                    defaultValue="45"
-                  >
-                    <option value="30">30 minutes</option>
-                    <option value="45">45 minutes</option>
-                    <option value="60">60 minutes</option>
-                    <option value="90">90 minutes</option>
-                  </select>
-                </label>
-
-                <label className="block text-sm font-medium text-slate-700">
-                  Notes for the studio
-                  <textarea
-                    name="notes"
-                    rows={3}
-                    placeholder="Share any preferred focus, scheduling notes, or alternate times."
-                    className="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
-                  />
-                </label>
-
-                <button
-                  type="submit"
-                  className="w-full rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-95"
-                >
-                  Send schedule request
-                </button>
-              </form>
-            ) : null}
 
             <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
               <p><span className="font-medium text-slate-900">Bookable:</span> {formatPortalLessonTypes(allowedLessonTypes)}</p>
               <p><span className="font-medium text-slate-900">Days:</span> {formatWeekdayList(allowedWeekdays)}</p>
+              <p><span className="font-medium text-slate-900">Hours:</span> {requestStartTime}-{requestEndTime}</p>
               <p><span className="font-medium text-slate-900">Window:</span> {requestWindowDays} days ahead</p>
               <p><span className="font-medium text-slate-900">Changes:</span> {cancellationCutoffHours}h cutoff</p>
               <p><span className="font-medium text-slate-900">Notice:</span> {minNoticeHours}h minimum</p>
             </div>
-          </details>
+          </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <div className="flex items-center justify-between gap-3">

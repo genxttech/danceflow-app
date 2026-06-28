@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { submitPortalBookingRequestAction } from "./actions";
 import {
   ensurePortalProfileAndClientLinks,
   getAuthUserFullName,
@@ -1306,7 +1305,7 @@ export default async function PortalHomePage({
               pendingBookingRequests.length === 1 ? "is" : "are"
             } waiting for studio review.`,
             tone: "sky" as const,
-            href: `/portal/${encodeURIComponent(typedStudio.slug)}#booking-request`,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}/schedule#self-service-booking`,
             label: "Requests",
           },
         ]
@@ -1354,7 +1353,7 @@ export default async function PortalHomePage({
               : "Request a lesson or contact the studio to get something on the calendar.",
             tone: "sky" as const,
             href: `/portal/${encodeURIComponent(typedStudio.slug)}${
-              isInstructorPortal ? "/schedule" : "#booking-request"
+              isInstructorPortal ? "/schedule" : "/schedule#self-service-booking"
             }`,
             label: "Schedule",
           },
@@ -1433,7 +1432,7 @@ export default async function PortalHomePage({
               pendingBookingRequests.length === 1 ? "is" : "are"
             } waiting for studio review.`,
             tone: "sky" as const,
-            href: `/portal/${encodeURIComponent(typedStudio.slug)}#booking-request`,
+            href: `/portal/${encodeURIComponent(typedStudio.slug)}/schedule#self-service-booking`,
             cta: "View request",
           },
         ]
@@ -1534,14 +1533,6 @@ export default async function PortalHomePage({
                 >
                   My Account
                 </Link>
-                <Link
-                  href={`/reset-password?intent=public&next=${encodeURIComponent(
-                    `/portal/${typedStudio.slug}`,
-                  )}`}
-                  className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
-                >
-                  Create App Password
-                </Link>
 
                 <form action="/auth/logout" method="post">
                   <button
@@ -1595,10 +1586,10 @@ export default async function PortalHomePage({
             </Link>
             {!isInstructorPortal ? (
               <Link
-                href="#booking-request"
+                href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule#self-service-booking`}
                 className="rounded-full border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50"
               >
-                Request lesson
+                Book lesson
               </Link>
             ) : null}
             <Link
@@ -2195,9 +2186,9 @@ export default async function PortalHomePage({
           ) : null}
           {!isInstructorPortal ? (
             <ActionTile
-              href="#booking-request"
-              title="Request a Lesson"
-              description="Send preferred times and scheduling notes to the studio."
+              href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule#self-service-booking`}
+              title="Book a Lesson"
+              description="Choose an available studio-approved time."
               tone="violet"
             />
           ) : null}
@@ -2259,137 +2250,6 @@ export default async function PortalHomePage({
           ) : null}
         </div>
       </CardShell>
-
-      {!isInstructorPortal ? (
-        <CardShell
-          title="Request a Lesson or Coaching"
-          accent="violet"
-          subtitle="Send a scheduling request to the studio without starting a text thread. This is a request only; the studio will confirm the final time."
-        >
-          <div id="booking-request" className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-            <div className="rounded-3xl border border-violet-100 bg-violet-50 p-5">
-              <p className="text-sm font-semibold text-violet-950">
-                Request status
-              </p>
-              {pendingBookingRequests.length ? (
-                <div className="mt-4 space-y-3">
-                  {pendingBookingRequests.map((request) => (
-                    <div
-                      key={request.id}
-                      className="rounded-2xl border border-white bg-white p-4"
-                    >
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="rounded-full bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700 ring-1 ring-sky-100">
-                          Pending review
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          Sent {formatDate(request.created_at)}
-                        </span>
-                      </div>
-                      <p className="mt-2 text-sm leading-6 text-slate-600">
-                        The studio has your request and can follow up with a confirmed time.
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              ) : approvedBookingRequests.length ? (
-                <div className="mt-4 rounded-2xl border border-white bg-white p-4">
-                  <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-100">
-                    Recently approved
-                  </span>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
-                    Your latest request has been approved. Check your schedule for confirmed appointments.
-                  </p>
-                </div>
-              ) : (
-                <p className="mt-3 text-sm leading-6 text-violet-900">
-                  Use the form to request your next private lesson, coaching, floor rental, make-up lesson, or scheduling help.
-                </p>
-              )}
-            </div>
-
-            <form
-              action={submitPortalBookingRequestAction}
-              className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-            >
-              <input type="hidden" name="studioSlug" value={typedStudio.slug} />
-              <input
-                type="hidden"
-                name="returnTo"
-                value={`/portal/${encodeURIComponent(typedStudio.slug)}`}
-              />
-
-              <div className="grid gap-4 md:grid-cols-2">
-                <label className="block">
-                  <span className="text-sm font-medium text-slate-700">
-                    Request type
-                  </span>
-                  <select
-                    name="requestType"
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                    defaultValue="private_lesson"
-                  >
-                    <option value="private_lesson">Private lesson</option>
-                    <option value="coaching">Coaching</option>
-                    <option value="group_class">Group class question</option>
-                    <option value="makeup_lesson">Make-up lesson</option>
-                    <option value="floor_rental">Floor rental</option>
-                    <option value="scheduling_question">Scheduling question</option>
-                  </select>
-                </label>
-
-                <label className="block">
-                  <span className="text-sm font-medium text-slate-700">
-                    Contact preference
-                  </span>
-                  <select
-                    name="contactPreference"
-                    className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                    defaultValue="email"
-                  >
-                    <option value="email">Email me</option>
-                    <option value="phone">Call me</option>
-                    <option value="text">Text me, if I have opted in</option>
-                    <option value="portal">Portal message or studio follow-up</option>
-                  </select>
-                </label>
-              </div>
-
-              <label className="mt-4 block">
-                <span className="text-sm font-medium text-slate-700">
-                  Preferred days or times
-                </span>
-                <textarea
-                  name="preferredTimes"
-                  rows={3}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                  placeholder="Example: Tuesdays after 6pm, Saturday mornings, or any evening next week."
-                  required
-                />
-              </label>
-
-              <label className="mt-4 block">
-                <span className="text-sm font-medium text-slate-700">
-                  Notes for the studio
-                </span>
-                <textarea
-                  name="notes"
-                  rows={4}
-                  className="mt-2 w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900"
-                  placeholder="Share goals, instructor preferences, make-up details, or anything the studio should know."
-                />
-              </label>
-
-              <button
-                type="submit"
-                className="mt-5 inline-flex rounded-2xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white hover:opacity-90"
-              >
-                Send Request
-              </button>
-            </form>
-          </div>
-        </CardShell>
-      ) : null}
 
       <div className="grid gap-8 xl:grid-cols-[1.25fr_0.95fr]">
         <div className="space-y-8">
