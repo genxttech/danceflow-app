@@ -47,9 +47,17 @@ type StudioSettingsRow = {
   public_intro_booking_enabled: boolean | null;
   portal_self_scheduling_enabled: boolean | null;
   portal_self_scheduling_mode: string | null;
+  portal_self_scheduling_reschedule_mode: string | null;
+  portal_self_scheduling_cancellation_mode: string | null;
   portal_self_scheduling_window_days: number | null;
   portal_self_scheduling_min_notice_hours: number | null;
   portal_self_scheduling_cancellation_cutoff_hours: number | null;
+  portal_self_scheduling_slot_interval_minutes: number | null;
+  portal_self_scheduling_default_duration_minutes: number | null;
+  portal_self_scheduling_require_active_credit: boolean | null;
+  portal_self_scheduling_allow_unlinked_requests: boolean | null;
+  portal_self_scheduling_auto_assign_room: boolean | null;
+  portal_self_scheduling_requires_payment_method: boolean | null;
   intro_lesson_duration_minutes: number | null;
   intro_booking_window_days: number | null;
   intro_default_instructor_id: string | null;
@@ -168,9 +176,17 @@ export default async function SettingsPage() {
         public_intro_booking_enabled,
         portal_self_scheduling_enabled,
         portal_self_scheduling_mode,
+        portal_self_scheduling_reschedule_mode,
+        portal_self_scheduling_cancellation_mode,
         portal_self_scheduling_window_days,
         portal_self_scheduling_min_notice_hours,
         portal_self_scheduling_cancellation_cutoff_hours,
+        portal_self_scheduling_slot_interval_minutes,
+        portal_self_scheduling_default_duration_minutes,
+        portal_self_scheduling_require_active_credit,
+        portal_self_scheduling_allow_unlinked_requests,
+        portal_self_scheduling_auto_assign_room,
+        portal_self_scheduling_requires_payment_method,
         intro_lesson_duration_minutes,
         intro_booking_window_days,
         intro_default_instructor_id,

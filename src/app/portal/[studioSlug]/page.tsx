@@ -597,18 +597,20 @@ function CardShell({
   };
 
   return (
-    <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
-      <div className="max-w-2xl">
+    <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6">
+      <div className="flex flex-col gap-2 border-b border-slate-100 pb-4 md:flex-row md:items-end md:justify-between">
+        <div className="max-w-2xl">
         <p
-          className={`text-sm font-semibold uppercase tracking-[0.16em] ${accentMap[accent]}`}
+          className={`text-xs font-semibold uppercase tracking-[0.16em] ${accentMap[accent]}`}
         >
           {title}
         </p>
         {subtitle ? (
-          <p className="mt-3 text-sm leading-7 text-slate-600">{subtitle}</p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{subtitle}</p>
         ) : null}
+        </div>
       </div>
-      <div className="mt-6">{children}</div>
+      <div className="mt-5">{children}</div>
     </section>
   );
 }
@@ -635,10 +637,10 @@ function ActionTile({
   return (
     <Link
       href={href}
-      className={`rounded-2xl border p-5 transition ${classes[tone]}`}
+      className={`rounded-2xl border p-4 transition ${classes[tone]}`}
     >
       <p className="font-medium text-slate-900">{title}</p>
-      <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-600">{description}</p>
     </Link>
   );
 }
@@ -1583,46 +1585,46 @@ export default async function PortalHomePage({
           </div>
         </div>
 
-        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
-          <div className="grid gap-4 md:grid-cols-3">
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
-              <h2 className="text-lg font-semibold text-sky-950">
-                {isInstructorPortal
-                  ? "See your schedule quickly"
-                  : "See your appointments quickly"}
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-sky-900">
-                {isInstructorPortal
-                  ? "Check your upcoming lessons and floor rentals without digging through extra pages."
-                  : "Check your upcoming lessons and class bookings in one place."}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
-              <h2 className="text-lg font-semibold text-violet-950">
-                {isInstructorPortal
-                  ? "Use the links you need most"
-                  : "Keep your membership in view"}
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-violet-900">
-                {isInstructorPortal
-                  ? "Jump straight to your schedule, booking floor space, or reviewing your rentals."
-                  : "See your current membership details and know what is active right now."}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-              <h2 className="text-lg font-semibold text-amber-950">
-                {isInstructorPortal
-                  ? "Stay on top of rentals"
-                  : "Stay ready for your next visit"}
-              </h2>
-              <p className="mt-2 text-sm leading-7 text-amber-900">
-                {isInstructorPortal
-                  ? "Review rental dates, payment activity, and what is coming up next."
-                  : "Use your portal to keep track of upcoming appointments and recent studio activity."}
-              </p>
-            </div>
+        <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-4 md:px-8">
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
+              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Schedule
+            </Link>
+            {!isInstructorPortal ? (
+              <Link
+                href="#booking-request"
+                className="rounded-full border border-violet-200 bg-white px-4 py-2 text-sm font-semibold text-violet-800 hover:bg-violet-50"
+              >
+                Request lesson
+              </Link>
+            ) : null}
+            <Link
+              href="#wallet"
+              className="rounded-full border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-50"
+            >
+              Wallet
+            </Link>
+            <Link
+              href="#my-pass"
+              className="rounded-full border border-sky-200 bg-white px-4 py-2 text-sm font-semibold text-sky-800 hover:bg-sky-50"
+            >
+              Pass
+            </Link>
+            <Link
+              href="#portal-events"
+              className="rounded-full border border-orange-200 bg-white px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-50"
+            >
+              Events
+            </Link>
+            <Link
+              href={`/portal/${encodeURIComponent(typedStudio.slug)}/documents`}
+              className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Documents
+            </Link>
           </div>
         </div>
       </section>
@@ -1654,17 +1656,17 @@ export default async function PortalHomePage({
             </Link>
           </div>
 
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            <div className="rounded-3xl border border-sky-200 bg-sky-50 p-5">
+          <div className="mt-6 grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-700">
                 Next Up
               </p>
               {nextUpItem ? (
                 <>
-                  <p className="mt-3 text-lg font-semibold text-sky-950">
+                  <p className="mt-2 text-base font-semibold text-sky-950">
                     {nextUpItem.title}
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-sky-900">
+                  <p className="mt-1 text-sm leading-6 text-sky-900">
                     {formatDateTime(nextUpItem.starts_at, studioTimeZone)}
                   </p>
                   <p className="mt-1 text-sm text-sky-800">
@@ -1672,18 +1674,18 @@ export default async function PortalHomePage({
                   </p>
                 </>
               ) : (
-                <p className="mt-3 text-sm leading-7 text-sky-900">
+                <p className="mt-2 text-sm leading-6 text-sky-900">
                   No upcoming lessons, classes, or rentals are currently on your
                   portal schedule.
                 </p>
               )}
             </div>
 
-            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
                 My Wallet
               </p>
-              <p className="mt-3 text-3xl font-semibold text-emerald-950">
+              <p className="mt-2 text-2xl font-semibold text-emerald-950">
                 {hasUnlimitedCredits ? "Unlimited" : remainingCreditTotal}
               </p>
               <p className="mt-2 text-sm leading-6 text-emerald-900">
@@ -1696,11 +1698,11 @@ export default async function PortalHomePage({
               ) : null}
             </div>
 
-            <div className="rounded-3xl border border-violet-200 bg-violet-50 p-5">
+            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
                 Documents
               </p>
-              <p className="mt-3 text-3xl font-semibold text-violet-950">
+              <p className="mt-2 text-2xl font-semibold text-violet-950">
                 {unsignedDocumentCount}
               </p>
               <p className="mt-2 text-sm leading-6 text-violet-900">
@@ -1720,11 +1722,11 @@ export default async function PortalHomePage({
               </Link>
             </div>
 
-            <div className="rounded-3xl border border-orange-200 bg-orange-50 p-5">
+            <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-orange-700">
                 My Events
               </p>
-              <p className="mt-3 text-3xl font-semibold text-orange-950">
+              <p className="mt-2 text-2xl font-semibold text-orange-950">
                 {registeredEvents.length}
               </p>
               <p className="mt-2 text-sm leading-6 text-orange-900">

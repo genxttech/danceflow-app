@@ -26,6 +26,12 @@ function parseNonNegativeInteger(raw: string, label: string) {
   return value;
 }
 
+function parseAllowedInteger(raw: string, fallback: number, allowed: number[], label: string) {
+  const value = Number.parseInt(raw || String(fallback), 10);
+  if (!allowed.includes(value)) throw new Error(`${label} is invalid.`);
+  return value;
+}
+
 export async function updateStudioSettingsAction(
   _prevState: ActionState,
   formData: FormData
@@ -72,9 +78,33 @@ export async function updateStudioSettingsAction(
       getString(formData, "portalSelfSchedulingEnabled") === "true";
     const portalMode =
       getString(formData, "portalSelfSchedulingMode") || "request_only";
-    if (!["request_only", "disabled"].includes(portalMode)) {
-      return { error: "Portal scheduling mode is invalid." };
+    const portalRescheduleMode =
+      getString(formData, "portalSelfSchedulingRescheduleMode") || "request_only";
+    const portalCancellationMode =
+      getString(formData, "portalSelfSchedulingCancellationMode") || "request_only";
+    const allowedModes = ["disabled", "request_only", "approval_required", "instant"];
+    if (!allowedModes.includes(portalMode)) {
+      return { error: "Portal booking mode is invalid." };
     }
+    if (!allowedModes.includes(portalRescheduleMode)) {
+      return { error: "Portal reschedule mode is invalid." };
+    }
+    if (!allowedModes.includes(portalCancellationMode)) {
+      return { error: "Portal cancellation mode is invalid." };
+    }
+
+    const portalSlotIntervalMinutes = parseAllowedInteger(
+      getString(formData, "portalSelfSchedulingSlotIntervalMinutes"),
+      15,
+      [5, 10, 15, 20, 30, 45, 60],
+      "Portal slot interval"
+    );
+    const portalDefaultDurationMinutes = parseAllowedInteger(
+      getString(formData, "portalSelfSchedulingDefaultDurationMinutes"),
+      45,
+      [30, 45, 60, 75, 90, 120],
+      "Portal default duration"
+    );
 
     const portalBookableLessonTypes = getStringArray(
       formData,
@@ -105,10 +135,28 @@ export async function updateStudioSettingsAction(
             getString(formData, "warnLowPackageBalance") === "true",
           portal_self_scheduling_enabled: portalEnabled,
           portal_self_scheduling_mode: portalEnabled ? portalMode : "disabled",
+          portal_self_scheduling_reschedule_mode: portalEnabled
+            ? portalRescheduleMode
+            : "disabled",
+          portal_self_scheduling_cancellation_mode: portalEnabled
+            ? portalCancellationMode
+            : "disabled",
           portal_self_scheduling_window_days: portalWindowDays,
           portal_self_scheduling_min_notice_hours: portalMinNoticeHours,
           portal_self_scheduling_cancellation_cutoff_hours:
             portalCancellationCutoffHours,
+          portal_self_scheduling_slot_interval_minutes: portalSlotIntervalMinutes,
+          portal_self_scheduling_default_duration_minutes:
+            portalDefaultDurationMinutes,
+          portal_self_scheduling_require_active_credit:
+            getString(formData, "portalSelfSchedulingRequireActiveCredit") === "on",
+          portal_self_scheduling_allow_unlinked_requests:
+            getString(formData, "portalSelfSchedulingAllowUnlinkedRequests") === "on",
+          portal_self_scheduling_auto_assign_room:
+            getString(formData, "portalSelfSchedulingAutoAssignRoom") === "on",
+          portal_self_scheduling_requires_payment_method:
+            getString(formData, "portalSelfSchedulingRequiresPaymentMethod") === "on",
+          portal_self_scheduling_updated_at: new Date().toISOString(),
           portal_bookable_instructor_ids: getStringArray(
             formData,
             "portalBookableInstructorIds"

@@ -14,8 +14,12 @@ type Props = {
     no_show_deducts_lesson: boolean | null; allow_negative_balance: boolean | null;
     block_depleted_package_booking: boolean | null; warn_low_package_balance: boolean | null;
     portal_self_scheduling_enabled: boolean | null; portal_self_scheduling_mode: string | null;
+    portal_self_scheduling_reschedule_mode: string | null; portal_self_scheduling_cancellation_mode: string | null;
     portal_self_scheduling_window_days: number | null; portal_self_scheduling_min_notice_hours: number | null;
     portal_self_scheduling_cancellation_cutoff_hours: number | null;
+    portal_self_scheduling_slot_interval_minutes: number | null; portal_self_scheduling_default_duration_minutes: number | null;
+    portal_self_scheduling_require_active_credit: boolean | null; portal_self_scheduling_allow_unlinked_requests: boolean | null;
+    portal_self_scheduling_auto_assign_room: boolean | null; portal_self_scheduling_requires_payment_method: boolean | null;
     portal_bookable_instructor_ids: string[] | null; portal_bookable_lesson_types: string[] | null;
   };
   notificationSettings: { public_intro_booking_enabled: boolean; follow_up_overdue_enabled: boolean; package_low_balance_enabled: boolean; package_depleted_enabled: boolean; floor_rental_upcoming_enabled: boolean };
@@ -26,6 +30,9 @@ type Props = {
 };
 
 const lessonTypes = [["private_lesson", "Private lessons"], ["coaching", "Coachings"], ["practice_party", "Practice parties"], ["group_class", "Group classes"]];
+const selfServiceModes = [["disabled", "Disabled"], ["request_only", "Request only"], ["approval_required", "Approval required"], ["instant", "Instant"]];
+const slotIntervals = [5, 10, 15, 20, 30, 45, 60];
+const lessonDurations = [30, 45, 60, 75, 90, 120];
 const fieldClass = "mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 disabled:bg-slate-50";
 
 function Toggle({ name, title, description, checked, disabled }: { name: string; title: string; description: string; checked: boolean; disabled: boolean }) {
@@ -58,12 +65,20 @@ export default function SettingsForm({ studio, settings, notificationSettings, i
         <label className="text-sm font-medium">Low balance warning<select name="warnLowPackageBalance" defaultValue={settings.warn_low_package_balance ? "true" : "false"} disabled={!canEdit} className={fieldClass}><option value="true">Show warning</option><option value="false">Do not warn</option></select></label>
       </div></section>
 
-      <section className="rounded-lg border border-l-4 border-l-sky-500 bg-white p-6 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wider text-sky-700">Student experience</p><h2 className="mt-1 text-xl font-semibold">Student portal scheduling</h2><p className="mt-1 text-sm text-slate-600">Control request-based scheduling for existing students. Public intro booking is configured under Public Presence &amp; Booking.</p><div className="mt-5 grid gap-4 md:grid-cols-2">
-        <label className="text-sm font-medium">Schedule requests<select name="portalSelfSchedulingEnabled" defaultValue={settings.portal_self_scheduling_enabled ? "true" : "false"} disabled={!canEdit} className={fieldClass}><option value="false">Disabled</option><option value="true">Enabled</option></select></label>
-        <label className="text-sm font-medium">Mode<select name="portalSelfSchedulingMode" defaultValue={settings.portal_self_scheduling_mode ?? "request_only"} disabled={!canEdit} className={fieldClass}><option value="request_only">Request only</option><option value="disabled">Disabled</option></select></label>
+      <section className="rounded-lg border border-l-4 border-l-sky-500 bg-white p-6 shadow-sm"><p className="text-xs font-semibold uppercase tracking-wider text-sky-700">Student experience</p><h2 className="mt-1 text-xl font-semibold">Student portal scheduling</h2><p className="mt-1 text-sm text-slate-600">Control booking, reschedule, and cancellation behavior for existing students. Public intro booking is configured under Public Presence &amp; Booking.</p><div className="mt-5 grid gap-4 md:grid-cols-2">
+        <label className="text-sm font-medium">Self-service scheduling<select name="portalSelfSchedulingEnabled" defaultValue={settings.portal_self_scheduling_enabled ? "true" : "false"} disabled={!canEdit} className={fieldClass}><option value="false">Disabled</option><option value="true">Enabled</option></select></label>
+        <label className="text-sm font-medium">Booking mode<select name="portalSelfSchedulingMode" defaultValue={settings.portal_self_scheduling_mode ?? "request_only"} disabled={!canEdit} className={fieldClass}>{selfServiceModes.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="text-sm font-medium">Reschedule mode<select name="portalSelfSchedulingRescheduleMode" defaultValue={settings.portal_self_scheduling_reschedule_mode ?? "request_only"} disabled={!canEdit} className={fieldClass}>{selfServiceModes.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+        <label className="text-sm font-medium">Cancellation mode<select name="portalSelfSchedulingCancellationMode" defaultValue={settings.portal_self_scheduling_cancellation_mode ?? "request_only"} disabled={!canEdit} className={fieldClass}>{selfServiceModes.map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></label>
         <label className="text-sm font-medium">Request window (days)<input type="number" min="1" name="portalSelfSchedulingWindowDays" defaultValue={settings.portal_self_scheduling_window_days ?? 14} disabled={!canEdit} className={fieldClass} /></label>
         <label className="text-sm font-medium">Minimum notice (hours)<input type="number" min="0" name="portalSelfSchedulingMinNoticeHours" defaultValue={settings.portal_self_scheduling_min_notice_hours ?? 24} disabled={!canEdit} className={fieldClass} /></label>
         <label className="text-sm font-medium">Cancellation cutoff (hours)<input type="number" min="0" name="portalSelfSchedulingCancellationCutoffHours" defaultValue={settings.portal_self_scheduling_cancellation_cutoff_hours ?? 24} disabled={!canEdit} className={fieldClass} /></label>
+        <label className="text-sm font-medium">Slot interval<select name="portalSelfSchedulingSlotIntervalMinutes" defaultValue={settings.portal_self_scheduling_slot_interval_minutes ?? 15} disabled={!canEdit} className={fieldClass}>{slotIntervals.map((value) => <option key={value} value={value}>Every {value} minutes</option>)}</select></label>
+        <label className="text-sm font-medium">Default duration<select name="portalSelfSchedulingDefaultDurationMinutes" defaultValue={settings.portal_self_scheduling_default_duration_minutes ?? 45} disabled={!canEdit} className={fieldClass}>{lessonDurations.map((value) => <option key={value} value={value}>{value} minutes</option>)}</select></label>
+        <label className="rounded-lg border p-3 text-sm"><input type="checkbox" name="portalSelfSchedulingRequireActiveCredit" defaultChecked={settings.portal_self_scheduling_require_active_credit === true} disabled={!canEdit} className="mr-2" />Require active credit</label>
+        <label className="rounded-lg border p-3 text-sm"><input type="checkbox" name="portalSelfSchedulingRequiresPaymentMethod" defaultChecked={settings.portal_self_scheduling_requires_payment_method === true} disabled={!canEdit} className="mr-2" />Require payment method</label>
+        <label className="rounded-lg border p-3 text-sm"><input type="checkbox" name="portalSelfSchedulingAutoAssignRoom" defaultChecked={settings.portal_self_scheduling_auto_assign_room === true} disabled={!canEdit} className="mr-2" />Auto-assign available room</label>
+        <label className="rounded-lg border p-3 text-sm"><input type="checkbox" name="portalSelfSchedulingAllowUnlinkedRequests" defaultChecked={settings.portal_self_scheduling_allow_unlinked_requests === true} disabled={!canEdit} className="mr-2" />Allow unlinked request fallback</label>
       </div><fieldset className="mt-5"><legend className="text-sm font-medium">Requestable lesson types</legend><div className="mt-2 grid gap-2 md:grid-cols-2">{lessonTypes.map(([value,label]) => <label key={value} className="rounded-lg border p-3 text-sm"><input type="checkbox" name="portalBookableLessonTypes" value={value} defaultChecked={portalTypes.includes(value)} disabled={!canEdit} className="mr-2" />{label}</label>)}</div></fieldset><fieldset className="mt-5"><legend className="text-sm font-medium">Requestable instructors</legend><div className="mt-2 grid gap-2 md:grid-cols-2">{instructors.map((item) => <label key={item.id} className="rounded-lg border p-3 text-sm"><input type="checkbox" name="portalBookableInstructorIds" value={item.id} defaultChecked={portalInstructors.includes(item.id)} disabled={!canEdit} className="mr-2" />{item.first_name} {item.last_name}</label>)}</div></fieldset></section>
 
       {state.error ? <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{state.error}</p> : null}
