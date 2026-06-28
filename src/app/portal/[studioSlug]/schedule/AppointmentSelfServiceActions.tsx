@@ -68,7 +68,8 @@ export default function AppointmentSelfServiceActions({
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [isPending, startTransition] = useTransition();
 
-  const canRequestChange = status === "scheduled" && new Date(startsAt) > new Date();
+  const canRequestChange =
+    ["scheduled", "rescheduled"].includes(status) && new Date(startsAt) > new Date();
 
   useEffect(() => {
     if (mode !== "reschedule") return;

@@ -61,8 +61,7 @@ export type BuildSelfServiceSlotsParams = {
 const DEFAULT_TIME_ZONE = "America/New_York";
 const BLOCKING_APPOINTMENT_STATUSES = new Set([
   "scheduled",
-  "completed",
-  "checked_in",
+  "rescheduled",
 ]);
 
 export function getStudioTimeZone(value: string | null | undefined) {
