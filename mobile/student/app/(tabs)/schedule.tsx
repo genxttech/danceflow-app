@@ -7,6 +7,7 @@ import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
   formatScheduleDateTime,
@@ -19,6 +20,39 @@ import {
 } from "@/lib/studentSchedule";
 
 const lumiAvatar = require("../../assets/lumi-avatar.png");
+const selfServiceStudioSlug = process.env.EXPO_PUBLIC_DANCEFLOW_STUDIO_SLUG;
+
+type SelfServiceSlot = {
+  startsAt: string;
+  endsAt: string;
+  instructorId: string | null;
+  roomId: string | null;
+};
+
+type SelfServiceSlotsResponse = {
+  slots: SelfServiceSlot[];
+  bookingDecision?: {
+    allowed: boolean;
+    mode: "request_only" | "approval_required" | "instant" | null;
+    reason: string | null;
+  };
+};
+
+type SelfServiceActionRequest = {
+  id: string;
+  action_type: string;
+  mode: string;
+  status: string;
+  requested_starts_at: string | null;
+  previous_starts_at: string | null;
+  staff_note: string | null;
+  failure_reason: string | null;
+};
+
+type SelfServiceRequestsResponse = {
+  timezone: string;
+  requests: SelfServiceActionRequest[];
+};
 
 function isPrivateLesson(item: StudentScheduleItem) {
   const type = (item.appointmentType ?? "").toLowerCase();
@@ -74,7 +108,7 @@ function ScheduleItemCard({ item }: { item: StudentScheduleItem }) {
 
 function BookingRequestCard({ request }: { request: StudentBookingRequest }) {
   return (
-    <View style={styles.itemCard}>
+    <View style={styles.requestCard}>
       <View style={styles.itemHeader}>
         <AppText variant="eyebrow">{statusLabel(request.status)}</AppText>
         <AppText variant="caption">{request.studioName}</AppText>
@@ -85,6 +119,73 @@ function BookingRequestCard({ request }: { request: StudentBookingRequest }) {
           ? formatScheduleDateTime(request.requestedStartsAt, request.timeZone)
           : "Studio will follow up with available times."}
       </AppText>
+    </View>
+  );
+}
+
+function actionLabel(value: string) {
+  if (value === "book") return "Booking";
+  if (value === "reschedule") return "Reschedule";
+  if (value === "cancel") return "Cancellation";
+  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function SelfServiceRequestCard({
+  request,
+  timeZone
+}: {
+  request: SelfServiceActionRequest;
+  timeZone: string;
+}) {
+  const startsAt =
+    request.action_type === "cancel"
+      ? request.previous_starts_at
+      : request.requested_starts_at;
+
+  return (
+    <View style={styles.requestCard}>
+      <View style={styles.itemHeader}>
+        <AppText variant="eyebrow">{statusLabel(request.status)}</AppText>
+        <AppText variant="caption">{request.mode.replaceAll("_", " ")}</AppText>
+      </View>
+      <AppText variant="subtitle">{actionLabel(request.action_type)} request</AppText>
+      <AppText variant="caption">
+        {startsAt
+          ? formatScheduleDateTime(startsAt, timeZone)
+          : "Studio will review your request."}
+      </AppText>
+      {request.staff_note ? (
+        <AppText variant="caption">Studio note: {request.staff_note}</AppText>
+      ) : null}
+      {request.failure_reason ? (
+        <AppText variant="caption">{request.failure_reason}</AppText>
+      ) : null}
+    </View>
+  );
+}
+
+function SelfServiceSlotCard({
+  slot,
+  timeZone,
+  submitting,
+  onPress
+}: {
+  slot: SelfServiceSlot;
+  timeZone: string;
+  submitting: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <View style={styles.slotCard}>
+      <AppText variant="subtitle">{formatScheduleDateTime(slot.startsAt, timeZone)}</AppText>
+      <AppText variant="caption">
+        {submitting ? "Submitting..." : "Tap request to send this time to the studio."}
+      </AppText>
+      <AppButton
+        label={submitting ? "Submitting..." : "Request this time"}
+        onPress={onPress}
+        variant="secondary"
+      />
     </View>
   );
 }
@@ -152,6 +253,13 @@ export default function ScheduleScreen() {
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [overview, setOverview] = useState<StudentScheduleOverview | null>(null);
+  const [selfServiceSlots, setSelfServiceSlots] = useState<SelfServiceSlot[]>([]);
+  const [selfServiceDecision, setSelfServiceDecision] =
+    useState<SelfServiceSlotsResponse["bookingDecision"]>(undefined);
+  const [selfServiceRequests, setSelfServiceRequests] =
+    useState<SelfServiceRequestsResponse | null>(null);
+  const [selfServiceMessage, setSelfServiceMessage] = useState<string | null>(null);
+  const [submittingSlotKey, setSubmittingSlotKey] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function loadSchedule() {
@@ -173,16 +281,96 @@ export default function ScheduleScreen() {
 
       if (access.linkedStudios.length === 0) {
         setOverview(null);
+        setSelfServiceSlots([]);
+        setSelfServiceRequests(null);
         return;
       }
 
       const nextOverview = await loadStudentScheduleOverview(access.linkedStudios);
       setOverview(nextOverview);
+
+      if (selfServiceStudioSlug) {
+        try {
+          const [slotsResponse, requestsResponse] = await Promise.all([
+            danceflowApiFetch<SelfServiceSlotsResponse>(
+              "/api/student/self-service/slots",
+              {
+                params: {
+                  studioSlug: selfServiceStudioSlug,
+                  lessonType: "private_lesson"
+                }
+              }
+            ),
+            danceflowApiFetch<SelfServiceRequestsResponse>(
+              "/api/student/self-service/requests",
+              {
+                params: {
+                  studioSlug: selfServiceStudioSlug
+                }
+              }
+            )
+          ]);
+          setSelfServiceSlots(slotsResponse.slots ?? []);
+          setSelfServiceDecision(slotsResponse.bookingDecision);
+          setSelfServiceRequests(requestsResponse);
+        } catch {
+          setSelfServiceSlots([]);
+          setSelfServiceDecision(undefined);
+          setSelfServiceRequests(null);
+        }
+      } else {
+        setSelfServiceSlots([]);
+        setSelfServiceDecision(undefined);
+        setSelfServiceRequests(null);
+      }
     } catch {
       setErrorMessage("Your schedule could not be loaded. Try again in a moment.");
       setOverview(null);
+      setSelfServiceSlots([]);
+      setSelfServiceRequests(null);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function submitSelfServiceSlot(slot: SelfServiceSlot) {
+    if (!selfServiceStudioSlug) {
+      setSelfServiceMessage("Self-service booking is not configured yet.");
+      return;
+    }
+
+    const slotKey = `${slot.startsAt}|${slot.endsAt}`;
+    setSubmittingSlotKey(slotKey);
+    setSelfServiceMessage(null);
+
+    try {
+      const response = await danceflowApiFetch<{
+        bookingDecision?: { mode: string | null };
+      }>("/api/student/self-service/actions", {
+        method: "POST",
+        body: JSON.stringify({
+          studioSlug: selfServiceStudioSlug,
+          actionType: "book",
+          lessonType: "private_lesson",
+          startsAt: slot.startsAt,
+          endsAt: slot.endsAt,
+          instructorId: slot.instructorId,
+          roomId: slot.roomId
+        })
+      });
+
+      setSelfServiceMessage(
+        response.bookingDecision?.mode === "instant"
+          ? "Lesson booked."
+          : "Request sent to the studio."
+      );
+      await loadSchedule();
+    } catch (error) {
+      setSelfServiceMessage(
+        error instanceof Error ? error.message : "Could not submit the request."
+      );
+    } finally {
+      setSubmittingSlotKey(null);
     }
   }
 
@@ -196,6 +384,16 @@ export default function ScheduleScreen() {
   const upcoming = overview?.upcoming ?? [];
   const recent = overview?.recent ?? [];
   const bookingRequests = overview?.bookingRequests ?? [];
+  const selfServiceTimeZone =
+    upcoming[0]?.timeZone ??
+    bookingRequests[0]?.timeZone ??
+    recent[0]?.timeZone ??
+    selfServiceRequests?.timezone ??
+    "America/New_York";
+  const activeSelfServiceRequests =
+    selfServiceRequests?.requests.filter((request) =>
+      ["pending", "approved", "executed", "declined", "failed"].includes(request.status)
+    ) ?? [];
 
   return (
     <Screen>
@@ -228,7 +426,9 @@ export default function ScheduleScreen() {
             </View>
             <View style={styles.summaryCard}>
               <AppText variant="eyebrow">Requests</AppText>
-              <AppText variant="title">{bookingRequests.length}</AppText>
+              <AppText variant="title">
+                {bookingRequests.length + activeSelfServiceRequests.length}
+              </AppText>
               <AppText variant="caption">pending or approved</AppText>
             </View>
           </View>
@@ -247,9 +447,52 @@ export default function ScheduleScreen() {
             />
           )}
 
-          {bookingRequests.length > 0 ? (
+          <View style={styles.section}>
+            <AppText variant="subtitle">Request a private lesson</AppText>
+            {selfServiceMessage ? (
+              <FeatureCard title="Self-service update" detail={selfServiceMessage} />
+            ) : null}
+            {!selfServiceStudioSlug ? (
+              <FeatureCard
+                title="Self-service not configured"
+                detail="Add EXPO_PUBLIC_DANCEFLOW_STUDIO_SLUG to enable in-app booking requests."
+              />
+            ) : selfServiceDecision?.allowed === false ? (
+              <FeatureCard
+                title="Self-service unavailable"
+                detail={selfServiceDecision.reason ?? "This studio is not accepting self-service booking requests right now."}
+              />
+            ) : selfServiceSlots.length > 0 ? (
+              selfServiceSlots.slice(0, 6).map((slot) => {
+                const slotKey = `${slot.startsAt}|${slot.endsAt}`;
+                return (
+                  <SelfServiceSlotCard
+                    key={slotKey}
+                    slot={slot}
+                    timeZone={selfServiceTimeZone}
+                    submitting={submittingSlotKey === slotKey}
+                    onPress={() => submitSelfServiceSlot(slot)}
+                  />
+                );
+              })
+            ) : (
+              <FeatureCard
+                title="No self-service times"
+                detail="The studio has not opened any private lesson slots yet."
+              />
+            )}
+          </View>
+
+          {bookingRequests.length > 0 || activeSelfServiceRequests.length > 0 ? (
             <View style={styles.section}>
               <AppText variant="subtitle">Booking requests</AppText>
+              {activeSelfServiceRequests.slice(0, 6).map((request) => (
+                <SelfServiceRequestCard
+                  key={request.id}
+                  request={request}
+                  timeZone={selfServiceTimeZone}
+                />
+              ))}
               {bookingRequests.slice(0, 5).map((request) => (
                 <BookingRequestCard key={request.id} request={request} />
               ))}
@@ -295,14 +538,39 @@ export default function ScheduleScreen() {
 
 const styles = StyleSheet.create({
   itemCard: {
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: 18,
+    borderWidth: 1,
+    elevation: 2,
     gap: 7,
-    padding: 14
+    padding: 16,
+    shadowColor: colors.primaryDark,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18
   },
   valueList: {
-  gap: 12,
-},
+    gap: 12
+  },
+  requestCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    elevation: 1,
+    gap: 7,
+    padding: 16
+  },
+  slotCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.primary,
+    borderRadius: 18,
+    borderWidth: 1,
+    elevation: 1,
+    gap: 8,
+    padding: 16
+  },
   actionRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -342,8 +610,11 @@ const styles = StyleSheet.create({
     gap: 12
   },
   summaryCard: {
-    backgroundColor: colors.surfaceAlt,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: 18,
+    borderWidth: 1,
+    elevation: 1,
     flex: 1,
     gap: 6,
     padding: 16
