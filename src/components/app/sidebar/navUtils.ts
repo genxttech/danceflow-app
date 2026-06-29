@@ -52,6 +52,13 @@ export function isActivePath(pathname: string, href: string) {
     return pathname === href;
   }
 
+  if (
+    href === "/app/instructors" &&
+    pathname.startsWith("/app/instructors/my-availability")
+  ) {
+    return false;
+  }
+
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 

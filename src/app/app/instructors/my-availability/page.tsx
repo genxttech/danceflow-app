@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import { canManageInstructors } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
+import { InstructorAvailabilityEditor } from "../[id]/availability/InstructorAvailabilityEditor";
+
+type SearchParams = Promise<{ success?: string; error?: string }>;
 
 type InstructorLookupRow = {
   id: string;
@@ -24,15 +27,18 @@ function formatInstructorName(instructor: InstructorLookupRow) {
   );
 }
 
-export default async function MyInstructorAvailabilityPage() {
+export default async function MyInstructorAvailabilityPage({
+  searchParams,
+}: {
+  searchParams?: SearchParams;
+}) {
   const context = await getCurrentStudioContext();
   const role = context.studioRole ?? "";
 
-  if (context.isPlatformAdmin || canManageInstructors(role)) {
-    redirect("/app/instructors");
-  }
+  const canManageInstructorRecords = context.isPlatformAdmin || canManageInstructors(role);
+  const isInstructorRole = ["instructor", "independent_instructor"].includes(role);
 
-  if (!["instructor", "independent_instructor"].includes(role)) {
+  if (!canManageInstructorRecords && !isInstructorRole) {
     redirect("/app");
   }
 
@@ -52,7 +58,7 @@ export default async function MyInstructorAvailabilityPage() {
           Ask a studio admin to confirm your team login and instructor email.
         </p>
         <Link
-          href="/app"
+          href={canManageInstructorRecords ? "/app/instructors" : "/app"}
           className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
         >
           Back to dashboard
@@ -78,7 +84,17 @@ export default async function MyInstructorAvailabilityPage() {
   );
 
   if (matches.length === 1) {
-    redirect(`/app/instructors/${matches[0].id}/availability`);
+    return (
+      <InstructorAvailabilityEditor
+        params={Promise.resolve({ id: matches[0].id })}
+        searchParams={searchParams}
+        mode="my"
+      />
+    );
+  }
+
+  if (matches.length === 0 && canManageInstructorRecords) {
+    redirect("/app/instructors");
   }
 
   return (
@@ -105,7 +121,7 @@ export default async function MyInstructorAvailabilityPage() {
         </div>
       ) : null}
       <Link
-        href="/app"
+        href={canManageInstructorRecords ? "/app/instructors" : "/app"}
         className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white"
       >
         Back to dashboard

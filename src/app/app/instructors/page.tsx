@@ -263,6 +263,12 @@ export default async function InstructorsPage() {
                       >
                         Edit
                       </Link>
+                      <Link
+                        href={`/app/instructors/${instructor.id}/availability`}
+                        className="text-slate-900 underline"
+                      >
+                        Availability
+                      </Link>
                       {instructor.active ? (
                         <form action={deactivateInstructorAction}>
                           <input type="hidden" name="instructorId" value={instructor.id} />
