@@ -17,7 +17,7 @@ async function waveContext() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("You must be signed in.");
   const { data: connection, error } = await supabase.from("studio_wave_connections")
-    .select("id, wave_business_id, status, is_classic_accounting, scopes, posting_enabled").eq("studio_id", studioId).single();
+    .select("id, wave_business_id, status, is_classic_accounting, scopes, posting_enabled, posting_mode").eq("studio_id", studioId).single();
   if (error || !connection || connection.status !== "connected") throw new Error("Connect Wave before configuring it.");
   return { supabase, studioId, userId: user.id, connection };
 }
@@ -191,6 +191,26 @@ export async function setWavePostingEnabledAction(formData: FormData) {
   if (error) throw new Error(error.message);
   revalidatePath("/app/settings/integrations/wave");
   redirect(`/app/settings/integrations/wave?status=${desiredEnabled ? "studio_posting_enabled" : "studio_posting_disabled"}`);
+}
+
+
+export async function setWavePostingModeAction(formData: FormData) {
+  const { supabase, studioId } = await waveContext();
+  const mode = String(formData.get("postingMode") ?? "");
+  if (!["manual_review", "approval_required", "auto_post_safe"].includes(mode)) {
+    redirect("/app/settings/integrations/wave?status=invalid_posting_mode");
+  }
+  const confirmation = String(formData.get("confirmation") ?? "").trim();
+  if (mode === "auto_post_safe" && confirmation !== "AUTO POST SAFE") {
+    redirect("/app/settings/integrations/wave?status=auto_post_confirmation_required");
+  }
+  const { error } = await supabase.rpc("set_studio_wave_posting_mode", {
+    target_studio_id: studioId,
+    target_mode: mode,
+  });
+  if (error) throw new Error(error.message);
+  revalidatePath("/app/settings/integrations/wave");
+  redirect(`/app/settings/integrations/wave?status=posting_mode_saved`);
 }
 
 export async function reconcileWaveRunAction(formData: FormData) {

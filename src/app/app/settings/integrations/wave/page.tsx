@@ -22,7 +22,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getStudioAccountingEntries } from "@/lib/accounting/entries";
 import { buildWavePostingLines, WAVE_ACCOUNTING_CATEGORIES, WAVE_PAYMENT_METHODS, type WavePaymentMethodKey } from "@/lib/integrations/wave/categories";
 import { accountingCategoryLabel } from "@/lib/accounting/entries";
-import { approveWaveReviewRunAction, cancelWaveReviewRunAction, createWaveReviewRunAction, disconnectWaveAction, postNextWaveLineAction, reconcileWaveRunAction, refreshWaveAccountsAction, saveWaveMappingsAction, saveWavePaymentMethodsAction, selectWaveBusinessAction, setWavePostingEnabledAction } from "./actions";
+import { approveWaveReviewRunAction, cancelWaveReviewRunAction, createWaveReviewRunAction, disconnectWaveAction, postNextWaveLineAction, reconcileWaveRunAction, refreshWaveAccountsAction, saveWaveMappingsAction, saveWavePaymentMethodsAction, selectWaveBusinessAction, setWavePostingEnabledAction, setWavePostingModeAction } from "./actions";
 
 type PageProps = { searchParams: Promise<{ status?: string; start?: string; end?: string; run?: string }> };
 
@@ -101,6 +101,9 @@ const statusText: Record<string, string> = {
   invalid_state: "The Wave authorization session expired. Start the connection again.",
   connection_failed: "Wave could not be connected. Check the server logs and OAuth configuration.",
   anchor_required: "Select the Wave bank or cash account used as the transaction anchor.",
+  invalid_posting_mode: "Choose a valid Wave posting mode.",
+  posting_mode_saved: "Wave posting mode was saved.",
+  auto_post_confirmation_required: "Type AUTO POST SAFE exactly before enabling auto-post safe mode.",
 };
 
 export default async function WaveSettingsPage({ searchParams }: PageProps) {
@@ -117,6 +120,7 @@ export default async function WaveSettingsPage({ searchParams }: PageProps) {
 
   const { data: connection } = await supabase.from("studio_wave_connections").select("*").eq("studio_id", context.studioId).maybeSingle();
   const connectionId = connection?.id as string | undefined;
+  const postingMode = String(connection?.posting_mode ?? "manual_review");
   const [{ data: businesses }, { data: accounts }, { data: mappings }, { data: paymentMappings }, { data: recentRuns }, { data: entitlement }] = connectionId
     ? await Promise.all([
         supabase.from("studio_wave_businesses").select("wave_business_id, name, currency").eq("connection_id", connectionId).order("name"),
@@ -158,6 +162,7 @@ export default async function WaveSettingsPage({ searchParams }: PageProps) {
             <div className="flex flex-wrap gap-2">
               <StatusBadge tone={connection?.status === "connected" ? "green" : "slate"}>{connection?.status === "connected" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Link2 className="h-3.5 w-3.5" />}{connection?.status === "connected" ? "Wave connected" : "Not connected"}</StatusBadge>
               {connection?.wave_business_name ? <StatusBadge tone="slate"><Building2 className="h-3.5 w-3.5" />{connection.wave_business_name}</StatusBadge> : null}
+              {connection?.status === "connected" ? <StatusBadge tone="slate"><SlidersHorizontal className="h-3.5 w-3.5" />{postingMode.replaceAll("_", " ")}</StatusBadge> : null}
               {connection?.posting_enabled ? <StatusBadge tone="green"><ShieldCheck className="h-3.5 w-3.5" />Posting enabled</StatusBadge> : <StatusBadge tone="amber"><ShieldCheck className="h-3.5 w-3.5" />Posting protected</StatusBadge>}
             </div>
           </div>
@@ -176,13 +181,27 @@ export default async function WaveSettingsPage({ searchParams }: PageProps) {
       {connection?.status === "connected" ? <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
         <div className="flex items-start gap-3 border-b border-orange-100 bg-orange-50 px-5 py-4"><span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#F97316] text-white"><ShieldCheck className="h-4 w-4" /></span><div><p className="text-xs font-bold uppercase tracking-[0.14em] text-orange-700">Safety controls</p><h2 className="mt-0.5 text-lg font-semibold text-slate-950">Posting safeguards</h2><p className="mt-1 text-sm text-slate-600">All three controls must be active before an approved line can reach Wave.</p></div></div>
         <div className="p-5">
-          <div className="grid gap-3 text-sm md:grid-cols-3">
+          <div className="grid gap-3 text-sm md:grid-cols-4">
             <div className="rounded-lg border border-slate-200 p-4"><p className="font-medium text-slate-900">DanceFlow posting</p><div className="mt-2"><StatusBadge tone={postingEnabled ? "green" : "amber"}>{postingEnabled ? "Available" : "Paused"}</StatusBadge></div></div>
             <div className="rounded-lg border border-slate-200 p-4"><p className="font-medium text-slate-900">Rollout access</p><div className="mt-2"><StatusBadge tone={allowlisted ? "green" : "slate"}>{entitlement?.status ?? "Not enabled"}</StatusBadge></div></div>
             <div className="rounded-lg border border-slate-200 p-4"><p className="font-medium text-slate-900">Studio authorization</p><div className="mt-2"><StatusBadge tone={connection.posting_enabled ? "green" : "amber"}>{connection.posting_enabled ? "Enabled" : "Disabled"}</StatusBadge></div></div>
+            <div className="rounded-lg border border-slate-200 p-4"><p className="font-medium text-slate-900">Posting mode</p><div className="mt-2"><StatusBadge tone={postingMode === "auto_post_safe" ? "amber" : postingMode === "approval_required" ? "green" : "slate"}>{postingMode.replaceAll("_", " ")}</StatusBadge></div></div>
           </div>
           {allowlisted && !connection.posting_enabled ? <form action={setWavePostingEnabledAction} className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-end"><input type="hidden" name="enabled" value="true" /><label className="text-sm font-medium text-slate-900">Type ENABLE POSTING<input name="confirmation" autoComplete="off" className="mt-1 block rounded-md border border-slate-300 px-3 py-2" /></label><button className="rounded-md bg-red-700 px-4 py-2 text-sm font-semibold text-white hover:bg-red-800">Enable studio posting</button></form> : null}
           {connection.posting_enabled ? <form action={setWavePostingEnabledAction} className="mt-5"><input type="hidden" name="enabled" value="false" /><button className="rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">Disable studio posting</button></form> : null}
+          {allowlisted && connection.posting_enabled ? <form action={setWavePostingModeAction} className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <label className="block text-sm font-semibold text-slate-950">Wave posting mode</label>
+            <p className="mt-1 text-sm text-slate-600">Manual review is safest. Auto-post safe mode only prepares the connection for guarded automation; uncertain, failed, unmapped, or unsupported activity still stops for review.</p>
+            <select name="postingMode" defaultValue={postingMode} className="mt-3 w-full max-w-md rounded-md border border-slate-300 bg-white px-3 py-2 text-sm">
+              <option value="manual_review">Manual review</option>
+              <option value="approval_required">Approval required</option>
+              <option value="auto_post_safe">Auto-post safe eligible runs</option>
+            </select>
+            <label className="mt-3 block max-w-md text-sm font-medium text-slate-900">Auto-post confirmation
+              <input name="confirmation" placeholder="Required only for auto-post safe" autoComplete="off" className="mt-1 block w-full rounded-md border border-slate-300 bg-white px-3 py-2" />
+            </label>
+            <button className="mt-3 rounded-md bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#46115E]">Save posting mode</button>
+          </form> : null}
           {!allowlisted ? <p className="mt-5 text-sm text-slate-600">Wave posting has not yet been enabled for this studio.</p> : null}
         </div>
       </section> : null}
