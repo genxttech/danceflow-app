@@ -1,6 +1,12 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import {
+  buildSelfServiceSlots,
+  type SelfServiceAppointmentHold,
+  type SelfServiceAvailabilityWindow,
+  type SelfServiceBlackout,
+} from "@/lib/booking/selfServiceAvailability";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
@@ -157,75 +163,29 @@ type StudioSettingsRow = {
   booking_request_start_time: string | null;
   booking_request_end_time: string | null;
   public_intro_bookable_instructor_ids: string[] | null;
+  portal_self_scheduling_slot_interval_minutes: number | null;
 };
 
 type AppointmentRow = {
   id: string;
+  instructor_id: string | null;
+  room_id: string | null;
   starts_at: string;
   ends_at: string;
   status: string;
 };
 
 type SlotRow = {
+  date: string;
   start: string;
   end: string;
-};
-
-const INTRO_SLOT_TEMPLATES: Record<number, string[]> = {
-  0: [],
-  1: ["13:00", "15:00", "18:00"],
-  2: ["13:00", "15:00", "18:00"],
-  3: ["13:00", "15:00", "18:00"],
-  4: ["13:00", "15:00", "18:00"],
-  5: ["13:00", "15:00", "18:00"],
-  6: ["11:00", "13:00"],
+  instructorId: string;
+  roomId: string | null;
 };
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
-}
-
-function getAllowedWeekdays(settings: StudioSettingsRow) {
-  return settings.booking_request_allowed_weekdays?.length
-    ? settings.booking_request_allowed_weekdays
-    : [1, 2, 3, 4, 5, 6];
-}
-
-function timeWithinRequestWindow(time: string, settings: StudioSettingsRow) {
-  const start = (settings.booking_request_start_time ?? "09:00").slice(0, 5);
-  const end = (settings.booking_request_end_time ?? "21:00").slice(0, 5);
-
-  return time >= start && time < end;
-}
-
-function getPublicIntroInstructorId(settings: StudioSettingsRow) {
-  const allowedIds = settings.public_intro_bookable_instructor_ids ?? [];
-
-  if (!allowedIds.length) {
-    return settings.intro_default_instructor_id;
-  }
-
-  if (
-    settings.intro_default_instructor_id &&
-    allowedIds.includes(settings.intro_default_instructor_id)
-  ) {
-    return settings.intro_default_instructor_id;
-  }
-
-  return allowedIds[0] ?? null;
-}
-
-function buildStudioDateTime(dateKey: string, time: string, timeZone: string) {
-  return zonedDateTimeToUtcDate(dateKey, time, timeZone);
-}
-
-function addMinutes(date: Date, minutes: number) {
-  return new Date(date.getTime() + minutes * 60 * 1000);
-}
-
-function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
-  return aStart < bEnd && aEnd > bStart;
 }
 
 async function getStudioAndSettings(studioSlug: string) {
@@ -254,7 +214,8 @@ async function getStudioAndSettings(studioSlug: string) {
       booking_request_allowed_weekdays,
       booking_request_start_time,
       booking_request_end_time,
-      public_intro_bookable_instructor_ids
+      public_intro_bookable_instructor_ids,
+      portal_self_scheduling_slot_interval_minutes
     `)
     .eq("studio_id", studio.id)
     .single();
@@ -270,8 +231,12 @@ async function getStudioAndSettings(studioSlug: string) {
   };
 }
 
-async function getAvailableSlots(studioSlug: string): Promise<SlotRow[]> {
-  const { supabase, studio, settings } = await getStudioAndSettings(studioSlug);
+async function getAvailableSlots(params: {
+  studioSlug: string;
+  instructorId: string;
+  roomId?: string | null;
+}): Promise<SlotRow[]> {
+  const { supabase, studio, settings } = await getStudioAndSettings(params.studioSlug);
 
   if (!settings.public_intro_booking_enabled) {
     return [];
@@ -281,77 +246,90 @@ async function getAvailableSlots(studioSlug: string): Promise<SlotRow[]> {
   const bookingWindowDays = settings.intro_booking_window_days ?? 7;
   const lessonDurationMinutes = settings.intro_lesson_duration_minutes ?? 30;
   const bookingLeadTimeHours = settings.booking_lead_time_hours ?? 0;
+  const allowedInstructorIds = settings.public_intro_bookable_instructor_ids ?? [];
+
+  if (
+    !params.instructorId ||
+    (allowedInstructorIds.length > 0 && !allowedInstructorIds.includes(params.instructorId))
+  ) {
+    return [];
+  }
 
   const todayKey = getZonedDateKey(new Date(), studioTimeZone);
   const rangeStart = getLocalDayUtcRange(todayKey, studioTimeZone).startIso;
   const rangeEnd = getLocalDayUtcRange(addDaysToDateKey(todayKey, bookingWindowDays + 1), studioTimeZone).startIso;
 
-  let appointmentsQuery = supabase
+  const appointmentsQuery = supabase
     .from("appointments")
-    .select("id, starts_at, ends_at, status")
+    .select("id, instructor_id, room_id, starts_at, ends_at, status")
     .eq("studio_id", studio.id)
     .gte("starts_at", rangeStart)
     .lt("starts_at", rangeEnd)
-    .neq("status", "cancelled");
+    .in("status", ["scheduled", "rescheduled"]);
 
-  const introInstructorId = getPublicIntroInstructorId(settings);
+  const [
+    { data: windows, error: windowsError },
+    { data: blackouts, error: blackoutsError },
+    { data: appointments, error: appointmentsError },
+  ] = await Promise.all([
+    supabase
+      .from("studio_booking_availability_windows")
+      .select(`
+        id,
+        instructor_id,
+        room_id,
+        lesson_type,
+        weekday,
+        start_time,
+        end_time,
+        effective_start_date,
+        effective_end_date,
+        active
+      `)
+      .eq("studio_id", studio.id)
+      .eq("active", true),
+    supabase
+      .from("studio_booking_blackouts")
+      .select("id, instructor_id, room_id, starts_at, ends_at, active")
+      .eq("studio_id", studio.id)
+      .eq("active", true)
+      .lt("starts_at", rangeEnd)
+      .gt("ends_at", rangeStart),
+    appointmentsQuery,
+  ]);
 
-  if (introInstructorId) {
-    appointmentsQuery = appointmentsQuery.eq("instructor_id", introInstructorId);
+  if (windowsError) {
+    throw new Error(`Failed to load public intro availability: ${windowsError.message}`);
   }
-
-  if (settings.intro_default_room_id) {
-    appointmentsQuery = appointmentsQuery.eq("room_id", settings.intro_default_room_id);
+  if (blackoutsError) {
+    throw new Error(`Failed to load public intro blackouts: ${blackoutsError.message}`);
   }
-
-  const { data: appointments, error: appointmentsError } = await appointmentsQuery;
-
   if (appointmentsError) {
     throw new Error(`Failed to load public intro availability: ${appointmentsError.message}`);
   }
 
-  const typedAppointments = (appointments ?? []) as AppointmentRow[];
-  const leadTimeCutoff = new Date(Date.now() + bookingLeadTimeHours * 60 * 60 * 1000);
-
-  const generatedSlots: SlotRow[] = [];
-
-  for (let dayOffset = 0; dayOffset < bookingWindowDays; dayOffset++) {
-    const dayDateKey = addDaysToDateKey(todayKey, dayOffset);
-    const dayOfWeek = getZonedWeekday(dayDateKey, studioTimeZone);
-
-    if (!getAllowedWeekdays(settings).includes(dayOfWeek)) {
-      continue;
-    }
-
-    const times = (INTRO_SLOT_TEMPLATES[dayOfWeek] ?? []).filter((time) =>
-      timeWithinRequestWindow(time, settings)
-    );
-
-    for (const time of times) {
-      const start = buildStudioDateTime(dayDateKey, time, studioTimeZone);
-      const end = addMinutes(start, lessonDurationMinutes);
-
-      if (start < leadTimeCutoff) {
-        continue;
-      }
-
-      const hasConflict = typedAppointments.some((appointment) => {
-        const apptStart = new Date(appointment.starts_at);
-        const apptEnd = new Date(appointment.ends_at);
-
-        return overlaps(start, end, apptStart, apptEnd);
-      });
-
-      if (!hasConflict) {
-        generatedSlots.push({
-          start: start.toISOString(),
-          end: end.toISOString(),
-        });
-      }
-    }
-  }
-
-  return generatedSlots;
+  return buildSelfServiceSlots({
+    settings: {
+      timezone: settings.timezone,
+      portal_self_scheduling_window_days: bookingWindowDays,
+      portal_self_scheduling_min_notice_hours: bookingLeadTimeHours,
+      portal_self_scheduling_slot_interval_minutes:
+        settings.portal_self_scheduling_slot_interval_minutes,
+      portal_self_scheduling_default_duration_minutes: lessonDurationMinutes,
+    },
+    windows: (windows ?? []) as SelfServiceAvailabilityWindow[],
+    blackouts: (blackouts ?? []) as SelfServiceBlackout[],
+    appointmentHolds: (appointments ?? []) as SelfServiceAppointmentHold[],
+    lessonType: "private_lesson",
+    instructorId: params.instructorId,
+    roomId: params.roomId || settings.intro_default_room_id || null,
+  }).map((slot) => ({
+    date: slot.date,
+    start: slot.startsAt,
+    end: slot.endsAt,
+    instructorId: slot.instructorId ?? params.instructorId,
+    roomId: slot.roomId,
+  }));
 }
 
 async function findStudioOwnerOrAdminUserId(studioId: string) {
@@ -494,6 +472,9 @@ export async function createPublicIntroBookingAction(
   try {
     const studioSlug = getString(formData, "studioSlug");
     const slotStart = getString(formData, "slotStart");
+    const slotEnd = getString(formData, "slotEnd");
+    const instructorId = getString(formData, "instructorId");
+    const roomId = getString(formData, "roomId") || null;
     const firstName = getString(formData, "firstName");
     const lastName = getString(formData, "lastName");
     const email = getString(formData, "email").toLowerCase();
@@ -509,6 +490,10 @@ export async function createPublicIntroBookingAction(
       return { error: "Please choose an intro lesson time." };
     }
 
+    if (!slotEnd || !instructorId) {
+      return { error: "Please choose an instructor and intro lesson time." };
+    }
+
     if (!firstName || !lastName || !email) {
       return { error: "First name, last name, and email are required." };
     }
@@ -520,8 +505,18 @@ export async function createPublicIntroBookingAction(
       return { error: "Intro lesson requests are not enabled for this studio." };
     }
 
-    const availableSlots = await getAvailableSlots(studioSlug);
-    const chosenSlot = availableSlots.find((slot) => slot.start === slotStart);
+    const availableSlots = await getAvailableSlots({
+      studioSlug,
+      instructorId,
+      roomId,
+    });
+    const chosenSlot = availableSlots.find(
+      (slot) =>
+        slot.start === slotStart &&
+        slot.end === slotEnd &&
+        slot.instructorId === instructorId &&
+        (slot.roomId || null) === (roomId || null)
+    );
 
     if (!chosenSlot) {
       return {
@@ -604,8 +599,8 @@ export async function createPublicIntroBookingAction(
       .insert({
         studio_id: studio.id,
         client_id: clientId,
-        instructor_id: getPublicIntroInstructorId(settings) || null,
-        room_id: settings.intro_default_room_id || null,
+        instructor_id: chosenSlot.instructorId,
+        room_id: chosenSlot.roomId,
         source: "public_intro",
         status: "pending",
         appointment_type: "intro_lesson",

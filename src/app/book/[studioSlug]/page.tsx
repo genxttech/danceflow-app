@@ -1,4 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
+import {
+  buildSelfServiceSlots,
+  type SelfServiceAppointmentHold,
+  type SelfServiceAvailabilityWindow,
+  type SelfServiceBlackout,
+} from "@/lib/booking/selfServiceAvailability";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import BookingRequestForm from "./BookingRequestForm";
@@ -140,6 +146,7 @@ function formatStudioTime(value: string | null | undefined, timeZone: string) {
 }
 
 type SearchParams = Promise<{
+  instructorId?: string;
   slotStart?: string;
   success?: string;
 }>;
@@ -167,6 +174,7 @@ type StudioSettingsRow = {
   booking_request_start_time: string | null;
   booking_request_end_time: string | null;
   public_intro_bookable_instructor_ids: string[] | null;
+  portal_self_scheduling_slot_interval_minutes: number | null;
 };
 
 type InstructorRow = {
@@ -184,61 +192,20 @@ type RoomRow = {
 
 type AppointmentRow = {
   id: string;
+  instructor_id: string | null;
+  room_id: string | null;
   starts_at: string;
   ends_at: string;
   status: string;
 };
 
 type SlotRow = {
+  date: string;
   start: string;
   end: string;
+  instructorId: string;
+  roomId: string | null;
 };
-
-const INTRO_SLOT_TEMPLATES: Record<number, string[]> = {
-  0: [],
-  1: ["13:00", "15:00", "18:00"],
-  2: ["13:00", "15:00", "18:00"],
-  3: ["13:00", "15:00", "18:00"],
-  4: ["13:00", "15:00", "18:00"],
-  5: ["13:00", "15:00", "18:00"],
-  6: ["11:00", "13:00"],
-};
-
-function getAllowedWeekdays(settings: StudioSettingsRow) {
-  return settings.booking_request_allowed_weekdays?.length
-    ? settings.booking_request_allowed_weekdays
-    : [1, 2, 3, 4, 5, 6];
-}
-
-function timeWithinRequestWindow(time: string, settings: StudioSettingsRow) {
-  const start = (settings.booking_request_start_time ?? "09:00").slice(0, 5);
-  const end = (settings.booking_request_end_time ?? "21:00").slice(0, 5);
-
-  return time >= start && time < end;
-}
-
-function formatRequestWindow(settings: StudioSettingsRow) {
-  const start = (settings.booking_request_start_time ?? "09:00").slice(0, 5);
-  const end = (settings.booking_request_end_time ?? "21:00").slice(0, 5);
-  return `${start}–${end}`;
-}
-
-function getPublicIntroInstructorId(settings: StudioSettingsRow) {
-  const allowedIds = settings.public_intro_bookable_instructor_ids ?? [];
-
-  if (!allowedIds.length) {
-    return settings.intro_default_instructor_id;
-  }
-
-  if (
-    settings.intro_default_instructor_id &&
-    allowedIds.includes(settings.intro_default_instructor_id)
-  ) {
-    return settings.intro_default_instructor_id;
-  }
-
-  return allowedIds[0] ?? null;
-}
 
 function formatLongDate(value: string, timeZone: string) {
   return formatStudioDate(`${value}T12:00:00.000Z`, "UTC", {
@@ -258,18 +225,6 @@ function formatSelectedSlot(value: string, timeZone: string) {
     month: "long",
     day: "numeric",
   });
-}
-
-function buildStudioDateTime(dateKey: string, time: string, timeZone: string) {
-  return zonedDateTimeToUtcDate(dateKey, time, timeZone);
-}
-
-function addMinutes(date: Date, minutes: number) {
-  return new Date(date.getTime() + minutes * 60 * 1000);
-}
-
-function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date) {
-  return aStart < bEnd && aEnd > bStart;
 }
 
 function groupSlotsByDate(slots: SlotRow[], timeZone: string) {
@@ -297,6 +252,7 @@ export default async function PublicIntroBookingPage({
 }) {
   const { studioSlug } = await params;
   const query = await searchParams;
+  const selectedInstructorId = query.instructorId ?? "";
   const selectedSlotStart = query.slotStart ?? "";
   const success = query.success ?? "";
   const isSuccess = success === "intro_requested" || success === "intro_booked";
@@ -335,7 +291,8 @@ export default async function PublicIntroBookingPage({
       booking_request_allowed_weekdays,
       booking_request_start_time,
       booking_request_end_time,
-      public_intro_bookable_instructor_ids
+      public_intro_bookable_instructor_ids,
+      portal_self_scheduling_slot_interval_minutes
     `)
     .eq("studio_id", studio.id)
     .single();
@@ -355,19 +312,21 @@ export default async function PublicIntroBookingPage({
   const bookingWindowDays = typedSettings.intro_booking_window_days ?? 7;
   const lessonDurationMinutes = typedSettings.intro_lesson_duration_minutes ?? 30;
   const bookingLeadTimeHours = typedSettings.booking_lead_time_hours ?? 0;
-  const allowedWeekdays = getAllowedWeekdays(typedSettings);
+  const allowedInstructorIds = typedSettings.public_intro_bookable_instructor_ids ?? [];
 
-  const introInstructorId = getPublicIntroInstructorId(typedSettings);
+  let instructorsQuery = supabase
+    .from("instructors")
+    .select("id, first_name, last_name, active")
+    .eq("studio_id", typedStudio.id)
+    .eq("active", true)
+    .order("first_name", { ascending: true });
 
-  const [{ data: instructor }, { data: room }] = await Promise.all([
-    introInstructorId
-      ? supabase
-          .from("instructors")
-          .select("id, first_name, last_name, active")
-          .eq("studio_id", typedStudio.id)
-          .eq("id", introInstructorId)
-          .single()
-      : Promise.resolve({ data: null, error: null }),
+  if (allowedInstructorIds.length > 0) {
+    instructorsQuery = instructorsQuery.in("id", allowedInstructorIds);
+  }
+
+  const [{ data: instructors }, { data: room }] = await Promise.all([
+    instructorsQuery,
     typedSettings.intro_default_room_id
       ? supabase
           .from("rooms")
@@ -378,87 +337,92 @@ export default async function PublicIntroBookingPage({
       : Promise.resolve({ data: null, error: null }),
   ]);
 
-  const typedInstructor = instructor as InstructorRow | null;
+  const typedInstructors = (instructors ?? []) as InstructorRow[];
+  const selectedInstructor =
+    typedInstructors.find((instructor) => instructor.id === selectedInstructorId) ?? null;
   const typedRoom = room as RoomRow | null;
 
   const todayKey = getZonedDateKey(new Date(), studioTimeZone);
   const rangeStart = getLocalDayUtcRange(todayKey, studioTimeZone).startIso;
   const rangeEnd = getLocalDayUtcRange(addDaysToDateKey(todayKey, bookingWindowDays + 1), studioTimeZone).startIso;
 
-  let appointmentsQuery = supabase
+  const appointmentsQuery = supabase
     .from("appointments")
-    .select("id, starts_at, ends_at, status")
+    .select("id, instructor_id, room_id, starts_at, ends_at, status")
     .eq("studio_id", typedStudio.id)
     .gte("starts_at", rangeStart)
     .lt("starts_at", rangeEnd)
-    .neq("status", "cancelled");
+    .in("status", ["scheduled", "rescheduled"]);
 
-  if (typedInstructor?.id) {
-    appointmentsQuery = appointmentsQuery.eq("instructor_id", typedInstructor.id);
+  const [
+    { data: windows, error: windowsError },
+    { data: blackouts, error: blackoutsError },
+    { data: appointments, error: appointmentsError },
+  ] = await Promise.all([
+    supabase
+      .from("studio_booking_availability_windows")
+      .select(`
+        id,
+        instructor_id,
+        room_id,
+        lesson_type,
+        weekday,
+        start_time,
+        end_time,
+        effective_start_date,
+        effective_end_date,
+        active
+      `)
+      .eq("studio_id", typedStudio.id)
+      .eq("active", true),
+    supabase
+      .from("studio_booking_blackouts")
+      .select("id, instructor_id, room_id, starts_at, ends_at, active")
+      .eq("studio_id", typedStudio.id)
+      .eq("active", true)
+      .lt("starts_at", rangeEnd)
+      .gt("ends_at", rangeStart),
+    appointmentsQuery,
+  ]);
+
+  if (windowsError) {
+    throw new Error(`Failed to load public intro availability: ${windowsError.message}`);
   }
-
-  if (typedRoom?.id) {
-    appointmentsQuery = appointmentsQuery.eq("room_id", typedRoom.id);
+  if (blackoutsError) {
+    throw new Error(`Failed to load public intro blackouts: ${blackoutsError.message}`);
   }
-
-  const { data: appointments, error: appointmentsError } = await appointmentsQuery;
-
   if (appointmentsError) {
     throw new Error(`Failed to load public intro availability: ${appointmentsError.message}`);
   }
 
-  const typedAppointments = (appointments ?? []) as AppointmentRow[];
-  const leadTimeCutoff = new Date(Date.now() + bookingLeadTimeHours * 60 * 60 * 1000);
-
-  const generatedSlots: SlotRow[] = [];
-
-  for (let dayOffset = 0; dayOffset < bookingWindowDays; dayOffset++) {
-    const dayDateKey = addDaysToDateKey(todayKey, dayOffset);
-    const dayOfWeek = getZonedWeekday(dayDateKey, studioTimeZone);
-
-    if (!allowedWeekdays.includes(dayOfWeek)) {
-      continue;
-    }
-
-    const times = (INTRO_SLOT_TEMPLATES[dayOfWeek] ?? []).filter((time) =>
-      timeWithinRequestWindow(time, typedSettings)
-    );
-
-    for (const time of times) {
-      const start = buildStudioDateTime(dayDateKey, time, studioTimeZone);
-      const end = addMinutes(start, lessonDurationMinutes);
-
-      if (start < leadTimeCutoff) {
-        continue;
-      }
-
-      const hasConflict = typedAppointments.some((appointment) => {
-        const apptStart = new Date(appointment.starts_at);
-        const apptEnd = new Date(appointment.ends_at);
-
-        return overlaps(start, end, apptStart, apptEnd);
-      });
-
-      if (!hasConflict) {
-        generatedSlots.push({
-          start: start.toISOString(),
-          end: end.toISOString(),
-        });
-      }
-    }
-  }
+  const generatedSlots: SlotRow[] = selectedInstructor
+    ? buildSelfServiceSlots({
+        settings: {
+          timezone: typedSettings.timezone,
+          portal_self_scheduling_window_days: bookingWindowDays,
+          portal_self_scheduling_min_notice_hours: bookingLeadTimeHours,
+          portal_self_scheduling_slot_interval_minutes:
+            typedSettings.portal_self_scheduling_slot_interval_minutes,
+          portal_self_scheduling_default_duration_minutes: lessonDurationMinutes,
+        },
+        windows: (windows ?? []) as SelfServiceAvailabilityWindow[],
+        blackouts: (blackouts ?? []) as SelfServiceBlackout[],
+        appointmentHolds: (appointments ?? []) as SelfServiceAppointmentHold[],
+        lessonType: "private_lesson",
+        instructorId: selectedInstructor.id,
+        roomId: typedRoom?.active ? typedRoom.id : null,
+      }).map((slot) => ({
+        date: slot.date,
+        start: slot.startsAt,
+        end: slot.endsAt,
+        instructorId: slot.instructorId ?? selectedInstructor.id,
+        roomId: slot.roomId,
+      }))
+    : [];
 
   const groupedSlots = groupSlotsByDate(generatedSlots, studioTimeZone);
   const selectedSlot =
-    generatedSlots.find((slot) => slot.start === selectedSlotStart) ??
-    (selectedSlotStart
-      ? {
-          start: selectedSlotStart,
-          end: new Date(
-            new Date(selectedSlotStart).getTime() + lessonDurationMinutes * 60 * 1000
-          ).toISOString(),
-        }
-      : null);
+    generatedSlots.find((slot) => slot.start === selectedSlotStart) ?? null;
 
   const headline =
     typedStudio.public_lead_headline || `Request Your Intro Lesson at ${typedStudio.name}`;
@@ -499,20 +463,20 @@ export default async function PublicIntroBookingPage({
 
                   <span className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                     <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                      Request window
+                      Booking window
                     </span>
                     <span className="mt-1 block font-semibold text-slate-900">
-                      {formatRequestWindow(typedSettings)}
+                      Next {bookingWindowDays} day{bookingWindowDays === 1 ? "" : "s"}
                     </span>
                   </span>
 
-                  {typedInstructor?.active ? (
+                  {selectedInstructor ? (
                     <span className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
                       <span className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
                         Instructor
                       </span>
                       <span className="mt-1 block font-semibold text-slate-900">
-                        {typedInstructor.first_name} {typedInstructor.last_name}
+                        {selectedInstructor.first_name} {selectedInstructor.last_name}
                       </span>
                     </span>
                   ) : null}
@@ -601,8 +565,38 @@ export default async function PublicIntroBookingPage({
                   </div>
                 </div>
 
+                <div className="mt-6 rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#BE185D]">
+                    Choose instructor
+                  </p>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {typedInstructors.map((instructor) => {
+                      const selected = instructor.id === selectedInstructorId;
+                      return (
+                        <Link
+                          key={instructor.id}
+                          href={`/book/${typedStudio.slug}?instructorId=${encodeURIComponent(instructor.id)}`}
+                          className={`rounded-2xl border p-4 text-sm font-semibold transition ${
+                            selected
+                              ? "border-slate-950 bg-slate-950 text-white shadow-lg shadow-slate-300/50"
+                              : "border-slate-200 bg-white text-slate-700 shadow-sm hover:-translate-y-0.5 hover:border-pink-200 hover:bg-pink-50/40"
+                          }`}
+                        >
+                          {instructor.first_name} {instructor.last_name}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                </div>
+
                 <div className="mt-6 space-y-6">
-                  {groupedSlots.length === 0 ? (
+                  {!selectedInstructor ? (
+                    <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600 shadow-sm">
+                      <p className="text-lg font-semibold text-slate-950">
+                        Choose an instructor to see available intro lesson times.
+                      </p>
+                    </div>
+                  ) : groupedSlots.length === 0 ? (
                     <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600 shadow-sm">
                       <p className="text-lg font-semibold text-slate-950">
                         No request times are available right now.
@@ -623,9 +617,9 @@ export default async function PublicIntroBookingPage({
                         <div className="grid gap-3 p-5 sm:grid-cols-2 lg:grid-cols-3">
                           {group.slots.map((slot) => {
                             const isSelected = slot.start === selectedSlotStart;
-                            const href = `/book/${typedStudio.slug}?slotStart=${encodeURIComponent(
-                              slot.start
-                            )}`;
+                            const href = `/book/${typedStudio.slug}?instructorId=${encodeURIComponent(
+                              slot.instructorId
+                            )}&slotStart=${encodeURIComponent(slot.start)}`;
 
                             return (
                               <Link
@@ -675,6 +669,9 @@ export default async function PublicIntroBookingPage({
                     <BookingRequestForm
                       studioSlug={typedStudio.slug}
                       slotStart={selectedSlot.start}
+                      slotEnd={selectedSlot.end}
+                      instructorId={selectedSlot.instructorId}
+                      roomId={selectedSlot.roomId}
                       selectedSlotLabel={formatSelectedSlot(selectedSlot.start, studioTimeZone)}
                       ctaText={ctaText}
                     />

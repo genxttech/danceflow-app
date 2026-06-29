@@ -13,11 +13,17 @@ const labelClass = "mb-2 block text-sm font-semibold text-slate-800";
 export default function BookingRequestForm({
   studioSlug,
   slotStart,
+  slotEnd,
+  instructorId,
+  roomId,
   selectedSlotLabel,
   ctaText,
 }: {
   studioSlug: string;
   slotStart: string;
+  slotEnd: string;
+  instructorId: string;
+  roomId: string | null;
   selectedSlotLabel: string;
   ctaText: string;
 }) {
@@ -41,6 +47,9 @@ export default function BookingRequestForm({
       <form action={formAction} className="space-y-5">
         <input type="hidden" name="studioSlug" value={studioSlug} />
         <input type="hidden" name="slotStart" value={slotStart} />
+        <input type="hidden" name="slotEnd" value={slotEnd} />
+        <input type="hidden" name="instructorId" value={instructorId} />
+        <input type="hidden" name="roomId" value={roomId ?? ""} />
 
         <div className="grid gap-4 md:grid-cols-2">
           <div>
