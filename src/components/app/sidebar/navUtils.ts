@@ -1024,6 +1024,53 @@ function injectBookingRequestsLink(sections: NavSectionType[]): NavSectionType[]
   ];
 }
 
+function injectMyAvailabilityLink(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const hasInstructorAccess = flatItems.some(
+    (item) => item.href === "/app/instructors",
+  );
+
+  if (
+    !hasInstructorAccess ||
+    flatItems.some((item) => item.href === "/app/instructors/my-availability")
+  ) {
+    return sections;
+  }
+
+  const myAvailabilityItem: NavItem = {
+    label: "My Availability",
+    href: "/app/instructors/my-availability",
+    icon: "instructors",
+  };
+
+  const studioToolsIndex = sections.findIndex((section) =>
+    section.items.some((item) => item.href === "/app/instructors"),
+  );
+
+  if (studioToolsIndex < 0) {
+    return sections;
+  }
+
+  return sections.map((section, index) => {
+    if (index !== studioToolsIndex) {
+      return section;
+    }
+
+    const instructorsIndex = section.items.findIndex(
+      (item) => item.href === "/app/instructors",
+    );
+
+    return {
+      ...section,
+      items: [
+        ...section.items.slice(0, instructorsIndex + 1),
+        myAvailabilityItem,
+        ...section.items.slice(instructorsIndex + 1),
+      ],
+    };
+  });
+}
+
 function routeKey(href: string) {
   return href.replace(/\/$/, "");
 }
@@ -1146,6 +1193,7 @@ function optimizeNavigationForTasks(sections: NavSectionType[], options: Normali
       "/app/documents",
       "/app/syllabus",
       "/app/instructors",
+      "/app/instructors/my-availability",
       "/app/rooms",
       "/app/notifications",
       "/app/settings",
@@ -1245,7 +1293,8 @@ export function normalizeSections(input: unknown, options: NormalizeSectionsOpti
   const withAutomationsLink = injectAutomationsLink(withDocumentsLink);
   const withInstructorPayLink = injectInstructorPayLink(withAutomationsLink);
   const withBookingRequestsLink = injectBookingRequestsLink(withInstructorPayLink);
-  const withDirectTaskLinks = injectDirectTaskLinks(withBookingRequestsLink);
+  const withMyAvailabilityLink = injectMyAvailabilityLink(withBookingRequestsLink);
+  const withDirectTaskLinks = injectDirectTaskLinks(withMyAvailabilityLink);
 
   return optimizeNavigationForTasks(withDirectTaskLinks, options);
 }

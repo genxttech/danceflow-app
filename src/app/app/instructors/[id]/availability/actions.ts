@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { requireAppointmentCreateAccess } from "@/lib/auth/serverRoleGuard";
+import { canManageInstructors } from "@/lib/auth/permissions";
+import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStudioTimeZone, zonedDateTimeToUtcDate } from "@/lib/booking/selfServiceAvailability";
+import { createClient } from "@/lib/supabase/server";
 
 const LESSON_TYPES = new Set([
   "private_lesson",
@@ -14,12 +16,14 @@ const LESSON_TYPES = new Set([
 
 const BLACKOUT_SOURCES = new Set([
   "manual",
-  "studio_closed",
   "instructor_unavailable",
-  "room_unavailable",
-  "event",
-  "system",
 ]);
+
+type InstructorRow = {
+  id: string;
+  studio_id: string;
+  email: string | null;
+};
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -28,6 +32,10 @@ function getString(formData: FormData, key: string) {
 
 function getOptionalId(formData: FormData, key: string) {
   return getString(formData, key) || null;
+}
+
+function normalizeEmail(value: string | null | undefined) {
+  return value?.trim().toLowerCase() || null;
 }
 
 function parseWeekday(value: string) {
@@ -43,11 +51,8 @@ function parseWeekdays(formData: FormData) {
     .getAll("weekdays")
     .map((value) => (typeof value === "string" ? value : ""))
     .filter(Boolean);
-  const values = selectedWeekdays.length
-    ? selectedWeekdays
-    : [getString(formData, "weekday")];
 
-  const weekdays = Array.from(new Set(values.map(parseWeekday)));
+  const weekdays = Array.from(new Set(selectedWeekdays.map(parseWeekday)));
   if (weekdays.length === 0) {
     throw new Error("Choose at least one weekday.");
   }
@@ -97,8 +102,37 @@ function parseTime(value: string, label: string) {
   return value;
 }
 
+async function loadInstructorAccess(instructorId: string) {
+  const context = await getCurrentStudioContext();
+  const supabase = await createClient();
+
+  const { data: instructor, error } = await supabase
+    .from("instructors")
+    .select("id, studio_id, email")
+    .eq("id", instructorId)
+    .eq("studio_id", context.studioId)
+    .maybeSingle<InstructorRow>();
+
+  if (error || !instructor) {
+    throw new Error(error?.message ?? "Instructor not found.");
+  }
+
+  const role = context.studioRole ?? "";
+  const canManage =
+    context.isPlatformAdmin || canManageInstructors(role);
+  const isOwnInstructorProfile =
+    ["instructor", "independent_instructor"].includes(role) &&
+    normalizeEmail(context.email) === normalizeEmail(instructor.email);
+
+  if (!canManage && !isOwnInstructorProfile) {
+    throw new Error("You do not have permission to manage this instructor availability.");
+  }
+
+  return { context, supabase, instructor };
+}
+
 async function getStudioTimezone(
-  supabase: Awaited<ReturnType<typeof requireAppointmentCreateAccess>>["supabase"],
+  supabase: Awaited<ReturnType<typeof createClient>>,
   studioId: string
 ) {
   const { data, error } = await supabase
@@ -111,9 +145,15 @@ async function getStudioTimezone(
   return getStudioTimeZone(data?.timezone);
 }
 
-export async function createSelfServiceAvailabilityWindowAction(formData: FormData) {
+export async function createInstructorAvailabilityWindowAction(formData: FormData) {
+  const instructorId = getString(formData, "instructorId");
+
+  if (!instructorId) {
+    redirect("/app/instructors?error=missing_instructor");
+  }
+
   try {
-    const { supabase, studioId, user } = await requireAppointmentCreateAccess();
+    const { context, supabase } = await loadInstructorAccess(instructorId);
     const lessonType = getString(formData, "lessonType") || "private_lesson";
     const startTime = parseTime(getString(formData, "startTime"), "Start time");
     const endTime = parseTime(getString(formData, "endTime"), "End time");
@@ -142,12 +182,11 @@ export async function createSelfServiceAvailabilityWindowAction(formData: FormDa
       throw new Error("Effective end date must be after the start date.");
     }
 
-    const instructorId = getOptionalId(formData, "instructorId");
     const roomId = getOptionalId(formData, "roomId");
     const approvalRequired = getString(formData, "approvalRequired") === "on";
     const nowIso = new Date().toISOString();
     const rows = parseWeekdays(formData).map((weekday) => ({
-      studio_id: studioId,
+      studio_id: context.studioId,
       instructor_id: instructorId,
       room_id: roomId,
       lesson_type: lessonType,
@@ -158,7 +197,7 @@ export async function createSelfServiceAvailabilityWindowAction(formData: FormDa
       effective_end_date: effectiveEndDate,
       approval_required: approvalRequired,
       active: true,
-      created_by: user.id,
+      created_by: context.userId,
       updated_at: nowIso,
     }));
 
@@ -169,53 +208,63 @@ export async function createSelfServiceAvailabilityWindowAction(formData: FormDa
     if (error) throw new Error(error.message);
   } catch (error) {
     redirect(
-      `/app/schedule/self-service/availability?error=${encodeURIComponent(
-        error instanceof Error ? error.message : "Could not create availability window."
+      `/app/instructors/${instructorId}/availability?error=${encodeURIComponent(
+        error instanceof Error ? error.message : "Could not create availability."
       )}`
     );
   }
 
+  revalidatePath(`/app/instructors/${instructorId}/availability`);
   revalidatePath("/app/schedule/self-service/availability");
-  redirect("/app/schedule/self-service/availability?success=availability_created");
+  redirect(`/app/instructors/${instructorId}/availability?success=availability_created`);
 }
 
-export async function deactivateSelfServiceAvailabilityWindowAction(formData: FormData) {
+export async function deactivateInstructorAvailabilityWindowAction(formData: FormData) {
+  const instructorId = getString(formData, "instructorId");
   const availabilityWindowId = getString(formData, "availabilityWindowId");
 
-  if (!availabilityWindowId) {
-    redirect("/app/schedule/self-service/availability?error=missing_availability_window");
+  if (!instructorId || !availabilityWindowId) {
+    redirect("/app/instructors?error=missing_availability_window");
   }
 
   try {
-    const { supabase, studioId } = await requireAppointmentCreateAccess();
+    const { context, supabase } = await loadInstructorAccess(instructorId);
     const { error } = await supabase
       .from("studio_booking_availability_windows")
       .update({ active: false, updated_at: new Date().toISOString() })
       .eq("id", availabilityWindowId)
-      .eq("studio_id", studioId);
+      .eq("studio_id", context.studioId)
+      .eq("instructor_id", instructorId);
 
     if (error) throw new Error(error.message);
   } catch (error) {
     redirect(
-      `/app/schedule/self-service/availability?error=${encodeURIComponent(
-        error instanceof Error ? error.message : "Could not remove availability window."
+      `/app/instructors/${instructorId}/availability?error=${encodeURIComponent(
+        error instanceof Error ? error.message : "Could not remove availability."
       )}`
     );
   }
 
+  revalidatePath(`/app/instructors/${instructorId}/availability`);
   revalidatePath("/app/schedule/self-service/availability");
-  redirect("/app/schedule/self-service/availability?success=availability_removed");
+  redirect(`/app/instructors/${instructorId}/availability?success=availability_removed`);
 }
 
-export async function createSelfServiceBlackoutAction(formData: FormData) {
+export async function createInstructorBlackoutAction(formData: FormData) {
+  const instructorId = getString(formData, "instructorId");
+
+  if (!instructorId) {
+    redirect("/app/instructors?error=missing_instructor");
+  }
+
   try {
-    const { supabase, studioId, user } = await requireAppointmentCreateAccess();
-    const timeZone = await getStudioTimezone(supabase, studioId);
+    const { context, supabase } = await loadInstructorAccess(instructorId);
+    const timeZone = await getStudioTimezone(supabase, context.studioId);
     const startDate = parseDate(getString(formData, "startDate"), "Start date");
     const endDate = parseDate(getString(formData, "endDate"), "End date");
     const startTime = parseTime(getString(formData, "startTime"), "Start time");
     const endTime = parseTime(getString(formData, "endTime"), "End time");
-    const source = getString(formData, "source") || "manual";
+    const source = getString(formData, "source") || "instructor_unavailable";
     const recurringWeekdays = parseOptionalWeekdays(formData, "blackoutWeekdays");
 
     if (!startDate || !endDate) {
@@ -227,22 +276,25 @@ export async function createSelfServiceBlackoutAction(formData: FormData) {
     }
 
     if (recurringWeekdays.length > 0 && startTime >= endTime) {
-      throw new Error("For recurring blackouts, start time must be earlier than end time.");
+      throw new Error("For recurring unavailable time, start time must be earlier than end time.");
     }
 
     if (startDate > endDate) {
       throw new Error("End date must be on or after the start date.");
     }
 
+    const roomId = getOptionalId(formData, "roomId");
+    const reason = getString(formData, "reason") || null;
+    const nowIso = new Date().toISOString();
     const baseRow = {
-      studio_id: studioId,
-      instructor_id: getOptionalId(formData, "instructorId"),
-      room_id: getOptionalId(formData, "roomId"),
-      reason: getString(formData, "reason") || null,
+      studio_id: context.studioId,
+      instructor_id: instructorId,
+      room_id: roomId,
+      reason,
       source,
       active: true,
-      created_by: user.id,
-      updated_at: new Date().toISOString(),
+      created_by: context.userId,
+      updated_at: nowIso,
     };
     const rows = [];
 
@@ -286,40 +338,44 @@ export async function createSelfServiceBlackoutAction(formData: FormData) {
     if (error) throw new Error(error.message);
   } catch (error) {
     redirect(
-      `/app/schedule/self-service/availability?error=${encodeURIComponent(
+      `/app/instructors/${instructorId}/availability?error=${encodeURIComponent(
         error instanceof Error ? error.message : "Could not create blackout."
       )}`
     );
   }
 
+  revalidatePath(`/app/instructors/${instructorId}/availability`);
   revalidatePath("/app/schedule/self-service/availability");
-  redirect("/app/schedule/self-service/availability?success=blackout_created");
+  redirect(`/app/instructors/${instructorId}/availability?success=blackout_created`);
 }
 
-export async function deactivateSelfServiceBlackoutAction(formData: FormData) {
+export async function deactivateInstructorBlackoutAction(formData: FormData) {
+  const instructorId = getString(formData, "instructorId");
   const blackoutId = getString(formData, "blackoutId");
 
-  if (!blackoutId) {
-    redirect("/app/schedule/self-service/availability?error=missing_blackout");
+  if (!instructorId || !blackoutId) {
+    redirect("/app/instructors?error=missing_blackout");
   }
 
   try {
-    const { supabase, studioId } = await requireAppointmentCreateAccess();
+    const { context, supabase } = await loadInstructorAccess(instructorId);
     const { error } = await supabase
       .from("studio_booking_blackouts")
       .update({ active: false, updated_at: new Date().toISOString() })
       .eq("id", blackoutId)
-      .eq("studio_id", studioId);
+      .eq("studio_id", context.studioId)
+      .eq("instructor_id", instructorId);
 
     if (error) throw new Error(error.message);
   } catch (error) {
     redirect(
-      `/app/schedule/self-service/availability?error=${encodeURIComponent(
+      `/app/instructors/${instructorId}/availability?error=${encodeURIComponent(
         error instanceof Error ? error.message : "Could not remove blackout."
       )}`
     );
   }
 
+  revalidatePath(`/app/instructors/${instructorId}/availability`);
   revalidatePath("/app/schedule/self-service/availability");
-  redirect("/app/schedule/self-service/availability?success=blackout_removed");
+  redirect(`/app/instructors/${instructorId}/availability?success=blackout_removed`);
 }
