@@ -61,6 +61,19 @@ type ClientRow = {
   portal_user_id: string | null;
 };
 
+type InstructorRow = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+};
+
+export type StudentSelfServiceInstructor = {
+  id: string;
+  firstName: string | null;
+  lastName: string | null;
+  name: string;
+};
+
 type SelfServiceSettingsRow = SelfServiceBookingSettings & {
   timezone: string | null;
   portal_self_scheduling_slot_interval_minutes: number | null;
@@ -84,6 +97,7 @@ export type StudentSelfServiceSlotsResult = {
   settings: SelfServiceSettingsRow;
   eligibility: StudentBookingEligibility;
   bookingDecision: BookingActionDecision;
+  instructors: StudentSelfServiceInstructor[];
   slots: SelfServiceSlot[];
 };
 
@@ -144,6 +158,11 @@ async function hasPaymentMethod(
 
   if (error) throw new Error(`Payment method lookup failed: ${error.message}`);
   return Boolean(data?.id);
+}
+
+function formatInstructorName(instructor: InstructorRow) {
+  const fullName = `${instructor.first_name ?? ""} ${instructor.last_name ?? ""}`.trim();
+  return fullName || "Unnamed instructor";
 }
 
 export async function loadStudentSelfServiceSlots(
@@ -218,6 +237,36 @@ export async function loadStudentSelfServiceSlots(
     settings,
   });
 
+  const allowedInstructorIds = settings.portal_bookable_instructor_ids ?? [];
+  let instructorsQuery = params.supabase
+    .from("instructors")
+    .select("id, first_name, last_name")
+    .eq("studio_id", studio.id)
+    .eq("active", true)
+    .order("first_name", { ascending: true });
+
+  if (allowedInstructorIds.length > 0) {
+    instructorsQuery = instructorsQuery.in("id", allowedInstructorIds);
+  }
+
+  const instructors = (
+    await queryList<InstructorRow>(instructorsQuery, "Instructor lookup failed")
+  ).map((instructor) => ({
+    id: instructor.id,
+    firstName: instructor.first_name,
+    lastName: instructor.last_name,
+    name: formatInstructorName(instructor),
+  }));
+
+  const selectedInstructorId = params.instructorId?.trim() || null;
+
+  if (
+    selectedInstructorId &&
+    !instructors.some((instructor) => instructor.id === selectedInstructorId)
+  ) {
+    throw new Error("That instructor is not available for self-service scheduling.");
+  }
+
   if (!bookingDecision.allowed) {
     return {
       studio,
@@ -225,6 +274,19 @@ export async function loadStudentSelfServiceSlots(
       settings,
       eligibility,
       bookingDecision,
+      instructors,
+      slots: [],
+    };
+  }
+
+  if (!selectedInstructorId) {
+    return {
+      studio,
+      client,
+      settings,
+      eligibility,
+      bookingDecision,
+      instructors,
       slots: [],
     };
   }
@@ -276,13 +338,14 @@ export async function loadStudentSelfServiceSlots(
     settings,
     eligibility,
     bookingDecision,
+    instructors,
     slots: buildSelfServiceSlots({
       settings,
       windows,
       blackouts,
       appointmentHolds,
       lessonType: params.lessonType ?? "private_lesson",
-      instructorId: params.instructorId,
+      instructorId: selectedInstructorId,
       roomId: params.roomId,
       now,
     }),

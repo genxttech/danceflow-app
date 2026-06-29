@@ -237,6 +237,13 @@ export async function POST(request: Request) {
     );
   }
 
+  if (actionType !== "cancel" && !payload.instructorId?.trim()) {
+    return NextResponse.json(
+      { error: "Choose an instructor before requesting a lesson time." },
+      { status: 400 }
+    );
+  }
+
   const supabase = createAdminClient();
   const queryClient = supabase as unknown as SupabaseQueryClient;
   const actionClient = supabase as unknown as SupabaseLike;

@@ -61,11 +61,11 @@ export async function GET(request: Request) {
         created_at,
         decision_at,
         executed_at,
-        instructors (
+        instructors:instructor_id (
           first_name,
           last_name
         ),
-        rooms (
+        rooms:room_id (
           name
         )
       `)

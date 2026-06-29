@@ -38,6 +38,7 @@ export async function GET(request: Request) {
       studio: result.studio,
       bookingDecision: result.bookingDecision,
       eligibility: result.eligibility,
+      instructors: result.instructors,
       slots: result.slots,
     });
   } catch (error) {

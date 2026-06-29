@@ -22,12 +22,26 @@ function getAuthParams(url: string) {
   return params;
 }
 
-function valueFromParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
+function cleanParam(value: string | string[] | null | undefined) {
+  const nextValue = Array.isArray(value) ? value[0] : value;
+  return nextValue?.trim() || null;
+}
+
+async function getCurrentSessionWithRetry() {
+  for (let index = 0; index < 4; index += 1) {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    if (data.session) return data.session;
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+
+  return null;
 }
 
 export default function AuthCallbackScreen() {
   const [error, setError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string | null>(null);
   const callbackUrl = Linking.useURL();
   const routeParams = useLocalSearchParams<{
     access_token?: string;
@@ -46,49 +60,87 @@ export default function AuthCallbackScreen() {
       try {
         const url = callbackUrl || (await Linking.getInitialURL());
         const params = url ? getAuthParams(url) : null;
-        const code = params?.get("code") || valueFromParam(routeParams.code);
+        const code = cleanParam(params?.get("code")) || cleanParam(routeParams.code);
         const accessToken =
-          params?.get("access_token") || valueFromParam(routeParams.access_token);
+          cleanParam(params?.get("access_token")) ||
+          cleanParam(routeParams.access_token);
         const refreshToken =
-          params?.get("refresh_token") || valueFromParam(routeParams.refresh_token);
+          cleanParam(params?.get("refresh_token")) ||
+          cleanParam(routeParams.refresh_token);
         const tokenHash =
-          params?.get("token_hash") || valueFromParam(routeParams.token_hash);
-        const otpType = params?.get("type") || valueFromParam(routeParams.type);
+          cleanParam(params?.get("token_hash")) ||
+          cleanParam(routeParams.token_hash);
+        const otpType =
+          cleanParam(params?.get("type")) ||
+          cleanParam(routeParams.type) ||
+          "magiclink";
         const callbackError =
-          params?.get("error_description") ||
-          params?.get("error") ||
-          valueFromParam(routeParams.error_description) ||
-          valueFromParam(routeParams.error);
+          cleanParam(params?.get("error_description")) ||
+          cleanParam(params?.get("error")) ||
+          cleanParam(routeParams.error_description) ||
+          cleanParam(routeParams.error);
+
+        setDebugInfo(
+          [
+            `callbackUrl: ${url ? "present" : "missing"}`,
+            `callbackUrlPrefix: ${url?.slice(0, 80) ?? "none"}`,
+            `code: ${code ? "present" : "missing"}`,
+            `accessToken: ${accessToken ? "present" : "missing"}`,
+            `refreshToken: ${refreshToken ? "present" : "missing"}`,
+            `tokenHash: ${tokenHash ? `present length ${tokenHash.length}` : "missing"}`,
+            `tokenHashPrefix: ${tokenHash?.slice(0, 8) ?? "none"}`,
+            `otpType: ${otpType ?? "missing"}`,
+            `callbackError: ${callbackError ?? "none"}`,
+          ].join("\n")
+        );
+
+        const existingSession = await getCurrentSessionWithRetry();
+        if (existingSession) {
+          router.replace("/(tabs)/home");
+          return;
+        }
 
         if (callbackError) {
           throw new Error(callbackError);
         }
 
-        if (code) {
-          const { error: exchangeError } =
-            await supabase.auth.exchangeCodeForSession(code);
-          if (exchangeError) throw exchangeError;
-        } else if (accessToken && refreshToken) {
-          const { error: sessionError } = await supabase.auth.setSession({
-            access_token: accessToken,
-            refresh_token: refreshToken
-          });
-          if (sessionError) throw sessionError;
-        } else if (tokenHash && otpType) {
-          const { error: verifyError } = await supabase.auth.verifyOtp({
-            token_hash: tokenHash,
-            type: otpType as EmailOtpType
-          });
-          if (verifyError) throw verifyError;
-        } else {
-          const { data, error: sessionLookupError } = await supabase.auth.getSession();
-          if (sessionLookupError) throw sessionLookupError;
-          if (!data.session) {
+        try {
+          if (code) {
+            const { error: exchangeError } =
+              await supabase.auth.exchangeCodeForSession(code);
+            if (exchangeError) throw exchangeError;
+          } else if (accessToken && refreshToken) {
+            const { error: sessionError } = await supabase.auth.setSession({
+              access_token: accessToken,
+              refresh_token: refreshToken
+            });
+            if (sessionError) throw sessionError;
+          } else if (tokenHash && otpType) {
+            const { error: verifyError } = await supabase.auth.verifyOtp({
+              token_hash: tokenHash,
+              type: otpType as EmailOtpType
+            });
+            if (verifyError) throw verifyError;
+          } else {
             throw new Error("Missing sign-in session. Open the latest magic link again.");
           }
+        } catch (authError) {
+          const recoveredSession = await getCurrentSessionWithRetry();
+          if (recoveredSession) {
+            router.replace("/(tabs)/home");
+            return;
+          }
+
+          throw authError;
+        }
+
+        const finalSession = await getCurrentSessionWithRetry();
+        if (!finalSession) {
+          throw new Error("Missing sign-in session. Open the latest magic link again.");
         }
 
         if (mounted) {
+          setError(null);
           router.replace("/(tabs)/home");
         }
       } catch (err) {
@@ -111,6 +163,7 @@ export default function AuthCallbackScreen() {
           <>
             <AppText variant="title">Sign in needs another try</AppText>
             <AppText variant="caption">{error}</AppText>
+            {debugInfo ? <AppText variant="caption">{debugInfo}</AppText> : null}
           </>
         ) : (
           <>

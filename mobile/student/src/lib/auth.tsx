@@ -26,6 +26,10 @@ function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+function getMobileCallbackUrl() {
+  return "danceflow://auth/callback";
+}
+
 function extractAuthParams(url: string) {
   const normalized = url.replace("#", "?");
 
@@ -33,12 +37,16 @@ function extractAuthParams(url: string) {
     const parsed = new URL(normalized);
     return {
       code: parsed.searchParams.get("code"),
+      tokenHash: parsed.searchParams.get("token_hash"),
+      type: parsed.searchParams.get("type"),
       accessToken: parsed.searchParams.get("access_token"),
       refreshToken: parsed.searchParams.get("refresh_token")
     };
   } catch (_error) {
     return {
       code: null,
+      tokenHash: null,
+      type: null,
       accessToken: null,
       refreshToken: null
     };
@@ -50,7 +58,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   const handleAuthUrl = useCallback(async (url: string) => {
-    const { code, accessToken, refreshToken } = extractAuthParams(url);
+    const { code, tokenHash, type, accessToken, refreshToken } = extractAuthParams(url);
+
+    if (tokenHash) {
+      const { error } = await supabase.auth.verifyOtp({
+        token_hash: tokenHash,
+        type: type === "recovery" ? "recovery" : "magiclink"
+      });
+      if (error) throw error;
+      return true;
+    }
 
     if (code) {
       const { error } = await supabase.auth.exchangeCodeForSession(code);
@@ -111,16 +128,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [handleAuthUrl]);
 
   const continueWithEmail = useCallback(async (email: string) => {
-  const { error } = await supabase.auth.signInWithOtp({
-    email: normalizeEmail(email),
-    options: {
-      emailRedirectTo: "danceflow://auth/callback",
-      shouldCreateUser: false,
-    },
-  });
+    const { error } = await supabase.auth.signInWithOtp({
+      email: normalizeEmail(email),
+      options: {
+        emailRedirectTo: getMobileCallbackUrl(),
+        shouldCreateUser: false,
+      },
+    });
 
-  if (error) throw error;
-}, []);
+    if (error) throw error;
+  }, []);
 
   const sendPasswordReset = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(normalizeEmail(email));

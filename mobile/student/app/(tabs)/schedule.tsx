@@ -23,14 +23,21 @@ const lumiAvatar = require("../../assets/lumi-avatar.png");
 const selfServiceStudioSlug = process.env.EXPO_PUBLIC_DANCEFLOW_STUDIO_SLUG;
 
 type SelfServiceSlot = {
+  date: string;
   startsAt: string;
   endsAt: string;
   instructorId: string | null;
   roomId: string | null;
 };
 
+type SelfServiceInstructor = {
+  id: string;
+  name: string;
+};
+
 type SelfServiceSlotsResponse = {
   slots: SelfServiceSlot[];
+  instructors?: SelfServiceInstructor[];
   bookingDecision?: {
     allowed: boolean;
     mode: "request_only" | "approval_required" | "instant" | null;
@@ -128,6 +135,18 @@ function actionLabel(value: string) {
   if (value === "reschedule") return "Reschedule";
   if (value === "cancel") return "Cancellation";
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatSelfServiceDate(dateKey: string, timeZone: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+    month: "short",
+    day: "numeric"
+  }).format(date);
 }
 
 function SelfServiceRequestCard({
@@ -254,6 +273,9 @@ export default function ScheduleScreen() {
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [overview, setOverview] = useState<StudentScheduleOverview | null>(null);
   const [selfServiceSlots, setSelfServiceSlots] = useState<SelfServiceSlot[]>([]);
+  const [selfServiceInstructors, setSelfServiceInstructors] = useState<SelfServiceInstructor[]>([]);
+  const [selectedSelfServiceInstructorId, setSelectedSelfServiceInstructorId] = useState("");
+  const [selectedSelfServiceDate, setSelectedSelfServiceDate] = useState("");
   const [selfServiceDecision, setSelfServiceDecision] =
     useState<SelfServiceSlotsResponse["bookingDecision"]>(undefined);
   const [selfServiceRequests, setSelfServiceRequests] =
@@ -268,6 +290,8 @@ export default function ScheduleScreen() {
     if (!userId) {
       setLinkedStudios([]);
       setOverview(null);
+      setSelfServiceInstructors([]);
+      setSelectedSelfServiceDate("");
       setLoading(false);
       return;
     }
@@ -282,6 +306,8 @@ export default function ScheduleScreen() {
       if (access.linkedStudios.length === 0) {
         setOverview(null);
         setSelfServiceSlots([]);
+        setSelfServiceInstructors([]);
+        setSelectedSelfServiceDate("");
         setSelfServiceRequests(null);
         return;
       }
@@ -297,7 +323,8 @@ export default function ScheduleScreen() {
               {
                 params: {
                   studioSlug: selfServiceStudioSlug,
-                  lessonType: "private_lesson"
+                  lessonType: "private_lesson",
+                  instructorId: selectedSelfServiceInstructorId || null
                 }
               }
             ),
@@ -310,16 +337,33 @@ export default function ScheduleScreen() {
               }
             )
           ]);
-          setSelfServiceSlots(slotsResponse.slots ?? []);
+          const nextSelfServiceSlots = slotsResponse.slots ?? [];
+          setSelfServiceSlots(nextSelfServiceSlots);
+          if (
+            selectedSelfServiceDate &&
+            !nextSelfServiceSlots.some((slot) => slot.date === selectedSelfServiceDate)
+          ) {
+            setSelectedSelfServiceDate("");
+          }
+          setSelfServiceInstructors(slotsResponse.instructors ?? []);
           setSelfServiceDecision(slotsResponse.bookingDecision);
           setSelfServiceRequests(requestsResponse);
-        } catch {
+        } catch (selfServiceError) {
           setSelfServiceSlots([]);
+          setSelfServiceInstructors([]);
+          setSelectedSelfServiceDate("");
           setSelfServiceDecision(undefined);
           setSelfServiceRequests(null);
+          setSelfServiceMessage(
+            selfServiceError instanceof Error
+              ? selfServiceError.message
+              : "Self-service requests could not be loaded."
+          );
         }
       } else {
         setSelfServiceSlots([]);
+        setSelfServiceInstructors([]);
+        setSelectedSelfServiceDate("");
         setSelfServiceDecision(undefined);
         setSelfServiceRequests(null);
       }
@@ -327,6 +371,8 @@ export default function ScheduleScreen() {
       setErrorMessage("Your schedule could not be loaded. Try again in a moment.");
       setOverview(null);
       setSelfServiceSlots([]);
+      setSelfServiceInstructors([]);
+      setSelectedSelfServiceDate("");
       setSelfServiceRequests(null);
     } finally {
       setLoading(false);
@@ -377,7 +423,7 @@ export default function ScheduleScreen() {
   useEffect(() => {
     loadSchedule();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user.id]);
+  }, [session?.user.id, selectedSelfServiceInstructorId]);
 
   const hasPortalAccess = linkedStudios.length > 0;
   const isSignedIn = Boolean(session);
@@ -394,6 +440,10 @@ export default function ScheduleScreen() {
     selfServiceRequests?.requests.filter((request) =>
       ["pending", "approved", "executed", "declined", "failed"].includes(request.status)
     ) ?? [];
+  const selfServiceDates = Array.from(new Set(selfServiceSlots.map((slot) => slot.date)));
+  const visibleSelfServiceSlots = selectedSelfServiceDate
+    ? selfServiceSlots.filter((slot) => slot.date === selectedSelfServiceDate)
+    : [];
 
   return (
     <Screen>
@@ -462,24 +512,87 @@ export default function ScheduleScreen() {
                 title="Self-service unavailable"
                 detail={selfServiceDecision.reason ?? "This studio is not accepting self-service booking requests right now."}
               />
-            ) : selfServiceSlots.length > 0 ? (
-              selfServiceSlots.slice(0, 6).map((slot) => {
-                const slotKey = `${slot.startsAt}|${slot.endsAt}`;
-                return (
-                  <SelfServiceSlotCard
-                    key={slotKey}
-                    slot={slot}
-                    timeZone={selfServiceTimeZone}
-                    submitting={submittingSlotKey === slotKey}
-                    onPress={() => submitSelfServiceSlot(slot)}
-                  />
-                );
-              })
             ) : (
-              <FeatureCard
-                title="No self-service times"
-                detail="The studio has not opened any private lesson slots yet."
-              />
+              <>
+                <View style={styles.instructorList}>
+                  {selfServiceInstructors.length > 0 ? (
+                    selfServiceInstructors.map((instructor) => {
+                      const selected = selectedSelfServiceInstructorId === instructor.id;
+                      return (
+                        <AppButton
+                          key={instructor.id}
+                          label={instructor.name}
+                          onPress={() => {
+                            setSelfServiceMessage(null);
+                            setSelectedSelfServiceDate("");
+                            setSelectedSelfServiceInstructorId(instructor.id);
+                          }}
+                          variant={selected ? "primary" : "secondary"}
+                        />
+                      );
+                    })
+                  ) : (
+                    <FeatureCard
+                      title="No instructors available"
+                      detail="The studio has not opened instructor booking for self-service yet."
+                    />
+                  )}
+                </View>
+
+                {!selectedSelfServiceInstructorId ? (
+                  <FeatureCard
+                    title="Choose an instructor"
+                    detail="Available lesson times will appear after you choose an instructor."
+                  />
+                ) : selfServiceSlots.length > 0 ? (
+                  <>
+                    <AppText variant="caption">Choose a day</AppText>
+                    <View style={styles.dateList}>
+                      {selfServiceDates.map((dateKey) => {
+                        const selected = selectedSelfServiceDate === dateKey;
+                        return (
+                          <AppButton
+                            key={dateKey}
+                            label={formatSelfServiceDate(dateKey, selfServiceTimeZone)}
+                            onPress={() => setSelectedSelfServiceDate(dateKey)}
+                            variant={selected ? "primary" : "secondary"}
+                          />
+                        );
+                      })}
+                    </View>
+
+                    {!selectedSelfServiceDate ? (
+                      <FeatureCard
+                        title="Choose a day"
+                        detail="Lesson times for that day will appear after you choose a date."
+                      />
+                    ) : visibleSelfServiceSlots.length > 0 ? (
+                      visibleSelfServiceSlots.map((slot) => {
+                        const slotKey = `${slot.startsAt}|${slot.endsAt}`;
+                        return (
+                          <SelfServiceSlotCard
+                            key={slotKey}
+                            slot={slot}
+                            timeZone={selfServiceTimeZone}
+                            submitting={submittingSlotKey === slotKey}
+                            onPress={() => submitSelfServiceSlot(slot)}
+                          />
+                        );
+                      })
+                    ) : (
+                      <FeatureCard
+                        title="No self-service times"
+                        detail="This instructor does not have open private lesson slots for the selected day."
+                      />
+                    )}
+                  </>
+                ) : (
+                  <FeatureCard
+                    title="No self-service times"
+                    detail="This instructor does not have open private lesson slots for the selected booking window."
+                  />
+                )}
+              </>
             )}
           </View>
 
@@ -604,6 +717,12 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: 10
+  },
+  instructorList: {
+    gap: 8
+  },
+  dateList: {
+    gap: 8
   },
   summaryGrid: {
     flexDirection: "row",
