@@ -37,6 +37,9 @@ type PaymentRow = {
   stripe_invoice_id: string | null;
   stripe_payment_intent_id: string | null;
   stripe_charge_id: string | null;
+  stripe_refund_id: string | null;
+  refund_amount: number | null;
+  refunded_at: string | null;
   external_reference: string | null;
   quick_charge_category: string | null;
   guest_name: string | null;
@@ -251,6 +254,9 @@ export default async function PaymentsPage({
       stripe_invoice_id,
       stripe_payment_intent_id,
       stripe_charge_id,
+      stripe_refund_id,
+      refund_amount,
+      refunded_at,
       external_reference,
       quick_charge_category,
       guest_name,
@@ -791,6 +797,14 @@ export default async function PaymentsPage({
                         <p className="text-sm text-slate-600">
                           {payment.notes}
                         </p>
+                      </div>
+                    ) : null}
+
+                    {payment.refund_amount && Number(payment.refund_amount) > 0 ? (
+                      <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+                        Refunded {fmtCurrency(Number(payment.refund_amount), currency)}
+                        {payment.refunded_at ? ` on ${fmtDateTime(payment.refunded_at)}` : ""}
+                        {payment.stripe_refund_id ? ` · Stripe refund ${payment.stripe_refund_id}` : ""}
                       </div>
                     ) : null}
                   </div>

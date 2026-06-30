@@ -27,6 +27,7 @@ import {
   updateIndependentInstructorSettingsAction,
   adjustLessonCountCorrectionAction,
   addClientAccountLedgerEntryAction,
+  refundClientPaymentAction,
 } from "./actions";
 import {
   cancelMembershipAtPeriodEndAction,
@@ -177,6 +178,10 @@ type PaymentRow = {
   currency: string | null;
   stripe_invoice_id: string | null;
   stripe_payment_intent_id: string | null;
+  stripe_charge_id: string | null;
+  stripe_refund_id: string | null;
+  refund_amount: number | null;
+  refunded_at: string | null;
 };
 
 type LedgerRow = {
@@ -823,6 +828,27 @@ function paymentChannelBadgeClass(channel: string | null) {
   return "bg-slate-100 text-slate-700";
 }
 
+function remainingRefundAmount(payment: PaymentRow) {
+  const amount = Number(payment.amount ?? 0);
+  const refunded = Number(payment.refund_amount ?? 0);
+  if (!Number.isFinite(amount) || amount <= 0) return 0;
+  if (!Number.isFinite(refunded) || refunded <= 0) return amount;
+  return Math.max(0, Math.round((amount - refunded) * 100) / 100);
+}
+
+function canRefundPayment(payment: PaymentRow) {
+  const status = (payment.status ?? "").toLowerCase();
+  const source = (payment.source ?? "").toLowerCase();
+  const remaining = remainingRefundAmount(payment);
+
+  return (
+    status === "paid" &&
+    source === "stripe" &&
+    remaining > 0 &&
+    Boolean(payment.stripe_payment_intent_id || payment.stripe_charge_id)
+  );
+}
+
 function paymentSourceBadgeClass(source: string | null) {
   if (source === "stripe") return "bg-indigo-50 text-indigo-700";
   if (source === "manual") return "bg-slate-100 text-slate-700";
@@ -1005,6 +1031,13 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "success" as const,
       message: "Client account ledger entry saved.",
+    };
+  }
+
+  if (search.success === "payment_refunded") {
+    return {
+      kind: "success" as const,
+      message: "Stripe refund completed and the DanceFlow payment record was updated.",
     };
   }
 
@@ -1296,6 +1329,76 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.error === "refund_missing_fields") {
+    return {
+      kind: "error" as const,
+      message: "Refund amount and reason are required.",
+    };
+  }
+
+  if (search.error === "refund_invalid_amount") {
+    return {
+      kind: "error" as const,
+      message: "Enter a valid refund amount greater than zero.",
+    };
+  }
+
+  if (search.error === "refund_unauthorized") {
+    return {
+      kind: "error" as const,
+      message: "Only studio owners and admins can issue card refunds.",
+    };
+  }
+
+  if (search.error === "refund_payment_not_found") {
+    return {
+      kind: "error" as const,
+      message: "Payment record could not be found for this client.",
+    };
+  }
+
+  if (search.error === "refund_payment_not_paid") {
+    return {
+      kind: "error" as const,
+      message: "Only paid payments can be refunded.",
+    };
+  }
+
+  if (search.error === "refund_missing_stripe_reference") {
+    return {
+      kind: "error" as const,
+      message: "This payment does not have a Stripe charge or payment intent to refund.",
+    };
+  }
+
+  if (search.error === "refund_exceeds_remaining") {
+    return {
+      kind: "error" as const,
+      message: "Refund amount is higher than the remaining refundable balance.",
+    };
+  }
+
+  if (search.error === "refund_stripe_not_connected") {
+    return {
+      kind: "error" as const,
+      message: "Stripe is not connected for this studio.",
+    };
+  }
+
+  if (search.error === "refund_stripe_failed") {
+    return {
+      kind: "error" as const,
+      message: "Stripe could not complete the refund.",
+    };
+  }
+
+  if (search.error === "refund_record_update_failed") {
+    return {
+      kind: "error" as const,
+      message: "Stripe refunded the payment, but DanceFlow could not update the local payment record. Review Stripe and update the record before retrying.",
+    };
+  }
+
   if (search.error === "missing_default_payment_method") {
     return {
       kind: "error" as const,
@@ -1478,6 +1581,7 @@ export default async function ClientDetailPage({
   
   const studioId = context.studioId;
   const role = context.studioRole ?? "";
+  const canIssuePaymentRefunds = ["studio_owner", "studio_admin"].includes(role);
   const nowIso = new Date().toISOString();
   const returnTo = `/app/clients/${id}`;
 
@@ -1628,7 +1732,11 @@ export default async function ClientDetailPage({
         payment_channel,
         currency,
         stripe_invoice_id,
-        stripe_payment_intent_id
+        stripe_payment_intent_id,
+        stripe_charge_id,
+        stripe_refund_id,
+        refund_amount,
+        refunded_at
       `)
       .eq("studio_id", studioId)
       .eq("client_id", id)
@@ -3180,6 +3288,67 @@ export default async function ClientDetailPage({
                     <div className="mt-3 rounded-2xl border border-[var(--brand-border)] bg-white p-3">
                       <p className="text-sm text-slate-600">{payment.notes}</p>
                     </div>
+                  ) : null}
+
+                  {payment.refund_amount && Number(payment.refund_amount) > 0 ? (
+                    <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                      Refunded {fmtCurrency(Number(payment.refund_amount), payment.currency ?? "USD")}
+                      {payment.refunded_at ? ` on ${fmtDateTime(payment.refunded_at)}` : ""}.
+                    </div>
+                  ) : null}
+
+                  {canIssuePaymentRefunds && canRefundPayment(payment) ? (
+                    <details className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                      <summary className="cursor-pointer text-sm font-semibold text-amber-950">
+                        Refund this Stripe payment
+                      </summary>
+                      <form action={refundClientPaymentAction} className="mt-3 space-y-3">
+                        <input type="hidden" name="clientId" value={typedClient.id} />
+                        <input type="hidden" name="paymentId" value={payment.id} />
+                        <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}?tab=billing`} />
+
+                        <p className="text-sm leading-6 text-amber-900">
+                          This sends a refund through Stripe and updates DanceFlow reporting. Review package credits, membership status, and lesson balances after refunding.
+                        </p>
+
+                        <div className="grid gap-3 md:grid-cols-[160px_1fr]">
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-900">
+                              Amount
+                            </label>
+                            <input
+                              name="amount"
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              max={remainingRefundAmount(payment)}
+                              defaultValue={remainingRefundAmount(payment).toFixed(2)}
+                              className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                              required
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-900">
+                              Reason
+                            </label>
+                            <input
+                              name="reason"
+                              maxLength={450}
+                              placeholder="Reason for refund"
+                              className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                              required
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800"
+                        >
+                          Issue Stripe refund
+                        </button>
+                      </form>
+                    </details>
                   ) : null}
                 </div>
               ))
@@ -5060,6 +5229,67 @@ export default async function ClientDetailPage({
                         <div className="mt-3 rounded-2xl border border-[var(--brand-border)] bg-white p-3">
                           <p className="text-sm text-slate-600">{payment.notes}</p>
                         </div>
+                      ) : null}
+
+                      {payment.refund_amount && Number(payment.refund_amount) > 0 ? (
+                        <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                          Refunded {fmtCurrency(Number(payment.refund_amount), payment.currency ?? "USD")}
+                          {payment.refunded_at ? ` on ${fmtDateTime(payment.refunded_at)}` : ""}.
+                        </div>
+                      ) : null}
+
+                      {canIssuePaymentRefunds && canRefundPayment(payment) ? (
+                        <details className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+                          <summary className="cursor-pointer text-sm font-semibold text-amber-950">
+                            Refund this Stripe payment
+                          </summary>
+                          <form action={refundClientPaymentAction} className="mt-3 space-y-3">
+                            <input type="hidden" name="clientId" value={typedClient.id} />
+                            <input type="hidden" name="paymentId" value={payment.id} />
+                            <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}?tab=billing`} />
+
+                            <p className="text-sm leading-6 text-amber-900">
+                              This sends a refund through Stripe and updates DanceFlow reporting. Review package credits, membership status, and lesson balances after refunding.
+                            </p>
+
+                            <div className="grid gap-3 md:grid-cols-[160px_1fr]">
+                              <div>
+                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-900">
+                                  Amount
+                                </label>
+                                <input
+                                  name="amount"
+                                  type="number"
+                                  min="0.01"
+                                  step="0.01"
+                                  max={remainingRefundAmount(payment)}
+                                  defaultValue={remainingRefundAmount(payment).toFixed(2)}
+                                  className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                                  required
+                                />
+                              </div>
+                              <div>
+                                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-amber-900">
+                                  Reason
+                                </label>
+                                <input
+                                  name="reason"
+                                  maxLength={450}
+                                  placeholder="Reason for refund"
+                                  className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                                  required
+                                />
+                              </div>
+                            </div>
+
+                            <button
+                              type="submit"
+                              className="rounded-xl bg-amber-700 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-800"
+                            >
+                              Issue Stripe refund
+                            </button>
+                          </form>
+                        </details>
                       ) : null}
                     </div>
                   ))

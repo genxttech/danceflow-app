@@ -8,10 +8,17 @@ import { redirect } from "next/navigation";
 import { canEditClients } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { revalidatePath } from "next/cache";
+import { getStripe } from "@/lib/payments/stripe";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function parseMoney(value: string) {
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.round(parsed * 100) / 100;
 }
 
 function appendQueryParam(url: string, key: string, value: string) {
@@ -1014,6 +1021,144 @@ export async function addClientAccountLedgerEntryAction(formData: FormData) {
   revalidatePath(`/app/clients/${clientId}`);
 
   redirectWithResult(returnTo, "success", "account_ledger_entry_saved");
+}
+
+export async function refundClientPaymentAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const paymentId = getString(formData, "paymentId");
+  const amountRaw = getString(formData, "amount");
+  const reason = getString(formData, "reason");
+  const returnTo =
+    getString(formData, "returnTo") || `/app/clients/${clientId}?tab=billing`;
+
+  if (!clientId || !paymentId || !amountRaw || !reason) {
+    redirectWithResult(returnTo, "error", "refund_missing_fields");
+  }
+
+  const requestedAmount = parseMoney(amountRaw);
+  if (requestedAmount == null || requestedAmount <= 0) {
+    redirectWithResult(returnTo, "error", "refund_invalid_amount");
+  }
+
+  const { studioId, role } = await getEditableStudioContext(returnTo);
+  if (!["studio_owner", "studio_admin"].includes(role)) {
+    redirectWithResult(returnTo, "error", "refund_unauthorized");
+  }
+
+  const adminSupabase = createAdminClient();
+
+  const { data: payment, error: paymentError } = await adminSupabase
+    .from("payments")
+    .select(
+      "id, studio_id, client_id, amount, currency, status, payment_type, payment_method, payment_channel, source, notes, stripe_payment_intent_id, stripe_charge_id, stripe_refund_id, refund_amount"
+    )
+    .eq("id", paymentId)
+    .eq("studio_id", studioId)
+    .eq("client_id", clientId)
+    .single();
+
+  if (paymentError || !payment) {
+    redirectWithResult(returnTo, "error", "refund_payment_not_found");
+  }
+
+  if ((payment.status ?? "").toLowerCase() !== "paid") {
+    redirectWithResult(returnTo, "error", "refund_payment_not_paid");
+  }
+
+  const paymentIntentId =
+    typeof payment.stripe_payment_intent_id === "string"
+      ? payment.stripe_payment_intent_id.trim()
+      : "";
+  const chargeId =
+    typeof payment.stripe_charge_id === "string" ? payment.stripe_charge_id.trim() : "";
+
+  if (!paymentIntentId && !chargeId) {
+    redirectWithResult(returnTo, "error", "refund_missing_stripe_reference");
+  }
+
+  const originalAmount = Number(payment.amount ?? 0);
+  const alreadyRefunded = Number(payment.refund_amount ?? 0);
+  const remainingRefundable = Math.max(
+    0,
+    Math.round((originalAmount - alreadyRefunded) * 100) / 100
+  );
+
+  if (requestedAmount > remainingRefundable) {
+    redirectWithResult(returnTo, "error", "refund_exceeds_remaining");
+  }
+
+  const { data: studio, error: studioError } = await adminSupabase
+    .from("studios")
+    .select("id, stripe_connected_account_id")
+    .eq("id", studioId)
+    .single();
+
+  if (studioError || !studio?.stripe_connected_account_id) {
+    redirectWithResult(returnTo, "error", "refund_stripe_not_connected");
+  }
+
+  const stripe = getStripe();
+  const refund = await stripe.refunds
+    .create(
+      {
+        amount: Math.round(requestedAmount * 100),
+        ...(paymentIntentId
+          ? { payment_intent: paymentIntentId }
+          : { charge: chargeId }),
+        reason: "requested_by_customer",
+        metadata: {
+          source: "danceflow_client_payment_refund",
+          studioId,
+          clientId,
+          paymentId,
+          paymentType: payment.payment_type ?? "",
+          reason: reason.slice(0, 450),
+        },
+      },
+      {
+        stripeAccount: studio.stripe_connected_account_id,
+        idempotencyKey: `danceflow_client_refund_${paymentId}_${Math.round(requestedAmount * 100)}_${Math.round(alreadyRefunded * 100)}`,
+      }
+    )
+    .catch((error: unknown) => {
+      console.error("Stripe client payment refund failed", error);
+      return null;
+    });
+
+  if (!refund?.id) {
+    redirectWithResult(returnTo, "error", "refund_stripe_failed");
+  }
+
+  const nextRefundAmount = Math.round((alreadyRefunded + requestedAmount) * 100) / 100;
+  const nextStatus = nextRefundAmount >= originalAmount ? "refunded" : "paid";
+  const nowIso = new Date().toISOString();
+  const noteParts = [
+    payment.notes,
+    `Refunded ${requestedAmount.toFixed(2)} via Stripe. Reason: ${reason}`,
+  ].filter(Boolean);
+
+  const { error: updateError } = await adminSupabase
+    .from("payments")
+    .update({
+      status: nextStatus,
+      refund_amount: nextRefundAmount,
+      refunded_at: nowIso,
+      stripe_refund_id: refund.id,
+      notes: noteParts.join(" | "),
+      updated_at: nowIso,
+    })
+    .eq("id", payment.id)
+    .eq("studio_id", studioId);
+
+  if (updateError) {
+    redirectWithResult(returnTo, "error", "refund_record_update_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  revalidatePath("/app/payments");
+  revalidatePath("/app/reports");
+
+  redirectWithResult(returnTo, "success", "payment_refunded");
 }
 
 
