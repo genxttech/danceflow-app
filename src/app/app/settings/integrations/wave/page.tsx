@@ -44,6 +44,16 @@ function StatusBadge({ tone, children }: { tone: "green" | "amber" | "slate" | "
   return <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${tones[tone]}`}>{children}</span>;
 }
 
+function isAllowedPaymentAnchorAccount(account: {
+  account_type?: string | null;
+  account_subtype?: string | null;
+}) {
+  const accountType = String(account.account_type ?? "").toUpperCase();
+  const subtype = String(account.account_subtype ?? "").toUpperCase();
+
+  return accountType === "ASSET" && !subtype.includes("RECEIVABLE");
+}
+
 function SectionTitle({ step, icon: Icon, title, description }: { step: string; icon: typeof Building2; title: string; description: string }) {
   return (
     <div className="flex items-start gap-3 border-b border-fuchsia-100 bg-fuchsia-50/70 px-5 py-4">
@@ -68,6 +78,7 @@ const statusText: Record<string, string> = {
   mappings_saved: "Wave account mappings were saved.",
   payment_methods_saved: "Payment-method anchors were saved.",
   stripe_anchor_required: "Stripe Clearing is required before saving payment-method anchors.",
+  invalid_payment_anchor: "Payment routing can only use Wave asset, bank, cash, or clearing accounts. Accounts Payable and other liability/category accounts cannot be used as payment anchors.",
   preview_not_ready: "Resolve every unmapped preview line before creating a review run.",
   multiple_currencies: "Create separate review runs for each currency.",
   no_entries: "No accounting entries were found in that period.",
@@ -133,6 +144,8 @@ export default async function WaveSettingsPage({ searchParams }: PageProps) {
     : [{ data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: [] }, { data: null }];
   const mappingByCategory = new Map((mappings ?? []).map((row) => [row.accounting_category, { waveAccountName: row.wave_account_name, waveAccountId: row.wave_account_id }]));
   const anchorByMethod = new Map((paymentMappings ?? []).map((row) => [row.payment_method_key as WavePaymentMethodKey, { waveAccountName: row.wave_account_name, waveAccountId: row.wave_account_id }]));
+  const paymentAnchorAccounts = (accounts ?? []).filter(isAllowedPaymentAnchorAccount);
+  const hiddenPaymentAnchorAccounts = Math.max(0, (accounts ?? []).length - paymentAnchorAccounts.length);
   const entries = connection?.wave_business_id
     ? await getStudioAccountingEntries({ supabase, studioId: context.studioId, startDate: `${start}T00:00:00.000Z`, endDate: `${end}T23:59:59.999Z` })
     : [];
@@ -236,10 +249,11 @@ export default async function WaveSettingsPage({ searchParams }: PageProps) {
                 {WAVE_PAYMENT_METHODS.map((method) => <label key={method.key} className="text-sm font-medium text-slate-900">{method.label}<span className="ml-2 font-normal text-slate-500">Suggested: {method.help}</span>
                   <select name={`anchor:${method.key}`} defaultValue={anchorByMethod.get(method.key)?.waveAccountId ?? ""} required={method.key === "stripe"} className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm">
                     <option value="">Not configured</option>
-                    {(accounts ?? []).map((account) => <option key={account.wave_account_id} value={account.wave_account_id}>{account.name} · {account.account_subtype ?? account.account_type ?? "Account"}</option>)}
+                    {paymentAnchorAccounts.map((account) => <option key={account.wave_account_id} value={account.wave_account_id}>{account.name} · {account.account_subtype ?? account.account_type ?? "Asset account"}</option>)}
                   </select>
                 </label>)}
               </div>
+              {hiddenPaymentAnchorAccounts > 0 ? <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{hiddenPaymentAnchorAccounts} Wave account{hiddenPaymentAnchorAccounts === 1 ? "" : "s"} hidden because payment routing can only use asset, bank, cash, or clearing accounts. Accounts Payable, income, expense, equity, and receivable accounts are not valid anchors.</p> : null}
               <button className="rounded-md bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#46115E]">Save payment routing</button>
             </form></div>
           </section> : null}

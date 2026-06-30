@@ -22,6 +22,24 @@ async function waveContext() {
   return { supabase, studioId, userId: user.id, connection };
 }
 
+type WaveAnchorAccount = {
+  wave_account_id: string;
+  name: string;
+  normal_balance_type: string | null;
+  account_type: string | null;
+  account_subtype: string | null;
+};
+
+function isAllowedPaymentAnchorAccount(account: WaveAnchorAccount) {
+  const accountType = String(account.account_type ?? "").toUpperCase();
+  const subtype = String(account.account_subtype ?? "").toUpperCase();
+
+  // Wave money transaction anchors must be real cash/bank/clearing style asset accounts.
+  // Do not allow liabilities like Accounts Payable, income categories, expenses, equity,
+  // or receivable accounts as payment-method anchors.
+  return accountType === "ASSET" && !subtype.includes("RECEIVABLE");
+}
+
 async function refreshAccounts(connectionId: string, studioId: string, businessId: string) {
   const token = await getValidWaveAccessToken(connectionId);
   const accounts = await getWaveAccounts(token, businessId);
@@ -93,16 +111,31 @@ export async function saveWaveMappingsAction(formData: FormData) {
 export async function saveWavePaymentMethodsAction(formData: FormData) {
   const { supabase, studioId, userId, connection } = await waveContext();
   const { data: accounts, error } = await supabase.from("studio_wave_accounts")
-    .select("wave_account_id, name, normal_balance_type").eq("connection_id", connection.id).eq("is_archived", false);
+    .select("wave_account_id, name, normal_balance_type, account_type, account_subtype")
+    .eq("connection_id", connection.id)
+    .eq("is_archived", false);
   if (error) throw new Error(error.message);
-  const byId = new Map((accounts ?? []).map((account) => [account.wave_account_id, account]));
-  const rows = WAVE_PAYMENT_METHODS.flatMap(({ key }) => {
+
+  const byId = new Map(((accounts ?? []) as WaveAnchorAccount[]).map((account) => [account.wave_account_id, account]));
+  const selectedAccounts = WAVE_PAYMENT_METHODS.flatMap(({ key }) => {
     const account = byId.get(String(formData.get(`anchor:${key}`) ?? ""));
-    return account ? [{ studio_id: studioId, connection_id: connection.id, payment_method_key: key,
-      wave_account_id: account.wave_account_id, wave_account_name: account.name, created_by: userId,
-      anchor_normal_balance_type: account.normal_balance_type,
-      updated_at: new Date().toISOString() }] : [];
+    return account ? [{ key, account }] : [];
   });
+
+  if (selectedAccounts.some(({ account }) => !isAllowedPaymentAnchorAccount(account))) {
+    redirect("/app/settings/integrations/wave?status=invalid_payment_anchor");
+  }
+
+  const rows = selectedAccounts.map(({ key, account }) => ({
+    studio_id: studioId,
+    connection_id: connection.id,
+    payment_method_key: key,
+    wave_account_id: account.wave_account_id,
+    wave_account_name: account.name,
+    created_by: userId,
+    anchor_normal_balance_type: account.normal_balance_type,
+    updated_at: new Date().toISOString(),
+  }));
   if (!rows.some((row) => row.payment_method_key === "stripe")) {
     redirect("/app/settings/integrations/wave?status=stripe_anchor_required");
   }
