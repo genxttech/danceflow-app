@@ -69,6 +69,21 @@ export async function POST(request: NextRequest) {
       return jsonError("Terminal payment session was not found.", 404);
     }
 
+    const { data: existingPayment, error: existingPaymentError } = await supabase
+      .from("payments")
+      .select("id, status, paid_at")
+      .eq("id", paymentId)
+      .eq("studio_id", context.studioId)
+      .maybeSingle<{ id: string; status: string | null; paid_at: string | null }>();
+
+    if (existingPaymentError) {
+      return jsonError(`Payment lookup failed: ${existingPaymentError.message}`);
+    }
+
+    if (!existingPayment) {
+      return jsonError("Payment record was not found.", 404);
+    }
+
     const paymentIntent = await stripe.paymentIntents.retrieve(
       session.stripe_payment_intent_id,
       { expand: ["latest_charge.balance_transaction"] },
@@ -94,7 +109,7 @@ export async function POST(request: NextRequest) {
         .from("payments")
         .update({
           status: "paid",
-          paid_at: nowIso,
+          paid_at: existingPayment?.paid_at ?? nowIso,
           payment_method: "card",
           source: "stripe",
           payment_channel: "terminal",
@@ -105,11 +120,13 @@ export async function POST(request: NextRequest) {
         .eq("id", paymentId)
         .eq("studio_id", context.studioId);
     } else if (["canceled", "requires_payment_method"].includes(status)) {
-      await supabase
-        .from("payments")
-        .update({ status: "failed", updated_at: nowIso })
-        .eq("id", paymentId)
-        .eq("studio_id", context.studioId);
+      if (existingPayment?.status !== "paid") {
+        await supabase
+          .from("payments")
+          .update({ status: "failed", updated_at: nowIso })
+          .eq("id", paymentId)
+          .eq("studio_id", context.studioId);
+      }
     }
 
     return NextResponse.json({

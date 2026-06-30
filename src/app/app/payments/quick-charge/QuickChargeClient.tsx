@@ -218,10 +218,18 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
     setError(null);
 
     try {
-      await postJson("/api/stripe/terminal/quick-charge/cancel", {
+      const result = await postJson("/api/stripe/terminal/quick-charge/cancel", {
         paymentId: activeSession.paymentId,
         sessionId: activeSession.sessionId,
       });
+
+      if (result.paid || result.status === "succeeded") {
+        setLastSuccess(`${activeSession.categoryLabel} paid: ${formatCurrency(activeSession.amount)}`);
+        setGuestName("");
+        setNotes("");
+        setExternalReference("");
+      }
+
       setActiveSession(null);
       setPolling(false);
     } catch (err) {
@@ -240,6 +248,7 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
 
       if (pollCount.current >= 90) {
         setPolling(false);
+        setError("The reader is still waiting or processing. Refresh now to check the latest status, or cancel if the customer is no longer paying.");
       }
     }, 2000);
 

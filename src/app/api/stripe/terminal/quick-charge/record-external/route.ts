@@ -79,6 +79,28 @@ export async function POST(request: NextRequest) {
       return jsonError("Enter a valid payment amount.");
     }
 
+    if (externalReference) {
+      const { data: existingPayment, error: existingPaymentError } = await supabase
+        .from("payments")
+        .select("id")
+        .eq("studio_id", context.studioId)
+        .eq("external_reference", externalReference)
+        .eq("payment_channel", "manual")
+        .limit(1)
+        .maybeSingle<{ id: string }>();
+
+      if (existingPaymentError) {
+        return jsonError(`Could not check existing external payment references: ${existingPaymentError.message}`);
+      }
+
+      if (existingPayment) {
+        return jsonError(
+          "That external reference is already recorded. Use a different reference or review the existing payment before recording another one.",
+          409
+        );
+      }
+    }
+
     const { data: studio, error: studioError } = await supabase
       .from("studios")
       .select("id")

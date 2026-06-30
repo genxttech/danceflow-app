@@ -79,6 +79,42 @@ export async function POST(request: NextRequest) {
       return jsonError("Terminal payment session was not found.", 404);
     }
 
+    const paymentIntent = await stripe.paymentIntents.retrieve(
+      session.stripe_payment_intent_id,
+      {},
+      { stripeAccount: session.stripe_account_id }
+    );
+    const nowIso = new Date().toISOString();
+
+    if (paymentIntent.status === "succeeded") {
+      await Promise.all([
+        supabase
+          .from("terminal_payment_sessions")
+          .update({ status: "succeeded", updated_at: nowIso, completed_at: nowIso })
+          .eq("id", session.id),
+        supabase
+          .from("payments")
+          .update({
+            status: "paid",
+            paid_at: nowIso,
+            payment_method: "card",
+            source: "stripe",
+            payment_channel: "terminal",
+            stripe_payment_intent_id: paymentIntent.id,
+            updated_at: nowIso,
+          })
+          .eq("id", paymentId)
+          .eq("studio_id", context.studioId),
+      ]);
+
+      return NextResponse.json({
+        ok: true,
+        status: "succeeded",
+        paid: true,
+        message: "This payment already completed, so it was recorded instead of canceled.",
+      });
+    }
+
     const readerRelation = Array.isArray(session.stripe_terminal_readers)
       ? session.stripe_terminal_readers[0]
       : session.stripe_terminal_readers;
@@ -95,8 +131,6 @@ export async function POST(request: NextRequest) {
       {},
       { stripeAccount: session.stripe_account_id }
     ).catch(() => null);
-
-    const nowIso = new Date().toISOString();
 
     await supabase
       .from("terminal_payment_sessions")

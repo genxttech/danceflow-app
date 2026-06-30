@@ -96,6 +96,17 @@ export async function POST(request: NextRequest) {
       return jsonError("Stripe is not connected for this studio.");
     }
 
+    const connectedAccount = await stripe.accounts.retrieve(connectedAccountId);
+    if (
+      !connectedAccount.charges_enabled ||
+      connectedAccount.capabilities?.card_payments !== "active"
+    ) {
+      return jsonError(
+        "Stripe is not ready for in-person card payments yet. Finish Stripe onboarding before using Quick Charge.",
+        409
+      );
+    }
+
     let readerQuery = supabase
       .from("stripe_terminal_readers")
       .select("id, terminal_location_id, stripe_reader_id, stripe_location_id, label, status, active")
