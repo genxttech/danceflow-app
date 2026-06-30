@@ -66,6 +66,14 @@ export async function POST() {
       return NextResponse.redirect(billingUrl({ error: "terminal_stripe_not_connected" }));
     }
 
+    const connectedAccount = await stripe.accounts.retrieve(connectedAccountId);
+    if (
+      !connectedAccount.charges_enabled ||
+      connectedAccount.capabilities?.card_payments !== "active"
+    ) {
+      return NextResponse.redirect(billingUrl({ error: "terminal_stripe_not_ready" }));
+    }
+
     const { data: localLocations } = await adminSupabase
       .from("stripe_terminal_locations")
       .select("id, stripe_location_id")
@@ -75,37 +83,89 @@ export async function POST() {
       (localLocations ?? []).map((location) => [location.stripe_location_id, location.id])
     );
 
-    const readers = await stripe.terminal.readers.list(
-      { limit: 100 },
-      { stripeAccount: connectedAccountId }
-    );
+    const syncedReaderIds = new Set<string>();
+    let startingAfter: string | undefined;
 
-    for (const reader of readers.data) {
-      const stripeLocationId = typeof reader.location === "string" ? reader.location : reader.location?.id ?? null;
-      const terminalLocationId = stripeLocationId ? localLocationByStripeId.get(stripeLocationId) ?? null : null;
+    do {
+      const readers = await stripe.terminal.readers.list(
+        {
+          limit: 100,
+          ...(startingAfter ? { starting_after: startingAfter } : {}),
+        },
+        { stripeAccount: connectedAccountId }
+      );
 
-      const { error: upsertError } = await adminSupabase
+      for (const reader of readers.data) {
+        syncedReaderIds.add(reader.id);
+
+        const stripeLocationId =
+          typeof reader.location === "string"
+            ? reader.location
+            : reader.location?.id ?? null;
+        const terminalLocationId = stripeLocationId
+          ? localLocationByStripeId.get(stripeLocationId) ?? null
+          : null;
+
+        const { error: upsertError } = await adminSupabase
+          .from("stripe_terminal_readers")
+          .upsert(
+            {
+              studio_id: studio.id,
+              terminal_location_id: terminalLocationId,
+              stripe_account_id: connectedAccountId,
+              stripe_reader_id: reader.id,
+              stripe_location_id: stripeLocationId,
+              label: reader.label ?? "Card reader",
+              device_type: reader.device_type ?? null,
+              status: reader.status ?? null,
+              ip_address: reader.ip_address ?? null,
+              last_seen_at: new Date().toISOString(),
+              active: true,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "stripe_reader_id" }
+          );
+
+        if (upsertError) {
+          console.error("Terminal reader sync failed", upsertError);
+          return NextResponse.redirect(billingUrl({ error: "terminal_reader_sync_failed" }));
+        }
+      }
+
+      startingAfter = readers.has_more
+        ? readers.data.at(-1)?.id
+        : undefined;
+    } while (startingAfter);
+
+    const { data: localReaders, error: localReadersError } = await adminSupabase
+      .from("stripe_terminal_readers")
+      .select("stripe_reader_id")
+      .eq("studio_id", studio.id)
+      .eq("stripe_account_id", connectedAccountId)
+      .eq("active", true);
+
+    if (localReadersError) {
+      console.error("Terminal local reader lookup failed", localReadersError);
+      return NextResponse.redirect(billingUrl({ error: "terminal_reader_sync_failed" }));
+    }
+
+    const staleReaderIds = (localReaders ?? [])
+      .map((reader) => reader.stripe_reader_id)
+      .filter((readerId) => Boolean(readerId) && !syncedReaderIds.has(readerId));
+
+    if (staleReaderIds.length > 0) {
+      const { error: staleUpdateError } = await adminSupabase
         .from("stripe_terminal_readers")
-        .upsert(
-          {
-            studio_id: studio.id,
-            terminal_location_id: terminalLocationId,
-            stripe_account_id: connectedAccountId,
-            stripe_reader_id: reader.id,
-            stripe_location_id: stripeLocationId,
-            label: reader.label ?? "Card reader",
-            device_type: reader.device_type ?? null,
-            status: reader.status ?? null,
-            ip_address: reader.ip_address ?? null,
-            last_seen_at: new Date().toISOString(),
-            active: true,
-            updated_at: new Date().toISOString(),
-          },
-          { onConflict: "stripe_reader_id" }
-        );
+        .update({
+          active: false,
+          status: "offline",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("studio_id", studio.id)
+        .in("stripe_reader_id", staleReaderIds);
 
-      if (upsertError) {
-        console.error("Terminal reader sync failed", upsertError);
+      if (staleUpdateError) {
+        console.error("Terminal stale reader update failed", staleUpdateError);
         return NextResponse.redirect(billingUrl({ error: "terminal_reader_sync_failed" }));
       }
     }

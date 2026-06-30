@@ -65,6 +65,14 @@ async function getTerminalContext() {
     return { response: NextResponse.redirect(billingUrl({ error: "terminal_stripe_not_connected" })) } as const;
   }
 
+  const connectedAccount = await stripe.accounts.retrieve(connectedAccountId);
+  if (
+    !connectedAccount.charges_enabled ||
+    connectedAccount.capabilities?.card_payments !== "active"
+  ) {
+    return { response: NextResponse.redirect(billingUrl({ error: "terminal_stripe_not_ready" })) } as const;
+  }
+
   return { supabase: adminSupabase, stripe, studio, connectedAccountId } as const;
 }
 
