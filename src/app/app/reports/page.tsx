@@ -25,6 +25,7 @@ type PaymentRow = {
   payment_method: string | null;
   payment_type: string | null;
   source: string | null;
+  payment_channel: string | null;
   client_package_id?: string | null;
   client_membership_id?: string | null;
   refunded_amount?: number | null;
@@ -560,6 +561,13 @@ function labelize(value: string | null | undefined) {
   return value.replaceAll("_", " ");
 }
 
+function paymentChannelLabel(value: string | null | undefined) {
+  if (value === "terminal") return "Card Reader";
+  if (value === "online") return "Online";
+  if (value === "manual") return "Manual";
+  return labelize(value);
+}
+
 function expenseCategoryLabel(value: string | null | undefined) {
   if (value === "floor_fee") return "Floor Rental / Floor Fee";
   if (value === "rent") return "Rent";
@@ -775,6 +783,7 @@ export default async function ReportsPage({
           payment_method,
           payment_type,
           source,
+          payment_channel,
           client_package_id,
           client_membership_id,
           refunded_amount,
@@ -2040,6 +2049,7 @@ export default async function ReportsPage({
   );
 
   const paymentMethodCounts: Record<string, number> = {};
+  const paymentChannelCounts: Record<string, number> = {};
   const paymentTypeCounts: Record<string, number> = {};
   const leadSourceCounts: Record<string, number> = {};
   const appointmentTypeCounts: Record<string, number> = {};
@@ -2048,6 +2058,9 @@ export default async function ReportsPage({
   for (const payment of typedPayments) {
     const methodKey = payment.payment_method ?? "unknown";
     paymentMethodCounts[methodKey] = (paymentMethodCounts[methodKey] ?? 0) + 1;
+
+    const channelKey = payment.payment_channel ?? "unknown";
+    paymentChannelCounts[channelKey] = (paymentChannelCounts[channelKey] ?? 0) + 1;
 
     const typeKey = payment.payment_type ?? "other";
     paymentTypeCounts[typeKey] = (paymentTypeCounts[typeKey] ?? 0) + 1;
@@ -2069,6 +2082,7 @@ export default async function ReportsPage({
   }
 
   const topPaymentMethods = sortEntriesDesc(paymentMethodCounts).slice(0, 5);
+  const topPaymentChannels = sortEntriesDesc(paymentChannelCounts).slice(0, 5);
   const topPaymentTypes = sortEntriesDesc(paymentTypeCounts).slice(0, 5);
   const topLeadSources = sortEntriesDesc(leadSourceCounts).slice(0, 5);
   const topAppointmentTypes = sortEntriesDesc(appointmentTypeCounts).slice(
@@ -3826,7 +3840,7 @@ export default async function ReportsPage({
             </div>
           </div>
 
-          <div className="mt-6 grid gap-6 md:grid-cols-2">
+          <div className="mt-6 grid gap-6 md:grid-cols-3">
             <div>
               <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
                 Payment Methods
@@ -3844,6 +3858,33 @@ export default async function ReportsPage({
                     >
                       <span className="text-sm font-medium text-slate-700">
                         {labelize(method)}
+                      </span>
+                      <span className="text-sm font-semibold text-slate-950">
+                        {fmtNumber(count)}
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div>
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Payment Channels
+              </h3>
+              <div className="mt-3 space-y-3">
+                {topPaymentChannels.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    No payment channel data in this range.
+                  </p>
+                ) : (
+                  topPaymentChannels.map(([channel, count]) => (
+                    <div
+                      key={channel}
+                      className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"
+                    >
+                      <span className="text-sm font-medium text-slate-700">
+                        {paymentChannelLabel(channel)}
                       </span>
                       <span className="text-sm font-semibold text-slate-950">
                         {fmtNumber(count)}
@@ -5461,6 +5502,7 @@ export default async function ReportsPage({
                   <p className="mt-1 text-xs text-slate-500">
                     {labelize(payment.payment_type)} •{" "}
                     {labelize(payment.source)} •{" "}
+                    {paymentChannelLabel(payment.payment_channel)} •{" "}
                     {fmtDateTime(payment.created_at)}
                   </p>
                 </div>

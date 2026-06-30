@@ -173,6 +173,7 @@ type PaymentRow = {
   notes: string | null;
   source: string | null;
   payment_type: string | null;
+  payment_channel: string | null;
   currency: string | null;
   stripe_invoice_id: string | null;
   stripe_payment_intent_id: string | null;
@@ -806,6 +807,20 @@ function paymentSourceLabel(source: string | null) {
   if (source === "stripe") return "Stripe";
   if (source === "manual") return "Manual";
   return "Unknown";
+}
+
+function paymentChannelLabel(channel: string | null) {
+  if (channel === "terminal") return "Card Reader";
+  if (channel === "online") return "Online";
+  if (channel === "manual") return "Manual";
+  return null;
+}
+
+function paymentChannelBadgeClass(channel: string | null) {
+  if (channel === "terminal") return "bg-emerald-50 text-emerald-700";
+  if (channel === "online") return "bg-sky-50 text-sky-700";
+  if (channel === "manual") return "bg-slate-100 text-slate-700";
+  return "bg-slate-100 text-slate-700";
 }
 
 function paymentSourceBadgeClass(source: string | null) {
@@ -1610,6 +1625,7 @@ export default async function ClientDetailPage({
         notes,
         source,
         payment_type,
+        payment_channel,
         currency,
         stripe_invoice_id,
         stripe_payment_intent_id
@@ -3109,6 +3125,16 @@ export default async function ClientDetailPage({
                       >
                         {paymentSourceLabel(payment.source)}
                       </span>
+
+                      {paymentChannelLabel(payment.payment_channel) ? (
+                        <span
+                          className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${paymentChannelBadgeClass(
+                            payment.payment_channel
+                          )}`}
+                        >
+                          {paymentChannelLabel(payment.payment_channel)}
+                        </span>
+                      ) : null}
                     </div>
                   </div>
 
@@ -4980,6 +5006,16 @@ export default async function ClientDetailPage({
                           >
                             {paymentSourceLabel(payment.source)}
                           </span>
+
+                          {paymentChannelLabel(payment.payment_channel) ? (
+                            <span
+                              className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${paymentChannelBadgeClass(
+                                payment.payment_channel
+                              )}`}
+                            >
+                              {paymentChannelLabel(payment.payment_channel)}
+                            </span>
+                          ) : null}
 
                           <span
                             className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${paymentTypeBadgeClass(

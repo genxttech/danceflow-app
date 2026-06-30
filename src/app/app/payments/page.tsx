@@ -19,6 +19,7 @@ type SearchParams = Promise<{
   method?: string;
   range?: string;
   source?: string;
+  channel?: string;
   type?: string;
 }>;
 
@@ -219,6 +220,7 @@ export default async function PaymentsPage({
   const methodFilter = params.method ?? "all";
   const rangeFilter = params.range ?? "month";
   const sourceFilter = params.source ?? "all";
+  const channelFilter = params.channel ?? "all";
   const typeFilter = params.type ?? "all";
 
   const supabase = await createClient();
@@ -284,6 +286,10 @@ export default async function PaymentsPage({
 
   if (sourceFilter !== "all") {
     paymentsQuery = paymentsQuery.eq("source", sourceFilter);
+  }
+
+  if (channelFilter !== "all") {
+    paymentsQuery = paymentsQuery.eq("payment_channel", channelFilter);
   }
 
   if (typeFilter !== "all") {
@@ -366,6 +372,9 @@ export default async function PaymentsPage({
     (p) => p.status === "refunded"
   ).length;
   const stripeCount = typedPayments.filter((p) => p.source === "stripe").length;
+  const terminalCount = typedPayments.filter(
+    (p) => p.payment_channel === "terminal"
+  ).length;
   const manualCount = typedPayments.filter(
     (p) => (p.source ?? "manual") === "manual"
   ).length;
@@ -458,11 +467,12 @@ export default async function PaymentsPage({
         />
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <StatCard label="Paid" value={paidCount} icon={CreditCard} />
         <StatCard label="Pending" value={pendingCount} icon={Receipt} />
         <StatCard label="Refunded" value={refundedCount} icon={RotateCcw} />
         <StatCard label="Stripe" value={stripeCount} icon={CreditCard} />
+        <StatCard label="Card Reader" value={terminalCount} icon={CreditCard} />
         <StatCard label="Manual" value={manualCount} icon={Landmark} />
       </div>
 
@@ -482,7 +492,7 @@ export default async function PaymentsPage({
           </div>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[1.4fr_repeat(5,minmax(0,1fr))]">
+        <div className="grid gap-4 xl:grid-cols-[1.4fr_repeat(6,minmax(0,1fr))]">
           <div>
             <label htmlFor="q" className="mb-1 block text-sm font-medium">
               Search
@@ -563,6 +573,23 @@ export default async function PaymentsPage({
               <option value="all">All</option>
               <option value="manual">Manual</option>
               <option value="stripe">Stripe</option>
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="channel" className="mb-1 block text-sm font-medium">
+              Channel
+            </label>
+            <select
+              id="channel"
+              name="channel"
+              defaultValue={channelFilter}
+              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+            >
+              <option value="all">All</option>
+              <option value="terminal">Card Reader</option>
+              <option value="online">Online</option>
+              <option value="manual">Manual</option>
             </select>
           </div>
 
