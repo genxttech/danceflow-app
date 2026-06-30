@@ -253,7 +253,7 @@ export default async function WaveSettingsPage({ searchParams }: PageProps) {
                   </select>
                 </label>)}
               </div>
-              {hiddenPaymentAnchorAccounts > 0 ? <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{hiddenPaymentAnchorAccounts} Wave account{hiddenPaymentAnchorAccounts === 1 ? "" : "s"} hidden because payment routing can only use asset, bank, cash, or clearing accounts. Accounts Payable, income, expense, equity, and receivable accounts are not valid anchors.</p> : null}
+              {hiddenPaymentAnchorAccounts > 0 ? <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">{hiddenPaymentAnchorAccounts} Wave account{hiddenPaymentAnchorAccounts === 1 ? "" : "s"} hidden because payment routing only shows bank, cash, and clearing accounts. Hidden accounts are still available in category mappings where appropriate.</p> : null}
               <button className="rounded-md bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#46115E]">Save payment routing</button>
             </form></div>
           </section> : null}
