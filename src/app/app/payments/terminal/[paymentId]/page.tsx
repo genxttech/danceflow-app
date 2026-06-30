@@ -111,6 +111,7 @@ function messageForSuccess(value: string | undefined) {
   if (value === "terminal_payment_sent") return "Payment was sent to the reader. Ask the client to present their card, then refresh status.";
   if (value === "terminal_payment_refreshed") return "Payment status refreshed.";
   if (value === "terminal_payment_succeeded") return "In-person card payment succeeded and was recorded.";
+  if (value === "terminal_payment_already_recorded") return "This payment was already recorded as paid.";
   if (value === "terminal_payment_canceled") return "Terminal payment attempt was canceled.";
   if (value === "terminal_session_already_open") return "An open card reader session already exists for this payment.";
   return null;
@@ -126,6 +127,9 @@ function messageForError(value: string | undefined) {
   if (value === "terminal_payment_refresh_failed") return "Could not refresh the card reader payment.";
   if (value === "terminal_payment_failed") return "The card reader payment did not complete.";
   if (value === "terminal_payment_cancel_failed") return "Could not cancel the card reader payment.";
+  if (value === "terminal_reader_offline") return "That reader is not online. Wake the reader, confirm Wi-Fi, refresh reader status, then try again.";
+  if (value === "terminal_reader_process_failed") return "Stripe could not send this payment to the reader. Check that the reader is online and not already collecting another payment, then try again.";
+  if (value === "terminal_stripe_not_ready") return "Stripe is not ready for in-person card payments on this connected account yet.";
   if (value === "terminal_location_required") return "Create a Terminal location and register a reader before collecting payment.";
   if (value === "terminal_membership_consent_missing") return "Recurring payment consent is missing. Return to the membership sale and begin again.";
   if (value === "terminal_membership_client_missing") return "The membership client could not be loaded.";
@@ -370,7 +374,7 @@ export default async function TerminalPaymentPage({ params, searchParams }: Page
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-lg font-semibold text-slate-950">Reader payment status</h2>
-            <p className="text-sm text-slate-500">Use Refresh after the client taps, inserts, or swipes their card.</p>
+            <p className="text-sm text-slate-500">Use Refresh after the client taps, inserts, or swipes their card. If the reader is still processing, wait a few seconds and refresh again.</p>
           </div>
           {latestSession ? (
             <div className="flex flex-wrap gap-2">

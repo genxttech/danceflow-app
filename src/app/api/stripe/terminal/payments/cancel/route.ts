@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
+import { fulfillTerminalPayment } from "@/lib/payments/terminal-fulfillment";
+import { finalizeTerminalMembership } from "@/lib/payments/terminal-membership-finalization";
 
 function getBaseUrl() {
   return (
@@ -25,6 +27,56 @@ function terminalPaymentUrl(paymentId: string, params: Record<string, string>) {
 function canCollectTerminal(role: string | null | undefined, isPlatformAdmin: boolean) {
   if (isPlatformAdmin) return true;
   return ["studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
+}
+
+async function recordSucceededPayment(params: {
+  supabase: ReturnType<typeof createAdminClient>;
+  studioId: string;
+  paymentId: string;
+  sessionId: string;
+  paymentIntentId: string;
+}) {
+  const { supabase, studioId, paymentId, sessionId, paymentIntentId } = params;
+  const nowIso = new Date().toISOString();
+
+  await supabase
+    .from("terminal_payment_sessions")
+    .update({
+      status: "succeeded",
+      error_message: null,
+      updated_at: nowIso,
+      completed_at: nowIso,
+    })
+    .eq("id", sessionId);
+
+  await fulfillTerminalPayment({
+    supabase,
+    studioId,
+    paymentId,
+    sessionId,
+    paymentIntentId,
+  });
+
+  await finalizeTerminalMembership({
+    supabase,
+    paymentIntentId,
+  });
+}
+
+async function getLocalPaymentStatus(params: {
+  supabase: ReturnType<typeof createAdminClient>;
+  studioId: string;
+  paymentId: string;
+}) {
+  const { supabase, studioId, paymentId } = params;
+  const { data: payment } = await supabase
+    .from("payments")
+    .select("id, status")
+    .eq("id", paymentId)
+    .eq("studio_id", studioId)
+    .maybeSingle();
+
+  return (payment?.status ?? "").toLowerCase();
 }
 
 export async function POST(request: NextRequest) {
@@ -84,6 +136,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_session_not_found" }));
     }
 
+    const paymentIntentBeforeCancel = await stripe.paymentIntents.retrieve(
+      session.stripe_payment_intent_id,
+      {},
+      { stripeAccount: session.stripe_account_id }
+    );
+
+    if (paymentIntentBeforeCancel.status === "succeeded") {
+      await recordSucceededPayment({
+        supabase,
+        studioId: context.studioId,
+        paymentId,
+        sessionId: session.id,
+        paymentIntentId: paymentIntentBeforeCancel.id,
+      });
+
+      return NextResponse.redirect(terminalPaymentUrl(paymentId, { success: "terminal_payment_succeeded" }));
+    }
+
     const readerRelation = Array.isArray(session.stripe_terminal_readers)
       ? session.stripe_terminal_readers[0]
       : session.stripe_terminal_readers;
@@ -99,6 +169,41 @@ export async function POST(request: NextRequest) {
       { stripeAccount: session.stripe_account_id }
     ).catch(() => null);
 
+    const paymentIntentAfterCancel = await stripe.paymentIntents.retrieve(
+      session.stripe_payment_intent_id,
+      {},
+      { stripeAccount: session.stripe_account_id }
+    ).catch(() => null);
+
+    if (paymentIntentAfterCancel?.status === "succeeded") {
+      await recordSucceededPayment({
+        supabase,
+        studioId: context.studioId,
+        paymentId,
+        sessionId: session.id,
+        paymentIntentId: paymentIntentAfterCancel.id,
+      });
+
+      return NextResponse.redirect(terminalPaymentUrl(paymentId, { success: "terminal_payment_succeeded" }));
+    }
+
+    if (!paymentIntentAfterCancel) {
+      return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_payment_cancel_failed" }));
+    }
+
+    if (!["canceled", "requires_payment_method"].includes(paymentIntentAfterCancel.status)) {
+      await supabase
+        .from("terminal_payment_sessions")
+        .update({
+          status: paymentIntentAfterCancel.status,
+          error_message: paymentIntentAfterCancel.last_payment_error?.message ?? null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", session.id);
+
+      return NextResponse.redirect(terminalPaymentUrl(paymentId, { success: "terminal_payment_refreshed" }));
+    }
+
     const nowIso = new Date().toISOString();
 
     await supabase
@@ -111,11 +216,20 @@ export async function POST(request: NextRequest) {
       })
       .eq("id", session.id);
 
-    await supabase
-      .from("payments")
-      .update({ status: "failed", updated_at: nowIso })
-      .eq("id", paymentId)
-      .eq("studio_id", context.studioId);
+    const localPaymentStatus = await getLocalPaymentStatus({
+      supabase,
+      studioId: context.studioId,
+      paymentId,
+    });
+
+    if (localPaymentStatus !== "paid") {
+      await supabase
+        .from("payments")
+        .update({ status: "failed", updated_at: nowIso })
+        .eq("id", paymentId)
+        .eq("studio_id", context.studioId)
+        .neq("status", "paid");
+    }
 
     return NextResponse.redirect(terminalPaymentUrl(paymentId, { success: "terminal_payment_canceled" }));
   } catch (error) {

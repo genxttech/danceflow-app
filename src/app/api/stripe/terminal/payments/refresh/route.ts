@@ -33,6 +33,22 @@ function canCollectTerminal(role: string | null | undefined, isPlatformAdmin: bo
   return ["studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
 }
 
+async function getLocalPaymentStatus(params: {
+  supabase: ReturnType<typeof createAdminClient>;
+  studioId: string;
+  paymentId: string;
+}) {
+  const { supabase, studioId, paymentId } = params;
+  const { data: payment } = await supabase
+    .from("payments")
+    .select("id, status")
+    .eq("id", paymentId)
+    .eq("studio_id", studioId)
+    .maybeSingle();
+
+  return (payment?.status ?? "").toLowerCase();
+}
+
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const paymentId = clean(getFormValue(formData, "paymentId"));
@@ -119,11 +135,22 @@ export async function POST(request: NextRequest) {
     }
 
     if (["canceled", "requires_payment_method"].includes(status)) {
+      const localPaymentStatus = await getLocalPaymentStatus({
+        supabase,
+        studioId: context.studioId,
+        paymentId,
+      });
+
+      if (localPaymentStatus === "paid") {
+        return NextResponse.redirect(terminalPaymentUrl(paymentId, { success: "terminal_payment_already_recorded" }));
+      }
+
       await supabase
         .from("payments")
         .update({ status: "failed", updated_at: nowIso })
         .eq("id", paymentId)
-        .eq("studio_id", context.studioId);
+        .eq("studio_id", context.studioId)
+        .neq("status", "paid");
 
       return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_payment_failed" }));
     }

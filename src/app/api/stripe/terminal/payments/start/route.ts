@@ -32,6 +32,17 @@ function canCollectTerminal(role: string | null | undefined, isPlatformAdmin: bo
   return ["studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
 }
 
+async function isStripeAccountReadyForTerminal(
+  stripe: ReturnType<typeof getStripe>,
+  connectedAccountId: string
+) {
+  const connectedAccount = await stripe.accounts.retrieve(connectedAccountId);
+  return (
+    connectedAccount.charges_enabled === true &&
+    connectedAccount.capabilities?.card_payments === "active"
+  );
+}
+
 async function getTerminalContext() {
   const userSupabase = await createClient();
   const supabase = createAdminClient();
@@ -92,6 +103,11 @@ export async function POST(request: NextRequest) {
 
     const { supabase, stripe, studio, user, connectedAccountId } = context;
 
+    const accountReady = await isStripeAccountReadyForTerminal(stripe, connectedAccountId);
+    if (!accountReady) {
+      return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_stripe_not_ready" }));
+    }
+
     const { data: payment, error: paymentError } = await supabase
       .from("payments")
       .select("id, studio_id, client_id, client_membership_id, amount, currency, status, payment_type, fulfillment_type, source, client_package_id, external_reference, notes")
@@ -122,6 +138,10 @@ export async function POST(request: NextRequest) {
 
     if (readerError || !reader?.stripe_reader_id) {
       return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_reader_not_found" }));
+    }
+
+    if ((reader.status ?? "").toLowerCase() !== "online") {
+      return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_reader_offline" }));
     }
 
     const { data: openSession, error: openSessionError } = await supabase
@@ -274,11 +294,40 @@ export async function POST(request: NextRequest) {
       .eq("id", payment.id)
       .eq("studio_id", studio.id);
 
-    await stripe.terminal.readers.processPaymentIntent(
-      reader.stripe_reader_id,
-      { payment_intent: paymentIntent.id },
-      { stripeAccount: connectedAccountId }
-    );
+    try {
+      await stripe.terminal.readers.processPaymentIntent(
+        reader.stripe_reader_id,
+        { payment_intent: paymentIntent.id },
+        { stripeAccount: connectedAccountId }
+      );
+    } catch (processError) {
+      const nowIso = new Date().toISOString();
+      const errorMessage =
+        processError instanceof Error
+          ? processError.message
+          : "Stripe could not send the payment to the reader.";
+
+      await stripe.paymentIntents.cancel(paymentIntent.id, {}, { stripeAccount: connectedAccountId }).catch(() => null);
+
+      await supabase
+        .from("terminal_payment_sessions")
+        .update({
+          status: "failed",
+          error_message: errorMessage,
+          updated_at: nowIso,
+          completed_at: nowIso,
+        })
+        .eq("id", session.id);
+
+      await supabase
+        .from("payments")
+        .update({ status: "failed", updated_at: nowIso })
+        .eq("id", payment.id)
+        .eq("studio_id", studio.id)
+        .neq("status", "paid");
+
+      return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_reader_process_failed" }));
+    }
 
     await supabase
       .from("terminal_payment_sessions")
