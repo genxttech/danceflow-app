@@ -849,6 +849,39 @@ function canRefundPayment(payment: PaymentRow) {
   );
 }
 
+function paymentNeedsRefundFulfillmentReview(payment: PaymentRow) {
+  if (!payment.refund_amount || Number(payment.refund_amount) <= 0) return false;
+
+  const paymentType = (payment.payment_type ?? "").toLowerCase();
+  return [
+    "package_sale",
+    "package_purchase",
+    "membership",
+    "lesson",
+    "lesson_payment",
+    "private_lesson",
+    "group_class",
+  ].includes(paymentType);
+}
+
+function refundFulfillmentReviewLabel(payment: PaymentRow) {
+  const paymentType = (payment.payment_type ?? "").toLowerCase();
+
+  if (paymentType.includes("package")) {
+    return "Review package credits and package ledger before closing this refund.";
+  }
+
+  if (paymentType === "membership") {
+    return "Review membership status, renewal settings, and any included lesson balances before closing this refund.";
+  }
+
+  if (paymentType.includes("lesson") || paymentType === "group_class") {
+    return "Review the linked lesson or class balance before closing this refund.";
+  }
+
+  return "Review any package credits, membership status, lesson balances, or client account adjustments before closing this refund.";
+}
+
 function paymentSourceBadgeClass(source: string | null) {
   if (source === "stripe") return "bg-indigo-50 text-indigo-700";
   if (source === "manual") return "bg-slate-100 text-slate-700";
@@ -3291,9 +3324,19 @@ export default async function ClientDetailPage({
                   ) : null}
 
                   {payment.refund_amount && Number(payment.refund_amount) > 0 ? (
-                    <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-                      Refunded {fmtCurrency(Number(payment.refund_amount), payment.currency ?? "USD")}
-                      {payment.refunded_at ? ` on ${fmtDateTime(payment.refunded_at)}` : ""}.
+                    <div className="mt-3 space-y-2 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                      <p>
+                        Refunded {fmtCurrency(Number(payment.refund_amount), payment.currency ?? "USD")}
+                        {payment.refunded_at ? ` on ${fmtDateTime(payment.refunded_at)}` : ""}.
+                      </p>
+                      {paymentNeedsRefundFulfillmentReview(payment) ? (
+                        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                          <p className="font-semibold">Refund review needed</p>
+                          <p className="mt-1 leading-6">
+                            {refundFulfillmentReviewLabel(payment)}
+                          </p>
+                        </div>
+                      ) : null}
                     </div>
                   ) : null}
 
@@ -3307,9 +3350,17 @@ export default async function ClientDetailPage({
                         <input type="hidden" name="paymentId" value={payment.id} />
                         <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}?tab=billing`} />
 
-                        <p className="text-sm leading-6 text-amber-900">
-                          This sends a refund through Stripe and updates DanceFlow reporting. Review package credits, membership status, and lesson balances after refunding.
-                        </p>
+                        <div className="space-y-2 text-sm leading-6 text-amber-900">
+                          <p>
+                            This sends a refund through Stripe and updates DanceFlow reporting.
+                          </p>
+                          <div className="rounded-xl border border-amber-200 bg-white/70 p-3">
+                            <p className="font-semibold">After refunding, review fulfillment before closing the client account.</p>
+                            <p className="mt-1">
+                              Package credits, membership status, lesson balances, and client account credits are not automatically reversed yet.
+                            </p>
+                          </div>
+                        </div>
 
                         <div className="grid gap-3 md:grid-cols-[160px_1fr]">
                           <div>
@@ -5232,9 +5283,19 @@ export default async function ClientDetailPage({
                       ) : null}
 
                       {payment.refund_amount && Number(payment.refund_amount) > 0 ? (
-                        <div className="mt-3 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
-                          Refunded {fmtCurrency(Number(payment.refund_amount), payment.currency ?? "USD")}
-                          {payment.refunded_at ? ` on ${fmtDateTime(payment.refunded_at)}` : ""}.
+                        <div className="mt-3 space-y-2 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                          <p>
+                            Refunded {fmtCurrency(Number(payment.refund_amount), payment.currency ?? "USD")}
+                            {payment.refunded_at ? ` on ${fmtDateTime(payment.refunded_at)}` : ""}.
+                          </p>
+                          {paymentNeedsRefundFulfillmentReview(payment) ? (
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                              <p className="font-semibold">Refund review needed</p>
+                              <p className="mt-1 leading-6">
+                                {refundFulfillmentReviewLabel(payment)}
+                              </p>
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
 
@@ -5248,9 +5309,17 @@ export default async function ClientDetailPage({
                             <input type="hidden" name="paymentId" value={payment.id} />
                             <input type="hidden" name="returnTo" value={`/app/clients/${typedClient.id}?tab=billing`} />
 
-                            <p className="text-sm leading-6 text-amber-900">
-                              This sends a refund through Stripe and updates DanceFlow reporting. Review package credits, membership status, and lesson balances after refunding.
-                            </p>
+                            <div className="space-y-2 text-sm leading-6 text-amber-900">
+                              <p>
+                                This sends a refund through Stripe and updates DanceFlow reporting.
+                              </p>
+                              <div className="rounded-xl border border-amber-200 bg-white/70 p-3">
+                                <p className="font-semibold">After refunding, review fulfillment before closing the client account.</p>
+                                <p className="mt-1">
+                                  Package credits, membership status, lesson balances, and client account credits are not automatically reversed yet.
+                                </p>
+                              </div>
+                            </div>
 
                             <div className="grid gap-3 md:grid-cols-[160px_1fr]">
                               <div>

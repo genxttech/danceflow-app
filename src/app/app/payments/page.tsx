@@ -156,6 +156,32 @@ function channelLabel(channel: string | null) {
   return null;
 }
 
+function paymentNeedsRefundFulfillmentReview(payment: PaymentRow) {
+  if (!payment.refund_amount || Number(payment.refund_amount) <= 0) return false;
+
+  const paymentType = (payment.payment_type ?? "").toLowerCase();
+  return [
+    "package_sale",
+    "package_purchase",
+    "membership",
+    "lesson",
+    "lesson_payment",
+    "private_lesson",
+    "group_class",
+    "pay_as_you_go_lesson",
+  ].includes(paymentType);
+}
+
+function refundFulfillmentReviewLabel(payment: PaymentRow) {
+  const paymentType = (payment.payment_type ?? "").toLowerCase();
+
+  if (paymentType.includes("package")) return "Review package credits and package ledger.";
+  if (paymentType === "membership") return "Review membership status, renewal settings, and included balances.";
+  if (paymentType.includes("lesson") || paymentType === "group_class") return "Review the linked lesson or class balance.";
+
+  return "Review related client balances before closing this refund.";
+}
+
 function startOfTodayLocal() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -801,10 +827,20 @@ export default async function PaymentsPage({
                     ) : null}
 
                     {payment.refund_amount && Number(payment.refund_amount) > 0 ? (
-                      <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-                        Refunded {fmtCurrency(Number(payment.refund_amount), currency)}
-                        {payment.refunded_at ? ` on ${fmtDateTime(payment.refunded_at)}` : ""}
-                        {payment.stripe_refund_id ? ` · Stripe refund ${payment.stripe_refund_id}` : ""}
+                      <div className="mt-4 space-y-2 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+                        <p>
+                          Refunded {fmtCurrency(Number(payment.refund_amount), currency)}
+                          {payment.refunded_at ? ` on ${fmtDateTime(payment.refunded_at)}` : ""}
+                          {payment.stripe_refund_id ? ` · Stripe refund ${payment.stripe_refund_id}` : ""}
+                        </p>
+                        {paymentNeedsRefundFulfillmentReview(payment) ? (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                            <p className="font-semibold">Refund review needed</p>
+                            <p className="mt-1 leading-6">
+                              {refundFulfillmentReviewLabel(payment)}
+                            </p>
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>

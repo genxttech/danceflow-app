@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
   loadStudentLearnOverview,
+  type StudentGroupLessonRecap,
   type StudentLearnLesson,
   type StudentLearnOverview,
   type StudentPracticeFocus
@@ -19,6 +20,7 @@ const lumiAvatar = require("../../assets/lumi-avatar.png");
 
 const emptyOverview: StudentLearnOverview = {
   recentLessons: [],
+  groupLessonRecaps: [],
   practiceFocus: [],
   lumiPrompts: [
     "What should I practice this week?",
@@ -55,6 +57,40 @@ function FocusCard({ focus }: { focus: StudentPracticeFocus }) {
   );
 }
 
+function GroupRecapCard({ recap }: { recap: StudentGroupLessonRecap }) {
+  const detail = [
+    recap.studioName,
+    recap.summary,
+    recap.practiceAssignment ? `Practice: ${recap.practiceAssignment}` : null,
+    recap.safetyNotes ? `Safety: ${recap.safetyNotes}` : null
+  ]
+    .filter(Boolean)
+    .join(" • ");
+
+  return (
+    <View style={styles.itemCard}>
+      <AppText variant="eyebrow">Group Recap</AppText>
+      <AppText variant="subtitle">{recap.title}</AppText>
+      {recap.publishedAt ? (
+        <AppText variant="caption">
+          Published{" "}
+          {new Intl.DateTimeFormat(undefined, {
+            month: "short",
+            day: "numeric",
+            year: "numeric"
+          }).format(new Date(recap.publishedAt))}
+        </AppText>
+      ) : null}
+      {detail ? <AppText variant="caption">{detail}</AppText> : null}
+      {recap.mediaLinks.length > 0 ? (
+        <AppText variant="caption">
+          {recap.mediaLinks.length} shared link{recap.mediaLinks.length === 1 ? "" : "s"}
+        </AppText>
+      ) : null}
+    </View>
+  );
+}
+
 function LearnValueCard({ signedIn }: { signedIn: boolean }) {
   return (
     <>
@@ -84,6 +120,10 @@ function LearnValueCard({ signedIn }: { signedIn: boolean }) {
         <FeatureCard
           title="Lesson recaps"
           detail="Review what your instructor covered so you know exactly what to practice next."
+        />
+        <FeatureCard
+          title="Group lesson recaps"
+          detail="Review class topics, shared practice notes, and safety tips from group classes when your studio publishes them."
         />
         <FeatureCard
           title="Practice focus"
@@ -170,6 +210,7 @@ export default function LearnScreen() {
   const hasPortalAccess = linkedStudios.length > 0;
   const isSignedIn = Boolean(session);
   const recentLessons = overview.recentLessons;
+  const groupLessonRecaps = overview.groupLessonRecaps;
   const practiceFocus = overview.practiceFocus;
   const latestLesson = recentLessons[0] ?? null;
 
@@ -231,6 +272,25 @@ export default function LearnScreen() {
               <AppText variant="caption">
                 Completed lessons and classes will show here when your studio makes them visible.
               </AppText>
+            )}
+          </View>
+
+          <View style={styles.section}>
+            <AppText variant="subtitle">Group lesson recaps</AppText>
+            {groupLessonRecaps.length ? (
+              <>
+                <AppText variant="caption">
+                  Group recaps are class-level notes shared with checked-in or attended students.
+                </AppText>
+                {groupLessonRecaps.map((recap) => (
+                  <GroupRecapCard key={recap.id} recap={recap} />
+                ))}
+              </>
+            ) : (
+              <FeatureCard
+                title="No group recaps yet"
+                detail="When your studio publishes class topics, practice assignments, or safety notes from group lessons, they will appear here."
+              />
             )}
           </View>
 

@@ -4,8 +4,6 @@ function danceFlowWebUrl() {
   return (process.env.EXPO_PUBLIC_DANCEFLOW_WEB_URL ?? "https://idanceflow.com").replace(/\/$/, "");
 }
 
-
-
 export type FavoriteTargetType = "studio" | "event";
 
 export async function setPublicFavoriteForMobile({
@@ -366,7 +364,6 @@ export async function getPublicEventsForMobile(userId?: string | null) {
   });
 }
 
-
 export type PublicStudioDetail = PublicStudioItem & {
   upcomingEvents: PublicEventItem[];
 };
@@ -406,7 +403,7 @@ export async function getPublicEventDetailForMobile(
   if (!event) return null;
 
   return {
-  ...event,
-  registerUrl: `${danceFlowWebUrl()}/events/${event.slug}/register`
-};
+    ...event,
+    registerUrl: `${danceFlowWebUrl()}/events/${event.slug}/register`
+  };
 }

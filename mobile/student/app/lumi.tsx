@@ -12,6 +12,7 @@ const lumiAvatar = require("../assets/lumi-avatar.png");
 
 const emptyOverview: StudentLearnOverview = {
   recentLessons: [],
+  groupLessonRecaps: [],
   practiceFocus: [],
   lumiPrompts: [
     "What should I practice this week?",

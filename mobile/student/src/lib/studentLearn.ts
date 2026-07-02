@@ -25,8 +25,25 @@ export type StudentPracticeFocus = {
   detail: string;
 };
 
+export type StudentGroupLessonRecap = {
+  id: string;
+  recapId: string;
+  studioId: string;
+  studioName: string;
+  studioSlug: string;
+  title: string;
+  summary: string | null;
+  techniqueNotes: string | null;
+  safetyNotes: string | null;
+  practiceAssignment: string | null;
+  mediaLinks: string[];
+  publishedAt: string | null;
+  source: string;
+};
+
 export type StudentLearnOverview = {
   recentLessons: StudentLearnLesson[];
+  groupLessonRecaps: StudentGroupLessonRecap[];
   practiceFocus: StudentPracticeFocus[];
   lumiPrompts: string[];
 };
@@ -52,6 +69,39 @@ type AppointmentRow = {
   rooms:
     | { name: string | null }
     | { name: string | null }[]
+    | null;
+};
+
+type GroupLessonRecapRecipientRow = {
+  id: string;
+  studio_id: string;
+  client_id: string | null;
+  source: string | null;
+  group_lesson_recaps:
+    | {
+        id: string;
+        studio_id: string;
+        title: string;
+        summary: string | null;
+        technique_notes: string | null;
+        safety_notes: string | null;
+        practice_assignment: string | null;
+        media_links: string[] | null;
+        published_at: string | null;
+        status: string | null;
+      }
+    | {
+        id: string;
+        studio_id: string;
+        title: string;
+        summary: string | null;
+        technique_notes: string | null;
+        safety_notes: string | null;
+        practice_assignment: string | null;
+        media_links: string[] | null;
+        published_at: string | null;
+        status: string | null;
+      }[]
     | null;
 };
 
@@ -132,10 +182,46 @@ function buildPracticeFocus(recentLessons: StudentLearnLesson[]): StudentPractic
   return focus.slice(0, 3);
 }
 
-function buildLumiPrompts(recentLessons: StudentLearnLesson[]) {
-  const latest = recentLessons[0];
+function isGroupLesson(lesson: StudentLearnLesson) {
+  return lesson.typeLabel.toLowerCase().includes("group");
+}
 
-  if (!latest) {
+function toGroupLessonRecap(
+  row: GroupLessonRecapRecipientRow,
+  studioById: Map<string, LinkedStudioAccess>
+): StudentGroupLessonRecap | null {
+  const recap = firstJoin(row.group_lesson_recaps);
+  const studio = studioById.get(row.studio_id);
+
+  if (!recap || !studio || recap.status !== "published") {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    recapId: recap.id,
+    studioId: row.studio_id,
+    studioName: studioDisplayName(studio),
+    studioSlug: studio.studioSlug,
+    title: recap.title,
+    summary: recap.summary,
+    techniqueNotes: recap.technique_notes,
+    safetyNotes: recap.safety_notes,
+    practiceAssignment: recap.practice_assignment,
+    mediaLinks: recap.media_links ?? [],
+    publishedAt: recap.published_at,
+    source: row.source ?? "checked_in"
+  };
+}
+
+function buildLumiPrompts(
+  recentLessons: StudentLearnLesson[],
+  groupLessonRecaps: StudentGroupLessonRecap[]
+) {
+  const latest = recentLessons[0];
+  const latestGroupRecap = groupLessonRecaps[0];
+
+  if (!latest && !latestGroupRecap) {
     return [
       "What should I practice before my first linked lesson?",
       "How do I set a dance goal?",
@@ -143,11 +229,25 @@ function buildLumiPrompts(recentLessons: StudentLearnLesson[]) {
     ];
   }
 
-  return [
+  if (!latest && latestGroupRecap) {
+    return [
+      `Help me review ${latestGroupRecap.title}.`,
+      "Turn my group class recap into a 15-minute practice plan.",
+      "What should I focus on before my next class?"
+    ];
+  }
+
+  const prompts = [
     `What should I practice from ${latest.title}?`,
     "Turn my recent lessons into a weekly practice plan.",
     "What should I ask my instructor next time?"
   ];
+
+  if (latestGroupRecap) {
+    prompts[1] = `Help me review ${latestGroupRecap.title} from group class.`;
+  }
+
+  return prompts;
 }
 
 export async function loadStudentLearnOverview(
@@ -156,12 +256,14 @@ export async function loadStudentLearnOverview(
   if (!linkedStudios.length) {
     return {
       recentLessons: [],
+      groupLessonRecaps: [],
       practiceFocus: [],
-      lumiPrompts: buildLumiPrompts([])
+      lumiPrompts: buildLumiPrompts([], [])
     };
   }
 
   const studioIds = linkedStudios.map((studio) => studio.studioId);
+  const clientIds = linkedStudios.map((studio) => studio.clientId);
   const studioById = new Map(linkedStudios.map((studio) => [studio.studioId, studio]));
 
   const { data: settingRows, error: settingsError } = await supabase
@@ -231,9 +333,51 @@ export async function loadStudentLearnOverview(
 
   const slicedLessons = recentLessons.slice(0, 12);
 
+  const { data: recapRows, error: recapError } = await supabase
+    .from("group_lesson_recap_recipients")
+    .select(
+      `
+      id,
+      studio_id,
+      client_id,
+      source,
+      group_lesson_recaps (
+        id,
+        studio_id,
+        title,
+        summary,
+        technique_notes,
+        safety_notes,
+        practice_assignment,
+        media_links,
+        published_at,
+        status
+      )
+    `
+    )
+    .in("studio_id", studioIds)
+    .in("client_id", clientIds)
+    .neq("delivery_status", "revoked")
+    .order("created_at", { ascending: false })
+    .limit(12);
+
+  if (recapError) {
+    throw recapError;
+  }
+
+  const groupLessonRecaps = ((recapRows ?? []) as GroupLessonRecapRecipientRow[])
+    .map((row) => toGroupLessonRecap(row, studioById))
+    .filter((item): item is StudentGroupLessonRecap => Boolean(item))
+    .sort(
+      (a, b) =>
+        new Date(b.publishedAt ?? 0).getTime() - new Date(a.publishedAt ?? 0).getTime()
+    )
+    .slice(0, 6);
+
   return {
     recentLessons: slicedLessons,
+    groupLessonRecaps,
     practiceFocus: buildPracticeFocus(slicedLessons),
-    lumiPrompts: buildLumiPrompts(slicedLessons)
+    lumiPrompts: buildLumiPrompts(slicedLessons, groupLessonRecaps)
   };
 }
