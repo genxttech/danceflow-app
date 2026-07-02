@@ -2,7 +2,12 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import type { EmailOtpType } from "@supabase/supabase-js";
-import { ensurePortalProfileAndClientLinks, getAuthUserFullName } from "@/lib/auth/portal-linking";
+import {
+  claimGroupLessonRecapsForUser,
+  ensurePortalProfileAndClientLinks,
+  getAuthUserFullName,
+  getGroupLessonRecapTokenFromPath,
+} from "@/lib/auth/portal-linking";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
@@ -356,6 +361,7 @@ export async function GET(request: NextRequest) {
 
   const email = user.email?.trim().toLowerCase() ?? "";
   let acceptedTeamInvitationCount = 0;
+  let claimedGroupRecapCount = 0;
 
   try {
     await ensurePortalProfileAndClientLinks({
@@ -363,6 +369,13 @@ export async function GET(request: NextRequest) {
       email,
       fullName: getAuthUserFullName(user),
     });
+
+    const claimResult = await claimGroupLessonRecapsForUser({
+      userId: user.id,
+      email,
+      recapToken: getGroupLessonRecapTokenFromPath(requestedNextPath),
+    });
+    claimedGroupRecapCount = claimResult.claimedCount;
 
     acceptedTeamInvitationCount = await acceptTeamInvitationsForEmail({
       supabase,
@@ -428,6 +441,13 @@ export async function GET(request: NextRequest) {
     destinationUrl.searchParams.set(
       "team_invite_accepted",
       String(acceptedTeamInvitationCount)
+    );
+  }
+
+  if (claimedGroupRecapCount > 0) {
+    destinationUrl.searchParams.set(
+      "group_recap_claimed",
+      String(claimedGroupRecapCount)
     );
   }
 

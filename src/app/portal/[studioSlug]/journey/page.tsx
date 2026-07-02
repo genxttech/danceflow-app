@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { CalendarDays, CheckCircle2, Flag, Target } from "lucide-react";
+import { BookOpen, CalendarDays, CheckCircle2, Flag, Target } from "lucide-react";
 import { resolveLumiPortalAccess } from "@/lib/lumi/portal";
 import {
   completeLumiGoalAction,
@@ -23,6 +23,23 @@ function formatDate(value: string | null | undefined) {
 function firstRelation<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
+
+type GroupLessonRecapRow = {
+  id: string;
+  appointment_id: string;
+  title: string | null;
+  summary: string | null;
+  technique_notes: string | null;
+  safety_notes: string | null;
+  practice_assignment: string | null;
+  media_links: string[] | null;
+  published_at: string | null;
+};
+
+type GroupLessonRecapRecipientRow = {
+  id: string;
+  group_lesson_recaps: GroupLessonRecapRow | GroupLessonRecapRow[] | null;
+};
 
 export default async function LumiJourneyPage({
   params,
@@ -69,7 +86,7 @@ export default async function LumiJourneyPage({
   }
 
   const nowIso = new Date().toISOString();
-  const [{ data: goals }, { data: appointments }, { data: assignments }] =
+  const [{ data: goals }, { data: appointments }, { data: assignments }, { data: groupRecapRows }] =
     await Promise.all([
       access.admin
         .from("student_dance_goals")
@@ -98,6 +115,27 @@ export default async function LumiJourneyPage({
         .eq("visible_in_portal", true)
         .is("archived_at", null)
         .limit(10),
+      access.admin
+        .from("group_lesson_recap_recipients")
+        .select(
+          `id,
+           group_lesson_recaps!inner (
+             id,
+             appointment_id,
+             title,
+             summary,
+             technique_notes,
+             safety_notes,
+             practice_assignment,
+             media_links,
+             published_at
+           )`,
+        )
+        .eq("studio_id", access.studio.id)
+        .eq("client_id", access.client.id)
+        .eq("group_lesson_recaps.status", "published")
+        .order("created_at", { ascending: false })
+        .limit(6),
     ]);
 
   const appointmentIds = (appointments ?? []).map((item) => item.id);
@@ -131,6 +169,9 @@ export default async function LumiJourneyPage({
     { assigned: 0, figures: 0, active: 0, mastered: 0 },
   );
   const firstName = access.client.first_name?.trim() || "there";
+  const groupRecaps = ((groupRecapRows ?? []) as GroupLessonRecapRecipientRow[])
+    .map((row) => firstRelation(row.group_lesson_recaps))
+    .filter((recap): recap is GroupLessonRecapRow => Boolean(recap));
 
   return (
     <main className="space-y-6">
@@ -171,7 +212,7 @@ export default async function LumiJourneyPage({
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { label: "Active goals", value: goals?.length ?? 0, icon: Target },
-          { label: "Shared recaps", value: recaps?.length ?? 0, icon: CheckCircle2 },
+          { label: "Shared recaps", value: (recaps?.length ?? 0) + groupRecaps.length, icon: CheckCircle2 },
           { label: "Active figures", value: syllabusSummary.active, icon: Flag },
           { label: "Mastered figures", value: syllabusSummary.mastered, icon: CheckCircle2 },
         ].map((item) => {
@@ -267,7 +308,69 @@ export default async function LumiJourneyPage({
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-        <h2 className="text-xl font-semibold text-slate-950">Recent coach feedback</h2>
+        <h2 className="text-xl font-semibold text-slate-950">Group class recaps</h2>
+        <p className="mt-2 text-sm text-slate-500">Published notes from group classes where you were checked in appear here.</p>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          {groupRecaps.length ? (
+            groupRecaps.map((recap) => (
+              <article key={recap.id} className="rounded-lg border border-fuchsia-100 bg-fuchsia-50 p-4">
+                <div className="flex items-start gap-3">
+                  <BookOpen className="mt-1 h-5 w-5 shrink-0 text-fuchsia-700" />
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-fuchsia-700">Group class recap</p>
+                    <h3 className="mt-2 font-semibold text-slate-950">{recap.title || "Group class recap"}</h3>
+                    {recap.summary ? <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{recap.summary}</p> : null}
+                    {recap.practice_assignment ? (
+                      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                        <span className="font-semibold">Practice:</span> {recap.practice_assignment}
+                      </p>
+                    ) : null}
+                    {recap.technique_notes ? (
+                      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                        <span className="font-semibold">Technique:</span> {recap.technique_notes}
+                      </p>
+                    ) : null}
+                    {recap.safety_notes ? (
+                      <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                        <span className="font-semibold">Safety:</span> {recap.safety_notes}
+                      </p>
+                    ) : null}
+                    {recap.media_links?.length ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {recap.media_links.map((href, index) => (
+                          <a
+                            key={`${recap.id}-${href}`}
+                            href={href}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-fuchsia-700 ring-1 ring-fuchsia-100"
+                          >
+                            Media {index + 1}
+                          </a>
+                        ))}
+                      </div>
+                    ) : null}
+                    <Link
+                      href={`/portal/${encodeURIComponent(studioSlug)}/appointments/${encodeURIComponent(recap.appointment_id)}`}
+                      className="mt-4 inline-flex rounded-lg bg-white px-3 py-2 text-xs font-semibold text-fuchsia-700 ring-1 ring-fuchsia-100 hover:bg-fuchsia-100"
+                    >
+                      Open class details
+                    </Link>
+                    {recap.published_at ? (
+                      <p className="mt-3 text-xs text-slate-500">Shared {formatDate(recap.published_at)}</p>
+                    ) : null}
+                  </div>
+                </div>
+              </article>
+            ))
+          ) : (
+            <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">No group class recaps have been shared yet.</p>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-xl font-semibold text-slate-950">Recent private lesson feedback</h2>
         <p className="mt-2 text-sm text-slate-500">Only recaps your studio has shared with you appear here.</p>
         <div className="mt-4 grid gap-4 md:grid-cols-2">
           {(recaps ?? []).length ? (

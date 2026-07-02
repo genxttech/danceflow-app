@@ -738,6 +738,7 @@ export default async function EventRegistrationsPage({
           `,
           )
           .eq("event_id", id)
+          .in("registration_id", registrationIds)
           .order("registration_id", { ascending: true })
           .order("sort_order", { ascending: true }),
 

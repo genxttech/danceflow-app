@@ -2,6 +2,10 @@
 
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import {
+  claimGroupLessonRecapsForUser,
+  getGroupLessonRecapTokenFromPath,
+} from "@/lib/auth/portal-linking";
 import { createClient } from "@/lib/supabase/server";
 
 function getString(formData: FormData, key: string) {
@@ -240,8 +244,9 @@ async function syncAccountAfterAuth(params: {
   userId: string;
   email: string;
   fullName?: string | null;
+  nextPath?: string | null;
 }) {
-  const { supabase, userId, email, fullName } = params;
+  const { supabase, userId, email, fullName, nextPath } = params;
 
   await upsertProfile({
     supabase,
@@ -254,6 +259,12 @@ async function syncAccountAfterAuth(params: {
     supabase,
     userId,
     email,
+  });
+
+  await claimGroupLessonRecapsForUser({
+    userId,
+    email,
+    recapToken: getGroupLessonRecapTokenFromPath(nextPath),
   });
 }
 
@@ -394,6 +405,7 @@ export async function signupAction(formData: FormData) {
       userId: authenticatedUser.id,
       email,
       fullName,
+      nextPath: redirectPath,
     });
   } catch (error) {
     return {
@@ -473,6 +485,7 @@ export async function loginAction(formData: FormData) {
         typeof user.user_metadata?.full_name === "string"
           ? user.user_metadata.full_name
           : null,
+      nextPath: next,
     });
   } catch (syncError) {
     return {

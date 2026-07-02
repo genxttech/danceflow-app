@@ -123,6 +123,7 @@ export default function SellTicketsForm({
       : 0;
 
   const total = Number.isFinite(unitPrice) ? unitPrice * quantity : 0;
+  const usesCardReader = paymentMethod === "card_reader";
   const attendeesPerTicket = Math.max(
     1,
     Number(selectedTicket?.attendees_per_ticket ?? 1) || 1
@@ -278,6 +279,7 @@ export default function SellTicketsForm({
               required
             >
               <option value="cash">Cash</option>
+              <option value="card_reader">In-person card reader</option>
               <option value="external_card">Card collected outside DanceFlow</option>
               <option value="check">Check</option>
               <option value="comp">Comp / no charge</option>
@@ -296,6 +298,11 @@ export default function SellTicketsForm({
               ? `${quantity} × ${formatMoney(unitPrice, selectedTicket.currency)} · ${attendeesPerTicket} admitted per ticket · ${totalAttendees} QR ticket${totalAttendees === 1 ? "" : "s"}`
               : "Choose a ticket to calculate the total."}
           </p>
+          {usesCardReader ? (
+            <p className="mt-2 text-sm leading-6 text-violet-800">
+              This will create the registration and open card reader collection. The registration is marked paid after the reader payment succeeds.
+            </p>
+          ) : null}
         </div>
       </section>
 
@@ -479,7 +486,11 @@ export default function SellTicketsForm({
           disabled={pending || events.length === 0}
           className="rounded-xl bg-violet-700 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-violet-800 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {pending ? "Saving sale..." : "Complete Ticket Sale"}
+          {pending
+            ? "Saving sale..."
+            : usesCardReader
+              ? "Continue to Card Reader"
+              : "Complete Ticket Sale"}
         </button>
       </div>
     </form>

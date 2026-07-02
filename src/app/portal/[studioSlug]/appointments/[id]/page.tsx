@@ -174,6 +174,18 @@ type LessonRecapRow = {
   lesson_recap_media: LessonRecapMediaRow[] | null;
 };
 
+type GroupLessonRecapRow = {
+  id: string;
+  title: string | null;
+  summary: string | null;
+  technique_notes: string | null;
+  safety_notes: string | null;
+  practice_assignment: string | null;
+  media_links: string[] | null;
+  published_at: string | null;
+  status: string;
+};
+
 type AppointmentRow = {
   id: string;
   studio_id: string;
@@ -236,6 +248,15 @@ function getMediaLabel(storagePath: string | null) {
   if (!storagePath) return "Lesson recap media";
   const parts = storagePath.split("/");
   return parts[parts.length - 1] || "Lesson recap media";
+}
+
+function getExternalMediaLabel(value: string, index: number) {
+  try {
+    const url = new URL(value);
+    return url.hostname.replace(/^www\./, "") || `Media ${index + 1}`;
+  } catch {
+    return `Media ${index + 1}`;
+  }
 }
 
 export default async function PortalAppointmentDetailPage({
@@ -304,14 +325,39 @@ export default async function PortalAppointmentDetailPage({
     `)
     .eq("id", id)
     .eq("studio_id", typedStudio.id)
-    .eq("client_id", typedClient.id)
-    .single();
+    .maybeSingle();
 
   if (appointmentError || !appointment) {
     notFound();
   }
 
   const typedAppointment = appointment as AppointmentRow;
+  const directClientAppointment = typedAppointment.client_id === typedClient.id;
+
+  const [{ data: attendeeRow }, { data: groupRecipientRow }] =
+    typedAppointment.appointment_type === "group_class"
+      ? await Promise.all([
+          supabase
+            .from("appointment_attendees")
+            .select("id")
+            .eq("appointment_id", typedAppointment.id)
+            .eq("client_id", typedClient.id)
+            .maybeSingle(),
+          supabase
+            .from("group_lesson_recap_recipients")
+            .select("id, recap_id")
+            .eq("studio_id", typedStudio.id)
+            .eq("appointment_id", typedAppointment.id)
+            .eq("client_id", typedClient.id)
+            .maybeSingle(),
+        ])
+      : [{ data: null }, { data: null }];
+
+  const groupClassAccess = Boolean(attendeeRow || groupRecipientRow);
+
+  if (!directClientAppointment && !groupClassAccess) {
+    notFound();
+  }
 
   const { data: recapData, error: recapError } = await supabase
     .from("lesson_recaps")
@@ -331,6 +377,7 @@ export default async function PortalAppointmentDetailPage({
     `)
     .eq("appointment_id", typedAppointment.id)
     .eq("visible_to_client", true)
+    .eq("studio_id", typedStudio.id)
     .maybeSingle();
 
   if (recapError) {
@@ -340,7 +387,7 @@ export default async function PortalAppointmentDetailPage({
   const recap = (recapData ?? null) as LessonRecapRow | null;
 
   const recapVisible =
-    Boolean(recap) && typedAppointment.status === "attended";
+    directClientAppointment && Boolean(recap) && typedAppointment.status === "attended";
 
   const recapMedia = recapVisible ? recap?.lesson_recap_media ?? [] : [];
 
@@ -363,6 +410,22 @@ export default async function PortalAppointmentDetailPage({
       };
     })
   );
+
+  const { data: groupRecapData } = groupRecipientRow
+    ? await supabase
+        .from("group_lesson_recaps")
+        .select(
+          "id, title, summary, technique_notes, safety_notes, practice_assignment, media_links, published_at, status",
+        )
+        .eq("id", (groupRecipientRow as { recap_id: string }).recap_id)
+        .eq("studio_id", typedStudio.id)
+        .eq("appointment_id", typedAppointment.id)
+        .eq("status", "published")
+        .maybeSingle()
+    : { data: null };
+
+  const groupRecap = (groupRecapData ?? null) as GroupLessonRecapRow | null;
+  const groupRecapVisible = Boolean(groupRecap);
 
   const studioLabel = typedStudio.public_name?.trim() || typedStudio.name;
   const appointmentLabel =
@@ -397,7 +460,7 @@ export default async function PortalAppointmentDetailPage({
                 {formatAppointmentType(typedAppointment.appointment_type)}
               </span>
 
-              {recapVisible ? (
+              {recapVisible || groupRecapVisible ? (
                 <span className="inline-flex rounded-full bg-green-50 px-3 py-1 text-xs font-semibold text-green-700 ring-1 ring-green-100">
                   Recap Shared
                 </span>
@@ -426,14 +489,89 @@ export default async function PortalAppointmentDetailPage({
         <section className="rounded-[32px] border border-slate-200 bg-white p-7 shadow-sm">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-700">
-              Lesson What was covered
+              {typedAppointment.appointment_type === "group_class" ? "Group Class Recap" : "Lesson What was covered"}
             </p>
             <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
               What was shared for this lesson
             </h2>
           </div>
 
-          {!recapVisible || !recap ? (
+          {groupRecapVisible && groupRecap ? (
+            <div className="mt-6 space-y-6">
+              <div className="rounded-3xl border border-violet-100 bg-violet-50 p-6 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+                  Summary
+                </p>
+                <h3 className="mt-3 text-lg font-semibold text-slate-950">
+                  {groupRecap.title?.trim() || "Group class recap"}
+                </h3>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                  {groupRecap.summary?.trim() || "No group class summary was added."}
+                </p>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Practice assignment
+                  </p>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                    {groupRecap.practice_assignment?.trim() || "No practice assignment was added."}
+                  </p>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    Technique notes
+                  </p>
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                    {groupRecap.technique_notes?.trim() || "No technique notes were added."}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-3xl border border-amber-100 bg-amber-50 p-6 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-amber-700">
+                  Safety notes
+                </p>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                  {groupRecap.safety_notes?.trim() || "No safety notes were added."}
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-6 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                  Shared links
+                </p>
+
+                {groupRecap.media_links?.length ? (
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {groupRecap.media_links.map((href, index) => (
+                      <a
+                        key={`${groupRecap.id}-${href}`}
+                        href={href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-xl border border-white/70 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+                      >
+                        {getExternalMediaLabel(href, index)}
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm leading-7 text-slate-700">
+                    No media links were attached to this group recap.
+                  </p>
+                )}
+              </div>
+
+              {groupRecap.published_at ? (
+                <p className="text-xs text-slate-500">
+                  Shared {formatUpdatedAt(groupRecap.published_at, studioTimeZone)}
+                </p>
+              ) : null}
+            </div>
+          ) : !recapVisible || !recap ? (
             <div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-10 text-center">
               <p className="text-lg font-medium text-slate-900">
                 Nothing has been shared yet

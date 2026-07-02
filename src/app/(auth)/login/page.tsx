@@ -13,9 +13,13 @@ function getSingleSearchParam(
   return Array.isArray(value) ? value[0] : value;
 }
 
-function normalizeIntent(value: string | undefined): LoginIntent {
+function normalizeIntent(value: string | undefined, nextPath?: string): LoginIntent {
   if (value === "studio" || value === "organizer" || value === "public") {
     return value;
+  }
+
+  if (nextPath?.startsWith("/recaps/")) {
+    return "public";
   }
 
   return "studio";
@@ -100,7 +104,8 @@ export default async function LoginPage({
 
   const nextPath = getSingleSearchParam(resolvedSearchParams.next) ?? "";
   const loginIntent = normalizeIntent(
-    getSingleSearchParam(resolvedSearchParams.intent)
+    getSingleSearchParam(resolvedSearchParams.intent),
+    nextPath,
   );
   const selectedPlan = getSingleSearchParam(resolvedSearchParams.plan) ?? "";
   const emailHint = getSingleSearchParam(resolvedSearchParams.email) ?? "";
@@ -121,8 +126,13 @@ export default async function LoginPage({
 
   const isPublic = loginIntent === "public";
   const isPortalAccess = isPublic && nextPath.startsWith("/portal/");
+  const isRecapAccess = isPublic && nextPath.startsWith("/recaps/");
   const effectiveNext = nextPath || (isPublic ? "/account" : "/app");
-  const selectedLabel = isPortalAccess ? "Studio Portal" : intentLabel(loginIntent);
+  const selectedLabel = isPortalAccess
+    ? "Studio Portal"
+    : isRecapAccess
+      ? "Group Class Recap"
+      : intentLabel(loginIntent);
 
   return (
     <>
@@ -139,11 +149,15 @@ export default async function LoginPage({
                 <h1 className="mt-4 text-4xl font-semibold tracking-tight sm:text-5xl">
                   {isPortalAccess
                     ? "Access your studio portal."
+                    : isRecapAccess
+                      ? "Save your group class recap."
                     : "One sign-in page. DanceFlow routes you where you belong."}
                 </h1>
                 <p className="mt-5 text-base leading-7 text-white/85">
                   {isPortalAccess
                     ? "Use the same email address your studio has on file. We will email you a secure sign-in link and bring you back to your portal."
+                    : isRecapAccess
+                      ? "Use the same email address that received the recap link. We will email you a secure sign-in link and bring you back to the recap."
                     : "Studio teams, organizers, instructors, students, and dancers can all start here. Choose the account type that best matches what you are trying to access."}
                 </p>
               </div>
@@ -292,6 +306,8 @@ export default async function LoginPage({
                     <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
                       {isPortalAccess
                         ? "Email me a secure portal link"
+                        : isRecapAccess
+                          ? "Email me a secure recap link"
                         : isPublic
                           ? "Email me a secure sign-in link"
                           : "Sign in with email and password"}
@@ -299,6 +315,8 @@ export default async function LoginPage({
                     <p className="mt-3 text-sm leading-7 text-slate-600">
                       {isPortalAccess
                         ? "Enter the same email address your studio used when inviting you to the portal. We will send a secure link and return you to the portal after sign-in."
+                        : isRecapAccess
+                          ? "Enter the same email address that received the recap. We will connect the recap to your DanceFlow account after sign-in."
                         : intentDescription(loginIntent)}
                     </p>
                   </div>
@@ -338,12 +356,18 @@ export default async function LoginPage({
                       type="submit"
                       className="w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
                     >
-                      {isPortalAccess ? "Email My Portal Link" : "Email My Sign-In Link"}
+                      {isPortalAccess
+                        ? "Email My Portal Link"
+                        : isRecapAccess
+                          ? "Email My Recap Link"
+                          : "Email My Sign-In Link"}
                     </button>
 
                     <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4 text-sm leading-6 text-slate-700">
                       {isPortalAccess
                         ? "This portal invite is tied to the email on your studio client record. If you use another email, DanceFlow will not be able to connect you to the studio portal."
+                        : isRecapAccess
+                          ? "The recap claim works best with the email address that received the recap link."
                         : "Student/client portal access usually starts from a studio invite or event confirmation email. Use the same email address your studio has on file."}
                     </div>
                     </form>

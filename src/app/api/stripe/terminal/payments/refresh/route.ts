@@ -30,7 +30,14 @@ function terminalPaymentUrl(paymentId: string, params: Record<string, string>) {
 
 function canCollectTerminal(role: string | null | undefined, isPlatformAdmin: boolean) {
   if (isPlatformAdmin) return true;
-  return ["studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
+  return [
+    "studio_owner",
+    "studio_admin",
+    "front_desk",
+    "organizer_owner",
+    "organizer_admin",
+    "organizer_staff",
+  ].includes(role ?? "");
 }
 
 async function getLocalPaymentStatus(params: {
@@ -147,7 +154,7 @@ export async function POST(request: NextRequest) {
 
       await supabase
         .from("payments")
-        .update({ status: "failed" })
+        .update({ status: "failed", updated_at: nowIso })
         .eq("id", paymentId)
         .eq("studio_id", context.studioId)
         .neq("status", "paid");

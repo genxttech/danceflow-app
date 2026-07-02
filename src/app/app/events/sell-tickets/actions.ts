@@ -82,6 +82,7 @@ function normalizePaymentMethod(value: string) {
   if (
     normalized === "cash" ||
     normalized === "external_card" ||
+    normalized === "card_reader" ||
     normalized === "check" ||
     normalized === "comp" ||
     normalized === "other"
@@ -121,11 +122,20 @@ function buildAttendeeRows(params: {
   ticketTypeId: string;
   quantity: number;
   attendeesPerTicket: number;
+  issueTickets?: boolean;
 }) {
-  const { formData, registration, ticketTypeId, quantity, attendeesPerTicket } =
+  const {
+    formData,
+    registration,
+    ticketTypeId,
+    quantity,
+    attendeesPerTicket,
+    issueTickets = true,
+  } =
     params;
   const totalAttendees = Math.max(1, quantity * Math.max(1, attendeesPerTicket));
   const rows = [];
+  const issuedAt = issueTickets ? new Date().toISOString() : null;
 
   for (let index = 1; index <= totalAttendees; index += 1) {
     const firstName =
@@ -152,9 +162,9 @@ function buildAttendeeRows(params: {
       phone,
       attendee_role: "attendee",
       sort_order: index,
-      ticket_code: ticketCode(),
-      ticket_token: ticketToken(),
-      ticket_issued_at: new Date().toISOString(),
+      ticket_code: issueTickets ? ticketCode() : null,
+      ticket_token: issueTickets ? ticketToken() : null,
+      ticket_issued_at: issuedAt,
     });
   }
 
@@ -311,6 +321,51 @@ async function logManualEventPayment(params: {
   }
 }
 
+async function createTerminalEventPayment(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  registration: InsertedRegistrationRow;
+  studioId: string;
+  userId: string;
+  amount: number;
+  currency: string;
+  notes: string;
+}) {
+  const { supabase, registration, studioId, userId, amount, currency, notes } =
+    params;
+
+  const { data: payment, error } = await supabase
+    .from("payments")
+    .insert({
+      studio_id: studioId,
+      client_id: registration.client_id,
+      amount,
+      currency: currency.toLowerCase(),
+      payment_method: "card",
+      status: "pending",
+      notes:
+        notes ||
+        `Event ticket sale awaiting in-person card reader payment for registration ${registration.id}.`,
+      created_by: userId,
+      payment_type: "event_registration",
+      fulfillment_type: null,
+      source: "stripe",
+      payment_channel: "terminal",
+      external_reference: registration.id,
+    })
+    .select("id")
+    .single<{ id: string }>();
+
+  if (error || !payment) {
+    throw new Error(
+      `Registration was created, but card reader payment setup failed: ${
+        error?.message ?? "Unable to create pending payment."
+      }`,
+    );
+  }
+
+  return payment.id;
+}
+
 
 async function createRegistrationTicketRecords(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
@@ -320,8 +375,18 @@ async function createRegistrationTicketRecords(params: {
   formData: FormData;
   unitPrice: number;
   totalPrice: number;
+  issueTickets?: boolean;
 }) {
-  const { supabase, registration, ticket, quantity, formData, unitPrice, totalPrice } =
+  const {
+    supabase,
+    registration,
+    ticket,
+    quantity,
+    formData,
+    unitPrice,
+    totalPrice,
+    issueTickets = true,
+  } =
     params;
 
   const { error: itemError } = await supabase
@@ -348,6 +413,7 @@ async function createRegistrationTicketRecords(params: {
     ticketTypeId: ticket.id,
     quantity,
     attendeesPerTicket,
+    issueTickets,
   });
 
   const { error: attendeeError } = await supabase
@@ -372,6 +438,7 @@ export async function sellTicketsAction(
   const paymentMethod = normalizePaymentMethod(
     getString(formData, "paymentMethod")
   );
+  const useCardReader = paymentMethod === "card_reader";
   const notes = getString(formData, "notes");
 
   let attendeeFirstName = getString(formData, "attendeeFirstName");
@@ -494,6 +561,11 @@ export async function sellTicketsAction(
     const unitPrice = paymentMethod === "comp" ? 0 : parseMoney(ticket.price);
     const totalPrice = unitPrice * quantity;
     const currency = ticket.currency || "USD";
+    const paidNow = !useCardReader;
+
+    if (useCardReader && totalPrice <= 0) {
+      return { error: "Card reader ticket sales must have a total greater than 0." };
+    }
 
     const { data: registration, error: registrationError } = await supabase
       .from("event_registrations")
@@ -503,7 +575,7 @@ export async function sellTicketsAction(
         studio_id: studioId,
         user_id: null,
         client_id: client?.id ?? null,
-        status: "confirmed",
+        status: paidNow ? "confirmed" : "pending",
         attendee_first_name: attendeeFirstName,
         attendee_last_name: attendeeLastName,
         attendee_email: attendeeEmail,
@@ -517,8 +589,8 @@ export async function sellTicketsAction(
         source: "admin",
         notes:
           notes ||
-          `Manual ticket sale created from workspace by user ${userId}. Payment method: ${paymentMethod}.`,
-        payment_status: "paid",
+          `${useCardReader ? "Card reader" : "Manual"} ticket sale created from workspace by user ${userId}. Payment method: ${paymentMethod}.`,
+        payment_status: paidNow ? "paid" : "pending",
         portal_user_id: null,
         stripe_checkout_session_id: null,
         stripe_payment_intent_id: null,
@@ -545,19 +617,47 @@ export async function sellTicketsAction(
 
     if (registrationError || !registration) {
       return {
-        error: `Could not complete manual ticket sale: ${
+        error: `Could not complete ticket sale: ${
           registrationError?.message ?? "Unknown error."
         }`,
       };
     }
 
-    await logManualEventPayment({
-      supabase,
-      registration,
-      amount: totalPrice,
-      currency,
-      paymentMethod,
-    });
+    let terminalPaymentId = "";
+
+    if (useCardReader) {
+      try {
+        terminalPaymentId = await createTerminalEventPayment({
+          supabase,
+          registration,
+          studioId,
+          userId,
+          amount: totalPrice,
+          currency,
+          notes:
+            notes ||
+            `Event ticket sale for ${event.name}: ${quantity} ${ticket.name}.`,
+        });
+      } catch (paymentSetupError) {
+        await supabase
+          .from("event_registrations")
+          .delete()
+          .eq("id", registration.id)
+          .eq("studio_id", studioId)
+          .eq("payment_status", "pending")
+          .eq("status", "pending");
+
+        throw paymentSetupError;
+      }
+    } else {
+      await logManualEventPayment({
+        supabase,
+        registration,
+        amount: totalPrice,
+        currency,
+        paymentMethod,
+      });
+    }
 
     await createRegistrationTicketRecords({
       supabase,
@@ -567,16 +667,21 @@ export async function sellTicketsAction(
       formData,
       unitPrice,
       totalPrice,
+      issueTickets: !useCardReader,
     });
 
-    await insertAttendanceRecord({
-      supabase,
-      studioId,
-      registrationId: registration.id,
-      clientId: registration.client_id,
-    });
+    if (!useCardReader) {
+      await insertAttendanceRecord({
+        supabase,
+        studioId,
+        registrationId: registration.id,
+        clientId: registration.client_id,
+      });
+    }
 
-    redirectTo = `/app/events/${event.id}/registrations?success=manual_ticket_sale_created`;
+    redirectTo = useCardReader
+      ? `/app/payments/terminal/${terminalPaymentId}?success=terminal_payment_ready`
+      : `/app/events/${event.id}/registrations?success=manual_ticket_sale_created`;
   } catch (error) {
     return {
       error:

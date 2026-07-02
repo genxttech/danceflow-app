@@ -201,9 +201,10 @@ export default async function SellTicketsPage() {
               Sell tickets from the workspace
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-white/85 md:text-base">
-              Use this for front desk sales, at-the-door purchases, cash payments,
-              external card payments, and comps. The sale creates a confirmed
-              event registration.
+              Use this for front desk sales, at-the-door purchases, card reader
+              payments, cash payments, external card payments, and comps. Manual
+              sales are confirmed immediately; card reader sales are confirmed
+              after the reader payment succeeds.
             </p>
           </div>
 
@@ -246,7 +247,7 @@ export default async function SellTicketsPage() {
           <p className="text-sm text-slate-500">Sale mode</p>
           <p className="mt-2 flex items-center gap-2 text-lg font-semibold text-slate-950">
             <Ticket className="h-5 w-5 text-violet-700" />
-            Manual / front desk
+            Manual / card reader
           </p>
         </div>
       </section>
@@ -281,7 +282,7 @@ export default async function SellTicketsPage() {
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
         <h2 className="text-xl font-semibold text-slate-950">
-          How manual ticket sales work
+          How front desk ticket sales work
         </h2>
         <div className="mt-4 grid gap-4 text-sm leading-6 text-slate-600 md:grid-cols-3">
           <div className="rounded-2xl bg-slate-50 p-4">
@@ -294,15 +295,16 @@ export default async function SellTicketsPage() {
           <div className="rounded-2xl bg-slate-50 p-4">
             <p className="font-semibold text-slate-950">2. Record payment</p>
             <p className="mt-1">
-              Cash, external card, check, comp, and other manual payment methods
-              are supported.
+              Cash, external card, check, comp, other manual payment methods,
+              and in-person card reader collection are supported.
             </p>
           </div>
           <div className="rounded-2xl bg-slate-50 p-4">
             <p className="font-semibold text-slate-950">3. Confirm registration</p>
             <p className="mt-1">
-              The sale creates a confirmed registration, issues attendee QR codes,
-              and sends you to the event registrations page.
+              Manual sales create a confirmed registration immediately. Card reader
+              sales open Terminal collection and mark the registration paid after
+              success.
             </p>
           </div>
         </div>

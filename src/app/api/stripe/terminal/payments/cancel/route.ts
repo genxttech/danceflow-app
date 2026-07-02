@@ -26,7 +26,14 @@ function terminalPaymentUrl(paymentId: string, params: Record<string, string>) {
 
 function canCollectTerminal(role: string | null | undefined, isPlatformAdmin: boolean) {
   if (isPlatformAdmin) return true;
-  return ["studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
+  return [
+    "studio_owner",
+    "studio_admin",
+    "front_desk",
+    "organizer_owner",
+    "organizer_admin",
+    "organizer_staff",
+  ].includes(role ?? "");
 }
 
 async function recordSucceededPayment(params: {

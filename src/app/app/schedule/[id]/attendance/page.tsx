@@ -7,6 +7,11 @@ import {
   markClassNoShowAction,
   resetClassAttendanceAction,
 } from "./actions";
+import {
+  publishGroupLessonRecapAction,
+  saveGroupLessonRecapAction,
+  unpublishGroupLessonRecapAction,
+} from "./recap-actions";
 
 type Params = Promise<{
   id: string;
@@ -55,6 +60,19 @@ type AttendanceRow = {
   status: string;
   checked_in_at: string | null;
   marked_attended_at: string | null;
+};
+
+type GroupLessonRecapRow = {
+  id: string;
+  title: string;
+  summary: string | null;
+  technique_notes: string | null;
+  safety_notes: string | null;
+  practice_assignment: string | null;
+  media_links: string[] | null;
+  status: string;
+  published_at: string | null;
+  updated_at: string | null;
 };
 
 function getClient(
@@ -141,6 +159,18 @@ function getBanner(search: { success?: string; error?: string }) {
   if (search.success === "reset") {
     return { kind: "success" as const, message: "Attendance reset to registered." };
   }
+  if (search.success === "recap_saved") {
+    return { kind: "success" as const, message: "Group recap draft saved." };
+  }
+  if (search.success === "recap_published") {
+    return {
+      kind: "success" as const,
+      message: "Group recap published to checked-in and attended students.",
+    };
+  }
+  if (search.success === "recap_unpublished") {
+    return { kind: "success" as const, message: "Group recap unpublished." };
+  }
   if (search.error === "checkin_failed") {
     return { kind: "error" as const, message: "Could not check in attendee." };
   }
@@ -159,6 +189,18 @@ function getBanner(search: { success?: string; error?: string }) {
   }
   if (search.error === "reset_failed") {
     return { kind: "error" as const, message: "Could not reset attendance." };
+  }
+  if (search.error === "recap_save_failed") {
+    return { kind: "error" as const, message: "Could not save group recap." };
+  }
+  if (search.error === "recap_publish_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not publish group recap. Save a draft and make sure students are checked in.",
+    };
+  }
+  if (search.error === "recap_unpublish_failed") {
+    return { kind: "error" as const, message: "Could not unpublish group recap." };
   }
   return null;
 }
@@ -204,6 +246,8 @@ export default async function ScheduleAttendancePage({
     { data: appointment, error: appointmentError },
     { data: attendees, error: attendeesError },
     { data: attendanceRows, error: attendanceError },
+    { data: groupLessonRecap, error: groupLessonRecapError },
+    { count: groupLessonRecapRecipientCount, error: groupLessonRecapRecipientError },
   ] = await Promise.all([
     supabase
       .from("appointments")
@@ -238,6 +282,30 @@ export default async function ScheduleAttendancePage({
       `)
       .eq("studio_id", studioId)
       .eq("appointment_id", id),
+
+    supabase
+      .from("group_lesson_recaps")
+      .select(`
+        id,
+        title,
+        summary,
+        technique_notes,
+        safety_notes,
+        practice_assignment,
+        media_links,
+        status,
+        published_at,
+        updated_at
+      `)
+      .eq("studio_id", studioId)
+      .eq("appointment_id", id)
+      .maybeSingle(),
+
+    supabase
+      .from("group_lesson_recap_recipients")
+      .select("id", { count: "exact", head: true })
+      .eq("studio_id", studioId)
+      .eq("appointment_id", id),
   ]);
 
   if (appointmentError || !appointment) {
@@ -252,9 +320,20 @@ export default async function ScheduleAttendancePage({
     throw new Error(`Failed to load class attendance: ${attendanceError.message}`);
   }
 
+  if (groupLessonRecapError) {
+    throw new Error(`Failed to load group recap: ${groupLessonRecapError.message}`);
+  }
+
+  if (groupLessonRecapRecipientError) {
+    throw new Error(
+      `Failed to load group recap recipients: ${groupLessonRecapRecipientError.message}`,
+    );
+  }
+
   const typedAppointment = appointment as AppointmentRow;
   const typedAttendees = (attendees ?? []) as AppointmentAttendeeRow[];
   const typedAttendance = (attendanceRows ?? []) as AttendanceRow[];
+  const typedGroupLessonRecap = (groupLessonRecap ?? null) as GroupLessonRecapRow | null;
 
   const attendanceByClientId = new Map(
     typedAttendance
@@ -317,6 +396,16 @@ export default async function ScheduleAttendancePage({
     const attendance = attendanceByClientId.get(attendee.client_id);
     return (attendance?.status ?? "registered") === "no_show";
   }).length;
+  const eligibleRecapRecipientCount = typedAttendees.filter((attendee) => {
+    const attendance = attendanceByClientId.get(attendee.client_id);
+    return ["checked_in", "attended"].includes(attendance?.status ?? "registered");
+  }).length;
+  const isGroupClass = typedAppointment.appointment_type === "group_class";
+  const returnTo = buildAttendanceHref({
+    appointmentId: typedAppointment.id,
+    q: query.q ?? "",
+    status: statusFilter,
+  });
 
   return (
     <div className="space-y-8">
@@ -398,6 +487,172 @@ export default async function ScheduleAttendancePage({
           <p className="mt-2 text-3xl font-semibold">{noShowCount}</p>
         </div>
       </div>
+
+      {isGroupClass ? (
+        <div className="rounded-2xl border bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-sm font-medium text-slate-500">Group Recap</p>
+              <h2 className="mt-1 text-2xl font-semibold text-slate-900">
+                Share class notes with attendees
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm text-slate-600">
+                Create one recap for this group class. Publishing makes it available to checked-in
+                and attended linked students. Guest email delivery can use the same recipient model
+                once guest check-in captures email addresses.
+              </p>
+            </div>
+
+            <div className="grid gap-2 rounded-xl bg-slate-50 p-4 text-sm text-slate-600 sm:min-w-[240px]">
+              <div className="flex justify-between gap-4">
+                <span>Eligible now</span>
+                <span className="font-semibold text-slate-900">{eligibleRecapRecipientCount}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span>Published recipients</span>
+                <span className="font-semibold text-slate-900">
+                  {groupLessonRecapRecipientCount ?? 0}
+                </span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span>Status</span>
+                <span className="font-semibold capitalize text-slate-900">
+                  {typedGroupLessonRecap?.status ?? "not started"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <form action={saveGroupLessonRecapAction} className="mt-6 grid gap-4">
+            <input type="hidden" name="appointmentId" value={typedAppointment.id} />
+            <input type="hidden" name="returnTo" value={returnTo} />
+
+            <div>
+              <label htmlFor="recap-title" className="mb-1 block text-sm font-medium">
+                Recap title
+              </label>
+              <input
+                id="recap-title"
+                name="title"
+                required
+                defaultValue={
+                  typedGroupLessonRecap?.title ||
+                  `${typedAppointment.title || "Group Class"} Recap`
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div>
+                <label htmlFor="recap-summary" className="mb-1 block text-sm font-medium">
+                  What we covered
+                </label>
+                <textarea
+                  id="recap-summary"
+                  name="summary"
+                  rows={5}
+                  defaultValue={typedGroupLessonRecap?.summary ?? ""}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  placeholder="Class topic, patterns, figures, combinations, or concepts."
+                />
+              </div>
+
+              <div>
+                <label htmlFor="recap-practice" className="mb-1 block text-sm font-medium">
+                  Practice assignment
+                </label>
+                <textarea
+                  id="recap-practice"
+                  name="practiceAssignment"
+                  rows={5}
+                  defaultValue={typedGroupLessonRecap?.practice_assignment ?? ""}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  placeholder="What students should practice before the next class."
+                />
+              </div>
+
+              <div>
+                <label htmlFor="recap-technique" className="mb-1 block text-sm font-medium">
+                  Technique notes
+                </label>
+                <textarea
+                  id="recap-technique"
+                  name="techniqueNotes"
+                  rows={4}
+                  defaultValue={typedGroupLessonRecap?.technique_notes ?? ""}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  placeholder="Timing, posture, connection, footwork, styling, or lead/follow details."
+                />
+              </div>
+
+              <div>
+                <label htmlFor="recap-safety" className="mb-1 block text-sm font-medium">
+                  Safety tips
+                </label>
+                <textarea
+                  id="recap-safety"
+                  name="safetyNotes"
+                  rows={4}
+                  defaultValue={typedGroupLessonRecap?.safety_notes ?? ""}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  placeholder="Anything students should remember to avoid strain or unsafe movement."
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="recap-media" className="mb-1 block text-sm font-medium">
+                Media links
+              </label>
+              <textarea
+                id="recap-media"
+                name="mediaLinks"
+                rows={3}
+                defaultValue={(typedGroupLessonRecap?.media_links ?? []).join("\n")}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                placeholder="Optional links, one per line."
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="submit"
+                className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
+              >
+                Save Draft
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-4 flex flex-wrap gap-3">
+            <form action={publishGroupLessonRecapAction}>
+              <input type="hidden" name="appointmentId" value={typedAppointment.id} />
+              <input type="hidden" name="returnTo" value={returnTo} />
+              <button
+                type="submit"
+                disabled={!typedGroupLessonRecap || eligibleRecapRecipientCount === 0}
+                className="rounded-xl border border-green-200 px-4 py-2 text-green-700 hover:bg-green-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Publish to Checked-In Students
+              </button>
+            </form>
+
+            {typedGroupLessonRecap?.status === "published" ? (
+              <form action={unpublishGroupLessonRecapAction}>
+                <input type="hidden" name="appointmentId" value={typedAppointment.id} />
+                <input type="hidden" name="returnTo" value={returnTo} />
+                <button
+                  type="submit"
+                  className="rounded-xl border border-amber-200 px-4 py-2 text-amber-700 hover:bg-amber-50"
+                >
+                  Unpublish
+                </button>
+              </form>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       <form className="rounded-2xl border bg-white p-5 shadow-sm">
         <div className="grid gap-4 md:grid-cols-[1fr_220px_auto]">

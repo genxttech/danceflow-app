@@ -118,6 +118,23 @@ function parseJson(text: string) {
   }
 }
 
+function firstRelation<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+type GroupLessonRecapRow = {
+  title: string | null;
+  summary: string | null;
+  technique_notes: string | null;
+  safety_notes: string | null;
+  practice_assignment: string | null;
+  published_at: string | null;
+};
+
+type GroupLessonRecapRecipientRow = {
+  group_lesson_recaps: GroupLessonRecapRow | GroupLessonRecapRow[] | null;
+};
+
 export async function generateLumiPlanAction(
   _previousState: LumiAssistantState,
   formData: FormData,
@@ -148,7 +165,7 @@ export async function generateLumiPlanAction(
   }
 
   const nowIso = new Date().toISOString();
-  const [{ data: goals }, { data: appointments }, { data: syllabusAssignments }] =
+  const [{ data: goals }, { data: appointments }, { data: syllabusAssignments }, { data: groupRecapRows }] =
     await Promise.all([
       access.admin
         .from("student_dance_goals")
@@ -177,6 +194,23 @@ export async function generateLumiPlanAction(
         .eq("visible_in_portal", true)
         .is("archived_at", null)
         .limit(8),
+      access.admin
+        .from("group_lesson_recap_recipients")
+        .select(
+          `group_lesson_recaps!inner (
+            title,
+            summary,
+            technique_notes,
+            safety_notes,
+            practice_assignment,
+            published_at
+          )`,
+        )
+        .eq("studio_id", access.studio.id)
+        .eq("client_id", access.client.id)
+        .eq("group_lesson_recaps.status", "published")
+        .order("created_at", { ascending: false })
+        .limit(6),
     ]);
 
   const appointmentIds = (appointments ?? []).map((item) => item.id);
@@ -215,6 +249,9 @@ export async function generateLumiPlanAction(
     studentName,
     goals: goals ?? [],
     visibleLessonRecaps: recaps ?? [],
+    visibleGroupLessonRecaps: ((groupRecapRows ?? []) as GroupLessonRecapRecipientRow[])
+      .map((row) => firstRelation(row.group_lesson_recaps))
+      .filter((recap): recap is GroupLessonRecapRow => Boolean(recap)),
     visibleSyllabusProgress,
     upcomingLessons: upcoming,
   };
@@ -236,7 +273,7 @@ export async function generateLumiPlanAction(
         {
           role: "system",
           content:
-            "You are LUMI, a warm student-facing dance journey assistant. Use only the provided student-visible goals, lesson recaps, syllabus progress, and schedule. Reinforce the instructor's coaching and never override it. Do not invent technique, progress, results, diagnoses, guarantees, or private studio information. Give practical, encouraging priorities and questions the dancer can discuss with the instructor. Return only valid JSON with keys: headline, summary, practicePriorities (array of up to 4 short strings), instructorQuestions (array of up to 3 short strings), encouragement.",
+            "You are LUMI, a warm student-facing dance journey assistant. Use only the provided student-visible goals, private lesson recaps, group lesson recaps, syllabus progress, and schedule. Reinforce the instructor's coaching and never override it. Do not invent technique, progress, results, diagnoses, guarantees, or private studio information. Give practical, encouraging priorities and questions the dancer can discuss with the instructor. Return only valid JSON with keys: headline, summary, practicePriorities (array of up to 4 short strings), instructorQuestions (array of up to 3 short strings), encouragement.",
         },
         {
           role: "user",
