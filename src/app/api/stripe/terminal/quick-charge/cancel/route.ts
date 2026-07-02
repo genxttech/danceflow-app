@@ -101,7 +101,6 @@ export async function POST(request: NextRequest) {
             source: "stripe",
             payment_channel: "terminal",
             stripe_payment_intent_id: paymentIntent.id,
-            updated_at: nowIso,
           })
           .eq("id", paymentId)
           .eq("studio_id", context.studioId),
@@ -139,7 +138,7 @@ export async function POST(request: NextRequest) {
 
     await supabase
       .from("payments")
-      .update({ status: "failed", updated_at: nowIso })
+      .update({ status: "failed" })
       .eq("id", paymentId)
       .eq("studio_id", context.studioId);
 

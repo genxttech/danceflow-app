@@ -225,7 +225,7 @@ export async function POST(request: NextRequest) {
     if (localPaymentStatus !== "paid") {
       await supabase
         .from("payments")
-        .update({ status: "failed", updated_at: nowIso })
+        .update({ status: "failed" })
         .eq("id", paymentId)
         .eq("studio_id", context.studioId)
         .neq("status", "paid");

@@ -321,7 +321,7 @@ export async function POST(request: NextRequest) {
 
       await supabase
         .from("payments")
-        .update({ status: "failed", updated_at: nowIso })
+        .update({ status: "failed" })
         .eq("id", payment.id)
         .eq("studio_id", studio.id)
         .neq("status", "paid");

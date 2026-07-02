@@ -1145,7 +1145,6 @@ export async function refundClientPaymentAction(formData: FormData) {
       refunded_at: nowIso,
       stripe_refund_id: refund.id,
       notes: noteParts.join(" | "),
-      updated_at: nowIso,
     })
     .eq("id", payment.id)
     .eq("studio_id", studioId);
