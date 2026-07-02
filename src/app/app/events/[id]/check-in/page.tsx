@@ -470,9 +470,8 @@ export default async function EventCheckInPage({
   let attendeeRows: EventRegistrationAttendeeRow[] = [];
 
   if (registrationIds.length > 0) {
-    // Use event_id instead of a potentially large registration_id IN (...) list.
-    // The attendee table already stores event_id, and this keeps the check-in
-    // page from timing out on larger events or multi-ticket orders.
+    // Keep this scoped to the registrations already loaded for this event.
+    // Large event-level attendee scans can hit statement timeouts on check-in.
     const { data: attendees, error: attendeesError } = await supabase
       .from("event_registration_attendees")
       .select(
@@ -491,6 +490,7 @@ export default async function EventCheckInPage({
       `,
       )
       .eq("event_id", id)
+      .in("registration_id", registrationIds)
       .order("registration_id", { ascending: true })
       .order("sort_order", { ascending: true });
 
