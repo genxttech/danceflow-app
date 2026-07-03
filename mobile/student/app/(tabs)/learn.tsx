@@ -13,7 +13,8 @@ import {
   type StudentGroupLessonRecap,
   type StudentLearnLesson,
   type StudentLearnOverview,
-  type StudentPracticeFocus
+  type StudentPracticeFocus,
+  type StudentSyllabusSummary
 } from "@/lib/studentLearn";
 
 const lumiAvatar = require("../../assets/lumi-avatar.png");
@@ -22,6 +23,7 @@ const emptyOverview: StudentLearnOverview = {
   recentLessons: [],
   groupLessonRecaps: [],
   practiceFocus: [],
+  syllabi: [],
   lumiPrompts: [
     "What should I practice this week?",
     "How do I set a dance goal?",
@@ -34,6 +36,31 @@ function FocusCard({ focus }: { focus: StudentPracticeFocus }) {
     <View style={styles.itemCard}>
       <AppText variant="subtitle">{focus.title}</AppText>
       <AppText variant="caption">{focus.detail}</AppText>
+    </View>
+  );
+}
+
+function SyllabusCard({ syllabus }: { syllabus: StudentSyllabusSummary }) {
+  const subtitle = [syllabus.studioName, syllabus.danceStyle, syllabus.level].filter(Boolean).join(" • ");
+
+  return (
+    <View style={styles.syllabusCard}>
+      <View style={{ flex: 1 }}>
+        <AppText variant="eyebrow">Syllabus</AppText>
+        <AppText variant="subtitle">{syllabus.name}</AppText>
+        {subtitle ? <AppText variant="caption">{subtitle}</AppText> : null}
+        <View style={styles.progressTrack}>
+          <View style={[styles.progressFill, { width: `${syllabus.percentMastered}%` }]} />
+        </View>
+        <AppText variant="caption">
+          {syllabus.masteredItems} mastered • {syllabus.activeItems} active • {syllabus.startedItems} of {syllabus.totalItems} started
+        </AppText>
+        {syllabus.description ? <AppText variant="caption">{syllabus.description}</AppText> : null}
+      </View>
+      <View style={styles.progressBadge}>
+        <AppText style={styles.progressBadgeValue}>{syllabus.percentMastered}%</AppText>
+        <AppText style={styles.progressBadgeLabel}>mastered</AppText>
+      </View>
     </View>
   );
 }
@@ -219,6 +246,7 @@ export default function LearnScreen() {
   const recentLessons = overview.recentLessons;
   const groupLessonRecaps = overview.groupLessonRecaps;
   const practiceFocus = overview.practiceFocus;
+  const syllabi = overview.syllabi;
   const latestLesson = recentLessons[0] ?? null;
   const latestItems = [
     latestLesson ? { kind: "lesson" as const, lesson: latestLesson } : null,
@@ -276,18 +304,19 @@ export default function LearnScreen() {
             />
           )}
 
-          <View style={styles.syllabusCard}>
-            <View style={{ flex: 1 }}>
-              <AppText variant="eyebrow">Syllabus</AppText>
-              <AppText variant="subtitle">Skill progress</AppText>
-              <AppText variant="caption">
-                Track patterns, levels, and next skills when your studio shares syllabus progress.
-              </AppText>
+          {syllabi.length ? (
+            <View style={styles.section}>
+              <AppText variant="subtitle">Syllabus</AppText>
+              {syllabi.map((syllabus) => (
+                <SyllabusCard key={syllabus.id} syllabus={syllabus} />
+              ))}
             </View>
-            <Link href="/lumi" asChild>
-              <AppButton label="Ask LUMI" variant="secondary" />
-            </Link>
-          </View>
+          ) : (
+            <FeatureCard
+              title="No visible syllabus yet"
+              detail="Assigned syllabus progress will appear here when your studio makes it visible to your account."
+            />
+          )}
 
           <View style={styles.section}>
             <AppText variant="subtitle">Practice focus</AppText>
@@ -369,6 +398,35 @@ const styles = StyleSheet.create({
   },
   promptList: {
     gap: 8
+  },
+  progressBadge: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 16,
+    minWidth: 82,
+    padding: 10
+  },
+  progressBadgeLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  progressBadgeValue: {
+    color: colors.primary,
+    fontSize: 22,
+    fontWeight: "900"
+  },
+  progressFill: {
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+    height: "100%"
+  },
+  progressTrack: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 999,
+    height: 8,
+    marginVertical: 6,
+    overflow: "hidden"
   },
   section: {
     gap: 10

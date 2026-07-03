@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -15,6 +16,7 @@ import {
   loadMyPartnerProfile,
   requestPartnerConnection,
   saveMyPartnerProfile,
+  uploadPartnerProfilePhoto,
   type DancerPartnerProfile,
   type PartnerListingIntent,
   type PartnerRole,
@@ -23,11 +25,6 @@ import {
 } from "@/lib/partnerSearch";
 
 type RequestDrafts = Record<string, string>;
-
-type EditablePartnerProfile = DancerPartnerProfile & {
-  photoUrl?: string | null;
-  profilePhotoUrl?: string | null;
-};
 
 const intentOptions: Array<{ label: string; value: PartnerListingIntent }> = [
   { label: "Practice", value: "practice" },
@@ -90,8 +87,8 @@ function joinList(values: string[]) {
   return Array.from(new Set(values)).join(", ");
 }
 
-function profilePhotoUrl(profile: EditablePartnerProfile) {
-  return profile.photoUrl?.trim() || profile.profilePhotoUrl?.trim() || "";
+function profilePhotoUrl(profile: DancerPartnerProfile) {
+  return profile.photoUrl.trim();
 }
 
 function Field({
@@ -198,7 +195,8 @@ export default function PartnerSearchScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profiles, setProfiles] = useState<PublicPartnerProfileItem[]>([]);
-  const [myProfile, setMyProfile] = useState<EditablePartnerProfile | null>(null);
+  const [myProfile, setMyProfile] = useState<DancerPartnerProfile | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -235,7 +233,7 @@ export default function PartnerSearchScreen() {
         loadMyPartnerProfile(user.id, user.email),
         getPublicPartnerProfilesForMobile()
       ]);
-      setMyProfile(ownProfile as EditablePartnerProfile);
+      setMyProfile(ownProfile);
       setProfiles(publicProfiles);
     } catch {
       setErrorMessage("Partner Search is not available yet. Try again in a moment.");
@@ -249,8 +247,47 @@ export default function PartnerSearchScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  function updateProfile(updater: (profile: EditablePartnerProfile) => EditablePartnerProfile) {
+  function updateProfile(updater: (profile: DancerPartnerProfile) => DancerPartnerProfile) {
     setMyProfile((current) => (current ? updater(current) : current));
+  }
+
+  async function chooseProfilePhoto() {
+    if (!user) return;
+
+    setUploadingPhoto(true);
+    setMessage(null);
+    setErrorMessage(null);
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setMessage("Allow photo access to add a partner profile photo.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        aspect: [1, 1],
+        mediaTypes: ["images"],
+        quality: 0.82
+      });
+
+      if (result.canceled || !result.assets[0]) return;
+
+      const asset = result.assets[0];
+      const photoUrl = await uploadPartnerProfilePhoto({
+        contentType: asset.mimeType,
+        uri: asset.uri,
+        userId: user.id
+      });
+
+      updateProfile((profile) => ({ ...profile, photoUrl }));
+      setMessage("Photo added. Save your listing to keep it on your profile.");
+    } catch {
+      setErrorMessage("We could not upload that photo yet.");
+    } finally {
+      setUploadingPhoto(false);
+    }
   }
 
   async function saveProfile(visibility: PartnerVisibility) {
@@ -264,7 +301,7 @@ export default function PartnerSearchScreen() {
       const result = await saveMyPartnerProfile(user.id, {
         ...myProfile,
         visibility
-      } as DancerPartnerProfile);
+      });
 
       if (result.advertisingRisk) {
         setMessage(
@@ -371,15 +408,15 @@ export default function PartnerSearchScreen() {
               </View>
             )}
             <View style={{ flex: 1 }}>
-              <Field
-                label="Profile photo URL"
-                onChangeText={(value) => updateProfile((profile) => ({ ...profile, photoUrl: value }))}
-                placeholder="https://..."
-                value={profilePhotoUrl(myProfile)}
-              />
+              <AppText variant="eyebrow">Profile photo</AppText>
               <AppText variant="caption">
                 Add one clear photo of yourself. Public contact details and promotional images are not allowed.
               </AppText>
+              <AppButton
+                label={uploadingPhoto ? "Uploading..." : profilePhotoUrl(myProfile) ? "Change Photo" : "Choose Photo"}
+                onPress={chooseProfilePhoto}
+                variant="secondary"
+              />
             </View>
           </View>
           <Field

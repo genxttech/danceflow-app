@@ -25,6 +25,23 @@ export type StudentPracticeFocus = {
   detail: string;
 };
 
+export type StudentSyllabusSummary = {
+  id: string;
+  studioId: string;
+  studioName: string;
+  studioSlug: string;
+  name: string;
+  danceStyle: string | null;
+  level: string | null;
+  description: string | null;
+  totalItems: number;
+  startedItems: number;
+  activeItems: number;
+  masteredItems: number;
+  percentMastered: number;
+  assignedAt: string | null;
+};
+
 export type StudentGroupLessonRecap = {
   id: string;
   recapId: string;
@@ -45,6 +62,7 @@ export type StudentLearnOverview = {
   recentLessons: StudentLearnLesson[];
   groupLessonRecaps: StudentGroupLessonRecap[];
   practiceFocus: StudentPracticeFocus[];
+  syllabi: StudentSyllabusSummary[];
   lumiPrompts: string[];
 };
 
@@ -103,6 +121,38 @@ type GroupLessonRecapRecipientRow = {
         status: string | null;
       }[]
     | null;
+};
+
+type SyllabusTemplateItemRow = {
+  id: string;
+  active: boolean | null;
+};
+
+type SyllabusTemplateRow = {
+  id: string;
+  name: string;
+  dance_style: string | null;
+  level: string | null;
+  description: string | null;
+  active: boolean | null;
+  syllabus_template_items: SyllabusTemplateItemRow[] | null;
+};
+
+type SyllabusProgressRow = {
+  id: string;
+  template_item_id: string;
+  status: string | null;
+};
+
+type ClientSyllabusAssignmentRow = {
+  id: string;
+  studio_id: string;
+  client_id: string;
+  assigned_at: string | null;
+  visible_in_portal: boolean | null;
+  archived_at: string | null;
+  syllabus_templates: SyllabusTemplateRow | SyllabusTemplateRow[] | null;
+  client_syllabus_progress: SyllabusProgressRow[] | null;
 };
 
 function firstJoin<T>(value: T | T[] | null | undefined): T | null {
@@ -182,6 +232,68 @@ function buildPracticeFocus(recentLessons: StudentLearnLesson[]): StudentPractic
   return focus.slice(0, 3);
 }
 
+function normalizeTemplate(template: SyllabusTemplateRow | SyllabusTemplateRow[] | null | undefined) {
+  return Array.isArray(template) ? template[0] ?? null : template ?? null;
+}
+
+function countSyllabusProgress(
+  items: SyllabusTemplateItemRow[],
+  progressRows: SyllabusProgressRow[] | null | undefined
+) {
+  const progressByItemId = new Map(
+    (progressRows ?? []).map((progress) => [progress.template_item_id, progress.status ?? "not_started"])
+  );
+  let startedItems = 0;
+  let activeItems = 0;
+  let masteredItems = 0;
+
+  for (const item of items) {
+    const status = progressByItemId.get(item.id) ?? "not_started";
+
+    if (status !== "not_started") startedItems += 1;
+    if (["introduced", "practicing", "comfortable"].includes(status)) activeItems += 1;
+    if (status === "mastered") masteredItems += 1;
+  }
+
+  const totalItems = items.length;
+
+  return {
+    totalItems,
+    startedItems,
+    activeItems,
+    masteredItems,
+    percentMastered: totalItems ? Math.round((masteredItems / totalItems) * 100) : 0
+  };
+}
+
+function toSyllabusSummary(
+  row: ClientSyllabusAssignmentRow,
+  studioById: Map<string, LinkedStudioAccess>
+): StudentSyllabusSummary | null {
+  const template = normalizeTemplate(row.syllabus_templates);
+  const studio = studioById.get(row.studio_id);
+
+  if (!template || !studio || template.active === false || row.visible_in_portal !== true || row.archived_at) {
+    return null;
+  }
+
+  const items = (template.syllabus_template_items ?? []).filter((item) => item.active !== false);
+  const counts = countSyllabusProgress(items, row.client_syllabus_progress);
+
+  return {
+    id: row.id,
+    studioId: row.studio_id,
+    studioName: studioDisplayName(studio),
+    studioSlug: studio.studioSlug,
+    name: template.name,
+    danceStyle: template.dance_style,
+    level: template.level,
+    description: template.description,
+    assignedAt: row.assigned_at,
+    ...counts
+  };
+}
+
 function isGroupLesson(lesson: StudentLearnLesson) {
   return lesson.typeLabel.toLowerCase().includes("group");
 }
@@ -258,6 +370,7 @@ export async function loadStudentLearnOverview(
       recentLessons: [],
       groupLessonRecaps: [],
       practiceFocus: [],
+      syllabi: [],
       lumiPrompts: buildLumiPrompts([], [])
     };
   }
@@ -374,10 +487,60 @@ export async function loadStudentLearnOverview(
     )
     .slice(0, 6);
 
+  const { data: syllabusRows, error: syllabusError } = await supabase
+    .from("client_syllabus_assignments")
+    .select(
+      `
+      id,
+      studio_id,
+      client_id,
+      assigned_at,
+      visible_in_portal,
+      archived_at,
+      syllabus_templates (
+        id,
+        name,
+        dance_style,
+        level,
+        description,
+        active,
+        syllabus_template_items (
+          id,
+          active
+        )
+      ),
+      client_syllabus_progress (
+        id,
+        template_item_id,
+        status
+      )
+    `
+    )
+    .in("studio_id", studioIds)
+    .in("client_id", clientIds)
+    .eq("visible_in_portal", true)
+    .is("archived_at", null)
+    .order("assigned_at", { ascending: false })
+    .limit(10);
+
+  if (syllabusError) {
+    throw syllabusError;
+  }
+
+  const syllabi = ((syllabusRows ?? []) as unknown as ClientSyllabusAssignmentRow[])
+    .map((row) => toSyllabusSummary(row, studioById))
+    .filter((item): item is StudentSyllabusSummary => Boolean(item))
+    .sort(
+      (a, b) =>
+        new Date(b.assignedAt ?? 0).getTime() - new Date(a.assignedAt ?? 0).getTime()
+    )
+    .slice(0, 5);
+
   return {
     recentLessons: slicedLessons,
     groupLessonRecaps,
     practiceFocus: buildPracticeFocus(slicedLessons),
+    syllabi,
     lumiPrompts: buildLumiPrompts(slicedLessons, groupLessonRecaps)
   };
 }

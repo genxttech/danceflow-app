@@ -14,6 +14,7 @@ const emptyOverview: StudentLearnOverview = {
   recentLessons: [],
   groupLessonRecaps: [],
   practiceFocus: [],
+  syllabi: [],
   lumiPrompts: [
     "What should I practice this week?",
     "Turn my recent lessons into a practice plan.",

@@ -121,10 +121,43 @@ export function hasPartnerListingAdvertisingRisk(profile: DancerPartnerProfile) 
       profile.bio,
       profile.danceStyles,
       profile.goals,
-      profile.photoUrl,
       profile.availabilityNotes
     ].join(" ")
   );
+}
+
+function photoExtension(contentType: string | null | undefined) {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  if (contentType === "image/heic") return "heic";
+  return "jpg";
+}
+
+export async function uploadPartnerProfilePhoto({
+  contentType,
+  uri,
+  userId
+}: {
+  contentType?: string | null;
+  uri: string;
+  userId: string;
+}) {
+  const response = await fetch(uri);
+  const blob = await response.blob();
+  const filePath = `${userId}/profile-${Date.now()}.${photoExtension(contentType)}`;
+
+  const { error } = await supabase.storage
+    .from("partner-profile-photos")
+    .upload(filePath, blob, {
+      cacheControl: "3600",
+      contentType: contentType || "image/jpeg",
+      upsert: true
+    });
+
+  if (error) throw error;
+
+  const { data } = supabase.storage.from("partner-profile-photos").getPublicUrl(filePath);
+  return data.publicUrl;
 }
 
 export async function loadMyPartnerProfile(userId: string, userEmail?: string | null) {
