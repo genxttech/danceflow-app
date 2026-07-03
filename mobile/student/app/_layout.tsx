@@ -1,12 +1,18 @@
+import { useEffect } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { usePushNotificationBootstrap } from "@/lib/pushNotifications";
+import { hydrateAppearanceMode } from "@/constants/theme";
 
 function AppStack() {
   const { session } = useAuth();
 
   usePushNotificationBootstrap(session?.user.id);
+
+  useEffect(() => {
+    hydrateAppearanceMode();
+  }, []);
 
   return (
     <>

@@ -1,26 +1,32 @@
-import { StyleSheet, Text, type TextProps } from "react-native";
-import { colors } from "@/constants/theme";
+import { StyleSheet, Text, useColorScheme, type TextProps } from "react-native";
+import { colorsForScheme } from "@/constants/theme";
 
 type AppTextProps = TextProps & {
   variant?: "title" | "subtitle" | "body" | "caption" | "eyebrow";
 };
 
 export function AppText({ variant = "body", style, ...props }: AppTextProps) {
-  return <Text {...props} style={[styles.base, styles[variant], style]} />;
+  const colors = colorsForScheme(useColorScheme());
+  const dynamicStyle =
+    variant === "title" || variant === "subtitle"
+      ? { color: colors.text }
+      : variant === "caption"
+        ? { color: colors.muted }
+        : variant === "eyebrow"
+          ? { color: colors.accent }
+          : { color: colors.text };
+
+  return <Text {...props} style={[styles.base, styles[variant], dynamicStyle, style]} />;
 }
 
 const styles = StyleSheet.create({
-  base: {
-    color: colors.text
-  },
+  base: {},
   title: {
-    color: colors.white,
     fontSize: 30,
     fontWeight: "900",
     lineHeight: 36
   },
   subtitle: {
-    color: colors.white,
     fontSize: 20,
     fontWeight: "800",
     lineHeight: 26
@@ -30,12 +36,10 @@ const styles = StyleSheet.create({
     lineHeight: 24
   },
   caption: {
-    color: colors.muted,
     fontSize: 13,
     lineHeight: 18
   },
   eyebrow: {
-    color: colors.accent,
     fontSize: 12,
     fontWeight: "900",
     letterSpacing: 2.6,

@@ -1,7 +1,7 @@
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, useColorScheme, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { AppText } from "@/components/AppText";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 
 type FeatureCardProps = {
   title: string;
@@ -10,8 +10,10 @@ type FeatureCardProps = {
 };
 
 export function FeatureCard({ title, detail, label }: FeatureCardProps) {
+  const colors = colorsForScheme(useColorScheme());
+
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
       <LinearGradient colors={colors.brandGradient} style={styles.accentBar} />
       {label ? <AppText variant="eyebrow">{label}</AppText> : null}
       <AppText variant="subtitle">{title}</AppText>
@@ -22,8 +24,6 @@ export function FeatureCard({ title, detail, label }: FeatureCardProps) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,
     gap: 8,

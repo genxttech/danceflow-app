@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
@@ -7,7 +7,13 @@ import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
-import { colors } from "@/constants/theme";
+import {
+  colors,
+  colorsForScheme,
+  getAppearanceMode,
+  setAppearanceMode,
+  type AppearanceMode
+} from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import { loadStudentProfiles, updateStudentProfile, type StudentProfile } from "@/lib/studentProfile";
@@ -55,14 +61,22 @@ function profileOptions(profiles: StudentProfile[]) {
 
 type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
 
+const appearanceOptions: Array<{ label: string; value: AppearanceMode }> = [
+  { label: "System", value: "system" },
+  { label: "Light", value: "light" },
+  { label: "Dark", value: "dark" }
+];
+
 export default function ProfileScreen() {
   const { session, signOut } = useAuth();
   const router = useRouter();
+  const themeColors = colorsForScheme(useColorScheme());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [profiles, setProfiles] = useState<StudentProfile[]>([]);
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
+  const [appearanceMode, setAppearanceModeState] = useState<AppearanceMode>("system");
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -127,6 +141,15 @@ export default function ProfileScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user.id]);
 
+  useEffect(() => {
+    getAppearanceMode().then(setAppearanceModeState);
+  }, []);
+
+  async function chooseAppearanceMode(mode: AppearanceMode) {
+    setAppearanceModeState(mode);
+    await setAppearanceMode(mode);
+  }
+
   const options = profileOptions(profiles);
   const isLinkedStudent = linkedStudios.length > 0;
 
@@ -172,6 +195,38 @@ export default function ProfileScreen() {
             </AppText>
           </View>
         </Pressable>
+      ) : null}
+
+      {!loading && session ? (
+        <View style={styles.appearanceCard}>
+          <View style={{ flex: 1 }}>
+            <AppText variant="eyebrow">Appearance</AppText>
+            <AppText variant="subtitle">App theme</AppText>
+            <AppText variant="caption">
+              Choose a lighter DanceFlow look, keep the dark look, or follow your phone setting.
+            </AppText>
+          </View>
+          <View style={styles.appearanceOptions}>
+            {appearanceOptions.map((option) => {
+              const active = option.value === appearanceMode;
+              return (
+                <Pressable
+                  key={option.value}
+                  onPress={() => chooseAppearanceMode(option.value)}
+                  style={[
+                    styles.appearancePill,
+                    { backgroundColor: themeColors.surfaceAlt, borderColor: themeColors.border },
+                    active && { backgroundColor: themeColors.primary, borderColor: themeColors.primary }
+                  ]}
+                >
+                  <AppText style={[styles.appearancePillText, { color: active ? "#fff" : themeColors.text }]}>
+                    {option.label}
+                  </AppText>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
       ) : null}
 
       {!loading && selectedProfile ? (
@@ -287,6 +342,29 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  appearanceCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 12,
+    padding: 16
+  },
+  appearanceOptions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  appearancePill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  appearancePillText: {
+    fontSize: 13,
+    fontWeight: "900"
+  },
   disabledInput: {
     opacity: 0.65
   },

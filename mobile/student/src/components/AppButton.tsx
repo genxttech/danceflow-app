@@ -2,12 +2,13 @@ import {
   ActivityIndicator,
   Pressable,
   StyleSheet,
+  useColorScheme,
   View,
   type PressableProps
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { AppText } from "@/components/AppText";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 
 type AppButtonProps = PressableProps & {
   label: string;
@@ -24,6 +25,7 @@ export function AppButton({
   ...props
 }: AppButtonProps) {
   const isPrimary = variant === "primary";
+  const colors = colorsForScheme(useColorScheme());
 
   return (
     <Pressable
@@ -32,6 +34,10 @@ export function AppButton({
       style={({ pressed }) => [
         styles.button,
         !isPrimary && styles[variant],
+        variant === "secondary" && {
+          backgroundColor: colors.surface,
+          borderColor: colors.borderStrong
+        },
         pressed && styles.pressed,
         (disabled || loading) && styles.disabled,
         typeof style === "function" ? style({ pressed, hovered: false }) : style
@@ -44,7 +50,7 @@ export function AppButton({
         {loading ? (
           <ActivityIndicator color={isPrimary ? colors.white : colors.primary} />
         ) : (
-          <AppText style={[styles.label, !isPrimary && styles.altLabel]}>{label}</AppText>
+          <AppText style={[styles.label, !isPrimary && { color: colors.text }]}>{label}</AppText>
         )}
       </View>
     </Pressable>
@@ -67,20 +73,15 @@ const styles = StyleSheet.create({
     width: "100%"
   },
   secondary: {
-    backgroundColor: colors.surface,
-    borderColor: colors.borderStrong,
     borderWidth: 1
   },
   ghost: {
     backgroundColor: "transparent"
   },
   label: {
-    color: colors.white,
+    color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "800"
-  },
-  altLabel: {
-    color: colors.text
   },
   pressed: {
     opacity: 0.78

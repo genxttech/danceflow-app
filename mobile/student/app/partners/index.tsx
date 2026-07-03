@@ -10,6 +10,7 @@ import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   getPublicPartnerProfilesForMobile,
+  setPublicFavoriteForMobile,
   type PublicPartnerProfileItem
 } from "@/lib/publicDiscovery";
 import {
@@ -231,7 +232,7 @@ export default function PartnerSearchScreen() {
     try {
       const [ownProfile, publicProfiles] = await Promise.all([
         loadMyPartnerProfile(user.id, user.email),
-        getPublicPartnerProfilesForMobile()
+        getPublicPartnerProfilesForMobile(user.id)
       ]);
       setMyProfile(ownProfile);
       setProfiles(publicProfiles);
@@ -346,6 +347,31 @@ export default function PartnerSearchScreen() {
       setErrorMessage("We could not send that request yet.");
     } finally {
       setRequestBusyId(null);
+    }
+  }
+
+  async function togglePartnerFavorite(profile: PublicPartnerProfileItem) {
+    if (!user) {
+      setMessage("Sign in to save partner profiles.");
+      return;
+    }
+
+    setMessage(null);
+    setErrorMessage(null);
+
+    try {
+      const favorited = await setPublicFavoriteForMobile({
+        favorited: !profile.favorited,
+        targetId: profile.id,
+        targetType: "partner_profile",
+        userId: user.id
+      });
+
+      setProfiles((current) =>
+        current.map((item) => (item.id === profile.id ? { ...item, favorited } : item))
+      );
+    } catch {
+      setErrorMessage("We could not save that partner profile yet.");
     }
   }
 
@@ -530,6 +556,16 @@ export default function PartnerSearchScreen() {
                 <AppText style={styles.partnerName}>{profile.displayName}</AppText>
                 <AppText variant="caption">{profile.location}</AppText>
               </View>
+              <Pressable
+                onPress={() => togglePartnerFavorite(profile)}
+                style={({ pressed }) => [styles.heartButton, pressed && styles.cardPressed]}
+              >
+                <Ionicons
+                  color={profile.favorited ? colors.primary : colors.muted}
+                  name={profile.favorited ? "heart" : "heart-outline"}
+                  size={22}
+                />
+              </Pressable>
               <View style={styles.intentBadge}>
                 <AppText style={styles.intentBadgeText}>{labelFor(profile.listingIntent)}</AppText>
               </View>
@@ -592,6 +628,9 @@ const styles = StyleSheet.create({
   actionRow: {
     gap: 10
   },
+  cardPressed: {
+    opacity: 0.78
+  },
   editorCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -607,6 +646,16 @@ const styles = StyleSheet.create({
   },
   field: {
     gap: 6
+  },
+  heartButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: "center",
+    width: 42
   },
   input: {
     backgroundColor: colors.background,

@@ -4,7 +4,7 @@ function danceFlowWebUrl() {
   return (process.env.EXPO_PUBLIC_DANCEFLOW_WEB_URL ?? "https://idanceflow.com").replace(/\/$/, "");
 }
 
-export type FavoriteTargetType = "studio" | "event";
+export type FavoriteTargetType = "studio" | "event" | "partner_profile";
 
 export async function setPublicFavoriteForMobile({
   favorited,
@@ -21,7 +21,12 @@ export async function setPublicFavoriteForMobile({
     throw new Error("Sign in to save favorites.");
   }
 
-  const idColumn = targetType === "studio" ? "studio_id" : "event_id";
+  const idColumn =
+    targetType === "studio"
+      ? "studio_id"
+      : targetType === "event"
+        ? "event_id"
+        : "partner_profile_id";
 
   const deleteQuery = supabase
     .from("user_favorites")
@@ -40,25 +45,23 @@ export async function setPublicFavoriteForMobile({
     return false;
   }
 
-  if (targetType === "studio") {
-    const { error: insertError } = await supabase.from("user_favorites").insert({
-      user_id: userId,
-      target_type: "studio",
-      studio_id: targetId
-    });
-
-    if (insertError) {
-      throw insertError;
-    }
-
-    return true;
-  }
-
-  const { error: insertError } = await supabase.from("user_favorites").insert({
+  const payload: {
+    event_id?: string;
+    partner_profile_id?: string;
+    studio_id?: string;
+    target_type: FavoriteTargetType;
+    user_id: string;
+  } = {
     user_id: userId,
-    target_type: "event",
-    event_id: targetId
-  });
+    target_type: targetType,
+    ...(targetType === "studio"
+      ? { studio_id: targetId }
+      : targetType === "event"
+        ? { event_id: targetId }
+        : { partner_profile_id: targetId })
+  };
+
+  const { error: insertError } = await supabase.from("user_favorites").insert(payload as any);
 
   if (insertError) {
     throw insertError;
@@ -390,6 +393,7 @@ export type PublicPartnerProfileItem = {
   goals: string[];
   listingIntent: string;
   availabilityNotes: string | null;
+  favorited: boolean;
   webUrl: string;
 };
 
@@ -494,7 +498,7 @@ export async function getPublicEventDetailForMobile(
   };
 }
 
-export async function getPublicPartnerProfilesForMobile() {
+export async function getPublicPartnerProfilesForMobile(userId?: string | null) {
   const { data, error } = await supabase
     .from("dancer_partner_profiles")
     .select(
@@ -508,7 +512,28 @@ export async function getPublicPartnerProfilesForMobile() {
 
   if (error) throw error;
 
-  return ((data ?? []) as PartnerProfileRow[]).map<PublicPartnerProfileItem>((profile) => ({
+  const rows = (data ?? []) as PartnerProfileRow[];
+  const favoriteIds = new Set<string>();
+
+  if (userId && rows.length) {
+    const { data: favorites, error: favoritesError } = await supabase
+      .from("user_favorites")
+      .select("partner_profile_id")
+      .eq("user_id", userId)
+      .eq("target_type", "partner_profile")
+      .in(
+        "partner_profile_id",
+        rows.map((profile) => profile.id)
+      );
+
+    if (favoritesError) throw favoritesError;
+
+    for (const favorite of favorites ?? []) {
+      if (favorite.partner_profile_id) favoriteIds.add(favorite.partner_profile_id);
+    }
+  }
+
+  return rows.map<PublicPartnerProfileItem>((profile) => ({
     id: profile.id,
     displayName: profile.display_name,
     headline: profile.headline,
@@ -522,6 +547,7 @@ export async function getPublicPartnerProfilesForMobile() {
     goals: profile.goals ?? [],
     listingIntent: profile.listing_intent ?? "practice",
     availabilityNotes: profile.availability_notes,
+    favorited: favoriteIds.has(profile.id),
     webUrl: `${danceFlowWebUrl()}/discover/partners`
   }));
 }
