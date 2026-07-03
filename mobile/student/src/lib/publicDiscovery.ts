@@ -387,6 +387,8 @@ export type PublicPartnerProfileItem = {
   location: string;
   city: string | null;
   state: string | null;
+  latitude: number | null;
+  longitude: number | null;
   leadFollowRole: string;
   danceStyles: string[];
   skillLevel: string;
@@ -409,12 +411,15 @@ export type PublicJobPostingItem = {
   location: string;
   city: string | null;
   state: string | null;
+  latitude: number | null;
+  longitude: number | null;
   compensationSummary: string | null;
   danceStyles: string[];
   requirements: string | null;
   description: string | null;
   applyUrl: string | null;
   applyEmail: string | null;
+  applyPhone: string | null;
   webUrl: string;
 };
 
@@ -425,6 +430,8 @@ type PartnerProfileRow = {
   bio: string | null;
   city: string | null;
   state: string | null;
+  latitude: number | null;
+  longitude: number | null;
   lead_follow_role: string;
   dance_styles: string[] | null;
   skill_level: string;
@@ -442,12 +449,15 @@ type JobPostingRow = {
   location_type: string;
   city: string | null;
   state: string | null;
+  latitude: number | null;
+  longitude: number | null;
   compensation_summary: string | null;
   dance_styles: string[] | null;
   requirements: string | null;
   description: string | null;
   apply_url: string | null;
   apply_email: string | null;
+  apply_phone: string | null;
   studios:
     | {
         slug: string | null;
@@ -502,7 +512,7 @@ export async function getPublicPartnerProfilesForMobile(userId?: string | null) 
   const { data, error } = await supabase
     .from("dancer_partner_profiles")
     .select(
-      "id, display_name, headline, bio, city, state, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes"
+      "id, display_name, headline, bio, city, state, latitude, longitude, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes"
     )
     .eq("visibility", "published")
     .eq("moderation_status", "approved")
@@ -541,6 +551,8 @@ export async function getPublicPartnerProfilesForMobile(userId?: string | null) 
     location: locationLabel(profile),
     city: profile.city,
     state: profile.state,
+    latitude: profile.latitude,
+    longitude: profile.longitude,
     leadFollowRole: profile.lead_follow_role,
     danceStyles: profile.dance_styles ?? [],
     skillLevel: profile.skill_level,
@@ -565,12 +577,15 @@ export async function getPublicJobPostingsForMobile() {
       location_type,
       city,
       state,
+      latitude,
+      longitude,
       compensation_summary,
       dance_styles,
       requirements,
       description,
       apply_url,
       apply_email,
+      apply_phone,
       studios (
         slug,
         public_name,
@@ -604,12 +619,15 @@ export async function getPublicJobPostingsForMobile() {
       location,
       city: posting.city,
       state: posting.state,
+      latitude: posting.latitude,
+      longitude: posting.longitude,
       compensationSummary: posting.compensation_summary,
       danceStyles: posting.dance_styles ?? [],
       requirements: posting.requirements,
       description: posting.description,
       applyUrl: posting.apply_url,
       applyEmail: posting.apply_email,
+      applyPhone: posting.apply_phone,
       webUrl: `${danceFlowWebUrl()}/discover/jobs`
     };
   });

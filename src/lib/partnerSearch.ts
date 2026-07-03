@@ -7,6 +7,8 @@ export type PartnerSearchProfile = {
   bio: string | null;
   city: string | null;
   state: string | null;
+  latitude: number | null;
+  longitude: number | null;
   location: string;
   leadFollowRole: string;
   danceStyles: string[];
@@ -24,6 +26,8 @@ type PartnerSearchProfileRow = {
   bio: string | null;
   city: string | null;
   state: string | null;
+  latitude: number | null;
+  longitude: number | null;
   lead_follow_role: string;
   dance_styles: string[] | null;
   skill_level: string;
@@ -63,12 +67,43 @@ export function formatPartnerIntent(value: string) {
   return normalizeLabel(value);
 }
 
-export async function getPublishedPartnerProfiles() {
+export type PartnerSearchFilters = {
+  intent?: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  query?: string;
+  radiusMiles?: number;
+  role?: string;
+  skill?: string;
+  style?: string;
+};
+
+function normalize(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function milesBetween(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+) {
+  const earthRadiusMiles = 3958.8;
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const deltaLat = toRadians(b.latitude - a.latitude);
+  const deltaLng = toRadians(b.longitude - a.longitude);
+  const lat1 = toRadians(a.latitude);
+  const lat2 = toRadians(b.latitude);
+  const h =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+  return 2 * earthRadiusMiles * Math.asin(Math.sqrt(h));
+}
+
+export async function getPublishedPartnerProfiles(filters: PartnerSearchFilters = {}) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("dancer_partner_profiles")
     .select(
-      "id, display_name, headline, bio, city, state, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes, published_at",
+      "id, display_name, headline, bio, city, state, latitude, longitude, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes, published_at",
     )
     .eq("visibility", "published")
     .eq("moderation_status", "approved")
@@ -80,7 +115,7 @@ export async function getPublishedPartnerProfiles() {
     throw new Error(`Failed to load partner profiles: ${error.message}`);
   }
 
-  return ((data ?? []) as PartnerSearchProfileRow[]).map<PartnerSearchProfile>(
+  const profiles = ((data ?? []) as PartnerSearchProfileRow[]).map<PartnerSearchProfile>(
     (row) => ({
       id: row.id,
       displayName: row.display_name,
@@ -88,6 +123,8 @@ export async function getPublishedPartnerProfiles() {
       bio: row.bio,
       city: row.city,
       state: row.state,
+      latitude: row.latitude,
+      longitude: row.longitude,
       location: locationLabel(row.city, row.state),
       leadFollowRole: row.lead_follow_role,
       danceStyles: row.dance_styles ?? [],
@@ -98,4 +135,42 @@ export async function getPublishedPartnerProfiles() {
       publishedAt: row.published_at,
     }),
   );
+
+  return profiles.filter((profile) => {
+    const search = normalize(filters.query);
+    const matchesSearch =
+      !search ||
+      [
+        profile.displayName,
+        profile.headline,
+        profile.bio,
+        profile.location,
+        profile.leadFollowRole,
+        profile.skillLevel,
+        profile.listingIntent,
+        ...profile.danceStyles,
+        ...profile.goals,
+      ].some((value) => normalize(value).includes(search));
+
+    const matchesDistance =
+      filters.latitude === undefined ||
+      filters.latitude === null ||
+      filters.longitude === undefined ||
+      filters.longitude === null ||
+      (profile.latitude !== null &&
+        profile.longitude !== null &&
+        milesBetween(
+          { latitude: filters.latitude, longitude: filters.longitude },
+          { latitude: profile.latitude, longitude: profile.longitude },
+        ) <= (filters.radiusMiles ?? 50));
+
+    return (
+      matchesSearch &&
+      (!filters.role || profile.leadFollowRole === filters.role) &&
+      (!filters.skill || profile.skillLevel === filters.skill) &&
+      (!filters.intent || profile.listingIntent === filters.intent) &&
+      (!filters.style || profile.danceStyles.includes(filters.style)) &&
+      matchesDistance
+    );
+  });
 }

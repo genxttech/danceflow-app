@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { NearMeButton } from "../NearMeButton";
 import {
   formatPartnerIntent,
   formatPartnerRole,
@@ -12,8 +13,65 @@ export const metadata = {
     "Browse dancers looking for practice, social dance, showcase, or competition partners.",
 };
 
-export default async function PartnerSearchDiscoveryPage() {
-  const profiles = await getPublishedPartnerProfiles();
+type SearchParams = Promise<{
+  intent?: string;
+  lat?: string;
+  lng?: string;
+  q?: string;
+  radius?: string;
+  role?: string;
+  skill?: string;
+  style?: string;
+}>;
+
+const roleOptions = ["either", "lead", "follow", "switch"];
+const skillOptions = ["newcomer", "beginner", "social", "intermediate", "advanced", "professional"];
+const intentOptions = ["practice", "social", "showcase", "competition"];
+const danceStyles = [
+  "Country Two Step",
+  "West Coast Swing",
+  "East Coast Swing",
+  "Nightclub Two Step",
+  "Country Waltz",
+  "Polka",
+  "Waltz",
+  "Tango",
+  "Foxtrot",
+  "Viennese Waltz",
+  "Quickstep",
+  "Cha Cha",
+  "Rumba",
+  "Samba",
+  "Bolero",
+  "Mambo",
+  "Salsa",
+  "Bachata",
+  "Argentine Tango",
+  "Hustle",
+];
+
+function numberParam(value: string | undefined) {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export default async function PartnerSearchDiscoveryPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const query = await searchParams;
+  const profiles = await getPublishedPartnerProfiles({
+    intent: query.intent,
+    latitude: numberParam(query.lat),
+    longitude: numberParam(query.lng),
+    query: query.q,
+    radiusMiles: numberParam(query.radius) ?? 50,
+    role: query.role,
+    skill: query.skill,
+    style: query.style,
+  });
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -48,6 +106,88 @@ export default async function PartnerSearchDiscoveryPage() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        <form className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-3 md:grid-cols-3">
+            <input
+              name="q"
+              defaultValue={query.q ?? ""}
+              placeholder="Search style, city, role, goal, or level"
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm md:col-span-3"
+            />
+            <select
+              name="intent"
+              defaultValue={query.intent ?? ""}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">Any goal</option>
+              {intentOptions.map((intent) => (
+                <option key={intent} value={intent}>
+                  {formatPartnerIntent(intent)}
+                </option>
+              ))}
+            </select>
+            <select
+              name="role"
+              defaultValue={query.role ?? ""}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">Any role</option>
+              {roleOptions.map((role) => (
+                <option key={role} value={role}>
+                  {formatPartnerRole(role)}
+                </option>
+              ))}
+            </select>
+            <select
+              name="skill"
+              defaultValue={query.skill ?? ""}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">Any level</option>
+              {skillOptions.map((skill) => (
+                <option key={skill} value={skill}>
+                  {formatPartnerSkill(skill)}
+                </option>
+              ))}
+            </select>
+            <select
+              name="style"
+              defaultValue={query.style ?? ""}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm md:col-span-2"
+            >
+              <option value="">Any dance style</option>
+              {danceStyles.map((style) => (
+                <option key={style} value={style}>
+                  {style}
+                </option>
+              ))}
+            </select>
+            <select
+              name="radius"
+              defaultValue={query.radius ?? "50"}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="25">25 miles</option>
+              <option value="50">50 miles</option>
+              <option value="100">100 miles</option>
+            </select>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-3">
+            <button
+              type="submit"
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white"
+            >
+              Apply filters
+            </button>
+            <Link
+              href="/discover/partners"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Clear
+            </Link>
+            <NearMeButton />
+          </div>
+        </form>
         {profiles.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
             <h2 className="text-lg font-semibold text-slate-950">

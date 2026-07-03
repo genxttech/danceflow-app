@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { NearMeButton } from "../NearMeButton";
 import {
   formatEmploymentType,
   formatJobRole,
@@ -11,8 +12,65 @@ export const metadata = {
     "Browse studio hiring posts for instructors, coaches, front desk roles, event staff, and dance operations jobs.",
 };
 
-export default async function NowHiringDiscoveryPage() {
-  const postings = await getPublishedStudioJobPostings();
+type SearchParams = Promise<{
+  employmentType?: string;
+  lat?: string;
+  lng?: string;
+  locationType?: string;
+  q?: string;
+  radius?: string;
+  roleType?: string;
+  style?: string;
+}>;
+
+const roleOptions = ["instructor", "coach", "front_desk", "event_staff", "admin", "other"];
+const employmentOptions = ["contract", "part_time", "full_time", "employee", "temporary", "volunteer"];
+const locationOptions = ["in_person", "hybrid", "remote"];
+const danceStyles = [
+  "Country Two Step",
+  "West Coast Swing",
+  "East Coast Swing",
+  "Nightclub Two Step",
+  "Country Waltz",
+  "Polka",
+  "Waltz",
+  "Tango",
+  "Foxtrot",
+  "Viennese Waltz",
+  "Quickstep",
+  "Cha Cha",
+  "Rumba",
+  "Samba",
+  "Bolero",
+  "Mambo",
+  "Salsa",
+  "Bachata",
+  "Argentine Tango",
+  "Hustle",
+];
+
+function numberParam(value: string | undefined) {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export default async function NowHiringDiscoveryPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const query = await searchParams;
+  const postings = await getPublishedStudioJobPostings({
+    employmentType: query.employmentType,
+    latitude: numberParam(query.lat),
+    locationType: query.locationType,
+    longitude: numberParam(query.lng),
+    query: query.q,
+    radiusMiles: numberParam(query.radius) ?? 50,
+    roleType: query.roleType,
+    style: query.style,
+  });
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -42,6 +100,88 @@ export default async function NowHiringDiscoveryPage() {
       </section>
 
       <section className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        <form className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="grid gap-3 md:grid-cols-3">
+            <input
+              name="q"
+              defaultValue={query.q ?? ""}
+              placeholder="Search jobs, studios, cities, or styles"
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm md:col-span-3"
+            />
+            <select
+              name="roleType"
+              defaultValue={query.roleType ?? ""}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">Any role</option>
+              {roleOptions.map((role) => (
+                <option key={role} value={role}>
+                  {formatJobRole(role)}
+                </option>
+              ))}
+            </select>
+            <select
+              name="employmentType"
+              defaultValue={query.employmentType ?? ""}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">Any employment</option>
+              {employmentOptions.map((employment) => (
+                <option key={employment} value={employment}>
+                  {formatEmploymentType(employment)}
+                </option>
+              ))}
+            </select>
+            <select
+              name="locationType"
+              defaultValue={query.locationType ?? ""}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="">Any location type</option>
+              {locationOptions.map((locationType) => (
+                <option key={locationType} value={locationType}>
+                  {locationType.replaceAll("_", " ")}
+                </option>
+              ))}
+            </select>
+            <select
+              name="style"
+              defaultValue={query.style ?? ""}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm md:col-span-2"
+            >
+              <option value="">Any dance style</option>
+              {danceStyles.map((style) => (
+                <option key={style} value={style}>
+                  {style}
+                </option>
+              ))}
+            </select>
+            <select
+              name="radius"
+              defaultValue={query.radius ?? "50"}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
+            >
+              <option value="25">25 miles</option>
+              <option value="50">50 miles</option>
+              <option value="100">100 miles</option>
+            </select>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-3">
+            <button
+              type="submit"
+              className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white"
+            >
+              Apply filters
+            </button>
+            <Link
+              href="/discover/jobs"
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Clear
+            </Link>
+            <NearMeButton />
+          </div>
+        </form>
         {postings.length === 0 ? (
           <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center">
             <h2 className="text-lg font-semibold text-slate-950">
@@ -105,21 +245,34 @@ export default async function NowHiringDiscoveryPage() {
                       <p>Compensation details provided by the studio.</p>
                     )}
                   </div>
-                  {posting.applyUrl ? (
-                    <Link
-                      href={posting.applyUrl}
-                      className="font-semibold text-[var(--brand-primary)] hover:underline"
-                    >
-                      Apply
-                    </Link>
-                  ) : posting.applyEmail ? (
-                    <a
-                      href={`mailto:${posting.applyEmail}`}
-                      className="font-semibold text-[var(--brand-primary)] hover:underline"
-                    >
-                      Apply by email
-                    </a>
-                  ) : null}
+                  <div className="flex flex-wrap gap-3">
+                    {posting.applyUrl ? (
+                      <a
+                        href={posting.applyUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                        className="font-semibold text-[var(--brand-primary)] hover:underline"
+                      >
+                        Apply
+                      </a>
+                    ) : null}
+                    {posting.applyEmail ? (
+                      <a
+                        href={`mailto:${posting.applyEmail}`}
+                        className="font-semibold text-[var(--brand-primary)] hover:underline"
+                      >
+                        Apply by email
+                      </a>
+                    ) : null}
+                    {posting.applyPhone ? (
+                      <a
+                        href={`tel:${posting.applyPhone}`}
+                        className="font-semibold text-[var(--brand-primary)] hover:underline"
+                      >
+                        Call to apply
+                      </a>
+                    ) : null}
+                  </div>
                 </div>
               </article>
             ))}

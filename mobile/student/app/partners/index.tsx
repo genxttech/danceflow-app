@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
+import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -14,11 +16,13 @@ import {
   type PublicPartnerProfileItem
 } from "@/lib/publicDiscovery";
 import {
+  loadMyPartnerThreads,
   loadMyPartnerProfile,
   requestPartnerConnection,
   saveMyPartnerProfile,
   uploadPartnerProfilePhoto,
   type DancerPartnerProfile,
+  type PartnerConversationThread,
   type PartnerListingIntent,
   type PartnerRole,
   type PartnerSkillLevel,
@@ -26,6 +30,8 @@ import {
 } from "@/lib/partnerSearch";
 
 type RequestDrafts = Record<string, string>;
+type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
+type FilterLocation = { latitude: number; longitude: number } | null;
 
 const intentOptions: Array<{ label: string; value: PartnerListingIntent }> = [
   { label: "Practice", value: "practice" },
@@ -90,6 +96,22 @@ function joinList(values: string[]) {
 
 function profilePhotoUrl(profile: DancerPartnerProfile) {
   return profile.photoUrl.trim();
+}
+
+function milesBetween(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number }
+) {
+  const earthRadiusMiles = 3958.8;
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const deltaLat = toRadians(b.latitude - a.latitude);
+  const deltaLng = toRadians(b.longitude - a.longitude);
+  const lat1 = toRadians(a.latitude);
+  const lat2 = toRadians(b.latitude);
+  const h =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+  return 2 * earthRadiusMiles * Math.asin(Math.sqrt(h));
 }
 
 function Field({
@@ -192,13 +214,21 @@ function DanceStylePicker({
 
 export default function PartnerSearchScreen() {
   const { session } = useAuth();
+  const router = useRouter();
   const user = session?.user ?? null;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profiles, setProfiles] = useState<PublicPartnerProfileItem[]>([]);
+  const [threads, setThreads] = useState<PartnerConversationThread[]>([]);
   const [myProfile, setMyProfile] = useState<DancerPartnerProfile | null>(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [query, setQuery] = useState("");
+  const [filterRole, setFilterRole] = useState<PartnerRole | "">("");
+  const [filterSkill, setFilterSkill] = useState<PartnerSkillLevel | "">("");
+  const [filterIntent, setFilterIntent] = useState<PartnerListingIntent | "">("");
+  const [filterStyle, setFilterStyle] = useState("");
+  const [filterLocation, setFilterLocation] = useState<FilterLocation>(null);
+  const [radiusMiles, setRadiusMiles] = useState(50);
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [requestDrafts, setRequestDrafts] = useState<RequestDrafts>({});
@@ -206,22 +236,33 @@ export default function PartnerSearchScreen() {
 
   const filteredProfiles = useMemo(() => {
     const search = normalize(query);
-    if (!search) return profiles;
 
     return profiles.filter((profile) =>
-      [
-        profile.displayName,
-        profile.headline,
-        profile.bio,
-        profile.location,
-        profile.leadFollowRole,
-        profile.skillLevel,
-        profile.listingIntent,
-        ...profile.danceStyles,
-        ...profile.goals
-      ].some((value) => normalize(value).includes(search))
+      (!search ||
+        [
+          profile.displayName,
+          profile.headline,
+          profile.bio,
+          profile.location,
+          profile.leadFollowRole,
+          profile.skillLevel,
+          profile.listingIntent,
+          ...profile.danceStyles,
+          ...profile.goals
+        ].some((value) => normalize(value).includes(search))) &&
+      (!filterRole || profile.leadFollowRole === filterRole) &&
+      (!filterSkill || profile.skillLevel === filterSkill) &&
+      (!filterIntent || profile.listingIntent === filterIntent) &&
+      (!filterStyle || profile.danceStyles.includes(filterStyle)) &&
+      (!filterLocation ||
+        (profile.latitude !== null &&
+          profile.longitude !== null &&
+          milesBetween(filterLocation, {
+            latitude: profile.latitude,
+            longitude: profile.longitude
+          }) <= radiusMiles))
     );
-  }, [profiles, query]);
+  }, [filterIntent, filterLocation, filterRole, filterSkill, filterStyle, profiles, query, radiusMiles]);
 
   async function loadPartnerSearch() {
     if (!user) return;
@@ -230,12 +271,14 @@ export default function PartnerSearchScreen() {
     setErrorMessage(null);
 
     try {
-      const [ownProfile, publicProfiles] = await Promise.all([
+      const [ownProfile, publicProfiles, ownThreads] = await Promise.all([
         loadMyPartnerProfile(user.id, user.email),
-        getPublicPartnerProfilesForMobile(user.id)
+        getPublicPartnerProfilesForMobile(user.id),
+        loadMyPartnerThreads(user.id)
       ]);
       setMyProfile(ownProfile);
       setProfiles(publicProfiles);
+      setThreads(ownThreads);
     } catch {
       setErrorMessage("Partner Search is not available yet. Try again in a moment.");
     } finally {
@@ -336,13 +379,15 @@ export default function PartnerSearchScreen() {
     setErrorMessage(null);
 
     try {
-      await requestPartnerConnection({
+      const threadId = await requestPartnerConnection({
         partnerProfileId: profileId,
         requesterUserId: user.id,
         message: draft
       });
       setRequestDrafts((current) => ({ ...current, [profileId]: "" }));
-      setMessage("Connection request sent.");
+      setThreads(await loadMyPartnerThreads(user.id));
+      setMessage("Connection request sent. Opening your DanceFlow conversation.");
+      router.push(`/partners/${threadId}` as unknown as RouterPushTarget);
     } catch {
       setErrorMessage("We could not send that request yet.");
     } finally {
@@ -373,6 +418,38 @@ export default function PartnerSearchScreen() {
     } catch {
       setErrorMessage("We could not save that partner profile yet.");
     }
+  }
+
+  async function useMyLocationFilter() {
+    setMessage(null);
+    setErrorMessage(null);
+
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        setMessage("Allow location access to search for partner listings near you.");
+        return;
+      }
+
+      const current = await Location.getCurrentPositionAsync({});
+      setFilterLocation({
+        latitude: current.coords.latitude,
+        longitude: current.coords.longitude
+      });
+      setMessage(`Showing partner listings within ${radiusMiles} miles.`);
+    } catch {
+      setErrorMessage("We could not use your location yet.");
+    }
+  }
+
+  function clearFilters() {
+    setQuery("");
+    setFilterRole("");
+    setFilterSkill("");
+    setFilterIntent("");
+    setFilterStyle("");
+    setFilterLocation(null);
+    setRadiusMiles(50);
   }
 
   return (
@@ -536,6 +613,35 @@ export default function PartnerSearchScreen() {
         </View>
       ) : null}
 
+      {threads.length ? (
+        <View style={styles.messagesCard}>
+          <View style={styles.editorHeader}>
+            <View style={{ flex: 1 }}>
+              <AppText variant="eyebrow">Messages</AppText>
+              <AppText variant="subtitle">DanceFlow conversations</AppText>
+            </View>
+            <View style={styles.statusPill}>
+              <AppText style={styles.statusText}>{threads.length}</AppText>
+            </View>
+          </View>
+          {threads.map((thread) => (
+            <Pressable
+              key={thread.id}
+              onPress={() => router.push(`/partners/${thread.id}` as unknown as RouterPushTarget)}
+              style={({ pressed }) => [styles.threadRow, pressed && styles.cardPressed]}
+            >
+              <View style={{ flex: 1 }}>
+                <AppText style={styles.threadName}>{thread.partnerDisplayName}</AppText>
+                {thread.partnerHeadline ? (
+                  <AppText variant="caption">{thread.partnerHeadline}</AppText>
+                ) : null}
+              </View>
+              <Ionicons color={colors.primary} name="chatbubble-ellipses-outline" size={20} />
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
       <View style={styles.searchCard}>
         <AppText variant="eyebrow">Browse</AppText>
         <TextInput
@@ -546,6 +652,75 @@ export default function PartnerSearchScreen() {
           style={styles.input}
           value={query}
         />
+        <View style={styles.filterSection}>
+          <AppText style={styles.filterTitle}>Near me</AppText>
+          <View style={styles.optionRow}>
+            {[25, 50, 100].map((radius) => (
+              <Pressable
+                key={radius}
+                onPress={() => setRadiusMiles(radius)}
+                style={[styles.optionPill, radiusMiles === radius && styles.optionPillActive]}
+              >
+                <AppText style={[styles.optionText, radiusMiles === radius && styles.optionTextActive]}>
+                  {radius} mi
+                </AppText>
+              </Pressable>
+            ))}
+            <Pressable onPress={useMyLocationFilter} style={styles.optionPill}>
+              <AppText style={styles.optionText}>{filterLocation ? "Near me on" : "Use my location"}</AppText>
+            </Pressable>
+          </View>
+        </View>
+        <View style={styles.filterSection}>
+          <AppText style={styles.filterTitle}>Looking for</AppText>
+          <OptionRow
+            options={[{ label: "Any", value: "" }, ...intentOptions]}
+            value={filterIntent}
+            onChange={setFilterIntent}
+          />
+        </View>
+        <View style={styles.filterSection}>
+          <AppText style={styles.filterTitle}>Role</AppText>
+          <OptionRow
+            options={[{ label: "Any", value: "" }, ...roleOptions]}
+            value={filterRole}
+            onChange={setFilterRole}
+          />
+        </View>
+        <View style={styles.filterSection}>
+          <AppText style={styles.filterTitle}>Level</AppText>
+          <OptionRow
+            options={[{ label: "Any", value: "" }, ...skillOptions]}
+            value={filterSkill}
+            onChange={setFilterSkill}
+          />
+        </View>
+        <View style={styles.filterSection}>
+          <AppText style={styles.filterTitle}>Dance style</AppText>
+          <View style={styles.stylePicker}>
+            {danceStyleGroups.map((group) => (
+              <View key={group.label} style={styles.styleGroup}>
+                <AppText style={styles.styleGroupTitle}>{group.label}</AppText>
+                <View style={styles.optionRow}>
+                  {group.styles.map((style) => (
+                    <Pressable
+                      key={style}
+                      onPress={() => setFilterStyle(filterStyle === style ? "" : style)}
+                      style={[styles.optionPill, filterStyle === style && styles.optionPillActive]}
+                    >
+                      <AppText style={[styles.optionText, filterStyle === style && styles.optionTextActive]}>
+                        {style}
+                      </AppText>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            ))}
+          </View>
+        </View>
+        <Pressable onPress={clearFilters} style={styles.clearFiltersButton}>
+          <AppText style={styles.clearFiltersText}>Clear filters</AppText>
+        </Pressable>
       </View>
 
       {filteredProfiles.length ? (
@@ -631,6 +806,18 @@ const styles = StyleSheet.create({
   cardPressed: {
     opacity: 0.78
   },
+  clearFiltersButton: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 10
+  },
+  clearFiltersText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900"
+  },
   editorCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -646,6 +833,14 @@ const styles = StyleSheet.create({
   },
   field: {
     gap: 6
+  },
+  filterSection: {
+    gap: 8
+  },
+  filterTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900"
   },
   heartButton: {
     alignItems: "center",
@@ -682,6 +877,14 @@ const styles = StyleSheet.create({
   multilineInput: {
     minHeight: 96,
     textAlignVertical: "top"
+  },
+  messagesCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 12,
+    padding: 16
   },
   optionPill: {
     backgroundColor: colors.background,
@@ -832,6 +1035,21 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 12,
     fontWeight: "800"
+  },
+  threadName: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  threadRow: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    padding: 12
   },
   twoColumn: {
     flexDirection: "row",

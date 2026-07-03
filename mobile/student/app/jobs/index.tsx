@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
@@ -18,10 +19,54 @@ function labelFor(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+const roleOptions = ["instructor", "coach", "front_desk", "event_staff", "admin", "other"];
+const employmentOptions = ["contract", "part_time", "full_time", "employee", "temporary", "volunteer"];
+const locationOptions = ["in_person", "hybrid", "remote"];
+const danceStyleGroups = [
+  {
+    label: "Country",
+    styles: ["Country Two Step", "West Coast Swing", "East Coast Swing", "Nightclub Two Step", "Country Waltz", "Polka"]
+  },
+  {
+    label: "Ballroom",
+    styles: ["Waltz", "Tango", "Foxtrot", "Viennese Waltz", "Quickstep"]
+  },
+  {
+    label: "Latin and Rhythm",
+    styles: ["Cha Cha", "Rumba", "Samba", "Paso Doble", "Jive", "Bolero", "Mambo"]
+  },
+  {
+    label: "Social and Club",
+    styles: ["Salsa", "Bachata", "Kizomba", "Zouk", "Argentine Tango", "Hustle"]
+  }
+];
+
+function milesBetween(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number }
+) {
+  const earthRadiusMiles = 3958.8;
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const deltaLat = toRadians(b.latitude - a.latitude);
+  const deltaLng = toRadians(b.longitude - a.longitude);
+  const lat1 = toRadians(a.latitude);
+  const lat2 = toRadians(b.latitude);
+  const h =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+  return 2 * earthRadiusMiles * Math.asin(Math.sqrt(h));
+}
+
 export default function JobsScreen() {
   const [jobs, setJobs] = useState<PublicJobPostingItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
+  const [filterRole, setFilterRole] = useState("");
+  const [filterEmployment, setFilterEmployment] = useState("");
+  const [filterLocationType, setFilterLocationType] = useState("");
+  const [filterStyle, setFilterStyle] = useState("");
+  const [filterLocation, setFilterLocation] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [radiusMiles, setRadiusMiles] = useState(50);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -48,21 +93,60 @@ export default function JobsScreen() {
 
   const filteredJobs = useMemo(() => {
     const search = normalize(query);
-    if (!search) return jobs;
 
     return jobs.filter((job) =>
-      [
-        job.title,
-        job.studioName,
-        job.location,
-        job.roleType,
-        job.employmentType,
-        job.description,
-        job.requirements,
-        ...job.danceStyles
-      ].some((value) => normalize(value).includes(search))
+      (!search ||
+        [
+          job.title,
+          job.studioName,
+          job.location,
+          job.roleType,
+          job.employmentType,
+          job.description,
+          job.requirements,
+          ...job.danceStyles
+        ].some((value) => normalize(value).includes(search))) &&
+      (!filterRole || job.roleType === filterRole) &&
+      (!filterEmployment || job.employmentType === filterEmployment) &&
+      (!filterLocationType || job.locationType === filterLocationType) &&
+      (!filterStyle || job.danceStyles.includes(filterStyle)) &&
+      (!filterLocation ||
+        (job.latitude !== null &&
+          job.longitude !== null &&
+          milesBetween(filterLocation, {
+            latitude: job.latitude,
+            longitude: job.longitude
+          }) <= radiusMiles))
     );
-  }, [jobs, query]);
+  }, [filterEmployment, filterLocation, filterLocationType, filterRole, filterStyle, jobs, query, radiusMiles]);
+
+  async function useMyLocationFilter() {
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        setErrorMessage("Allow location access to search for jobs near you.");
+        return;
+      }
+
+      const current = await Location.getCurrentPositionAsync({});
+      setFilterLocation({
+        latitude: current.coords.latitude,
+        longitude: current.coords.longitude
+      });
+    } catch {
+      setErrorMessage("We could not use your location yet.");
+    }
+  }
+
+  function clearFilters() {
+    setQuery("");
+    setFilterRole("");
+    setFilterEmployment("");
+    setFilterLocationType("");
+    setFilterStyle("");
+    setFilterLocation(null);
+    setRadiusMiles(50);
+  }
 
   async function openApply(job: PublicJobPostingItem) {
     if (job.applyUrl) {
@@ -72,6 +156,11 @@ export default function JobsScreen() {
 
     if (job.applyEmail) {
       await Linking.openURL(`mailto:${job.applyEmail}`);
+      return;
+    }
+
+    if (job.applyPhone) {
+      await Linking.openURL(`tel:${job.applyPhone}`);
     }
   }
 
@@ -103,6 +192,101 @@ export default function JobsScreen() {
         style={styles.input}
         value={query}
       />
+
+      <View style={styles.filterCard}>
+        <AppText variant="eyebrow">Filters</AppText>
+        <View style={styles.filterSection}>
+          <AppText style={styles.filterTitle}>Near me</AppText>
+          <View style={styles.optionRow}>
+            {[25, 50, 100].map((radius) => (
+              <Pressable
+                key={radius}
+                onPress={() => setRadiusMiles(radius)}
+                style={[styles.optionPill, radiusMiles === radius && styles.optionPillActive]}
+              >
+                <AppText style={[styles.optionText, radiusMiles === radius && styles.optionTextActive]}>
+                  {radius} mi
+                </AppText>
+              </Pressable>
+            ))}
+            <Pressable onPress={useMyLocationFilter} style={styles.optionPill}>
+              <AppText style={styles.optionText}>{filterLocation ? "Near me on" : "Use my location"}</AppText>
+            </Pressable>
+          </View>
+        </View>
+        <View style={styles.filterSection}>
+          <AppText style={styles.filterTitle}>Role</AppText>
+          <View style={styles.optionRow}>
+            {["", ...roleOptions].map((role) => (
+              <Pressable
+                key={role || "any-role"}
+                onPress={() => setFilterRole(role)}
+                style={[styles.optionPill, filterRole === role && styles.optionPillActive]}
+              >
+                <AppText style={[styles.optionText, filterRole === role && styles.optionTextActive]}>
+                  {role ? labelFor(role) : "Any"}
+                </AppText>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        <View style={styles.filterSection}>
+          <AppText style={styles.filterTitle}>Employment</AppText>
+          <View style={styles.optionRow}>
+            {["", ...employmentOptions].map((employment) => (
+              <Pressable
+                key={employment || "any-employment"}
+                onPress={() => setFilterEmployment(employment)}
+                style={[styles.optionPill, filterEmployment === employment && styles.optionPillActive]}
+              >
+                <AppText style={[styles.optionText, filterEmployment === employment && styles.optionTextActive]}>
+                  {employment ? labelFor(employment) : "Any"}
+                </AppText>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        <View style={styles.filterSection}>
+          <AppText style={styles.filterTitle}>Location type</AppText>
+          <View style={styles.optionRow}>
+            {["", ...locationOptions].map((locationType) => (
+              <Pressable
+                key={locationType || "any-location"}
+                onPress={() => setFilterLocationType(locationType)}
+                style={[styles.optionPill, filterLocationType === locationType && styles.optionPillActive]}
+              >
+                <AppText style={[styles.optionText, filterLocationType === locationType && styles.optionTextActive]}>
+                  {locationType ? labelFor(locationType) : "Any"}
+                </AppText>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+        <View style={styles.filterSection}>
+          <AppText style={styles.filterTitle}>Dance style</AppText>
+          {danceStyleGroups.map((group) => (
+            <View key={group.label} style={styles.styleGroup}>
+              <AppText style={styles.styleGroupTitle}>{group.label}</AppText>
+              <View style={styles.optionRow}>
+                {group.styles.map((style) => (
+                  <Pressable
+                    key={style}
+                    onPress={() => setFilterStyle(filterStyle === style ? "" : style)}
+                    style={[styles.optionPill, filterStyle === style && styles.optionPillActive]}
+                  >
+                    <AppText style={[styles.optionText, filterStyle === style && styles.optionTextActive]}>
+                      {style}
+                    </AppText>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ))}
+        </View>
+        <Pressable onPress={clearFilters} style={styles.clearFiltersButton}>
+          <AppText style={styles.clearFiltersText}>Clear filters</AppText>
+        </Pressable>
+      </View>
 
       {loading ? <FeatureCard title="Loading jobs" detail="Finding studio openings." /> : null}
       {errorMessage ? <FeatureCard title="Now Hiring needs attention" detail={errorMessage} /> : null}
@@ -141,9 +325,11 @@ export default function JobsScreen() {
               <AppText style={styles.compensation}>{job.compensationSummary}</AppText>
             ) : null}
 
-            {job.applyUrl || job.applyEmail ? (
+            {job.applyUrl || job.applyEmail || job.applyPhone ? (
               <Pressable onPress={() => openApply(job)} style={styles.applyButton}>
-                <AppText style={styles.applyButtonText}>Apply</AppText>
+                <AppText style={styles.applyButtonText}>
+                  {job.applyUrl ? "Apply" : job.applyEmail ? "Apply by Email" : "Call to Apply"}
+                </AppText>
               </Pressable>
             ) : (
               <AppText variant="caption">
@@ -185,10 +371,38 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900"
   },
+  clearFiltersButton: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 10
+  },
+  clearFiltersText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900"
+  },
   compensation: {
     color: colors.text,
     fontSize: 14,
     fontWeight: "800"
+  },
+  filterCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 14,
+    padding: 16
+  },
+  filterSection: {
+    gap: 8
+  },
+  filterTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "900"
   },
   input: {
     backgroundColor: colors.surface,
@@ -217,6 +431,31 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     flexDirection: "row",
     gap: 12
+  },
+  optionPill: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 11,
+    paddingVertical: 8
+  },
+  optionPillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  optionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  optionText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  optionTextActive: {
+    color: "#fff"
   },
   roleBadge: {
     backgroundColor: "#fff4e7",
@@ -261,6 +500,14 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 6
+  },
+  styleGroup: {
+    gap: 8
+  },
+  styleGroupTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "900"
   },
   tagRow: {
     flexDirection: "row",

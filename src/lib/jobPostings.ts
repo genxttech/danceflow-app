@@ -12,12 +12,15 @@ export type StudioJobPosting = {
   city: string | null;
   state: string | null;
   location: string;
+  latitude: number | null;
+  longitude: number | null;
   compensationSummary: string | null;
   danceStyles: string[];
   requirements: string | null;
   description: string | null;
   applyUrl: string | null;
   applyEmail: string | null;
+  applyPhone: string | null;
   contactName: string | null;
   publishedAt: string | null;
 };
@@ -31,12 +34,15 @@ type StudioJobPostingRow = {
   location_type: string;
   city: string | null;
   state: string | null;
+  latitude: number | null;
+  longitude: number | null;
   compensation_summary: string | null;
   dance_styles: string[] | null;
   requirements: string | null;
   description: string | null;
   apply_url: string | null;
   apply_email: string | null;
+  apply_phone: string | null;
   contact_name: string | null;
   published_at: string | null;
   studios:
@@ -86,7 +92,38 @@ export function formatEmploymentType(value: string) {
   return normalizeLabel(value);
 }
 
-export async function getPublishedStudioJobPostings() {
+export type JobPostingFilters = {
+  employmentType?: string;
+  latitude?: number | null;
+  locationType?: string;
+  longitude?: number | null;
+  query?: string;
+  radiusMiles?: number;
+  roleType?: string;
+  style?: string;
+};
+
+function normalize(value: string | null | undefined) {
+  return (value ?? "").trim().toLowerCase();
+}
+
+function milesBetween(
+  a: { latitude: number; longitude: number },
+  b: { latitude: number; longitude: number },
+) {
+  const earthRadiusMiles = 3958.8;
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const deltaLat = toRadians(b.latitude - a.latitude);
+  const deltaLng = toRadians(b.longitude - a.longitude);
+  const lat1 = toRadians(a.latitude);
+  const lat2 = toRadians(b.latitude);
+  const h =
+    Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+  return 2 * earthRadiusMiles * Math.asin(Math.sqrt(h));
+}
+
+export async function getPublishedStudioJobPostings(filters: JobPostingFilters = {}) {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("studio_job_postings")
@@ -100,12 +137,15 @@ export async function getPublishedStudioJobPostings() {
       location_type,
       city,
       state,
+      latitude,
+      longitude,
       compensation_summary,
       dance_styles,
       requirements,
       description,
       apply_url,
       apply_email,
+      apply_phone,
       contact_name,
       published_at,
       studios (
@@ -124,7 +164,7 @@ export async function getPublishedStudioJobPostings() {
     throw new Error(`Failed to load job postings: ${error.message}`);
   }
 
-  return ((data ?? []) as StudioJobPostingRow[]).map<StudioJobPosting>((row) => {
+  const postings = ((data ?? []) as StudioJobPostingRow[]).map<StudioJobPosting>((row) => {
     const studio = firstJoin(row.studios);
 
     return {
@@ -138,6 +178,8 @@ export async function getPublishedStudioJobPostings() {
       locationType: row.location_type,
       city: row.city,
       state: row.state,
+      latitude: row.latitude,
+      longitude: row.longitude,
       location: locationLabel({
         city: row.city,
         state: row.state,
@@ -149,8 +191,47 @@ export async function getPublishedStudioJobPostings() {
       description: row.description,
       applyUrl: row.apply_url,
       applyEmail: row.apply_email,
+      applyPhone: row.apply_phone,
       contactName: row.contact_name,
       publishedAt: row.published_at,
     };
+  });
+
+  return postings.filter((posting) => {
+    const search = normalize(filters.query);
+    const matchesSearch =
+      !search ||
+      [
+        posting.title,
+        posting.studioName,
+        posting.location,
+        posting.roleType,
+        posting.employmentType,
+        posting.locationType,
+        posting.description,
+        posting.requirements,
+        ...posting.danceStyles,
+      ].some((value) => normalize(value).includes(search));
+
+    const matchesDistance =
+      filters.latitude === undefined ||
+      filters.latitude === null ||
+      filters.longitude === undefined ||
+      filters.longitude === null ||
+      (posting.latitude !== null &&
+        posting.longitude !== null &&
+        milesBetween(
+          { latitude: filters.latitude, longitude: filters.longitude },
+          { latitude: posting.latitude, longitude: posting.longitude },
+        ) <= (filters.radiusMiles ?? 50));
+
+    return (
+      matchesSearch &&
+      (!filters.roleType || posting.roleType === filters.roleType) &&
+      (!filters.employmentType || posting.employmentType === filters.employmentType) &&
+      (!filters.locationType || posting.locationType === filters.locationType) &&
+      (!filters.style || posting.danceStyles.includes(filters.style)) &&
+      matchesDistance
+    );
   });
 }
