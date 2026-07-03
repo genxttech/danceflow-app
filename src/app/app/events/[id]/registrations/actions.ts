@@ -341,18 +341,25 @@ async function upsertAttendanceStatus(params: {
     status,
     checkedInAt,
     markedAttendedAt,
+    eventSessionId,
   } = params;
 
   if (!registration.client_id) {
     return null;
   }
 
-  const { data: existing, error: existingError } = await supabase
+  let existingQuery = supabase
     .from("attendance_records")
     .select("id, status")
     .eq("studio_id", studioId)
-    .eq("event_registration_id", registration.id)
-    .maybeSingle<AttendanceLookupRow>();
+    .eq("event_registration_id", registration.id);
+
+  existingQuery = eventSessionId
+    ? existingQuery.eq("event_session_id", eventSessionId)
+    : existingQuery.is("event_session_id", null);
+
+  const { data: existing, error: existingError } =
+    await existingQuery.maybeSingle<AttendanceLookupRow>();
 
   if (existingError) {
     throw new Error(existingError.message);
@@ -362,6 +369,7 @@ async function upsertAttendanceStatus(params: {
     studio_id: studioId,
     client_id: registration.client_id,
     event_registration_id: registration.id,
+    event_session_id: eventSessionId ?? null,
     status,
     checked_in_at: checkedInAt ?? null,
     marked_attended_at: markedAttendedAt ?? null,
@@ -423,14 +431,19 @@ async function getAttendanceForRegistration(params: {
   registrationId: string;
   eventSessionId?: string | null;
 }) {
-  const { supabase, studioId, registrationId } = params;
+  const { supabase, studioId, registrationId, eventSessionId } = params;
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("attendance_records")
     .select("id, status")
     .eq("studio_id", studioId)
-    .eq("event_registration_id", registrationId)
-    .maybeSingle<AttendanceLookupRow>();
+    .eq("event_registration_id", registrationId);
+
+  query = eventSessionId
+    ? query.eq("event_session_id", eventSessionId)
+    : query.is("event_session_id", null);
+
+  const { data, error } = await query.maybeSingle<AttendanceLookupRow>();
 
   if (error) {
     throw new Error(error.message);
@@ -1176,37 +1189,39 @@ export async function checkInEventTicketCodeAction(formData: FormData) {
             const serviceSupabase = createServiceRoleClient();
             const writeSupabase: any = serviceSupabase ?? supabase;
 
-            const { error: attendeeUpdateError } = await writeSupabase
-              .from("event_registration_attendees")
-              .update({
-                checked_in_at: now,
-                checked_in_by: userId,
-                updated_at: now,
-              })
-              .eq("id", attendee.id)
-              .eq("event_id", eventId);
-
-            if (attendeeUpdateError) {
-              throw new Error(attendeeUpdateError.message);
-            }
-
-            const registrationFullyCheckedIn = await allAttendeeTicketsCheckedIn({
-              supabase,
-              eventId,
-              registrationId: attendee.registration_id,
-            });
-
-            if (registrationFullyCheckedIn) {
-              const { error: registrationUpdateError } = await writeSupabase
-                .from("event_registrations")
+            if (!isGroupClass) {
+              const { error: attendeeUpdateError } = await writeSupabase
+                .from("event_registration_attendees")
                 .update({
                   checked_in_at: now,
+                  checked_in_by: userId,
+                  updated_at: now,
                 })
-                .eq("id", attendee.registration_id)
+                .eq("id", attendee.id)
                 .eq("event_id", eventId);
 
-              if (registrationUpdateError) {
-                throw new Error(registrationUpdateError.message);
+              if (attendeeUpdateError) {
+                throw new Error(attendeeUpdateError.message);
+              }
+
+              const registrationFullyCheckedIn = await allAttendeeTicketsCheckedIn({
+                supabase,
+                eventId,
+                registrationId: attendee.registration_id,
+              });
+
+              if (registrationFullyCheckedIn) {
+                const { error: registrationUpdateError } = await writeSupabase
+                  .from("event_registrations")
+                  .update({
+                    checked_in_at: now,
+                  })
+                  .eq("id", attendee.registration_id)
+                  .eq("event_id", eventId);
+
+                if (registrationUpdateError) {
+                  throw new Error(registrationUpdateError.message);
+                }
               }
             }
 
@@ -1334,13 +1349,15 @@ export async function checkInEventRegistrationAction(formData: FormData) {
           eventId,
           registrationId,
         });
-        const alreadyCheckedIn = attendeeTicketState.hasTickets
-          ? attendeeTicketState.allCheckedIn
-          : existingAttendance?.status === "checked_in" ||
-            existingAttendance?.status === "attended" ||
-            (!isGroupClass &&
-              (registration.checked_in_at ||
-                registration.status === "checked_in"));
+        const alreadyCheckedIn = isGroupClass
+          ? existingAttendance?.status === "checked_in" ||
+            existingAttendance?.status === "attended"
+          : attendeeTicketState.hasTickets
+            ? attendeeTicketState.allCheckedIn
+            : existingAttendance?.status === "checked_in" ||
+              existingAttendance?.status === "attended" ||
+              registration.checked_in_at ||
+              registration.status === "checked_in";
 
         if (alreadyCheckedIn) {
           nextUrl = resolveReturnUrl({
@@ -1353,30 +1370,32 @@ export async function checkInEventRegistrationAction(formData: FormData) {
           const serviceSupabase = createServiceRoleClient();
           const writeSupabase: any = serviceSupabase ?? supabase;
 
-          const { error: registrationUpdateError } = await writeSupabase
-            .from("event_registrations")
-            .update({
-              checked_in_at: now,
-            })
-            .eq("id", registrationId)
-            .eq("event_id", eventId);
+          if (!isGroupClass) {
+            const { error: registrationUpdateError } = await writeSupabase
+              .from("event_registrations")
+              .update({
+                checked_in_at: now,
+              })
+              .eq("id", registrationId)
+              .eq("event_id", eventId);
 
-          if (registrationUpdateError) {
-            throw new Error(registrationUpdateError.message);
-          }
+            if (registrationUpdateError) {
+              throw new Error(registrationUpdateError.message);
+            }
 
-          const { error: attendeeUpdateError } = await writeSupabase
-            .from("event_registration_attendees")
-            .update({
-              checked_in_at: now,
-              checked_in_by: userId,
-              updated_at: now,
-            })
-            .eq("registration_id", registrationId)
-            .eq("event_id", eventId);
+            const { error: attendeeUpdateError } = await writeSupabase
+              .from("event_registration_attendees")
+              .update({
+                checked_in_at: now,
+                checked_in_by: userId,
+                updated_at: now,
+              })
+              .eq("registration_id", registrationId)
+              .eq("event_id", eventId);
 
-          if (attendeeUpdateError) {
-            throw new Error(attendeeUpdateError.message);
+            if (attendeeUpdateError) {
+              throw new Error(attendeeUpdateError.message);
+            }
           }
 
           await upsertAttendanceStatus({

@@ -7,6 +7,11 @@ import {
   checkInEventRegistrationAction,
   checkInEventTicketCodeAction,
 } from "../registrations/actions";
+import {
+  publishEventGroupLessonRecapAction,
+  saveEventGroupLessonRecapAction,
+  unpublishEventGroupLessonRecapAction,
+} from "./recap-actions";
 import TicketCodeScanner from "./TicketCodeScanner";
 
 type Params = Promise<{
@@ -97,6 +102,14 @@ type EventSessionRow = {
   status: string;
 };
 
+type SessionAttendanceRow = {
+  id: string;
+  event_registration_id: string | null;
+  event_session_id: string | null;
+  status: string | null;
+  checked_in_at: string | null;
+};
+
 type EventDocumentRequirementRow = {
   id: string;
   template_id: string;
@@ -115,6 +128,19 @@ type DocumentSignatureRow = {
   signer_name: string;
   signer_email: string | null;
   signed_at: string;
+};
+
+type GroupLessonRecapRow = {
+  id: string;
+  title: string;
+  summary: string | null;
+  technique_notes: string | null;
+  safety_notes: string | null;
+  practice_assignment: string | null;
+  media_links: string[] | null;
+  status: string;
+  published_at: string | null;
+  updated_at: string | null;
 };
 
 function isOrganizerWorkspaceName(value: string | null | undefined) {
@@ -306,6 +332,49 @@ function getBanner(search: {
     return {
       kind: "error" as const,
       message: "Could not check in attendee.",
+    };
+  }
+
+  if (search.success === "recap_saved") {
+    return {
+      kind: "success" as const,
+      message: "Group recap draft saved.",
+    };
+  }
+
+  if (search.success === "recap_published") {
+    return {
+      kind: "success" as const,
+      message: "Group recap published to checked-in students.",
+    };
+  }
+
+  if (search.success === "recap_unpublished") {
+    return {
+      kind: "success" as const,
+      message: "Group recap unpublished.",
+    };
+  }
+
+  if (search.error === "recap_save_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not save group recap.",
+    };
+  }
+
+  if (search.error === "recap_publish_failed") {
+    return {
+      kind: "error" as const,
+      message:
+        "Could not publish group recap. Save a draft and make sure students are checked in.",
+    };
+  }
+
+  if (search.error === "recap_unpublish_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not unpublish group recap.",
     };
   }
 
@@ -586,6 +655,96 @@ export default async function EventCheckInPage({
   const selectedSessionId = selectedSession?.id ?? "";
   const organizer = getOrganizer(typedEvent.organizers);
   const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
+  const currentCheckInHref = buildCheckInHref({
+    eventId: typedEvent.id,
+    q: query.q ?? "",
+    status: statusFilter,
+    sessionId: selectedSessionId,
+  });
+
+  let sessionAttendanceRows: SessionAttendanceRow[] = [];
+
+  if (isGroupClass && selectedSessionId && registrationIds.length > 0) {
+    const { data: attendanceRows, error: attendanceError } = await supabase
+      .from("attendance_records")
+      .select("id, event_registration_id, event_session_id, status, checked_in_at")
+      .eq("studio_id", studioId)
+      .eq("event_session_id", selectedSessionId)
+      .in("event_registration_id", registrationIds);
+
+    if (attendanceError) {
+      throw new Error(`Failed to load class check-ins: ${attendanceError.message}`);
+    }
+
+    sessionAttendanceRows = (attendanceRows ?? []) as SessionAttendanceRow[];
+  }
+
+  const sessionAttendanceByRegistrationId = new Map<string, SessionAttendanceRow>();
+  for (const attendance of sessionAttendanceRows) {
+    if (!attendance.event_registration_id) continue;
+    sessionAttendanceByRegistrationId.set(attendance.event_registration_id, attendance);
+  }
+
+  const getSessionAttendance = (registrationId: string) =>
+    sessionAttendanceByRegistrationId.get(registrationId) ?? null;
+
+  const isSessionCheckedIn = (registrationId: string) => {
+    const attendance = getSessionAttendance(registrationId);
+    return attendance?.status === "checked_in" || attendance?.status === "attended";
+  };
+
+  const getSessionCheckedInAt = (registrationId: string) => {
+    const attendance = getSessionAttendance(registrationId);
+    return attendance?.checked_in_at ?? null;
+  };
+
+  let groupLessonRecap: GroupLessonRecapRow | null = null;
+  let groupLessonRecapRecipientCount = 0;
+
+  if (isGroupClass && selectedSessionId) {
+    const [
+      { data: recap, error: recapError },
+      { count: recipientCount, error: recipientCountError },
+    ] = await Promise.all([
+      supabase
+        .from("group_lesson_recaps")
+        .select(
+          `
+          id,
+          title,
+          summary,
+          technique_notes,
+          safety_notes,
+          practice_assignment,
+          media_links,
+          status,
+          published_at,
+          updated_at
+        `,
+        )
+        .eq("studio_id", studioId)
+        .eq("event_session_id", selectedSessionId)
+        .maybeSingle(),
+      supabase
+        .from("group_lesson_recap_recipients")
+        .select("id", { count: "exact", head: true })
+        .eq("studio_id", studioId)
+        .eq("event_session_id", selectedSessionId),
+    ]);
+
+    if (recapError) {
+      throw new Error(`Failed to load group recap: ${recapError.message}`);
+    }
+
+    if (recipientCountError) {
+      throw new Error(
+        `Failed to load group recap recipients: ${recipientCountError.message}`,
+      );
+    }
+
+    groupLessonRecap = (recap ?? null) as GroupLessonRecapRow | null;
+    groupLessonRecapRecipientCount = recipientCount ?? 0;
+  }
 
   const signaturesByRegistrationId = new Map<string, DocumentSignatureRow[]>();
   for (const signature of documentSignatureRows) {
@@ -617,13 +776,21 @@ export default async function EventCheckInPage({
   };
 
   const getEffectiveStatus = (registration: RegistrationRow) => {
+    if (registration.status === "cancelled") return "cancelled";
+
+    if (isGroupClass && selectedSessionId) {
+      if (isSessionCheckedIn(registration.id)) return "checked_in";
+      if (["confirmed", "checked_in", "attended"].includes(registration.status)) {
+        return "registered";
+      }
+      return registration.status;
+    }
+
     const attendeeRows = registration.event_registration_attendees ?? [];
     const hasAttendeeTickets = attendeeRows.length > 0;
     const allAttendeeTicketsCheckedIn =
       hasAttendeeTickets &&
       attendeeRows.every((attendee) => Boolean(attendee.checked_in_at));
-
-    if (registration.status === "cancelled") return "cancelled";
 
     // QR tickets are checked in per attendee row. If a registration has
     // attendee ticket rows, keep it in the ready list until every ticket row is
@@ -692,6 +859,12 @@ export default async function EventCheckInPage({
   const getCheckedInTicketCountForRegistration = (
     registration: RegistrationRow,
   ) => {
+    if (isGroupClass && selectedSessionId) {
+      return isSessionCheckedIn(registration.id)
+        ? getTicketCountForRegistration(registration)
+        : 0;
+    }
+
     const attendeeRows = registration.event_registration_attendees ?? [];
     if (attendeeRows.length > 0) {
       return attendeeRows.filter((attendee) => Boolean(attendee.checked_in_at))
@@ -953,6 +1126,163 @@ export default async function EventCheckInPage({
         </div>
       </div>
 
+      {isGroupClass && selectedSessionId ? (
+        <section className="rounded-[28px] border border-[#E9D5FF] bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#7C2D92]">
+                Group Lesson Recap
+              </p>
+              <h2 className="mt-2 text-xl font-semibold text-slate-950">
+                Share notes from this class
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Recaps publish to checked-in attendees for the selected class
+                session.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2 text-sm">
+              <span className="rounded-full bg-slate-100 px-3 py-1 font-medium text-slate-700 ring-1 ring-slate-200">
+                {groupLessonRecap?.status ?? "No draft"}
+              </span>
+              <span className="rounded-full bg-purple-50 px-3 py-1 font-medium text-purple-700 ring-1 ring-purple-200">
+                {groupLessonRecapRecipientCount} recipients
+              </span>
+            </div>
+          </div>
+
+          <form action={saveEventGroupLessonRecapAction} className="mt-5 grid gap-4">
+            <input type="hidden" name="eventId" value={typedEvent.id} />
+            <input type="hidden" name="eventSessionId" value={selectedSessionId} />
+            <input type="hidden" name="returnTo" value={currentCheckInHref} />
+
+            <div>
+              <label htmlFor="recap-title" className="mb-1 block text-sm font-medium text-slate-900">
+                Title
+              </label>
+              <input
+                id="recap-title"
+                name="title"
+                defaultValue={
+                  groupLessonRecap?.title ??
+                  `${typedEvent.name} recap - ${
+                    selectedSession?.session_label ?? selectedSession?.session_date ?? "Class"
+                  }`
+                }
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                required
+              />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              <div>
+                <label htmlFor="recap-summary" className="mb-1 block text-sm font-medium text-slate-900">
+                  Summary
+                </label>
+                <textarea
+                  id="recap-summary"
+                  name="summary"
+                  defaultValue={groupLessonRecap?.summary ?? ""}
+                  rows={4}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="recap-technique" className="mb-1 block text-sm font-medium text-slate-900">
+                  Technique notes
+                </label>
+                <textarea
+                  id="recap-technique"
+                  name="techniqueNotes"
+                  defaultValue={groupLessonRecap?.technique_notes ?? ""}
+                  rows={4}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="recap-safety" className="mb-1 block text-sm font-medium text-slate-900">
+                  Safety notes
+                </label>
+                <textarea
+                  id="recap-safety"
+                  name="safetyNotes"
+                  defaultValue={groupLessonRecap?.safety_notes ?? ""}
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+
+              <div>
+                <label htmlFor="recap-practice" className="mb-1 block text-sm font-medium text-slate-900">
+                  Practice assignment
+                </label>
+                <textarea
+                  id="recap-practice"
+                  name="practiceAssignment"
+                  defaultValue={groupLessonRecap?.practice_assignment ?? ""}
+                  rows={3}
+                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="recap-media" className="mb-1 block text-sm font-medium text-slate-900">
+                Media links
+              </label>
+              <textarea
+                id="recap-media"
+                name="mediaLinks"
+                defaultValue={(groupLessonRecap?.media_links ?? []).join("\n")}
+                rows={3}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                placeholder="One link per line"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <button
+                type="submit"
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Save Draft
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-4 flex flex-wrap gap-3 border-t border-slate-200 pt-4">
+            <form action={publishEventGroupLessonRecapAction}>
+              <input type="hidden" name="eventId" value={typedEvent.id} />
+              <input type="hidden" name="eventSessionId" value={selectedSessionId} />
+              <input type="hidden" name="returnTo" value={currentCheckInHref} />
+              <button
+                type="submit"
+                className="rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4A1363]"
+              >
+                Publish to Checked-In
+              </button>
+            </form>
+
+            {groupLessonRecap ? (
+              <form action={unpublishEventGroupLessonRecapAction}>
+                <input type="hidden" name="eventId" value={typedEvent.id} />
+                <input type="hidden" name="eventSessionId" value={selectedSessionId} />
+                <input type="hidden" name="returnTo" value={currentCheckInHref} />
+                <button
+                  type="submit"
+                  className="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Unpublish
+                </button>
+              </form>
+            ) : null}
+          </div>
+        </section>
+      ) : null}
+
       <form className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         {isGroupClass && selectedSessionId ? (
           <input type="hidden" name="sessionId" value={selectedSessionId} />
@@ -1027,15 +1357,23 @@ export default async function EventCheckInPage({
             ].sort(
               (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0),
             );
+            const sessionCheckedInAt = isGroupClass
+              ? getSessionCheckedInAt(registration.id)
+              : null;
             const firstCheckedInAttendee =
               attendeeRows.find((attendee) =>
                 Boolean(attendee.checked_in_at),
               ) ?? null;
-            const checkedInAttendeeCount = attendeeRows.filter((attendee) =>
-              Boolean(attendee.checked_in_at),
-            ).length;
+            const checkedInAttendeeCount = isGroupClass
+              ? sessionCheckedInAt
+                ? getTicketCountForRegistration(registration)
+                : 0
+              : attendeeRows.filter((attendee) =>
+                  Boolean(attendee.checked_in_at),
+                ).length;
             const effectiveStatus = getEffectiveStatus(registration);
             const effectiveCheckedInAt =
+              sessionCheckedInAt ??
               firstCheckedInAttendee?.checked_in_at ??
               (attendeeRows.length === 0 ? registration.checked_in_at : null);
 
@@ -1145,14 +1483,22 @@ export default async function EventCheckInPage({
                                   ) : null}
                                   <span
                                     className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
-                                      attendee.checked_in_at
-                                        ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                                        : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
+                                      isGroupClass
+                                        ? sessionCheckedInAt
+                                          ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                          : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
+                                        : attendee.checked_in_at
+                                          ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                                          : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
                                     }`}
                                   >
-                                    {attendee.checked_in_at
-                                      ? `Checked in ${formatDateTime(attendee.checked_in_at)}`
-                                      : "Not checked in"}
+                                    {isGroupClass
+                                      ? sessionCheckedInAt
+                                        ? `Checked in ${formatDateTime(sessionCheckedInAt)}`
+                                        : "Not checked in for this class"
+                                      : attendee.checked_in_at
+                                        ? `Checked in ${formatDateTime(attendee.checked_in_at)}`
+                                        : "Not checked in"}
                                   </span>
                                 </div>
                               </div>

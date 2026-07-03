@@ -251,7 +251,7 @@ export default async function ScheduleAttendancePage({
   ] = await Promise.all([
     supabase
       .from("appointments")
-      .select("id, title, appointment_type, start_at, end_at, status")
+      .select("id, title, appointment_type, start_at:starts_at, end_at:ends_at, status")
       .eq("id", id)
       .eq("studio_id", studioId)
       .single(),

@@ -15,7 +15,9 @@ type RecipientRow = {
   id: string;
   recap_id: string;
   studio_id: string;
-  appointment_id: string;
+  appointment_id: string | null;
+  event_id: string | null;
+  event_session_id: string | null;
   client_id: string | null;
   guest_name: string | null;
   guest_email: string | null;
@@ -47,6 +49,17 @@ type AppointmentRow = {
   title: string | null;
   appointment_type: string;
   starts_at: string | null;
+};
+
+type EventSessionRow = {
+  id: string;
+  session_date: string | null;
+  start_time: string | null;
+  session_label: string | null;
+  events:
+    | { name: string | null }
+    | { name: string | null }[]
+    | null;
 };
 
 type StudioSettingsRow = {
@@ -91,6 +104,23 @@ function displayName(recipient: RecipientRow) {
   return recipient.guest_name?.trim() || "there";
 }
 
+function firstJoin<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function formatEventSessionDate(
+  eventSession: EventSessionRow | null,
+  timeZone: string,
+) {
+  if (!eventSession?.session_date) return "Date not shared";
+
+  const value = eventSession.start_time
+    ? `${eventSession.session_date}T${eventSession.start_time}`
+    : eventSession.session_date;
+
+  return formatDateTime(value, timeZone);
+}
+
 export default async function PublicGroupRecapPage({
   params,
 }: {
@@ -108,7 +138,7 @@ export default async function PublicGroupRecapPage({
   const { data: recipientData, error: recipientError } = await supabase
     .from("group_lesson_recap_recipients")
     .select(
-      "id, recap_id, studio_id, appointment_id, client_id, guest_name, guest_email, delivery_status, viewed_at",
+      "id, recap_id, studio_id, appointment_id, event_id, event_session_id, client_id, guest_name, guest_email, delivery_status, viewed_at",
     )
     .eq("secure_token", normalizedToken)
     .neq("delivery_status", "revoked")
@@ -120,7 +150,13 @@ export default async function PublicGroupRecapPage({
 
   const recipient = recipientData as RecipientRow;
 
-  const [{ data: recapData }, { data: studioData }, { data: appointmentData }, { data: settingsData }] =
+  const [
+    { data: recapData },
+    { data: studioData },
+    { data: appointmentData },
+    { data: eventSessionData },
+    { data: settingsData },
+  ] =
     await Promise.all([
       supabase
         .from("group_lesson_recaps")
@@ -129,7 +165,6 @@ export default async function PublicGroupRecapPage({
         )
         .eq("id", recipient.recap_id)
         .eq("studio_id", recipient.studio_id)
-        .eq("appointment_id", recipient.appointment_id)
         .eq("status", "published")
         .maybeSingle(),
       supabase
@@ -140,7 +175,13 @@ export default async function PublicGroupRecapPage({
       supabase
         .from("appointments")
         .select("id, title, appointment_type, starts_at")
-        .eq("id", recipient.appointment_id)
+        .eq("id", recipient.appointment_id ?? "00000000-0000-0000-0000-000000000000")
+        .eq("studio_id", recipient.studio_id)
+        .maybeSingle(),
+      supabase
+        .from("event_sessions")
+        .select("id, session_date, start_time, session_label, events ( name )")
+        .eq("id", recipient.event_session_id ?? "00000000-0000-0000-0000-000000000000")
         .eq("studio_id", recipient.studio_id)
         .maybeSingle(),
       supabase
@@ -164,9 +205,19 @@ export default async function PublicGroupRecapPage({
   const recap = recapData as GroupLessonRecapRow;
   const studio = studioData as StudioRow;
   const appointment = (appointmentData ?? null) as AppointmentRow | null;
+  const eventSession = (eventSessionData ?? null) as EventSessionRow | null;
   const settings = (settingsData ?? null) as StudioSettingsRow | null;
   const studioName = studio.public_name?.trim() || studio.name;
   const studioTimeZone = getStudioTimeZone(settings?.timezone);
+  const event = firstJoin(eventSession?.events);
+  const recapContextTitle =
+    appointment?.title ||
+    eventSession?.session_label ||
+    event?.name ||
+    "Group class recap";
+  const recapDate = appointment?.starts_at
+    ? formatDateTime(appointment.starts_at, studioTimeZone)
+    : formatEventSessionDate(eventSession, studioTimeZone);
   const portalHref = `/portal/${encodeURIComponent(studio.slug)}`;
   const loginHref = `/login?studio=${encodeURIComponent(studio.slug)}&next=${encodeURIComponent(
     `/recaps/${normalizedToken}`,
@@ -181,7 +232,7 @@ export default async function PublicGroupRecapPage({
               DanceFlow Group Class Recap
             </p>
             <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">
-              {recap.title || appointment?.title || "Group class recap"}
+              {recap.title || recapContextTitle}
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-white/80">
               Hi {displayName(recipient)}. {studioName} shared this recap from your group class.
@@ -189,7 +240,7 @@ export default async function PublicGroupRecapPage({
             <div className="mt-5 flex flex-wrap gap-2">
               <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold ring-1 ring-white/20">
                 <CalendarDays className="h-3.5 w-3.5" />
-                {formatDateTime(appointment?.starts_at, studioTimeZone)}
+                {recapDate}
               </span>
               <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold ring-1 ring-white/20">
                 <ShieldCheck className="h-3.5 w-3.5" />
