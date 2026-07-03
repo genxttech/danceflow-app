@@ -148,14 +148,6 @@ function normalizeNavLabel(item: NavItem) {
   }
 
   if (
-    item.href === "/app/partner-search" ||
-    lower === "partner search" ||
-    lower === "find a partner"
-  ) {
-    return "Partner Search";
-  }
-
-  if (
     item.href === "/app/now-hiring" ||
     lower === "now hiring" ||
     lower === "job postings" ||
@@ -713,14 +705,6 @@ function injectDocumentsLink(sections: NavSectionType[]): NavSectionType[] {
 function injectDiscoveryExpansionLinks(sections: NavSectionType[]): NavSectionType[] {
   const flatItems = sections.flatMap((section) => section.items);
   const additions: NavItem[] = [];
-
-  if (!flatItems.some((item) => item.href === "/app/partner-search")) {
-    additions.push({
-      label: "Partner Search",
-      href: "/app/partner-search",
-      icon: "partner_search",
-    });
-  }
 
   if (!flatItems.some((item) => item.href === "/app/now-hiring")) {
     additions.push({

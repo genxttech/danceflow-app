@@ -11,9 +11,13 @@ import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   getPublicEventsForMobile,
+  getPublicJobPostingsForMobile,
+  getPublicPartnerProfilesForMobile,
   getPublicStudiosForMobile,
   setPublicFavoriteForMobile,
   type PublicEventItem,
+  type PublicJobPostingItem,
+  type PublicPartnerProfileItem,
   type PublicStudioItem
 } from "@/lib/publicDiscovery";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
@@ -21,6 +25,7 @@ import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 type ResultMode = "all" | "studios" | "events";
 
 type ResultWithDistance<T> = T & { distanceMiles: number | null };
+type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
 
 const RADIUS_OPTIONS = [10, 25, 50, 100];
 const DEFAULT_PREVIEW_LIMIT = 5;
@@ -84,6 +89,8 @@ export default function DiscoverScreen() {
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [studios, setStudios] = useState<PublicStudioItem[]>([]);
   const [events, setEvents] = useState<PublicEventItem[]>([]);
+  const [partners, setPartners] = useState<PublicPartnerProfileItem[]>([]);
+  const [jobs, setJobs] = useState<PublicJobPostingItem[]>([]);
   const [query, setQuery] = useState("");
   const [cityState, setCityState] = useState("");
   const [mode, setMode] = useState<ResultMode>("all");
@@ -106,13 +113,17 @@ export default function DiscoverScreen() {
     Promise.all([
       userId ? getStudentAccess(userId) : Promise.resolve(null),
       getPublicStudiosForMobile(userId),
-      getPublicEventsForMobile(userId)
+      getPublicEventsForMobile(userId),
+      getPublicPartnerProfilesForMobile(),
+      getPublicJobPostingsForMobile()
     ])
-      .then(([access, publicStudios, publicEvents]) => {
+      .then(([access, publicStudios, publicEvents, publicPartners, publicJobs]) => {
         if (!mounted) return;
         setLinkedStudios(access?.linkedStudios ?? []);
         setStudios(publicStudios);
         setEvents(publicEvents);
+        setPartners(publicPartners);
+        setJobs(publicJobs);
       })
       .catch((err) => {
         if (!mounted) return;
@@ -476,6 +487,38 @@ export default function DiscoverScreen() {
             />
           ) : null}
 
+          <View style={styles.discoveryGrid}>
+            <Pressable
+              onPress={() => router.push("/partners" as unknown as RouterPushTarget)}
+              style={({ pressed }) => [styles.discoveryFeature, pressed && styles.cardPressed]}
+            >
+              <View style={styles.discoveryIcon}>
+                <Ionicons color="#fff" name="people-outline" size={22} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <AppText style={styles.discoveryFeatureTitle}>Partner Search</AppText>
+                <AppText style={styles.discoveryFeatureDetail}>
+                  {partners.length} approved listing{partners.length === 1 ? "" : "s"} · connect safely inside DanceFlow.
+                </AppText>
+              </View>
+            </Pressable>
+
+            <Pressable
+              onPress={() => router.push("/jobs" as unknown as RouterPushTarget)}
+              style={({ pressed }) => [styles.discoveryFeature, pressed && styles.cardPressed]}
+            >
+              <View style={[styles.discoveryIcon, styles.discoveryIconAccent]}>
+                <Ionicons color="#fff" name="briefcase-outline" size={22} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <AppText style={styles.discoveryFeatureTitle}>Now Hiring</AppText>
+                <AppText style={styles.discoveryFeatureDetail}>
+                  {jobs.length} studio opening{jobs.length === 1 ? "" : "s"} for instructors, staff, and coaches.
+                </AppText>
+              </View>
+            </Pressable>
+          </View>
+
           {visibleStudios.length ? (
             <>
               <SectionHeading
@@ -776,5 +819,40 @@ const styles = StyleSheet.create({
   errorText: {
     color: colors.danger,
     fontSize: 14
+  },
+  discoveryFeature: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 14
+  },
+  discoveryFeatureDetail: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19
+  },
+  discoveryFeatureTitle: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 2
+  },
+  discoveryGrid: {
+    gap: 10
+  },
+  discoveryIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 16,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  discoveryIconAccent: {
+    backgroundColor: colors.accent
   }
 });

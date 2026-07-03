@@ -388,10 +388,8 @@ export type PublicPartnerProfileItem = {
   danceStyles: string[];
   skillLevel: string;
   goals: string[];
+  listingIntent: string;
   availabilityNotes: string | null;
-  contactPreference: string;
-  contactEmail: string | null;
-  contactPhone: string | null;
   webUrl: string;
 };
 
@@ -427,10 +425,8 @@ type PartnerProfileRow = {
   dance_styles: string[] | null;
   skill_level: string;
   goals: string[] | null;
+  listing_intent: string | null;
   availability_notes: string | null;
-  contact_preference: string;
-  contact_email: string | null;
-  contact_phone: string | null;
 };
 
 type JobPostingRow = {
@@ -502,9 +498,10 @@ export async function getPublicPartnerProfilesForMobile() {
   const { data, error } = await supabase
     .from("dancer_partner_profiles")
     .select(
-      "id, display_name, headline, bio, city, state, lead_follow_role, dance_styles, skill_level, goals, availability_notes, contact_preference, contact_email, contact_phone"
+      "id, display_name, headline, bio, city, state, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes"
     )
     .eq("visibility", "published")
+    .eq("moderation_status", "approved")
     .or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`)
     .order("published_at", { ascending: false })
     .limit(100);
@@ -523,10 +520,8 @@ export async function getPublicPartnerProfilesForMobile() {
     danceStyles: profile.dance_styles ?? [],
     skillLevel: profile.skill_level,
     goals: profile.goals ?? [],
+    listingIntent: profile.listing_intent ?? "practice",
     availabilityNotes: profile.availability_notes,
-    contactPreference: profile.contact_preference,
-    contactEmail: profile.contact_email,
-    contactPhone: profile.contact_phone,
     webUrl: `${danceFlowWebUrl()}/discover/partners`
   }));
 }

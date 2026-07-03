@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { StyleSheet, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -51,8 +53,11 @@ function profileOptions(profiles: StudentProfile[]) {
   }));
 }
 
+type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
+
 export default function ProfileScreen() {
   const { session, signOut } = useAuth();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -150,6 +155,23 @@ export default function ProfileScreen() {
           title="Dancer account"
           detail="You can complete your DanceFlow profile now. Studio-specific schedule, packages, and progress appear after a studio connects your account."
         />
+      ) : null}
+
+      {!loading && session ? (
+        <Pressable
+          onPress={() => router.push("/partners" as unknown as RouterPushTarget)}
+          style={({ pressed }) => [styles.partnerCard, pressed && styles.cardPressed]}
+        >
+          <View style={styles.partnerIcon}>
+            <Ionicons color="#fff" name="people-outline" size={22} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <AppText style={styles.partnerTitle}>Partner Search profile</AppText>
+            <AppText style={styles.partnerDetail}>
+              Create a dancer-owned listing for practice, social dance, showcase, or competition partners. Contact stays inside DanceFlow.
+            </AppText>
+          </View>
+        </Pressable>
       ) : null}
 
       {!loading && selectedProfile ? (
@@ -275,6 +297,9 @@ const styles = StyleSheet.create({
   form: {
     gap: 14
   },
+  cardPressed: {
+    opacity: 0.78
+  },
   input: {
     backgroundColor: colors.surfaceAlt,
     borderColor: colors.border,
@@ -292,6 +317,33 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     gap: 12
+  },
+  partnerCard: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 20,
+    flexDirection: "row",
+    gap: 12,
+    padding: 16
+  },
+  partnerDetail: {
+    color: "rgba(255,255,255,0.78)",
+    fontSize: 13,
+    lineHeight: 19
+  },
+  partnerIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderRadius: 999,
+    height: 42,
+    justifyContent: "center",
+    width: 42
+  },
+  partnerTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 4
   },
   studioList: {
     flexDirection: "row",

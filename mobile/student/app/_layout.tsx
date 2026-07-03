@@ -23,6 +23,20 @@ function AppStack() {
             title: "LUMI"
           }}
         />
+        <Stack.Screen
+          name="partners"
+          options={{
+            headerShown: true,
+            title: "Partner Search"
+          }}
+        />
+        <Stack.Screen
+          name="jobs"
+          options={{
+            headerShown: true,
+            title: "Now Hiring"
+          }}
+        />
       </Stack>
     </>
   );

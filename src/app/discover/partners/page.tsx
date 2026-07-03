@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  formatPartnerIntent,
   formatPartnerRole,
   formatPartnerSkill,
   getPublishedPartnerProfiles,
@@ -29,6 +30,11 @@ export default async function PartnerSearchDiscoveryPage() {
               <p className="mt-3 max-w-2xl text-base leading-7 text-slate-600">
                 Browse public partner listings for practice, social dancing,
                 showcases, competitions, and ongoing training.
+              </p>
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-500">
+                Partner Search is for dancers looking for dance partners. Lesson
+                ads, coaching offers, paid services, studio promotions, and
+                external booking links are not allowed.
               </p>
             </div>
             <Link
@@ -70,6 +76,9 @@ export default async function PartnerSearchDiscoveryPage() {
                   <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700 ring-1 ring-purple-100">
                     {formatPartnerRole(profile.leadFollowRole)}
                   </span>
+                  <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700 ring-1 ring-orange-100">
+                    {formatPartnerIntent(profile.listingIntent)}
+                  </span>
                 </div>
 
                 {profile.headline ? (
@@ -104,12 +113,17 @@ export default async function PartnerSearchDiscoveryPage() {
                   </p>
                 ) : null}
 
-                <div className="mt-5 border-t border-slate-100 pt-4 text-sm text-slate-600">
-                  {profile.contactPreference === "phone" && profile.contactPhone
-                    ? `Contact by phone: ${profile.contactPhone}`
-                    : profile.contactEmail
-                      ? `Contact by email: ${profile.contactEmail}`
-                      : "Sign in to connect when messaging is available."}
+                <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 text-sm text-slate-600 sm:flex-row sm:items-center sm:justify-between">
+                  <p>
+                    Contact stays inside DanceFlow. Sign in to request a
+                    connection.
+                  </p>
+                  <Link
+                    href="/login"
+                    className="font-semibold text-[var(--brand-primary)] hover:underline"
+                  >
+                    Request to connect
+                  </Link>
                 </div>
               </article>
             ))}

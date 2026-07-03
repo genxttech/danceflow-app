@@ -12,10 +12,8 @@ export type PartnerSearchProfile = {
   danceStyles: string[];
   skillLevel: string;
   goals: string[];
+  listingIntent: string;
   availabilityNotes: string | null;
-  contactPreference: string;
-  contactEmail: string | null;
-  contactPhone: string | null;
   publishedAt: string | null;
 };
 
@@ -30,10 +28,8 @@ type PartnerSearchProfileRow = {
   dance_styles: string[] | null;
   skill_level: string;
   goals: string[] | null;
+  listing_intent: string | null;
   availability_notes: string | null;
-  contact_preference: string;
-  contact_email: string | null;
-  contact_phone: string | null;
   published_at: string | null;
 };
 
@@ -59,14 +55,23 @@ export function formatPartnerSkill(value: string) {
   return normalizeLabel(value);
 }
 
+export function formatPartnerIntent(value: string) {
+  if (value === "practice") return "Practice Partner";
+  if (value === "social") return "Social Dance Partner";
+  if (value === "showcase") return "Showcase Partner";
+  if (value === "competition") return "Competition Partner";
+  return normalizeLabel(value);
+}
+
 export async function getPublishedPartnerProfiles() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("dancer_partner_profiles")
     .select(
-      "id, display_name, headline, bio, city, state, lead_follow_role, dance_styles, skill_level, goals, availability_notes, contact_preference, contact_email, contact_phone, published_at",
+      "id, display_name, headline, bio, city, state, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes, published_at",
     )
     .eq("visibility", "published")
+    .eq("moderation_status", "approved")
     .or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`)
     .order("published_at", { ascending: false })
     .limit(100);
@@ -88,10 +93,8 @@ export async function getPublishedPartnerProfiles() {
       danceStyles: row.dance_styles ?? [],
       skillLevel: row.skill_level,
       goals: row.goals ?? [],
+      listingIntent: row.listing_intent ?? "practice",
       availabilityNotes: row.availability_notes,
-      contactPreference: row.contact_preference,
-      contactEmail: row.contact_email,
-      contactPhone: row.contact_phone,
       publishedAt: row.published_at,
     }),
   );
