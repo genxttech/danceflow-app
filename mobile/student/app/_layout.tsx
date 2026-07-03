@@ -37,6 +37,13 @@ function AppStack() {
           }}
         />
         <Stack.Screen
+          name="partners/[threadId]"
+          options={{
+            headerShown: true,
+            title: "Partner Messages"
+          }}
+        />
+        <Stack.Screen
           name="jobs"
           options={{
             headerShown: true,

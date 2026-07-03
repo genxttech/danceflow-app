@@ -9,6 +9,8 @@ import { createClient } from "@/lib/supabase/server";
 import { saveStudioJobPostingAction } from "./actions";
 
 type SearchParams = Promise<{
+  edit?: string;
+  new?: string;
   success?: string;
   error?: string;
 }>;
@@ -27,6 +29,7 @@ type StudioJobPostingRow = {
   description: string | null;
   apply_url: string | null;
   apply_email: string | null;
+  apply_phone: string | null;
   contact_name: string | null;
   status: string;
   published_at: string | null;
@@ -50,7 +53,7 @@ export default async function AppNowHiringPage({
       supabase
         .from("studio_job_postings")
         .select(
-          "id, title, role_type, employment_type, location_type, city, state, compensation_summary, dance_styles, requirements, description, apply_url, apply_email, contact_name, status, published_at",
+          "id, title, role_type, employment_type, location_type, city, state, compensation_summary, dance_styles, requirements, description, apply_url, apply_email, apply_phone, contact_name, status, published_at",
         )
         .eq("studio_id", context.studioId)
         .order("created_at", { ascending: false }),
@@ -62,7 +65,13 @@ export default async function AppNowHiringPage({
   }
 
   const postings = (myPostings ?? []) as StudioJobPostingRow[];
-  const firstDraft = postings[0] ?? null;
+  const selectedPosting =
+    query.new === "1"
+      ? null
+      : query.edit
+        ? postings.find((posting) => posting.id === query.edit) ?? postings[0] ?? null
+        : postings[0] ?? null;
+  const formKey = selectedPosting ? `edit-${selectedPosting.id}` : "new-posting";
 
   return (
     <div className="space-y-8">
@@ -97,23 +106,39 @@ export default async function AppNowHiringPage({
           >
             Public View
           </Link>
+          <Link
+            href="/app/now-hiring?new=1"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+          >
+            New Posting
+          </Link>
         </div>
       </div>
 
       <form
+        key={formKey}
         action={saveStudioJobPostingAction}
         className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"
       >
-        <input type="hidden" name="postingId" value={firstDraft?.id ?? ""} />
+        <input type="hidden" name="postingId" value={selectedPosting?.id ?? ""} />
         <h2 className="text-xl font-semibold text-slate-950">
-          Job Posting
+          {selectedPosting ? "Edit Job Posting" : "New Job Posting"}
         </h2>
+        {selectedPosting ? (
+          <p className="mt-1 text-sm text-slate-500">
+            Editing {selectedPosting.title}. Use New Posting to create a separate opening.
+          </p>
+        ) : (
+          <p className="mt-1 text-sm text-slate-500">
+            Create a new opening for DanceFlow public discovery and the student app.
+          </p>
+        )}
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <label className="block text-sm font-medium text-slate-700">
             Title
             <input
               name="title"
-              defaultValue={firstDraft?.title ?? ""}
+              defaultValue={selectedPosting?.title ?? ""}
               required
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
               placeholder="Country Dance Instructor"
@@ -123,7 +148,7 @@ export default async function AppNowHiringPage({
             Role
             <select
               name="roleType"
-              defaultValue={firstDraft?.role_type ?? "instructor"}
+              defaultValue={selectedPosting?.role_type ?? "instructor"}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             >
               <option value="instructor">Instructor</option>
@@ -138,7 +163,7 @@ export default async function AppNowHiringPage({
             Employment type
             <select
               name="employmentType"
-              defaultValue={firstDraft?.employment_type ?? "contract"}
+              defaultValue={selectedPosting?.employment_type ?? "contract"}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             >
               <option value="contract">Contract</option>
@@ -153,7 +178,7 @@ export default async function AppNowHiringPage({
             Location type
             <select
               name="locationType"
-              defaultValue={firstDraft?.location_type ?? "in_person"}
+              defaultValue={selectedPosting?.location_type ?? "in_person"}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             >
               <option value="in_person">In Person</option>
@@ -165,7 +190,7 @@ export default async function AppNowHiringPage({
             City
             <input
               name="city"
-              defaultValue={firstDraft?.city ?? ""}
+              defaultValue={selectedPosting?.city ?? ""}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             />
           </label>
@@ -173,7 +198,7 @@ export default async function AppNowHiringPage({
             State
             <input
               name="state"
-              defaultValue={firstDraft?.state ?? ""}
+              defaultValue={selectedPosting?.state ?? ""}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             />
           </label>
@@ -181,7 +206,7 @@ export default async function AppNowHiringPage({
             Dance styles
             <input
               name="danceStyles"
-              defaultValue={listValue(firstDraft?.dance_styles)}
+              defaultValue={listValue(selectedPosting?.dance_styles)}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
               placeholder="Country Two Step, Ballroom, Latin, Swing"
             />
@@ -190,7 +215,7 @@ export default async function AppNowHiringPage({
             Compensation summary
             <input
               name="compensationSummary"
-              defaultValue={firstDraft?.compensation_summary ?? ""}
+              defaultValue={selectedPosting?.compensation_summary ?? ""}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
               placeholder="$35-$60/hr based on experience"
             />
@@ -199,7 +224,7 @@ export default async function AppNowHiringPage({
             Description
             <textarea
               name="description"
-              defaultValue={firstDraft?.description ?? ""}
+              defaultValue={selectedPosting?.description ?? ""}
               rows={5}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             />
@@ -208,7 +233,7 @@ export default async function AppNowHiringPage({
             Requirements
             <textarea
               name="requirements"
-              defaultValue={firstDraft?.requirements ?? ""}
+              defaultValue={selectedPosting?.requirements ?? ""}
               rows={4}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             />
@@ -217,7 +242,7 @@ export default async function AppNowHiringPage({
             Apply URL
             <input
               name="applyUrl"
-              defaultValue={firstDraft?.apply_url ?? ""}
+              defaultValue={selectedPosting?.apply_url ?? ""}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             />
           </label>
@@ -226,15 +251,25 @@ export default async function AppNowHiringPage({
             <input
               name="applyEmail"
               type="email"
-              defaultValue={firstDraft?.apply_email ?? ""}
+              defaultValue={selectedPosting?.apply_email ?? ""}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+            />
+          </label>
+          <label className="block text-sm font-medium text-slate-700">
+            Apply phone
+            <input
+              name="applyPhone"
+              type="tel"
+              defaultValue={selectedPosting?.apply_phone ?? ""}
+              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
+              placeholder="614-555-0123"
             />
           </label>
           <label className="block text-sm font-medium text-slate-700">
             Contact name
             <input
               name="contactName"
-              defaultValue={firstDraft?.contact_name ?? ""}
+              defaultValue={selectedPosting?.contact_name ?? ""}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             />
           </label>
@@ -242,7 +277,7 @@ export default async function AppNowHiringPage({
             Status
             <select
               name="status"
-              defaultValue={firstDraft?.status ?? "draft"}
+              defaultValue={selectedPosting?.status ?? "draft"}
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             >
               <option value="draft">Draft</option>
@@ -254,9 +289,9 @@ export default async function AppNowHiringPage({
         </div>
         <button
           type="submit"
-          className="mt-5 rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          className="mt-5 rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
         >
-          Save Job Posting
+          {selectedPosting ? "Save Job Posting" : "Create Job Posting"}
         </button>
       </form>
 
@@ -277,7 +312,7 @@ export default async function AppNowHiringPage({
                     : "Location coming soon"}
                 </p>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap items-start gap-2">
                 <span className="rounded-full bg-purple-50 px-3 py-1 text-xs font-semibold text-purple-700">
                   {formatJobRole(posting.role_type)}
                 </span>
@@ -287,6 +322,12 @@ export default async function AppNowHiringPage({
                 <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-medium text-orange-700">
                   {posting.status}
                 </span>
+                <Link
+                  href={`/app/now-hiring?edit=${posting.id}`}
+                  className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Edit
+                </Link>
               </div>
             </div>
           </article>

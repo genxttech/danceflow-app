@@ -57,6 +57,7 @@ export async function saveStudioJobPostingAction(formData: FormData) {
     description: getOptionalString(formData, "description"),
     apply_url: getOptionalString(formData, "applyUrl"),
     apply_email: getOptionalString(formData, "applyEmail"),
+    apply_phone: getOptionalString(formData, "applyPhone"),
     contact_name: getOptionalString(formData, "contactName"),
     status,
     published_at: status === "published" ? now : null,
