@@ -105,6 +105,7 @@ type EventSessionRow = {
 type SessionAttendanceRow = {
   id: string;
   event_registration_id: string | null;
+  event_registration_attendee_id: string | null;
   event_session_id: string | null;
   status: string | null;
   checked_in_at: string | null;
@@ -667,7 +668,7 @@ export default async function EventCheckInPage({
   if (isGroupClass && selectedSessionId && registrationIds.length > 0) {
     const { data: attendanceRows, error: attendanceError } = await supabase
       .from("attendance_records")
-      .select("id, event_registration_id, event_session_id, status, checked_in_at")
+      .select("id, event_registration_id, event_registration_attendee_id, event_session_id, status, checked_in_at")
       .eq("studio_id", studioId)
       .eq("event_session_id", selectedSessionId)
       .in("event_registration_id", registrationIds);
@@ -680,21 +681,55 @@ export default async function EventCheckInPage({
   }
 
   const sessionAttendanceByRegistrationId = new Map<string, SessionAttendanceRow>();
+  const sessionAttendanceByAttendeeId = new Map<string, SessionAttendanceRow>();
   for (const attendance of sessionAttendanceRows) {
-    if (!attendance.event_registration_id) continue;
-    sessionAttendanceByRegistrationId.set(attendance.event_registration_id, attendance);
+    if (attendance.event_registration_attendee_id) {
+      sessionAttendanceByAttendeeId.set(
+        attendance.event_registration_attendee_id,
+        attendance,
+      );
+    } else if (attendance.event_registration_id) {
+      sessionAttendanceByRegistrationId.set(attendance.event_registration_id, attendance);
+    }
   }
 
   const getSessionAttendance = (registrationId: string) =>
     sessionAttendanceByRegistrationId.get(registrationId) ?? null;
 
-  const isSessionCheckedIn = (registrationId: string) => {
-    const attendance = getSessionAttendance(registrationId);
+  const getAttendeeSessionAttendance = (attendeeId: string) =>
+    sessionAttendanceByAttendeeId.get(attendeeId) ?? null;
+
+  const isAttendeeSessionCheckedIn = (attendeeId: string) => {
+    const attendance = getAttendeeSessionAttendance(attendeeId);
     return attendance?.status === "checked_in" || attendance?.status === "attended";
   };
 
-  const getSessionCheckedInAt = (registrationId: string) => {
-    const attendance = getSessionAttendance(registrationId);
+  const getAttendeeSessionCheckedInAt = (attendeeId: string) => {
+    const attendance = getAttendeeSessionAttendance(attendeeId);
+    return attendance?.checked_in_at ?? null;
+  };
+
+  const isRegistrationSessionCheckedIn = (registration: RegistrationRow) => {
+    const attendeeRows = registration.event_registration_attendees ?? [];
+    if (attendeeRows.length > 0) {
+      return attendeeRows.every((attendee) => isAttendeeSessionCheckedIn(attendee.id));
+    }
+
+    const attendance = getSessionAttendance(registration.id);
+    return attendance?.status === "checked_in" || attendance?.status === "attended";
+  };
+
+  const getRegistrationSessionCheckedInAt = (registration: RegistrationRow) => {
+    const attendeeRows = registration.event_registration_attendees ?? [];
+    const attendeeCheckedInAt = attendeeRows
+      .map((attendee) => getAttendeeSessionCheckedInAt(attendee.id))
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1);
+
+    if (attendeeCheckedInAt) return attendeeCheckedInAt;
+
+    const attendance = getSessionAttendance(registration.id);
     return attendance?.checked_in_at ?? null;
   };
 
@@ -779,7 +814,7 @@ export default async function EventCheckInPage({
     if (registration.status === "cancelled") return "cancelled";
 
     if (isGroupClass && selectedSessionId) {
-      if (isSessionCheckedIn(registration.id)) return "checked_in";
+      if (isRegistrationSessionCheckedIn(registration)) return "checked_in";
       if (["confirmed", "checked_in", "attended"].includes(registration.status)) {
         return "registered";
       }
@@ -811,14 +846,85 @@ export default async function EventCheckInPage({
     return registration.status;
   };
 
+  const getTicketCountForRegistration = (registration: RegistrationRow) => {
+    const attendeeRows = registration.event_registration_attendees ?? [];
+    return attendeeRows.length > 0 ? attendeeRows.length : 1;
+  };
+
+  const getCheckedInTicketCountForRegistration = (
+    registration: RegistrationRow,
+  ) => {
+    if (isGroupClass && selectedSessionId) {
+      const attendeeRows = registration.event_registration_attendees ?? [];
+      if (attendeeRows.length > 0) {
+        return attendeeRows.filter((attendee) =>
+          isAttendeeSessionCheckedIn(attendee.id),
+        ).length;
+      }
+
+      return isRegistrationSessionCheckedIn(registration) ? 1 : 0;
+    }
+
+    const attendeeRows = registration.event_registration_attendees ?? [];
+    if (attendeeRows.length > 0) {
+      return attendeeRows.filter((attendee) => Boolean(attendee.checked_in_at))
+        .length;
+    }
+
+    const effectiveStatus = getEffectiveStatus(registration);
+    return effectiveStatus === "checked_in" || effectiveStatus === "attended"
+      ? 1
+      : 0;
+  };
+
+  const readyCount = typedRegistrations.reduce((sum, registration) => {
+    if (isGroupClass && selectedSessionId) {
+      if (getEffectiveStatus(registration) === "cancelled") return sum;
+      return (
+        sum +
+        Math.max(
+          getTicketCountForRegistration(registration) -
+            getCheckedInTicketCountForRegistration(registration),
+          0,
+        )
+      );
+    }
+
+    if (getEffectiveStatus(registration) !== "registered") return sum;
+    return sum + getTicketCountForRegistration(registration);
+  }, 0);
+  const checkedInCount = typedRegistrations.reduce(
+    (sum, registration) => sum + getCheckedInTicketCountForRegistration(registration),
+    0,
+  );
+  const cancelledCount = typedRegistrations.reduce((sum, registration) => {
+    if (getEffectiveStatus(registration) !== "cancelled") return sum;
+    return sum + getTicketCountForRegistration(registration);
+  }, 0);
+  const missingWaiverCount = documentRequirementRows.length
+    ? typedRegistrations.filter(
+        (registration) => !getDocumentStatus(registration.id).isComplete,
+      ).length
+    : 0;
+
   const filteredRegistrations = typedRegistrations
     .filter((registration) => {
       const effectiveStatus = getEffectiveStatus(registration);
 
       if (statusFilter === "ready") {
+        if (isGroupClass && selectedSessionId) {
+          return (
+            effectiveStatus !== "cancelled" &&
+            getCheckedInTicketCountForRegistration(registration) <
+              getTicketCountForRegistration(registration)
+          );
+        }
         return effectiveStatus === "registered";
       }
       if (statusFilter === "checked_in") {
+        if (isGroupClass && selectedSessionId) {
+          return getCheckedInTicketCountForRegistration(registration) > 0;
+        }
         return (
           effectiveStatus === "checked_in" || effectiveStatus === "attended"
         );
@@ -850,50 +956,6 @@ export default async function EventCheckInPage({
         )
       );
     });
-
-  const getTicketCountForRegistration = (registration: RegistrationRow) => {
-    const attendeeRows = registration.event_registration_attendees ?? [];
-    return attendeeRows.length > 0 ? attendeeRows.length : 1;
-  };
-
-  const getCheckedInTicketCountForRegistration = (
-    registration: RegistrationRow,
-  ) => {
-    if (isGroupClass && selectedSessionId) {
-      return isSessionCheckedIn(registration.id)
-        ? getTicketCountForRegistration(registration)
-        : 0;
-    }
-
-    const attendeeRows = registration.event_registration_attendees ?? [];
-    if (attendeeRows.length > 0) {
-      return attendeeRows.filter((attendee) => Boolean(attendee.checked_in_at))
-        .length;
-    }
-
-    const effectiveStatus = getEffectiveStatus(registration);
-    return effectiveStatus === "checked_in" || effectiveStatus === "attended"
-      ? 1
-      : 0;
-  };
-
-  const readyCount = typedRegistrations.reduce((sum, registration) => {
-    if (getEffectiveStatus(registration) !== "registered") return sum;
-    return sum + getTicketCountForRegistration(registration);
-  }, 0);
-  const checkedInCount = typedRegistrations.reduce(
-    (sum, registration) => sum + getCheckedInTicketCountForRegistration(registration),
-    0,
-  );
-  const cancelledCount = typedRegistrations.reduce((sum, registration) => {
-    if (getEffectiveStatus(registration) !== "cancelled") return sum;
-    return sum + getTicketCountForRegistration(registration);
-  }, 0);
-  const missingWaiverCount = documentRequirementRows.length
-    ? typedRegistrations.filter(
-        (registration) => !getDocumentStatus(registration.id).isComplete,
-      ).length
-    : 0;
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -1358,16 +1420,14 @@ export default async function EventCheckInPage({
               (left, right) => (left.sort_order ?? 0) - (right.sort_order ?? 0),
             );
             const sessionCheckedInAt = isGroupClass
-              ? getSessionCheckedInAt(registration.id)
+              ? getRegistrationSessionCheckedInAt(registration)
               : null;
             const firstCheckedInAttendee =
               attendeeRows.find((attendee) =>
                 Boolean(attendee.checked_in_at),
               ) ?? null;
             const checkedInAttendeeCount = isGroupClass
-              ? sessionCheckedInAt
-                ? getTicketCountForRegistration(registration)
-                : 0
+              ? getCheckedInTicketCountForRegistration(registration)
               : attendeeRows.filter((attendee) =>
                   Boolean(attendee.checked_in_at),
                 ).length;
@@ -1457,6 +1517,9 @@ export default async function EventCheckInPage({
                         </summary>
                         <div className="mt-3 grid gap-2 sm:grid-cols-2">
                           {attendeeRows.map((attendee, index) => {
+                            const attendeeSessionCheckedInAt = isGroupClass
+                              ? getAttendeeSessionCheckedInAt(attendee.id)
+                              : null;
                             const attendeeName =
                               `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim() ||
                               `Attendee ${index + 1}`;
@@ -1484,7 +1547,7 @@ export default async function EventCheckInPage({
                                   <span
                                     className={`inline-flex rounded-full px-2 py-1 text-xs font-medium ${
                                       isGroupClass
-                                        ? sessionCheckedInAt
+                                        ? attendeeSessionCheckedInAt
                                           ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
                                           : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
                                         : attendee.checked_in_at
@@ -1493,14 +1556,54 @@ export default async function EventCheckInPage({
                                     }`}
                                   >
                                     {isGroupClass
-                                      ? sessionCheckedInAt
-                                        ? `Checked in ${formatDateTime(sessionCheckedInAt)}`
+                                      ? attendeeSessionCheckedInAt
+                                        ? `Checked in ${formatDateTime(attendeeSessionCheckedInAt)}`
                                         : "Not checked in for this class"
                                       : attendee.checked_in_at
                                         ? `Checked in ${formatDateTime(attendee.checked_in_at)}`
                                         : "Not checked in"}
                                   </span>
                                 </div>
+                                {isGroupClass &&
+                                selectedSessionId &&
+                                !attendeeSessionCheckedInAt ? (
+                                  <form
+                                    action={checkInEventRegistrationAction}
+                                    className="mt-3"
+                                  >
+                                    <input
+                                      type="hidden"
+                                      name="eventId"
+                                      value={typedEvent.id}
+                                    />
+                                    <input
+                                      type="hidden"
+                                      name="registrationId"
+                                      value={registration.id}
+                                    />
+                                    <input
+                                      type="hidden"
+                                      name="eventRegistrationAttendeeId"
+                                      value={attendee.id}
+                                    />
+                                    <input
+                                      type="hidden"
+                                      name="eventSessionId"
+                                      value={selectedSessionId}
+                                    />
+                                    <input
+                                      type="hidden"
+                                      name="returnTo"
+                                      value={returnTo}
+                                    />
+                                    <button
+                                      type="submit"
+                                      className="rounded-lg bg-slate-900 px-3 py-2 text-xs font-medium text-white hover:bg-slate-800"
+                                    >
+                                      Check In This Attendee
+                                    </button>
+                                  </form>
+                                ) : null}
                               </div>
                             );
                           })}
@@ -1534,7 +1637,9 @@ export default async function EventCheckInPage({
                         <p className="text-sm text-slate-500">Checked In</p>
                         <p className="mt-1 font-medium text-slate-900">
                           {attendeeRows.length > 0
-                            ? `${checkedInAttendeeCount}/${attendeeRows.length} tickets`
+                            ? `${checkedInAttendeeCount}/${attendeeRows.length} ${
+                                isGroupClass ? "attendees" : "tickets"
+                              }`
                             : formatDateTime(effectiveCheckedInAt)}
                         </p>
                         {attendeeRows.length > 0 && effectiveCheckedInAt ? (
@@ -1621,7 +1726,9 @@ export default async function EventCheckInPage({
                           type="submit"
                           className="w-full rounded-xl bg-slate-900 px-4 py-3 text-white hover:bg-slate-800"
                         >
-                          Check In
+                          {isGroupClass && attendeeRows.length > 1
+                            ? "Check In All"
+                            : "Check In"}
                         </button>
                       </form>
                     ) : null}

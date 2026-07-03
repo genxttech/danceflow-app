@@ -55,6 +55,7 @@ type CheckedInAttendeeRow = {
 
 type SessionCheckInRow = {
   event_registration_id: string | null;
+  event_registration_attendee_id: string | null;
 };
 
 function getString(formData: FormData, key: string) {
@@ -234,7 +235,7 @@ export async function publishEventGroupLessonRecapAction(formData: FormData) {
 
     const { data: sessionCheckIns, error: sessionCheckInError } = await supabase
       .from("attendance_records")
-      .select("event_registration_id")
+      .select("event_registration_id, event_registration_attendee_id")
       .eq("studio_id", studioId)
       .eq("event_session_id", eventSessionId)
       .in("status", ["checked_in", "attended"]);
@@ -248,16 +249,29 @@ export async function publishEventGroupLessonRecapAction(formData: FormData) {
           .filter((id): id is string => Boolean(id)),
       ),
     );
+    const attendeeIds = Array.from(
+      new Set(
+        ((sessionCheckIns ?? []) as SessionCheckInRow[])
+          .map((row) => row.event_registration_attendee_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
 
     if (registrationIds.length === 0) {
       throw new Error("No checked-in attendees found for this class.");
     }
 
-    const { data: attendeeRows, error: attendeeError } = await supabase
+    let attendeeQuery = supabase
       .from("event_registration_attendees")
       .select("id, registration_id, first_name, last_name, email")
-      .eq("event_id", eventId)
-      .in("registration_id", registrationIds)
+      .eq("event_id", eventId);
+
+    attendeeQuery =
+      attendeeIds.length > 0
+        ? attendeeQuery.in("id", attendeeIds)
+        : attendeeQuery.in("registration_id", registrationIds);
+
+    const { data: attendeeRows, error: attendeeError } = await attendeeQuery
       .order("registration_id", { ascending: true })
       .order("sort_order", { ascending: true });
 
@@ -304,49 +318,59 @@ export async function publishEventGroupLessonRecapAction(formData: FormData) {
       attendeesByRegistrationId.set(attendee.registration_id, current);
     }
 
-    for (const registrationId of registrationIds) {
-        const registration = registrationById.get(registrationId);
-        if (!registration) continue;
+    const checkedInTargets =
+      attendeeIds.length > 0
+        ? checkedInAttendees.map((attendee) => ({
+            registrationId: attendee.registration_id,
+            attendee,
+          }))
+        : registrationIds.map((registrationId) => ({
+            registrationId,
+            attendee: attendeesByRegistrationId.get(registrationId)?.[0] ?? null,
+          }));
 
-        const attendee = attendeesByRegistrationId.get(registrationId)?.[0] ?? null;
-        const client = firstJoin(registration.clients);
-        const attendeeName = [attendee?.first_name, attendee?.last_name]
-          .filter(Boolean)
-          .join(" ")
-          .trim();
-        const registrationName = [
-          registration.attendee_first_name,
-          registration.attendee_last_name,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .trim();
-        const guestEmail =
-          attendee?.email || client?.email || registration.attendee_email || null;
+    for (const { registrationId, attendee } of checkedInTargets) {
+      const registration = registrationById.get(registrationId);
+      if (!registration) continue;
 
-        if (!registration.client_id && !guestEmail) continue;
+      const client = firstJoin(registration.clients);
+      const attendeeName = [attendee?.first_name, attendee?.last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      const registrationName = [
+        registration.attendee_first_name,
+        registration.attendee_last_name,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      const guestEmail =
+        attendee?.email || client?.email || registration.attendee_email || null;
 
-        const identityKey = registration.client_id
-          ? `client:${registration.client_id}`
-          : `guest:${guestEmail?.toLowerCase()}`;
+      if (!registration.client_id && !guestEmail) continue;
 
-        if (recipientByIdentity.has(identityKey)) continue;
+      const identityKey = registration.client_id
+        ? `client:${registration.client_id}`
+        : `guest:${guestEmail?.toLowerCase()}`;
 
-        recipientByIdentity.set(identityKey, {
-          recap_id: recap.id,
-          studio_id: studioId,
-          appointment_id: null,
-          event_id: eventId,
-          event_session_id: eventSessionId,
-          event_registration_id: registration.id,
-          event_registration_attendee_id: attendee?.id ?? null,
-          client_id: registration.client_id,
-          user_id: client?.portal_user_id ?? null,
-          guest_email: registration.client_id ? null : guestEmail,
-          guest_name: attendeeName || registrationName || null,
-          source: "checked_in",
-          delivery_status: "available",
-        });
+      if (recipientByIdentity.has(identityKey)) continue;
+
+      recipientByIdentity.set(identityKey, {
+        recap_id: recap.id,
+        studio_id: studioId,
+        appointment_id: null,
+        event_id: eventId,
+        event_session_id: eventSessionId,
+        event_registration_id: registration.id,
+        event_registration_attendee_id: attendee?.id ?? null,
+        client_id: registration.client_id,
+        user_id: client?.portal_user_id ?? null,
+        guest_email: registration.client_id ? null : guestEmail,
+        guest_name: attendeeName || registrationName || null,
+        source: "checked_in",
+        delivery_status: "available",
+      });
     }
 
     const recipients = Array.from(recipientByIdentity.values());

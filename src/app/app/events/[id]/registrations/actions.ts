@@ -51,6 +51,13 @@ type TicketCodeLookupRow = {
   checked_in_at: string | null;
 };
 
+type RegistrationAttendeeCheckInRow = {
+  id: string;
+  registration_id: string;
+  event_id: string | null;
+  checked_in_at: string | null;
+};
+
 type EventAccessRow = {
   id: string;
   event_type: string | null;
@@ -272,6 +279,27 @@ async function getAttendeeTicketCheckInState(params: {
   };
 }
 
+async function getRegistrationAttendeesForCheckIn(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  eventId: string;
+  registrationId: string;
+}) {
+  const { supabase, eventId, registrationId } = params;
+
+  const { data, error } = await supabase
+    .from("event_registration_attendees")
+    .select("id, registration_id, event_id, checked_in_at")
+    .eq("event_id", eventId)
+    .eq("registration_id", registrationId)
+    .order("sort_order", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return (data ?? []) as RegistrationAttendeeCheckInRow[];
+}
+
 async function upsertAttendanceLink(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
@@ -333,6 +361,7 @@ async function upsertAttendanceStatus(params: {
   checkedInAt?: string | null;
   markedAttendedAt?: string | null;
   eventSessionId?: string | null;
+  eventRegistrationAttendeeId?: string | null;
 }) {
   const {
     supabase,
@@ -342,11 +371,8 @@ async function upsertAttendanceStatus(params: {
     checkedInAt,
     markedAttendedAt,
     eventSessionId,
+    eventRegistrationAttendeeId,
   } = params;
-
-  if (!registration.client_id) {
-    return null;
-  }
 
   let existingQuery = supabase
     .from("attendance_records")
@@ -357,6 +383,10 @@ async function upsertAttendanceStatus(params: {
   existingQuery = eventSessionId
     ? existingQuery.eq("event_session_id", eventSessionId)
     : existingQuery.is("event_session_id", null);
+
+  existingQuery = eventRegistrationAttendeeId
+    ? existingQuery.eq("event_registration_attendee_id", eventRegistrationAttendeeId)
+    : existingQuery.is("event_registration_attendee_id", null);
 
   const { data: existing, error: existingError } =
     await existingQuery.maybeSingle<AttendanceLookupRow>();
@@ -370,6 +400,7 @@ async function upsertAttendanceStatus(params: {
     client_id: registration.client_id,
     event_registration_id: registration.id,
     event_session_id: eventSessionId ?? null,
+    event_registration_attendee_id: eventRegistrationAttendeeId ?? null,
     status,
     checked_in_at: checkedInAt ?? null,
     marked_attended_at: markedAttendedAt ?? null,
@@ -430,8 +461,15 @@ async function getAttendanceForRegistration(params: {
   studioId: string;
   registrationId: string;
   eventSessionId?: string | null;
+  eventRegistrationAttendeeId?: string | null;
 }) {
-  const { supabase, studioId, registrationId, eventSessionId } = params;
+  const {
+    supabase,
+    studioId,
+    registrationId,
+    eventSessionId,
+    eventRegistrationAttendeeId,
+  } = params;
 
   let query = supabase
     .from("attendance_records")
@@ -442,6 +480,10 @@ async function getAttendanceForRegistration(params: {
   query = eventSessionId
     ? query.eq("event_session_id", eventSessionId)
     : query.is("event_session_id", null);
+
+  query = eventRegistrationAttendeeId
+    ? query.eq("event_registration_attendee_id", eventRegistrationAttendeeId)
+    : query.is("event_registration_attendee_id", null);
 
   const { data, error } = await query.maybeSingle<AttendanceLookupRow>();
 
@@ -1161,6 +1203,7 @@ export async function checkInEventTicketCodeAction(formData: FormData) {
             studioId,
             registrationId: attendee.registration_id,
             eventSessionId: isGroupClass ? eventSessionId : null,
+            eventRegistrationAttendeeId: isGroupClass ? attendee.id : null,
           });
 
           const attendeeAlreadyCheckedIn = Boolean(attendee.checked_in_at);
@@ -1236,6 +1279,7 @@ export async function checkInEventTicketCodeAction(formData: FormData) {
               checkedInAt: now,
               markedAttendedAt: null,
               eventSessionId: isGroupClass ? eventSessionId : null,
+              eventRegistrationAttendeeId: isGroupClass ? attendee.id : null,
             });
 
             nextUrl = resolveReturnUrl({
@@ -1265,6 +1309,7 @@ export async function checkInEventTicketCodeAction(formData: FormData) {
 export async function checkInEventRegistrationAction(formData: FormData) {
   const eventId = getString(formData, "eventId");
   const registrationId = getString(formData, "registrationId");
+  const eventRegistrationAttendeeId = getString(formData, "eventRegistrationAttendeeId");
   const eventSessionId = getString(formData, "eventSessionId");
   const returnTo = getString(formData, "returnTo");
 
@@ -1338,20 +1383,30 @@ export async function checkInEventRegistrationAction(formData: FormData) {
       }
 
       if (!nextUrl.includes("error=session_not_found")) {
-        const existingAttendance = await getAttendanceForRegistration({
-          supabase,
-          studioId,
-          registrationId,
-          eventSessionId: isGroupClass ? eventSessionId : null,
-        });
+        const existingAttendance =
+          isGroupClass && eventRegistrationAttendeeId
+            ? await getAttendanceForRegistration({
+                supabase,
+                studioId,
+                registrationId,
+                eventSessionId,
+                eventRegistrationAttendeeId,
+              })
+            : await getAttendanceForRegistration({
+                supabase,
+                studioId,
+                registrationId,
+                eventSessionId: isGroupClass ? eventSessionId : null,
+              });
         const attendeeTicketState = await getAttendeeTicketCheckInState({
           supabase,
           eventId,
           registrationId,
         });
         const alreadyCheckedIn = isGroupClass
-          ? existingAttendance?.status === "checked_in" ||
-            existingAttendance?.status === "attended"
+          ? Boolean(eventRegistrationAttendeeId) &&
+            (existingAttendance?.status === "checked_in" ||
+              existingAttendance?.status === "attended")
           : attendeeTicketState.hasTickets
             ? attendeeTicketState.allCheckedIn
             : existingAttendance?.status === "checked_in" ||
@@ -1398,18 +1453,52 @@ export async function checkInEventRegistrationAction(formData: FormData) {
             }
           }
 
-          await upsertAttendanceStatus({
-            supabase,
-            studioId,
-            registration: {
-              ...registration,
-              checked_in_at: now,
-            },
-            status: "checked_in",
-            checkedInAt: now,
-            markedAttendedAt: null,
-            eventSessionId: isGroupClass ? eventSessionId : null,
-          });
+          if (isGroupClass) {
+            const attendees = await getRegistrationAttendeesForCheckIn({
+              supabase,
+              eventId,
+              registrationId,
+            });
+            const targetAttendees = eventRegistrationAttendeeId
+              ? attendees.filter((attendee) => attendee.id === eventRegistrationAttendeeId)
+              : attendees;
+
+            if (targetAttendees.length === 0) {
+              throw new Error("No attendee rows found for this registration.");
+            }
+
+            await Promise.all(
+              targetAttendees.map((attendee) =>
+                upsertAttendanceStatus({
+                  supabase,
+                  studioId,
+                  registration: {
+                    ...registration,
+                    checked_in_at: now,
+                  },
+                  status: "checked_in",
+                  checkedInAt: now,
+                  markedAttendedAt: null,
+                  eventSessionId,
+                  eventRegistrationAttendeeId: attendee.id,
+                }),
+              ),
+            );
+          } else {
+            await upsertAttendanceStatus({
+              supabase,
+              studioId,
+              registration: {
+                ...registration,
+                checked_in_at: now,
+              },
+              status: "checked_in",
+              checkedInAt: now,
+              markedAttendedAt: null,
+              eventSessionId: null,
+              eventRegistrationAttendeeId: null,
+            });
+          }
 
           nextUrl = resolveReturnUrl({
             eventId,
