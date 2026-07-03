@@ -5,11 +5,13 @@ import {
   BarChart3,
   Bell,
   BookOpen,
+  BriefcaseBusiness,
   CalendarDays,
   ClipboardCheck,
   CreditCard,
   DoorOpen,
   GraduationCap,
+  HeartHandshake,
   LayoutDashboard,
   Megaphone,
   Package,
@@ -48,6 +50,8 @@ function getIcon(icon: string) {
   if (icon === "settings") return Settings;
   if (icon === "notifications") return Bell;
   if (icon === "discovery") return Search;
+  if (icon === "partner_search") return HeartHandshake;
+  if (icon === "now_hiring") return BriefcaseBusiness;
   if (icon === "marketing") return Megaphone;
   if (icon === "automations") return Sparkles;
   return LayoutDashboard;

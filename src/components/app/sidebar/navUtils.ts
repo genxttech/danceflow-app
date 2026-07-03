@@ -148,6 +148,23 @@ function normalizeNavLabel(item: NavItem) {
   }
 
   if (
+    item.href === "/app/partner-search" ||
+    lower === "partner search" ||
+    lower === "find a partner"
+  ) {
+    return "Partner Search";
+  }
+
+  if (
+    item.href === "/app/now-hiring" ||
+    lower === "now hiring" ||
+    lower === "job postings" ||
+    lower === "studio jobs"
+  ) {
+    return "Now Hiring";
+  }
+
+  if (
     lower === "tickets" ||
     lower === "event tickets" ||
     lower === "manage event tickets"
@@ -688,6 +705,82 @@ function injectDocumentsLink(sections: NavSectionType[]): NavSectionType[] {
     {
       title: "People",
       items: [documentsItem],
+    },
+    ...sections,
+  ];
+}
+
+function injectDiscoveryExpansionLinks(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const additions: NavItem[] = [];
+
+  if (!flatItems.some((item) => item.href === "/app/partner-search")) {
+    additions.push({
+      label: "Partner Search",
+      href: "/app/partner-search",
+      icon: "partner_search",
+    });
+  }
+
+  if (!flatItems.some((item) => item.href === "/app/now-hiring")) {
+    additions.push({
+      label: "Now Hiring",
+      href: "/app/now-hiring",
+      icon: "now_hiring",
+    });
+  }
+
+  if (additions.length === 0) {
+    return sections;
+  }
+
+  const discoverySectionIndex = sections.findIndex((section) => {
+    const title = section.title.trim().toLowerCase();
+
+    return (
+      title === "discovery" ||
+      title === "public discovery" ||
+      section.items.some(
+        (item) =>
+          item.href === "/app/discover" ||
+          item.href === "/app/discovery" ||
+          item.href === "/discover",
+      )
+    );
+  });
+
+  if (discoverySectionIndex >= 0) {
+    return sections.map((section, index) => {
+      if (index !== discoverySectionIndex) {
+        return section;
+      }
+
+      return {
+        ...section,
+        items: [...section.items, ...additions],
+      };
+    });
+  }
+
+  const dashboardIndex = sections.findIndex((section) =>
+    section.items.some((item) => item.href === "/app"),
+  );
+
+  if (dashboardIndex >= 0) {
+    return [
+      ...sections.slice(0, dashboardIndex + 1),
+      {
+        title: "Discovery",
+        items: additions,
+      },
+      ...sections.slice(dashboardIndex + 1),
+    ];
+  }
+
+  return [
+    {
+      title: "Discovery",
+      items: additions,
     },
     ...sections,
   ];
@@ -1302,8 +1395,9 @@ export function normalizeSections(input: unknown, options: NormalizeSectionsOpti
   const withBookingRequestsLink = injectBookingRequestsLink(withInstructorPayLink);
   const withMyAvailabilityLink = injectMyAvailabilityLink(withBookingRequestsLink);
   const withDirectTaskLinks = injectDirectTaskLinks(withMyAvailabilityLink);
+  const withDiscoveryExpansionLinks = injectDiscoveryExpansionLinks(withDirectTaskLinks);
 
-  return optimizeNavigationForTasks(withDirectTaskLinks, options);
+  return optimizeNavigationForTasks(withDiscoveryExpansionLinks, options);
 }
 
 export function prettyRole(role: string) {

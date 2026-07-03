@@ -175,6 +175,10 @@ function locationLabel(value: {
   return venue || cityState || "Location coming soon";
 }
 
+function firstJoin<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
 function formatDate(value: string | null) {
   if (!value) return "Date coming soon";
   return new Intl.DateTimeFormat("en-US", {
@@ -372,6 +376,92 @@ export type PublicEventDetail = PublicEventItem & {
   registerUrl: string;
 };
 
+export type PublicPartnerProfileItem = {
+  id: string;
+  displayName: string;
+  headline: string | null;
+  bio: string | null;
+  location: string;
+  city: string | null;
+  state: string | null;
+  leadFollowRole: string;
+  danceStyles: string[];
+  skillLevel: string;
+  goals: string[];
+  availabilityNotes: string | null;
+  contactPreference: string;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  webUrl: string;
+};
+
+export type PublicJobPostingItem = {
+  id: string;
+  studioId: string;
+  studioName: string;
+  studioSlug: string | null;
+  title: string;
+  roleType: string;
+  employmentType: string;
+  locationType: string;
+  location: string;
+  city: string | null;
+  state: string | null;
+  compensationSummary: string | null;
+  danceStyles: string[];
+  requirements: string | null;
+  description: string | null;
+  applyUrl: string | null;
+  applyEmail: string | null;
+  webUrl: string;
+};
+
+type PartnerProfileRow = {
+  id: string;
+  display_name: string;
+  headline: string | null;
+  bio: string | null;
+  city: string | null;
+  state: string | null;
+  lead_follow_role: string;
+  dance_styles: string[] | null;
+  skill_level: string;
+  goals: string[] | null;
+  availability_notes: string | null;
+  contact_preference: string;
+  contact_email: string | null;
+  contact_phone: string | null;
+};
+
+type JobPostingRow = {
+  id: string;
+  studio_id: string;
+  title: string;
+  role_type: string;
+  employment_type: string;
+  location_type: string;
+  city: string | null;
+  state: string | null;
+  compensation_summary: string | null;
+  dance_styles: string[] | null;
+  requirements: string | null;
+  description: string | null;
+  apply_url: string | null;
+  apply_email: string | null;
+  studios:
+    | {
+        slug: string | null;
+        public_name: string | null;
+        name: string;
+      }
+    | {
+        slug: string | null;
+        public_name: string | null;
+        name: string;
+      }[]
+    | null;
+};
+
 export async function getPublicStudioDetailForMobile(
   studioId: string,
   userId?: string | null
@@ -406,4 +496,100 @@ export async function getPublicEventDetailForMobile(
     ...event,
     registerUrl: `${danceFlowWebUrl()}/events/${event.slug}/register`
   };
+}
+
+export async function getPublicPartnerProfilesForMobile() {
+  const { data, error } = await supabase
+    .from("dancer_partner_profiles")
+    .select(
+      "id, display_name, headline, bio, city, state, lead_follow_role, dance_styles, skill_level, goals, availability_notes, contact_preference, contact_email, contact_phone"
+    )
+    .eq("visibility", "published")
+    .or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`)
+    .order("published_at", { ascending: false })
+    .limit(100);
+
+  if (error) throw error;
+
+  return ((data ?? []) as PartnerProfileRow[]).map<PublicPartnerProfileItem>((profile) => ({
+    id: profile.id,
+    displayName: profile.display_name,
+    headline: profile.headline,
+    bio: profile.bio,
+    location: locationLabel(profile),
+    city: profile.city,
+    state: profile.state,
+    leadFollowRole: profile.lead_follow_role,
+    danceStyles: profile.dance_styles ?? [],
+    skillLevel: profile.skill_level,
+    goals: profile.goals ?? [],
+    availabilityNotes: profile.availability_notes,
+    contactPreference: profile.contact_preference,
+    contactEmail: profile.contact_email,
+    contactPhone: profile.contact_phone,
+    webUrl: `${danceFlowWebUrl()}/discover/partners`
+  }));
+}
+
+export async function getPublicJobPostingsForMobile() {
+  const { data, error } = await supabase
+    .from("studio_job_postings")
+    .select(
+      `
+      id,
+      studio_id,
+      title,
+      role_type,
+      employment_type,
+      location_type,
+      city,
+      state,
+      compensation_summary,
+      dance_styles,
+      requirements,
+      description,
+      apply_url,
+      apply_email,
+      studios (
+        slug,
+        public_name,
+        name
+      )
+    `
+    )
+    .eq("status", "published")
+    .or(`expires_at.is.null,expires_at.gte.${new Date().toISOString()}`)
+    .order("published_at", { ascending: false })
+    .limit(100);
+
+  if (error) throw error;
+
+  return ((data ?? []) as JobPostingRow[]).map<PublicJobPostingItem>((posting) => {
+    const studio = firstJoin(posting.studios);
+    const location =
+      posting.location_type === "remote"
+        ? "Remote"
+        : [posting.city, posting.state].filter(Boolean).join(", ") || "Location coming soon";
+
+    return {
+      id: posting.id,
+      studioId: posting.studio_id,
+      studioName: studio?.public_name?.trim() || studio?.name || "Dance studio",
+      studioSlug: studio?.slug ?? null,
+      title: posting.title,
+      roleType: posting.role_type,
+      employmentType: posting.employment_type,
+      locationType: posting.location_type,
+      location,
+      city: posting.city,
+      state: posting.state,
+      compensationSummary: posting.compensation_summary,
+      danceStyles: posting.dance_styles ?? [],
+      requirements: posting.requirements,
+      description: posting.description,
+      applyUrl: posting.apply_url,
+      applyEmail: posting.apply_email,
+      webUrl: `${danceFlowWebUrl()}/discover/jobs`
+    };
+  });
 }
