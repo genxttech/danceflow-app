@@ -24,6 +24,7 @@ export type DancerPartnerProfile = {
   goals: string;
   listingIntent: PartnerListingIntent;
   availabilityNotes: string;
+  photoUrl: string;
   visibility: PartnerVisibility;
   moderationStatus: string;
   moderationReason: string;
@@ -44,6 +45,7 @@ type PartnerProfileRow = {
   goals: string[] | null;
   listing_intent: PartnerListingIntent | null;
   availability_notes: string | null;
+  photo_url: string | null;
   visibility: PartnerVisibility | null;
   moderation_status: string | null;
   moderation_reason: string | null;
@@ -79,6 +81,7 @@ function emptyProfile(userEmail?: string | null): DancerPartnerProfile {
     goals: "Practice",
     listingIntent: "practice",
     availabilityNotes: "",
+    photoUrl: "",
     visibility: "draft",
     moderationStatus: "pending",
     moderationReason: "",
@@ -101,6 +104,7 @@ function rowToProfile(row: PartnerProfileRow): DancerPartnerProfile {
     goals: listToText(row.goals),
     listingIntent: row.listing_intent ?? "practice",
     availabilityNotes: row.availability_notes ?? "",
+    photoUrl: row.photo_url ?? "",
     visibility: row.visibility ?? "draft",
     moderationStatus: row.moderation_status ?? "pending",
     moderationReason: row.moderation_reason ?? "",
@@ -117,6 +121,7 @@ export function hasPartnerListingAdvertisingRisk(profile: DancerPartnerProfile) 
       profile.bio,
       profile.danceStyles,
       profile.goals,
+      profile.photoUrl,
       profile.availabilityNotes
     ].join(" ")
   );
@@ -126,7 +131,7 @@ export async function loadMyPartnerProfile(userId: string, userEmail?: string | 
   const { data, error } = await supabase
     .from("dancer_partner_profiles")
     .select(
-      "id, display_name, headline, bio, city, state, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes, visibility, moderation_status, moderation_reason, allow_studio_badge, terms_accepted_at"
+      "id, display_name, headline, bio, city, state, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes, photo_url, visibility, moderation_status, moderation_reason, allow_studio_badge, terms_accepted_at"
     )
     .eq("user_id", userId)
     .maybeSingle<PartnerProfileRow>();
@@ -153,6 +158,7 @@ export async function saveMyPartnerProfile(userId: string, profile: DancerPartne
     goals: textToList(profile.goals),
     listing_intent: profile.listingIntent,
     availability_notes: profile.availabilityNotes.trim() || null,
+    photo_url: profile.photoUrl.trim() || null,
     visibility: nextVisibility,
     moderation_status: nextVisibility === "published" ? "pending" : profile.moderationStatus || "pending",
     moderation_reason: advertisingRisk

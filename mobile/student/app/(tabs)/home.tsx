@@ -27,6 +27,23 @@ function displayNameFromSession(session: ReturnType<typeof useAuth>["session"]) 
   return fullName || session?.user.email || "Dancer";
 }
 
+function firstNameFromSession(session: ReturnType<typeof useAuth>["session"]) {
+  const metadata = session?.user.user_metadata ?? {};
+  const firstName = typeof metadata.first_name === "string" ? metadata.first_name.trim() : "";
+  if (firstName) return firstName;
+
+  const metadataNameCandidates = [
+    metadata.name,
+    metadata.full_name,
+    metadata.display_name,
+    metadata.preferred_name
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  const displayName = metadataNameCandidates[0]?.trim() || displayNameFromSession(session);
+  if (displayName.includes("@")) return "Dancer";
+  return displayName.split(" ")[0] || "Dancer";
+}
+
 export default function HomeScreen() {
   const { session } = useAuth();
   const [loadingAccess, setLoadingAccess] = useState(true);
@@ -107,13 +124,14 @@ export default function HomeScreen() {
   const pendingRequests = scheduleOverview?.bookingRequests.length ?? 0;
   const recentCount = scheduleOverview?.recent.length ?? 0;
   const favoritePreview = [...favoriteStudios, ...favoriteEvents].slice(0, 4);
+  const greetingName = primaryStudio?.clientFirstName?.trim() || firstNameFromSession(session);
 
   return (
     <Screen>
       <View style={styles.hero}>
         <Image accessibilityIgnoresInvertColors resizeMode="contain" source={danceFlowLogo} style={styles.logo} />
         <AppText variant="title">
-          {isGuest ? "Welcome to DanceFlow" : hasPortalAccess ? "Today" : `Welcome, ${displayNameFromSession(session)}`}
+          {isGuest ? "Welcome to DanceFlow" : `Welcome back, ${greetingName}`}
         </AppText>
         <AppText variant="caption">
           {isGuest

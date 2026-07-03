@@ -91,9 +91,22 @@ export type StudentEventRegistration = {
   state: string | null;
 };
 
+export type StudentPaymentRequest = {
+  id: string;
+  studioId: string;
+  studioName: string;
+  amount: number | null;
+  currency: string | null;
+  paymentType: string | null;
+  notes: string | null;
+  createdAt: string;
+  checkoutUrl: string;
+};
+
 export type StudentWallet = {
   memberships: StudentMembership[];
   packages: StudentPackage[];
+  paymentRequests: StudentPaymentRequest[];
   registrations: StudentEventRegistration[];
   tickets: StudentTicket[];
 };
@@ -166,6 +179,16 @@ type TicketRow = {
   ticket_issued_at: string | null;
 };
 
+type PaymentRequestRow = {
+  id: string;
+  studio_id: string;
+  amount: number | null;
+  currency: string | null;
+  payment_type: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
 function studioNameFor(studioId: string, linkedStudios: LinkedStudioAccess[]) {
   const studio = linkedStudios.find((item) => item.studioId === studioId);
   return studio?.studioPublicName || studio?.studioName || "Studio";
@@ -174,6 +197,10 @@ function studioNameFor(studioId: string, linkedStudios: LinkedStudioAccess[]) {
 function attendeeName(row: TicketRow) {
   const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ").trim();
   return fullName || `Ticket ${row.sort_order ?? ""}`.trim();
+}
+
+function paymentCheckoutUrl(paymentId: string) {
+  return `${webBaseUrl()}/api/stripe/client-checkout?paymentId=${encodeURIComponent(paymentId)}`;
 }
 
 export function formatWalletDate(value: string | null | undefined) {
@@ -296,7 +323,7 @@ export async function loadStudentWallet(
   const clientIds = linkedStudios.map((item) => item.clientId).filter(Boolean);
   const studioIds = linkedStudios.map((item) => item.studioId).filter(Boolean);
 
-  const [membershipsResult, packagesResult, clientRegistrationRows, emailRegistrationRows] = await Promise.all([
+  const [membershipsResult, packagesResult, paymentsResult, clientRegistrationRows, emailRegistrationRows] = await Promise.all([
     clientIds.length && studioIds.length
       ? supabase
           .from("client_memberships")
@@ -351,12 +378,24 @@ export async function loadStudentWallet(
           .limit(30)
       : Promise.resolve({ data: [], error: null }),
 
+    clientIds.length && studioIds.length
+      ? supabase
+          .from("payments")
+          .select("id, studio_id, amount, currency, payment_type, notes, created_at")
+          .in("studio_id", studioIds)
+          .in("client_id", clientIds)
+          .eq("status", "pending")
+          .order("created_at", { ascending: false })
+          .limit(20)
+      : Promise.resolve({ data: [], error: null }),
+
     loadRegistrationsByClient(clientIds, studioIds),
     loadRegistrationsByEmail(accountEmail)
   ]);
 
   if (membershipsResult.error) throw membershipsResult.error;
   if (packagesResult.error) throw packagesResult.error;
+  if (paymentsResult.error) throw paymentsResult.error;
 
   const memberships = ((membershipsResult.data ?? []) as MembershipRow[]).map((row) => ({
     id: row.id,
@@ -399,6 +438,17 @@ export async function loadStudentWallet(
 
   const registrationRows = dedupeRegistrations([...clientRegistrationRows, ...emailRegistrationRows]);
   const registrations = registrationRows.map((row) => registrationToWallet(row, linkedStudios));
+  const paymentRequests = ((paymentsResult.data ?? []) as PaymentRequestRow[]).map((row) => ({
+    id: row.id,
+    studioId: row.studio_id,
+    studioName: studioNameFor(row.studio_id, linkedStudios),
+    amount: row.amount,
+    currency: row.currency,
+    paymentType: row.payment_type,
+    notes: row.notes,
+    createdAt: row.created_at,
+    checkoutUrl: paymentCheckoutUrl(row.id)
+  }));
 
   const registrationIds = registrationRows.map((item) => item.id);
   let tickets: StudentTicket[] = [];
@@ -441,5 +491,5 @@ export async function loadStudentWallet(
     });
   }
 
-  return { memberships, packages, registrations, tickets };
+  return { memberships, packages, paymentRequests, registrations, tickets };
 }

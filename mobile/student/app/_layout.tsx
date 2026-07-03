@@ -37,6 +37,27 @@ function AppStack() {
             title: "Now Hiring"
           }}
         />
+        <Stack.Screen
+          name="schedule/request"
+          options={{
+            headerShown: true,
+            title: "Request Lesson"
+          }}
+        />
+        <Stack.Screen
+          name="discover/studios"
+          options={{
+            headerShown: true,
+            title: "Studios"
+          }}
+        />
+        <Stack.Screen
+          name="discover/events"
+          options={{
+            headerShown: true,
+            title: "Events"
+          }}
+        />
       </Stack>
     </>
   );

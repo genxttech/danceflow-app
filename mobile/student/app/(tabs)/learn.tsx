@@ -29,25 +29,6 @@ const emptyOverview: StudentLearnOverview = {
   ]
 };
 
-function LessonCard({ lesson }: { lesson: StudentLearnLesson }) {
-  const detail = [
-    lesson.studioName,
-    lesson.instructorName ? `Instructor: ${lesson.instructorName}` : null,
-    lesson.roomName
-  ]
-    .filter(Boolean)
-    .join(" • ");
-
-  return (
-    <View style={styles.itemCard}>
-      <AppText variant="eyebrow">{lesson.typeLabel}</AppText>
-      <AppText variant="subtitle">{lesson.title}</AppText>
-      <AppText variant="caption">{lesson.timeText}</AppText>
-      {detail ? <AppText variant="caption">{detail}</AppText> : null}
-    </View>
-  );
-}
-
 function FocusCard({ focus }: { focus: StudentPracticeFocus }) {
   return (
     <View style={styles.itemCard}>
@@ -89,6 +70,32 @@ function GroupRecapCard({ recap }: { recap: StudentGroupLessonRecap }) {
       ) : null}
     </View>
   );
+}
+
+function LatestRecapCard({
+  item
+}: {
+  item:
+    | { kind: "lesson"; lesson: StudentLearnLesson }
+    | { kind: "group"; recap: StudentGroupLessonRecap };
+}) {
+  if (item.kind === "lesson") {
+    const lesson = item.lesson;
+    return (
+      <View style={styles.itemCard}>
+        <AppText variant="eyebrow">Latest Lesson Recap</AppText>
+        <AppText variant="subtitle">{lesson.title}</AppText>
+        <AppText variant="caption">{lesson.timeText}</AppText>
+        <AppText variant="caption">
+          {lesson.instructorName
+            ? `Review what you worked on with ${lesson.instructorName}.`
+            : "Review what you worked on and what to practice next."}
+        </AppText>
+      </View>
+    );
+  }
+
+  return <GroupRecapCard recap={item.recap} />;
 }
 
 function LearnValueCard({ signedIn }: { signedIn: boolean }) {
@@ -213,6 +220,16 @@ export default function LearnScreen() {
   const groupLessonRecaps = overview.groupLessonRecaps;
   const practiceFocus = overview.practiceFocus;
   const latestLesson = recentLessons[0] ?? null;
+  const latestItems = [
+    latestLesson ? { kind: "lesson" as const, lesson: latestLesson } : null,
+    groupLessonRecaps[0] ? { kind: "group" as const, recap: groupLessonRecaps[0] } : null
+  ].filter(
+    (
+      item
+    ): item is
+      | { kind: "lesson"; lesson: StudentLearnLesson }
+      | { kind: "group"; recap: StudentGroupLessonRecap } => Boolean(item)
+  );
 
   return (
     <Screen>
@@ -238,16 +255,18 @@ export default function LearnScreen() {
 
       {!loading && hasPortalAccess ? (
         <>
-          {latestLesson ? (
-            <View style={styles.highlightCard}>
-              <AppText variant="eyebrow">Latest lesson</AppText>
-              <AppText variant="title">{latestLesson.title}</AppText>
-              <AppText variant="caption">{latestLesson.timeText}</AppText>
+          {latestItems.length ? (
+            <View style={styles.section}>
+              <AppText variant="subtitle">Latest recaps</AppText>
               <AppText variant="caption">
-                {latestLesson.instructorName
-                  ? `Ask LUMI what to practice from your lesson with ${latestLesson.instructorName}.`
-                  : "Ask LUMI what to practice from this lesson."}
+                Your most recent private and group lesson notes appear together here.
               </AppText>
+              {latestItems.map((item) => (
+                <LatestRecapCard
+                  key={item.kind === "lesson" ? `lesson-${item.lesson.id}` : `group-${item.recap.id}`}
+                  item={item}
+                />
+              ))}
             </View>
           ) : (
             <FeatureCard
@@ -257,41 +276,24 @@ export default function LearnScreen() {
             />
           )}
 
+          <View style={styles.syllabusCard}>
+            <View style={{ flex: 1 }}>
+              <AppText variant="eyebrow">Syllabus</AppText>
+              <AppText variant="subtitle">Skill progress</AppText>
+              <AppText variant="caption">
+                Track patterns, levels, and next skills when your studio shares syllabus progress.
+              </AppText>
+            </View>
+            <Link href="/lumi" asChild>
+              <AppButton label="Ask LUMI" variant="secondary" />
+            </Link>
+          </View>
+
           <View style={styles.section}>
             <AppText variant="subtitle">Practice focus</AppText>
             {practiceFocus.map((focus) => (
               <FocusCard key={focus.id} focus={focus} />
             ))}
-          </View>
-
-          <View style={styles.section}>
-            <AppText variant="subtitle">Recent lessons</AppText>
-            {recentLessons.length ? (
-              recentLessons.slice(0, 6).map((lesson) => <LessonCard key={lesson.id} lesson={lesson} />)
-            ) : (
-              <AppText variant="caption">
-                Completed lessons and classes will show here when your studio makes them visible.
-              </AppText>
-            )}
-          </View>
-
-          <View style={styles.section}>
-            <AppText variant="subtitle">Group lesson recaps</AppText>
-            {groupLessonRecaps.length ? (
-              <>
-                <AppText variant="caption">
-                  Group recaps are class-level notes shared with checked-in or attended students.
-                </AppText>
-                {groupLessonRecaps.map((recap) => (
-                  <GroupRecapCard key={recap.id} recap={recap} />
-                ))}
-              </>
-            ) : (
-              <FeatureCard
-                title="No group recaps yet"
-                detail="When your studio publishes class topics, practice assignments, or safety notes from group lessons, they will appear here."
-              />
-            )}
           </View>
 
           <View style={styles.lumiCard}>
@@ -370,6 +372,16 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: 10
+  },
+  syllabusCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 16
   },
   valueList: {
     gap: 10

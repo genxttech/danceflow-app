@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { Image, Linking, StyleSheet, View } from "react-native";
 import { router } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
@@ -15,12 +15,22 @@ import {
   packageItemLabel,
   type StudentMembership,
   type StudentPackage,
+  type StudentPaymentRequest,
   type StudentTicket,
   type StudentWallet
 } from "@/lib/studentWallet";
 
 function statusLabel(value: string | null | undefined) {
   return (value ?? "active").replace(/_/g, " ");
+}
+
+function paymentTypeLabel(value: string | null | undefined) {
+  if (value === "package") return "Package";
+  if (value === "membership") return "Membership";
+  if (value === "lesson") return "Lesson";
+  if (value === "event_registration") return "Event";
+  if (!value) return "Payment request";
+  return value.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function locationLine(ticket: StudentTicket) {
@@ -126,6 +136,24 @@ function PackageCard({ item }: { item: StudentPackage }) {
   );
 }
 
+function PaymentRequestCard({ payment }: { payment: StudentPaymentRequest }) {
+  const amount = formatCurrency(payment.amount);
+
+  return (
+    <View style={styles.paymentRequestCard}>
+      <View style={styles.itemHeader}>
+        <AppText variant="eyebrow">Payment request</AppText>
+        <AppText variant="caption">{payment.studioName}</AppText>
+      </View>
+      <AppText variant="subtitle">{amount ?? "Amount pending"}</AppText>
+      <AppText variant="caption">{paymentTypeLabel(payment.paymentType)}</AppText>
+      {payment.notes ? <AppText variant="caption">{payment.notes}</AppText> : null}
+      <AppText variant="caption">Requested {formatWalletDate(payment.createdAt)}</AppText>
+      <AppButton label="Pay Now" onPress={() => Linking.openURL(payment.checkoutUrl)} />
+    </View>
+  );
+}
+
 function TicketCard({ ticket }: { ticket: StudentTicket }) {
   const checkedIn = Boolean(ticket.checkedInAt);
   const location = locationLine(ticket);
@@ -207,6 +235,7 @@ export default function WalletScreen() {
   const isSignedIn = Boolean(session);
   const memberships = wallet?.memberships ?? [];
   const packages = wallet?.packages ?? [];
+  const paymentRequests = wallet?.paymentRequests ?? [];
   const tickets = wallet?.tickets ?? [];
   const registrations = wallet?.registrations ?? [];
 
@@ -283,11 +312,25 @@ export default function WalletScreen() {
               <AppText variant="caption">ready for check-in</AppText>
             </View>
             <View style={styles.summaryCard}>
-              <AppText variant="eyebrow">Balances</AppText>
-              <AppText variant="title">{packages.length}</AppText>
-              <AppText variant="caption">lesson packages</AppText>
+              <AppText variant="eyebrow">Payments</AppText>
+              <AppText variant="title">{paymentRequests.length}</AppText>
+              <AppText variant="caption">requests</AppText>
             </View>
           </View>
+
+          {hasPortalAccess && paymentRequests.length > 0 ? (
+            <View style={styles.section}>
+              <AppText variant="subtitle">Payment Requests</AppText>
+              {paymentRequests.map((payment) => (
+                <PaymentRequestCard key={payment.id} payment={payment} />
+              ))}
+            </View>
+          ) : hasPortalAccess ? (
+            <FeatureCard
+              title="No payment requests"
+              detail="Any unpaid payment requests from your studio will appear here."
+            />
+          ) : null}
 
           {tickets.length > 0 ? (
             <View style={styles.section}>
@@ -407,6 +450,14 @@ const styles = StyleSheet.create({
   passInfo: {
     flex: 1,
     gap: 7
+  },
+  paymentRequestCard: {
+    backgroundColor: "#fff4e7",
+    borderColor: "#fed7aa",
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 8,
+    padding: 14
   },
   passQrImage: {
     backgroundColor: "white",

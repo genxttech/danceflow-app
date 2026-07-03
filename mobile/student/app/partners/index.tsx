@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Image, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
@@ -24,6 +24,11 @@ import {
 
 type RequestDrafts = Record<string, string>;
 
+type EditablePartnerProfile = DancerPartnerProfile & {
+  photoUrl?: string | null;
+  profilePhotoUrl?: string | null;
+};
+
 const intentOptions: Array<{ label: string; value: PartnerListingIntent }> = [
   { label: "Practice", value: "practice" },
   { label: "Social", value: "social" },
@@ -47,12 +52,46 @@ const skillOptions: Array<{ label: string; value: PartnerSkillLevel }> = [
   { label: "Professional", value: "professional" }
 ];
 
+const danceStyleGroups = [
+  {
+    label: "Country",
+    styles: ["Country Two Step", "West Coast Swing", "East Coast Swing", "Nightclub Two Step", "Country Waltz", "Polka"]
+  },
+  {
+    label: "Ballroom",
+    styles: ["Waltz", "Tango", "Foxtrot", "Viennese Waltz", "Quickstep"]
+  },
+  {
+    label: "Latin and Rhythm",
+    styles: ["Cha Cha", "Rumba", "Samba", "Paso Doble", "Jive", "Bolero", "Mambo"]
+  },
+  {
+    label: "Social and Club",
+    styles: ["Salsa", "Bachata", "Kizomba", "Zouk", "Argentine Tango", "Hustle"]
+  }
+];
+
 function normalize(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
 
 function labelFor(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function parseList(value: string) {
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function joinList(values: string[]) {
+  return Array.from(new Set(values)).join(", ");
+}
+
+function profilePhotoUrl(profile: EditablePartnerProfile) {
+  return profile.photoUrl?.trim() || profile.profilePhotoUrl?.trim() || "";
 }
 
 function Field({
@@ -112,13 +151,54 @@ function OptionRow<T extends string>({
   );
 }
 
+function DanceStylePicker({
+  value,
+  onChange
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const selected = parseList(value);
+
+  function toggle(style: string) {
+    const active = selected.includes(style);
+    onChange(joinList(active ? selected.filter((item) => item !== style) : [...selected, style]));
+  }
+
+  return (
+    <View style={styles.stylePicker}>
+      {danceStyleGroups.map((group) => (
+        <View key={group.label} style={styles.styleGroup}>
+          <AppText style={styles.styleGroupTitle}>{group.label}</AppText>
+          <View style={styles.optionRow}>
+            {group.styles.map((style) => {
+              const active = selected.includes(style);
+              return (
+                <Pressable
+                  key={style}
+                  onPress={() => toggle(style)}
+                  style={[styles.optionPill, active && styles.optionPillActive]}
+                >
+                  <AppText style={[styles.optionText, active && styles.optionTextActive]}>
+                    {style}
+                  </AppText>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function PartnerSearchScreen() {
   const { session } = useAuth();
   const user = session?.user ?? null;
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [profiles, setProfiles] = useState<PublicPartnerProfileItem[]>([]);
-  const [myProfile, setMyProfile] = useState<DancerPartnerProfile | null>(null);
+  const [myProfile, setMyProfile] = useState<EditablePartnerProfile | null>(null);
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -155,7 +235,7 @@ export default function PartnerSearchScreen() {
         loadMyPartnerProfile(user.id, user.email),
         getPublicPartnerProfilesForMobile()
       ]);
-      setMyProfile(ownProfile);
+      setMyProfile(ownProfile as EditablePartnerProfile);
       setProfiles(publicProfiles);
     } catch {
       setErrorMessage("Partner Search is not available yet. Try again in a moment.");
@@ -169,7 +249,7 @@ export default function PartnerSearchScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id]);
 
-  function updateProfile(updater: (profile: DancerPartnerProfile) => DancerPartnerProfile) {
+  function updateProfile(updater: (profile: EditablePartnerProfile) => EditablePartnerProfile) {
     setMyProfile((current) => (current ? updater(current) : current));
   }
 
@@ -184,7 +264,7 @@ export default function PartnerSearchScreen() {
       const result = await saveMyPartnerProfile(user.id, {
         ...myProfile,
         visibility
-      });
+      } as DancerPartnerProfile);
 
       if (result.advertisingRisk) {
         setMessage(
@@ -277,6 +357,31 @@ export default function PartnerSearchScreen() {
             onChangeText={(value) => updateProfile((profile) => ({ ...profile, displayName: value }))}
             value={myProfile.displayName}
           />
+          <View style={styles.photoCard}>
+            {profilePhotoUrl(myProfile) ? (
+              <Image
+                accessibilityIgnoresInvertColors
+                resizeMode="cover"
+                source={{ uri: profilePhotoUrl(myProfile) }}
+                style={styles.profilePhoto}
+              />
+            ) : (
+              <View style={styles.photoPlaceholder}>
+                <Ionicons color={colors.primary} name="person-outline" size={30} />
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <Field
+                label="Profile photo URL"
+                onChangeText={(value) => updateProfile((profile) => ({ ...profile, photoUrl: value }))}
+                placeholder="https://..."
+                value={profilePhotoUrl(myProfile)}
+              />
+              <AppText variant="caption">
+                Add one clear photo of yourself. Public contact details and promotional images are not allowed.
+              </AppText>
+            </View>
+          </View>
           <Field
             label="Headline"
             onChangeText={(value) => updateProfile((profile) => ({ ...profile, headline: value }))}
@@ -323,12 +428,13 @@ export default function PartnerSearchScreen() {
             />
           </View>
 
-          <Field
-            label="Dance styles"
-            onChangeText={(value) => updateProfile((profile) => ({ ...profile, danceStyles: value }))}
-            placeholder="Country Two Step, West Coast Swing, Ballroom"
-            value={myProfile.danceStyles}
-          />
+          <View style={styles.field}>
+            <AppText variant="eyebrow">Dance styles</AppText>
+            <DanceStylePicker
+              value={myProfile.danceStyles}
+              onChange={(value) => updateProfile((profile) => ({ ...profile, danceStyles: value }))}
+            />
+          </View>
           <Field
             label="Goals"
             onChangeText={(value) => updateProfile((profile) => ({ ...profile, goals: value }))}
@@ -539,6 +645,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12
   },
+  photoCard: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 12
+  },
+  photoPlaceholder: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 24,
+    borderWidth: 1,
+    height: 72,
+    justifyContent: "center",
+    width: 72
+  },
+  profilePhoto: {
+    borderRadius: 24,
+    height: 72,
+    width: 72
+  },
   requestInput: {
     minHeight: 86,
     textAlignVertical: "top"
@@ -588,6 +719,17 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 12,
     fontWeight: "900"
+  },
+  styleGroup: {
+    gap: 8
+  },
+  styleGroupTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  stylePicker: {
+    gap: 12
   },
   tag: {
     backgroundColor: colors.surfaceAlt,

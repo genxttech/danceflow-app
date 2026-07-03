@@ -1,15 +1,16 @@
 import { Link, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
-import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
+  appointmentTypeLabel,
   formatScheduleDateTime,
   formatScheduleTimeRange,
   loadStudentScheduleOverview,
@@ -19,48 +20,6 @@ import {
   type StudentScheduleOverview
 } from "@/lib/studentSchedule";
 
-const lumiAvatar = require("../../assets/lumi-avatar.png");
-const selfServiceStudioSlug = process.env.EXPO_PUBLIC_DANCEFLOW_STUDIO_SLUG;
-
-type SelfServiceSlot = {
-  date: string;
-  startsAt: string;
-  endsAt: string;
-  instructorId: string | null;
-  roomId: string | null;
-};
-
-type SelfServiceInstructor = {
-  id: string;
-  name: string;
-};
-
-type SelfServiceSlotsResponse = {
-  slots: SelfServiceSlot[];
-  instructors?: SelfServiceInstructor[];
-  bookingDecision?: {
-    allowed: boolean;
-    mode: "request_only" | "approval_required" | "instant" | null;
-    reason: string | null;
-  };
-};
-
-type SelfServiceActionRequest = {
-  id: string;
-  action_type: string;
-  mode: string;
-  status: string;
-  requested_starts_at: string | null;
-  previous_starts_at: string | null;
-  staff_note: string | null;
-  failure_reason: string | null;
-};
-
-type SelfServiceRequestsResponse = {
-  timezone: string;
-  requests: SelfServiceActionRequest[];
-};
-
 function isPrivateLesson(item: StudentScheduleItem) {
   const type = (item.appointmentType ?? "").toLowerCase();
   const title = item.title.toLowerCase();
@@ -69,9 +28,30 @@ function isPrivateLesson(item: StudentScheduleItem) {
   return type.includes("private") || title.includes("private") || subtitle.includes("private");
 }
 
+function displayScheduleTitle(item: StudentScheduleItem) {
+  const typeLabel = appointmentTypeLabel(item.appointmentType);
+  const title = item.title.trim();
+  const normalizedTitle = title.toLowerCase();
+
+  if (isPrivateLesson(item) && (normalizedTitle.includes("self-service") || normalizedTitle.includes("booking"))) {
+    return typeLabel;
+  }
+
+  return title || typeLabel;
+}
+
+function displayScheduleSubtitle(item: StudentScheduleItem) {
+  const title = displayScheduleTitle(item).toLowerCase();
+  const subtitle = item.subtitle.trim();
+
+  if (!subtitle || subtitle.toLowerCase() === title) return null;
+  return subtitle;
+}
+
 function ScheduleItemCard({ item }: { item: StudentScheduleItem }) {
   const router = useRouter();
   const showLessonActions = isPrivateLesson(item);
+  const subtitle = displayScheduleSubtitle(item);
 
   function openAppointment(action?: "reschedule" | "cancel") {
     router.push({
@@ -86,25 +66,17 @@ function ScheduleItemCard({ item }: { item: StudentScheduleItem }) {
         <AppText variant="eyebrow">{statusLabel(item.status)}</AppText>
         <AppText variant="caption">{item.studioName}</AppText>
       </View>
-      <AppText variant="subtitle">{item.title}</AppText>
+      <AppText variant="subtitle">{displayScheduleTitle(item)}</AppText>
       <AppText variant="caption">
         {formatScheduleTimeRange(item.startsAt, item.endsAt, item.timeZone)}
       </AppText>
-      <AppText variant="caption">{item.subtitle}</AppText>
+      {subtitle ? <AppText variant="caption">{subtitle}</AppText> : null}
 
       {showLessonActions ? (
         <View style={styles.actionRow}>
           <AppButton label="View" onPress={() => openAppointment()} variant="secondary" />
-          <AppButton
-            label="Reschedule"
-            onPress={() => openAppointment("reschedule")}
-            variant="secondary"
-          />
-          <AppButton
-            label="Cancel"
-            onPress={() => openAppointment("cancel")}
-            variant="secondary"
-          />
+          <AppButton label="Reschedule" onPress={() => openAppointment("reschedule")} variant="secondary" />
+          <AppButton label="Cancel" onPress={() => openAppointment("cancel")} variant="secondary" />
         </View>
       ) : (
         <AppButton label="View details" onPress={() => openAppointment()} variant="secondary" />
@@ -120,7 +92,7 @@ function BookingRequestCard({ request }: { request: StudentBookingRequest }) {
         <AppText variant="eyebrow">{statusLabel(request.status)}</AppText>
         <AppText variant="caption">{request.studioName}</AppText>
       </View>
-      <AppText variant="subtitle">Booking request</AppText>
+      <AppText variant="subtitle">Lesson request</AppText>
       <AppText variant="caption">
         {request.requestedStartsAt
           ? formatScheduleDateTime(request.requestedStartsAt, request.timeZone)
@@ -130,118 +102,19 @@ function BookingRequestCard({ request }: { request: StudentBookingRequest }) {
   );
 }
 
-function actionLabel(value: string) {
-  if (value === "book") return "Booking";
-  if (value === "reschedule") return "Reschedule";
-  if (value === "cancel") return "Cancellation";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
-}
-
-function formatSelfServiceDate(dateKey: string, timeZone: string) {
-  const [year, month, day] = dateKey.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    weekday: "short",
-    month: "short",
-    day: "numeric"
-  }).format(date);
-}
-
-function SelfServiceRequestCard({
-  request,
-  timeZone
-}: {
-  request: SelfServiceActionRequest;
-  timeZone: string;
-}) {
-  const startsAt =
-    request.action_type === "cancel"
-      ? request.previous_starts_at
-      : request.requested_starts_at;
-
-  return (
-    <View style={styles.requestCard}>
-      <View style={styles.itemHeader}>
-        <AppText variant="eyebrow">{statusLabel(request.status)}</AppText>
-        <AppText variant="caption">{request.mode.replaceAll("_", " ")}</AppText>
-      </View>
-      <AppText variant="subtitle">{actionLabel(request.action_type)} request</AppText>
-      <AppText variant="caption">
-        {startsAt
-          ? formatScheduleDateTime(startsAt, timeZone)
-          : "Studio will review your request."}
-      </AppText>
-      {request.staff_note ? (
-        <AppText variant="caption">Studio note: {request.staff_note}</AppText>
-      ) : null}
-      {request.failure_reason ? (
-        <AppText variant="caption">{request.failure_reason}</AppText>
-      ) : null}
-    </View>
-  );
-}
-
-function SelfServiceSlotCard({
-  slot,
-  timeZone,
-  submitting,
-  onPress
-}: {
-  slot: SelfServiceSlot;
-  timeZone: string;
-  submitting: boolean;
-  onPress: () => void;
-}) {
-  return (
-    <View style={styles.slotCard}>
-      <AppText variant="subtitle">{formatScheduleDateTime(slot.startsAt, timeZone)}</AppText>
-      <AppText variant="caption">
-        {submitting ? "Submitting..." : "Tap request to send this time to the studio."}
-      </AppText>
-      <AppButton
-        label={submitting ? "Submitting..." : "Request this time"}
-        onPress={onPress}
-        variant="secondary"
-      />
-    </View>
-  );
-}
-
 function ScheduleValueCard({ signedIn }: { signedIn: boolean }) {
   return (
     <>
-      <View style={styles.lumiCard}>
-        <Image source={lumiAvatar} style={styles.lumiAvatar} resizeMode="contain" />
-        <View style={styles.lumiCopy}>
-          <AppText variant="eyebrow">Meet LUMI</AppText>
-          <AppText variant="subtitle">Your dance schedule coach</AppText>
-          <AppText variant="caption">
-            When your studio connects your DanceFlow account, LUMI can help you understand what is coming up, prepare for lessons, and turn your schedule into a simple practice plan.
+      <View style={styles.emptyHero}>
+        <View style={styles.emptyIcon}>
+          <Ionicons color="#fff" name="calendar-outline" size={24} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.emptyTitle}>Your dance schedule in one place</AppText>
+          <AppText style={styles.emptyDetail}>
+            Connected studios can show upcoming lessons, classes, bookings, and request status here.
           </AppText>
         </View>
-      </View>
-
-      <FeatureCard
-        label="Why connect with a studio?"
-        title="Your dance schedule becomes easier to manage"
-        detail="Connected studios can show your private lessons, group classes, coachings, floor rentals, event commitments, and booking requests in one place."
-      />
-
-      <View style={styles.valueList}>
-        <FeatureCard
-          title="Know what is next"
-          detail="See upcoming lessons, classes, and studio bookings without digging through messages."
-        />
-        <FeatureCard
-          title="Request changes"
-          detail="When supported by your studio, private lessons can include request options for rescheduling or cancellation."
-        />
-        <FeatureCard
-          title="Prepare with LUMI"
-          detail="LUMI can use your connected schedule to help you plan what to review before your next lesson."
-        />
       </View>
 
       {signedIn ? (
@@ -250,18 +123,13 @@ function ScheduleValueCard({ signedIn }: { signedIn: boolean }) {
             <AppButton label="Find studios to connect with" />
           </Link>
           <AppText variant="caption">
-            Already taking lessons? Ask your studio to connect your DanceFlow account so your schedule can appear here.
+            Already taking lessons? Ask your studio to connect your DanceFlow account.
           </AppText>
         </>
       ) : (
-        <>
-          <Link href="/(auth)/sign-in" asChild>
-            <AppButton label="Create or access your free account" />
-          </Link>
-          <AppText variant="caption">
-            Returning dancer? Use the same email you use for DanceFlow, your studio, events, or tickets.
-          </AppText>
-        </>
+        <Link href="/(auth)/sign-in" asChild>
+          <AppButton label="Create or access your free account" />
+        </Link>
       )}
     </>
   );
@@ -272,16 +140,6 @@ export default function ScheduleScreen() {
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [overview, setOverview] = useState<StudentScheduleOverview | null>(null);
-  const [selfServiceSlots, setSelfServiceSlots] = useState<SelfServiceSlot[]>([]);
-  const [selfServiceInstructors, setSelfServiceInstructors] = useState<SelfServiceInstructor[]>([]);
-  const [selectedSelfServiceInstructorId, setSelectedSelfServiceInstructorId] = useState("");
-  const [selectedSelfServiceDate, setSelectedSelfServiceDate] = useState("");
-  const [selfServiceDecision, setSelfServiceDecision] =
-    useState<SelfServiceSlotsResponse["bookingDecision"]>(undefined);
-  const [selfServiceRequests, setSelfServiceRequests] =
-    useState<SelfServiceRequestsResponse | null>(null);
-  const [selfServiceMessage, setSelfServiceMessage] = useState<string | null>(null);
-  const [submittingSlotKey, setSubmittingSlotKey] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function loadSchedule() {
@@ -290,8 +148,6 @@ export default function ScheduleScreen() {
     if (!userId) {
       setLinkedStudios([]);
       setOverview(null);
-      setSelfServiceInstructors([]);
-      setSelectedSelfServiceDate("");
       setLoading(false);
       return;
     }
@@ -305,159 +161,59 @@ export default function ScheduleScreen() {
 
       if (access.linkedStudios.length === 0) {
         setOverview(null);
-        setSelfServiceSlots([]);
-        setSelfServiceInstructors([]);
-        setSelectedSelfServiceDate("");
-        setSelfServiceRequests(null);
         return;
       }
 
-      const nextOverview = await loadStudentScheduleOverview(access.linkedStudios);
-      setOverview(nextOverview);
-
-      if (selfServiceStudioSlug) {
-        try {
-          const [slotsResponse, requestsResponse] = await Promise.all([
-            danceflowApiFetch<SelfServiceSlotsResponse>(
-              "/api/student/self-service/slots",
-              {
-                params: {
-                  studioSlug: selfServiceStudioSlug,
-                  lessonType: "private_lesson",
-                  instructorId: selectedSelfServiceInstructorId || null
-                }
-              }
-            ),
-            danceflowApiFetch<SelfServiceRequestsResponse>(
-              "/api/student/self-service/requests",
-              {
-                params: {
-                  studioSlug: selfServiceStudioSlug
-                }
-              }
-            )
-          ]);
-          const nextSelfServiceSlots = slotsResponse.slots ?? [];
-          setSelfServiceSlots(nextSelfServiceSlots);
-          if (
-            selectedSelfServiceDate &&
-            !nextSelfServiceSlots.some((slot) => slot.date === selectedSelfServiceDate)
-          ) {
-            setSelectedSelfServiceDate("");
-          }
-          setSelfServiceInstructors(slotsResponse.instructors ?? []);
-          setSelfServiceDecision(slotsResponse.bookingDecision);
-          setSelfServiceRequests(requestsResponse);
-        } catch (selfServiceError) {
-          setSelfServiceSlots([]);
-          setSelfServiceInstructors([]);
-          setSelectedSelfServiceDate("");
-          setSelfServiceDecision(undefined);
-          setSelfServiceRequests(null);
-          setSelfServiceMessage(
-            selfServiceError instanceof Error
-              ? selfServiceError.message
-              : "Self-service requests could not be loaded."
-          );
-        }
-      } else {
-        setSelfServiceSlots([]);
-        setSelfServiceInstructors([]);
-        setSelectedSelfServiceDate("");
-        setSelfServiceDecision(undefined);
-        setSelfServiceRequests(null);
-      }
+      setOverview(await loadStudentScheduleOverview(access.linkedStudios));
     } catch {
       setErrorMessage("Your schedule could not be loaded. Try again in a moment.");
       setOverview(null);
-      setSelfServiceSlots([]);
-      setSelfServiceInstructors([]);
-      setSelectedSelfServiceDate("");
-      setSelfServiceRequests(null);
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function submitSelfServiceSlot(slot: SelfServiceSlot) {
-    if (!selfServiceStudioSlug) {
-      setSelfServiceMessage("Self-service booking is not configured yet.");
-      return;
-    }
-
-    const slotKey = `${slot.startsAt}|${slot.endsAt}`;
-    setSubmittingSlotKey(slotKey);
-    setSelfServiceMessage(null);
-
-    try {
-      const response = await danceflowApiFetch<{
-        bookingDecision?: { mode: string | null };
-      }>("/api/student/self-service/actions", {
-        method: "POST",
-        body: JSON.stringify({
-          studioSlug: selfServiceStudioSlug,
-          actionType: "book",
-          lessonType: "private_lesson",
-          startsAt: slot.startsAt,
-          endsAt: slot.endsAt,
-          instructorId: slot.instructorId,
-          roomId: slot.roomId
-        })
-      });
-
-      setSelfServiceMessage(
-        response.bookingDecision?.mode === "instant"
-          ? "Lesson booked."
-          : "Request sent to the studio."
-      );
-      await loadSchedule();
-    } catch (error) {
-      setSelfServiceMessage(
-        error instanceof Error ? error.message : "Could not submit the request."
-      );
-    } finally {
-      setSubmittingSlotKey(null);
     }
   }
 
   useEffect(() => {
     loadSchedule();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user.id, selectedSelfServiceInstructorId]);
+  }, [session?.user.id]);
 
   const hasPortalAccess = linkedStudios.length > 0;
   const isSignedIn = Boolean(session);
   const upcoming = overview?.upcoming ?? [];
   const recent = overview?.recent ?? [];
   const bookingRequests = overview?.bookingRequests ?? [];
-  const selfServiceTimeZone =
-    upcoming[0]?.timeZone ??
-    bookingRequests[0]?.timeZone ??
-    recent[0]?.timeZone ??
-    selfServiceRequests?.timezone ??
-    "America/New_York";
-  const activeSelfServiceRequests =
-    selfServiceRequests?.requests.filter((request) =>
-      ["pending", "approved", "executed", "declined", "failed"].includes(request.status)
-    ) ?? [];
-  const selfServiceDates = Array.from(new Set(selfServiceSlots.map((slot) => slot.date)));
-  const visibleSelfServiceSlots = selectedSelfServiceDate
-    ? selfServiceSlots.filter((slot) => slot.date === selectedSelfServiceDate)
-    : [];
 
   return (
     <Screen>
-      <AppText variant="eyebrow">Schedule</AppText>
-      <AppText variant="title">Classes, lessons, and bookings</AppText>
-      <AppText variant="caption">
-        Connect with a studio to bring your dance schedule, lesson requests, and LUMI planning support into DanceFlow.
-      </AppText>
+      <View style={styles.headerRow}>
+        <View style={{ flex: 1 }}>
+          <AppText variant="eyebrow">Schedule</AppText>
+          <AppText variant="title">Lessons and classes</AppText>
+          <AppText variant="caption">
+            Upcoming and recent activity from your connected studios.
+          </AppText>
+        </View>
+      </View>
+
+      {isSignedIn ? (
+        <Link href="/schedule/request" asChild>
+          <Pressable style={styles.requestButton}>
+            <View style={styles.requestButtonIcon}>
+              <Ionicons color="#fff" name="add-outline" size={22} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <AppText style={styles.requestButtonTitle}>Request Lesson</AppText>
+              <AppText style={styles.requestButtonDetail}>
+                Send a private lesson request to your studio.
+              </AppText>
+            </View>
+          </Pressable>
+        </Link>
+      ) : null}
 
       {loading ? (
-        <FeatureCard
-          title="Loading schedule..."
-          detail="Checking your connected studios for upcoming lessons, classes, rentals, and booking requests."
-        />
+        <FeatureCard title="Loading schedule..." detail="Checking your connected studios." />
       ) : null}
 
       {!loading && errorMessage ? (
@@ -472,14 +228,12 @@ export default function ScheduleScreen() {
             <View style={styles.summaryCard}>
               <AppText variant="eyebrow">Upcoming</AppText>
               <AppText variant="title">{upcoming.length}</AppText>
-              <AppText variant="caption">confirmed schedule items</AppText>
+              <AppText variant="caption">scheduled</AppText>
             </View>
             <View style={styles.summaryCard}>
               <AppText variant="eyebrow">Requests</AppText>
-              <AppText variant="title">
-                {bookingRequests.length + activeSelfServiceRequests.length}
-              </AppText>
-              <AppText variant="caption">pending or approved</AppText>
+              <AppText variant="title">{bookingRequests.length}</AppText>
+              <AppText variant="caption">active</AppText>
             </View>
           </View>
 
@@ -493,152 +247,27 @@ export default function ScheduleScreen() {
           ) : (
             <FeatureCard
               title="No upcoming schedule items"
-              detail="When your studio schedules a lesson, class, coaching, rental, or event commitment, it will appear here."
+              detail="Lessons, classes, coachings, rentals, and commitments will appear here when scheduled."
             />
           )}
 
-          <View style={styles.section}>
-            <AppText variant="subtitle">Request a private lesson</AppText>
-            {selfServiceMessage ? (
-              <FeatureCard title="Self-service update" detail={selfServiceMessage} />
-            ) : null}
-            {!selfServiceStudioSlug ? (
-              <FeatureCard
-                title="Self-service not configured"
-                detail="Add EXPO_PUBLIC_DANCEFLOW_STUDIO_SLUG to enable in-app booking requests."
-              />
-            ) : selfServiceDecision?.allowed === false ? (
-              <FeatureCard
-                title="Self-service unavailable"
-                detail={selfServiceDecision.reason ?? "This studio is not accepting self-service booking requests right now."}
-              />
-            ) : (
-              <>
-                <View style={styles.instructorList}>
-                  {selfServiceInstructors.length > 0 ? (
-                    selfServiceInstructors.map((instructor) => {
-                      const selected = selectedSelfServiceInstructorId === instructor.id;
-                      return (
-                        <AppButton
-                          key={instructor.id}
-                          label={instructor.name}
-                          onPress={() => {
-                            setSelfServiceMessage(null);
-                            setSelectedSelfServiceDate("");
-                            setSelectedSelfServiceInstructorId(instructor.id);
-                          }}
-                          variant={selected ? "primary" : "secondary"}
-                        />
-                      );
-                    })
-                  ) : (
-                    <FeatureCard
-                      title="No instructors available"
-                      detail="The studio has not opened instructor booking for self-service yet."
-                    />
-                  )}
-                </View>
-
-                {!selectedSelfServiceInstructorId ? (
-                  <FeatureCard
-                    title="Choose an instructor"
-                    detail="Available lesson times will appear after you choose an instructor."
-                  />
-                ) : selfServiceSlots.length > 0 ? (
-                  <>
-                    <AppText variant="caption">Choose a day</AppText>
-                    <View style={styles.dateList}>
-                      {selfServiceDates.map((dateKey) => {
-                        const selected = selectedSelfServiceDate === dateKey;
-                        return (
-                          <AppButton
-                            key={dateKey}
-                            label={formatSelfServiceDate(dateKey, selfServiceTimeZone)}
-                            onPress={() => setSelectedSelfServiceDate(dateKey)}
-                            variant={selected ? "primary" : "secondary"}
-                          />
-                        );
-                      })}
-                    </View>
-
-                    {!selectedSelfServiceDate ? (
-                      <FeatureCard
-                        title="Choose a day"
-                        detail="Lesson times for that day will appear after you choose a date."
-                      />
-                    ) : visibleSelfServiceSlots.length > 0 ? (
-                      visibleSelfServiceSlots.map((slot) => {
-                        const slotKey = `${slot.startsAt}|${slot.endsAt}`;
-                        return (
-                          <SelfServiceSlotCard
-                            key={slotKey}
-                            slot={slot}
-                            timeZone={selfServiceTimeZone}
-                            submitting={submittingSlotKey === slotKey}
-                            onPress={() => submitSelfServiceSlot(slot)}
-                          />
-                        );
-                      })
-                    ) : (
-                      <FeatureCard
-                        title="No self-service times"
-                        detail="This instructor does not have open private lesson slots for the selected day."
-                      />
-                    )}
-                  </>
-                ) : (
-                  <FeatureCard
-                    title="No self-service times"
-                    detail="This instructor does not have open private lesson slots for the selected booking window."
-                  />
-                )}
-              </>
-            )}
-          </View>
-
-          {bookingRequests.length > 0 || activeSelfServiceRequests.length > 0 ? (
+          {bookingRequests.length > 0 ? (
             <View style={styles.section}>
-              <AppText variant="subtitle">Booking requests</AppText>
-              {activeSelfServiceRequests.slice(0, 6).map((request) => (
-                <SelfServiceRequestCard
-                  key={request.id}
-                  request={request}
-                  timeZone={selfServiceTimeZone}
-                />
-              ))}
+              <AppText variant="subtitle">Requests</AppText>
               {bookingRequests.slice(0, 5).map((request) => (
                 <BookingRequestCard key={request.id} request={request} />
               ))}
             </View>
-          ) : (
-            <FeatureCard
-              title="No active booking requests"
-              detail="Booking requests will show here while your studio reviews them."
-            />
-          )}
+          ) : null}
 
           {recent.length > 0 ? (
             <View style={styles.section}>
               <AppText variant="subtitle">Recent</AppText>
-              {recent.slice(0, 4).map((item) => (
+              {recent.slice(0, 6).map((item) => (
                 <ScheduleItemCard key={item.id} item={item} />
               ))}
             </View>
           ) : null}
-
-          <View style={styles.lumiCard}>
-            <Image source={lumiAvatar} style={styles.lumiAvatar} resizeMode="contain" />
-            <View style={styles.lumiCopy}>
-              <AppText variant="subtitle">Need help planning?</AppText>
-              <AppText variant="caption">
-                LUMI can help you understand your schedule, prepare for lessons, and plan your next practice step.
-              </AppText>
-            </View>
-          </View>
-
-          <Link href="/lumi" asChild>
-            <AppButton label="Ask LUMI about my schedule" variant="secondary" />
-          </Link>
         </>
       ) : null}
 
@@ -650,6 +279,43 @@ export default function ScheduleScreen() {
 }
 
 const styles = StyleSheet.create({
+  actionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 6
+  },
+  emptyDetail: {
+    color: "rgba(255,255,255,0.78)",
+    fontSize: 13,
+    lineHeight: 19
+  },
+  emptyHero: {
+    alignItems: "center",
+    backgroundColor: colors.primaryDark,
+    borderRadius: 20,
+    flexDirection: "row",
+    gap: 12,
+    padding: 16
+  },
+  emptyIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderRadius: 999,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  emptyTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "900",
+    marginBottom: 4
+  },
+  headerRow: {
+    flexDirection: "row",
+    gap: 12
+  },
   itemCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -663,8 +329,38 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 18
   },
-  valueList: {
-    gap: 12
+  itemHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between"
+  },
+  requestButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 20,
+    flexDirection: "row",
+    gap: 12,
+    padding: 16
+  },
+  requestButtonDetail: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 13,
+    lineHeight: 19
+  },
+  requestButtonIcon: {
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.16)",
+    borderRadius: 999,
+    height: 44,
+    justifyContent: "center",
+    width: 44
+  },
+  requestButtonTitle: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "900",
+    marginBottom: 4
   },
   requestCard: {
     backgroundColor: colors.surface,
@@ -675,58 +371,8 @@ const styles = StyleSheet.create({
     gap: 7,
     padding: 16
   },
-  slotCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.primary,
-    borderRadius: 18,
-    borderWidth: 1,
-    elevation: 1,
-    gap: 8,
-    padding: 16
-  },
-  actionRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 6
-  },
-  itemHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 10
-  },
-  lumiCard: {
-    alignItems: "center",
-    backgroundColor: "rgba(236, 72, 153, 0.08)",
-    borderColor: "rgba(236, 72, 153, 0.22)",
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 14,
-    marginTop: 4,
-    padding: 14
-  },
-  lumiAvatar: {
-    height: 72,
-    width: 72
-  },
-  lumiCopy: {
-    flex: 1,
-    gap: 4
-  },
   section: {
     gap: 10
-  },
-  instructorList: {
-    gap: 8
-  },
-  dateList: {
-    gap: 8
-  },
-  summaryGrid: {
-    flexDirection: "row",
-    gap: 12
   },
   summaryCard: {
     backgroundColor: colors.surface,
@@ -737,5 +383,9 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 6,
     padding: 16
+  },
+  summaryGrid: {
+    flexDirection: "row",
+    gap: 12
   }
 });
