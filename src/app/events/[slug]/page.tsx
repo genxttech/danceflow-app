@@ -2696,6 +2696,28 @@ export default async function PublicEventDetailPage({
                     </div>
                   ) : null}
 
+                  {typedEvent.event_type === "competition" ||
+                  typedEvent.event_type === "showcase" ? (
+                    <div className="mt-6 border border-slate-300 bg-white p-5">
+                      <p className="text-sm font-semibold text-slate-950">
+                        {typedEvent.event_type === "showcase"
+                          ? "Enter the showcase"
+                          : "Register to compete"}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600">
+                        Build individual or studio entries using the competition-specific registration form.
+                      </p>
+                      <Link
+                        href={`/events/${encodeURIComponent(typedEvent.slug)}/competition/register`}
+                        className="mt-4 inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+                      >
+                        {typedEvent.event_type === "showcase"
+                          ? "Open Showcase Registration"
+                          : "Open Competition Registration"}
+                      </Link>
+                    </div>
+                  ) : null}
+
                   <div className="mt-6">
                     {visibleTicketTypes.length > 0 || allowWaitlistJoin ? (
                       <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">

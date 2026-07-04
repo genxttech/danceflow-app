@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, Share, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -13,8 +14,35 @@ import {
   type PublicStudioItem
 } from "@/lib/publicDiscovery";
 
+type StudioWithDistance = PublicStudioItem & { distanceMiles: number | null };
+
+const RADIUS_OPTIONS = [10, 25, 50, 100];
+
 function normalize(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
+}
+
+function haversineMiles(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusMiles = 3958.8;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) ** 2;
+
+  return 2 * earthRadiusMiles * Math.asin(Math.sqrt(a));
+}
+
+function formatDistance(distanceMiles: number | null) {
+  return distanceMiles !== null ? ` · ${distanceMiles.toFixed(1)} mi` : "";
 }
 
 export default function DiscoverStudiosScreen() {
@@ -25,6 +53,12 @@ export default function DiscoverStudiosScreen() {
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [radiusMiles, setRadiusMiles] = useState(25);
+  const [currentLocation, setCurrentLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
   async function loadStudios() {
     setLoading(true);
@@ -44,16 +78,78 @@ export default function DiscoverStudiosScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  const filteredStudios = useMemo(() => {
-    const search = normalize(query);
-    if (!search) return studios;
+  const favoriteStudios = useMemo(
+    () => studios.filter((studio) => studio.favorited),
+    [studios]
+  );
 
-    return studios.filter((studio) =>
-      [studio.name, studio.description, studio.location, studio.city, studio.state].some((value) =>
-        normalize(value).includes(search)
-      )
-    );
-  }, [query, studios]);
+  const filteredStudios = useMemo<StudioWithDistance[]>(() => {
+    const search = normalize(query);
+
+    return studios
+      .map<StudioWithDistance>((studio) => {
+        const distanceMiles =
+          currentLocation && studio.latitude !== null && studio.longitude !== null
+            ? haversineMiles(
+                currentLocation.latitude,
+                currentLocation.longitude,
+                studio.latitude,
+                studio.longitude
+              )
+            : null;
+
+        return { ...studio, distanceMiles };
+      })
+      .filter((studio) => {
+        if (
+          search &&
+          ![studio.name, studio.description, studio.location, studio.city, studio.state].some((value) =>
+            normalize(value).includes(search)
+          )
+        ) {
+          return false;
+        }
+
+        if (currentLocation && studio.distanceMiles !== null) {
+          return studio.distanceMiles <= radiusMiles;
+        }
+
+        if (currentLocation && studio.distanceMiles === null) {
+          return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.distanceMiles !== null && b.distanceMiles !== null) {
+          return a.distanceMiles - b.distanceMiles;
+        }
+        if (a.favorited !== b.favorited) return a.favorited ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+  }, [currentLocation, query, radiusMiles, studios]);
+
+  async function useCurrentLocation() {
+    setLocationError(null);
+
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (permission.status !== "granted") {
+      setLocationError("Location permission was not granted.");
+      return;
+    }
+
+    const position = await Location.getCurrentPositionAsync({});
+    setCurrentLocation({
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude
+    });
+  }
+
+  function clearLocation() {
+    setCurrentLocation(null);
+    setLocationError(null);
+    setRadiusMiles(25);
+  }
 
   async function toggleFavorite(studio: PublicStudioItem) {
     setMessage(null);
@@ -106,9 +202,76 @@ export default function DiscoverStudiosScreen() {
         value={query}
       />
 
+      <View style={styles.locationRow}>
+        <Pressable onPress={useCurrentLocation} style={styles.locationButton}>
+          <AppText style={styles.locationButtonText}>Use My Location</AppText>
+        </Pressable>
+        {currentLocation ? (
+          <Pressable onPress={clearLocation} style={styles.clearButton}>
+            <AppText style={styles.clearButtonText}>Clear Location</AppText>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {currentLocation ? (
+        <View style={styles.segmentRow}>
+          {RADIUS_OPTIONS.map((radius) => (
+            <Pressable
+              key={radius}
+              onPress={() => setRadiusMiles(radius)}
+              style={[
+                styles.radiusButton,
+                radiusMiles === radius && styles.radiusButtonActive
+              ]}
+            >
+              <AppText
+                style={[
+                  styles.radiusText,
+                  radiusMiles === radius && styles.radiusTextActive
+                ]}
+              >
+                {radius} mi
+              </AppText>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      {locationError ? <FeatureCard title="Location" detail={locationError} /> : null}
+
       {loading ? <FeatureCard title="Loading studios" detail="Finding public studio profiles." /> : null}
       {message ? <FeatureCard title="Studios" detail={message} /> : null}
       {errorMessage ? <FeatureCard title="Studios need attention" detail={errorMessage} /> : null}
+
+      {favoriteStudios.length > 0 ? (
+        <View style={styles.sectionHeading}>
+          <AppText variant="eyebrow">Favorited Studios</AppText>
+          <AppText variant="caption">Studios you saved to your DanceFlow account.</AppText>
+        </View>
+      ) : null}
+
+      {favoriteStudios.map((studio) => (
+        <View key={`favorite-${studio.id}`} style={[styles.studioCard, styles.favoriteCard]}>
+          <View style={styles.cardTop}>
+            <View style={{ flex: 1 }}>
+              <AppText style={styles.studioTitle}>{studio.name}</AppText>
+              <AppText variant="caption">{studio.location}</AppText>
+            </View>
+            <View style={styles.badge}>
+              <AppText style={styles.badgeText}>Saved</AppText>
+            </View>
+          </View>
+          {studio.description ? <AppText style={styles.description}>{studio.description}</AppText> : null}
+        </View>
+      ))}
+
+      <View style={styles.sectionHeading}>
+        <AppText variant="eyebrow">Studio Search</AppText>
+        <AppText variant="caption">
+          {filteredStudios.length} matching studio{filteredStudios.length === 1 ? "" : "s"}
+          {currentLocation ? ` within ${radiusMiles} miles` : ""}
+        </AppText>
+      </View>
 
       {filteredStudios.length ? (
         filteredStudios.map((studio) => (
@@ -116,7 +279,7 @@ export default function DiscoverStudiosScreen() {
             <View style={styles.cardTop}>
               <View style={{ flex: 1 }}>
                 <AppText style={styles.studioTitle}>{studio.name}</AppText>
-                <AppText variant="caption">{studio.location}</AppText>
+                <AppText variant="caption">{studio.location}{formatDistance(studio.distanceMiles)}</AppText>
               </View>
               {studio.beginnerFriendly ? (
                 <View style={styles.badge}>
@@ -224,6 +387,70 @@ const styles = StyleSheet.create({
     fontSize: 16,
     minHeight: 48,
     paddingHorizontal: 12
+  },
+  clearButton: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  clearButtonText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  favoriteCard: {
+    backgroundColor: colors.surfaceAlt
+  },
+  locationButton: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  locationButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  locationRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  radiusButton: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8
+  },
+  radiusButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  radiusText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  radiusTextActive: {
+    color: "#fff"
+  },
+  sectionHeading: {
+    gap: 4,
+    paddingHorizontal: 2,
+    paddingTop: 6
+  },
+  segmentRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
   },
   studioCard: {
     backgroundColor: colors.surface,

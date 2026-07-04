@@ -103,6 +103,11 @@ type EventSettlementSummaryRow = {
   settled_at: string | null;
 };
 
+type ReportingQueryResult<T> = {
+  data: T | null;
+  error: { message: string } | null;
+};
+
 type PersistedAriaActionItemRow = {
   id: string;
   action_key: string;
@@ -156,6 +161,35 @@ type SubscriptionPlanRow = {
 
 function isOrganizerWorkspaceRole(role: string | null | undefined) {
   return role === "organizer_owner" || role === "organizer_admin";
+}
+
+async function runOptionalReportingQuery<T>(
+  label: string,
+  queryFactory: (signal: AbortSignal) => PromiseLike<ReportingQueryResult<T>>,
+  fallback: T,
+  timeoutMs = 5000,
+) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const { data, error } = await queryFactory(controller.signal);
+
+    if (error) {
+      console.warn(label, error.message);
+      return fallback;
+    }
+
+    return data ?? fallback;
+  } catch (error) {
+    console.warn(
+      label,
+      error instanceof Error ? error.message : String(error),
+    );
+    return fallback;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 function canManageEvents(
@@ -819,98 +853,99 @@ export default async function EventsPage() {
   let typedSettlementRows: EventSettlementSummaryRow[] = [];
 
   if (eventIds.length > 0) {
+    typedRegistrations = await runOptionalReportingQuery<RegistrationSummaryRow[]>(
+      "Failed to load event reporting:",
+      (signal) =>
+        supabase
+          .from("event_registrations")
+          .select(
+            `
+            id,
+            event_id,
+            status,
+            payment_status,
+            quantity,
+            total_price,
+            total_amount,
+            currency
+          `,
+          )
+          .in("event_id", eventIds)
+          .abortSignal(signal),
+      [],
+    );
+
+    const registrationIds = typedRegistrations.map(
+      (registration) => registration.id,
+    );
+
     const [
-      { data: registrationRows, error: registrationsError },
-      { data: attendanceRows, error: attendanceError },
-      { data: ticketCheckInRows, error: ticketCheckInsError },
-      { data: profitabilityRows, error: profitabilityError },
-      { data: settlementRows, error: settlementsError },
+      attendanceRows,
+      ticketCheckInRows,
+      profitabilityRows,
+      settlementRows,
     ] = await Promise.all([
-      supabase
-        .from("event_registrations")
-        .select(
-          `
-          id,
-          event_id,
-          status,
-          payment_status,
-          quantity,
-          total_price,
-          total_amount,
-          currency
-        `,
-        )
-        .in("event_id", eventIds),
+      registrationIds.length > 0
+        ? runOptionalReportingQuery<AttendanceSummaryRow[]>(
+            "Failed to load attendance reporting:",
+            (signal) =>
+              supabase
+                .from("attendance_records")
+                .select(
+                  `
+                  id,
+                  event_registration_id,
+                  status
+                `,
+                )
+                .in("event_registration_id", registrationIds)
+                .abortSignal(signal),
+            [],
+          )
+        : Promise.resolve([]),
 
-      supabase.from("attendance_records").select(`
-          id,
-          event_registration_id,
-          status
-        `),
+      runOptionalReportingQuery<EventTicketCheckInRow[]>(
+        "Failed to load ticket check-in reporting:",
+        (signal) =>
+          supabase
+            .from("event_registration_attendees")
+            .select("id,event_id,registration_id,checked_in_at")
+            .in("event_id", eventIds)
+            .order("event_id", { ascending: true })
+            .limit(10000)
+            .abortSignal(signal),
+        [],
+      ),
 
-      supabase
-        .from("event_registration_attendees")
-        .select("id,event_id,registration_id,checked_in_at")
-        .in("event_id", eventIds)
-        .limit(10000),
+      runOptionalReportingQuery<EventProfitabilityRow[]>(
+        "Failed to load organizer event profitability reporting:",
+        (signal) =>
+          supabase
+            .from("v_event_profit_loss")
+            .select(
+              "event_id,gross_ticket_revenue,refunds,processing_and_platform_fees,net_ticket_revenue,event_expenses,event_labor_costs,total_event_costs,event_profit_loss",
+            )
+            .in("event_id", eventIds)
+            .abortSignal(signal),
+        [],
+      ),
 
-      supabase
-        .from("v_event_profit_loss")
-        .select(
-          "event_id,gross_ticket_revenue,refunds,processing_and_platform_fees,net_ticket_revenue,event_expenses,event_labor_costs,total_event_costs,event_profit_loss",
-        )
-        .in("event_id", eventIds),
-
-      supabase
-        .from("event_settlements")
-        .select("event_id,status,settled_at")
-        .in("event_id", eventIds),
+      runOptionalReportingQuery<EventSettlementSummaryRow[]>(
+        "Failed to load organizer settlement reporting:",
+        (signal) =>
+          supabase
+            .from("event_settlements")
+            .select("event_id,status,settled_at")
+            .in("event_id", eventIds)
+            .abortSignal(signal),
+        [],
+      ),
     ]);
 
-    if (registrationsError) {
-      throw new Error(
-        `Failed to load event reporting: ${registrationsError.message}`,
-      );
-    }
-
-    if (attendanceError) {
-      throw new Error(
-        `Failed to load attendance reporting: ${attendanceError.message}`,
-      );
-    }
-
-    if (ticketCheckInsError) {
-      console.warn(
-        "Failed to load ticket check-in reporting:",
-        ticketCheckInsError.message,
-      );
-    }
-
-    if (profitabilityError) {
-      console.warn(
-        "Failed to load organizer event profitability reporting:",
-        profitabilityError.message,
-      );
-    }
-
-    if (settlementsError) {
-      console.warn(
-        "Failed to load organizer settlement reporting:",
-        settlementsError.message,
-      );
-    }
-
-    typedRegistrations = (registrationRows ?? []) as RegistrationSummaryRow[];
-    typedAttendance = (attendanceRows ?? []) as AttendanceSummaryRow[];
-    typedTicketCheckIns = ticketCheckInsError
-      ? []
-      : ((ticketCheckInRows ?? []) as EventTicketCheckInRow[]);
-    typedProfitabilityRows = profitabilityError
-      ? []
-      : ((profitabilityRows ?? []) as EventProfitabilityRow[]);
-    typedSettlementRows = settlementsError
-      ? []
-      : ((settlementRows ?? []) as EventSettlementSummaryRow[]);
+    typedAttendance = attendanceRows;
+    typedTicketCheckIns = ticketCheckInRows;
+    typedProfitabilityRows = profitabilityRows;
+    typedSettlementRows = settlementRows;
   }
 
   const attendanceByRegistrationId = new Map(

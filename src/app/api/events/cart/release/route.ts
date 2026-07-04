@@ -33,8 +33,25 @@ export async function GET(request: NextRequest) {
     .eq("id", orderId)
     .maybeSingle();
 
+  const { data: competitionCart } = orderId
+    ? await supabase
+        .from("event_competition_registration_carts")
+        .select("id")
+        .eq("order_id", orderId)
+        .maybeSingle()
+    : { data: null };
+
+  const returnPath = competitionCart
+    ? `/events/${encodeURIComponent(eventSlug)}/competition/register`
+    : `/events/${encodeURIComponent(eventSlug)}`;
+
   if (!order || order.payment_status === "paid") {
-    return NextResponse.redirect(eventUrl(request, eventSlug, order?.payment_status === "paid" ? "?success=cart_paid" : "?error=cart_release_failed"));
+    return NextResponse.redirect(
+      new URL(
+        `${returnPath}${order?.payment_status === "paid" ? "?success=paid" : "?error=cart_release_failed"}`,
+        request.nextUrl.origin,
+      ),
+    );
   }
 
   await supabase
@@ -74,7 +91,9 @@ export async function GET(request: NextRequest) {
     .eq("id", orderId)
     .neq("payment_status", "paid");
 
-  return NextResponse.redirect(eventUrl(request, eventSlug, "?error=checkout_cancelled"));
+  return NextResponse.redirect(
+    new URL(`${returnPath}?error=checkout_cancelled`, request.nextUrl.origin),
+  );
 }
 
 

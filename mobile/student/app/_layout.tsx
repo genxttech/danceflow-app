@@ -71,6 +71,20 @@ function AppStack() {
             title: "Events"
           }}
         />
+        <Stack.Screen
+          name="events/[id]"
+          options={{
+            headerShown: true,
+            title: "Event"
+          }}
+        />
+        <Stack.Screen
+          name="events/[id]/register"
+          options={{
+            headerShown: true,
+            title: "Register"
+          }}
+        />
       </Stack>
     </>
   );

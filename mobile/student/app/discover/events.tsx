@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Linking, Pressable, Share, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, Share, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import * as Location from "expo-location";
+import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -13,11 +15,39 @@ import {
   type PublicEventItem
 } from "@/lib/publicDiscovery";
 
+type EventWithDistance = PublicEventItem & { distanceMiles: number | null };
+type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
+const RADIUS_OPTIONS = [10, 25, 50, 100];
+
 function normalize(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
 
+function haversineMiles(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number
+) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusMiles = 3958.8;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) *
+      Math.cos(toRad(lat2)) *
+      Math.sin(dLng / 2) ** 2;
+
+  return 2 * earthRadiusMiles * Math.asin(Math.sqrt(a));
+}
+
+function formatDistance(distanceMiles: number | null) {
+  return distanceMiles !== null ? ` · ${distanceMiles.toFixed(1)} mi` : "";
+}
+
 export default function DiscoverEventsScreen() {
+  const router = useRouter();
   const { session } = useAuth();
   const userId = session?.user.id ?? null;
   const [events, setEvents] = useState<PublicEventItem[]>([]);
@@ -25,6 +55,12 @@ export default function DiscoverEventsScreen() {
   const [query, setQuery] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [radiusMiles, setRadiusMiles] = useState(25);
+  const [currentLocation, setCurrentLocation] = useState<{
+    latitude: number;
+    longitude: number;
+  } | null>(null);
 
   async function loadEvents() {
     setLoading(true);
@@ -44,16 +80,78 @@ export default function DiscoverEventsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
-  const filteredEvents = useMemo(() => {
-    const search = normalize(query);
-    if (!search) return events;
+  const favoriteEvents = useMemo(
+    () => events.filter((event) => event.favorited),
+    [events]
+  );
 
-    return events.filter((event) =>
-      [event.name, event.hostName, event.location, event.schedule, event.summary].some((value) =>
-        normalize(value).includes(search)
-      )
-    );
-  }, [events, query]);
+  const filteredEvents = useMemo<EventWithDistance[]>(() => {
+    const search = normalize(query);
+
+    return events
+      .map<EventWithDistance>((event) => {
+        const distanceMiles =
+          currentLocation && event.latitude !== null && event.longitude !== null
+            ? haversineMiles(
+                currentLocation.latitude,
+                currentLocation.longitude,
+                event.latitude,
+                event.longitude
+              )
+            : null;
+
+        return { ...event, distanceMiles };
+      })
+      .filter((event) => {
+        if (
+          search &&
+          ![event.name, event.hostName, event.location, event.schedule, event.summary].some((value) =>
+            normalize(value).includes(search)
+          )
+        ) {
+          return false;
+        }
+
+        if (currentLocation && event.distanceMiles !== null) {
+          return event.distanceMiles <= radiusMiles;
+        }
+
+        if (currentLocation && event.distanceMiles === null) {
+          return false;
+        }
+
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.distanceMiles !== null && b.distanceMiles !== null) {
+          return a.distanceMiles - b.distanceMiles;
+        }
+        if (a.favorited !== b.favorited) return a.favorited ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+  }, [currentLocation, events, query, radiusMiles]);
+
+  async function useCurrentLocation() {
+    setLocationError(null);
+
+    const permission = await Location.requestForegroundPermissionsAsync();
+    if (permission.status !== "granted") {
+      setLocationError("Location permission was not granted.");
+      return;
+    }
+
+    const position = await Location.getCurrentPositionAsync({});
+    setCurrentLocation({
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude
+    });
+  }
+
+  function clearLocation() {
+    setCurrentLocation(null);
+    setLocationError(null);
+    setRadiusMiles(25);
+  }
 
   async function toggleFavorite(event: PublicEventItem) {
     setMessage(null);
@@ -106,9 +204,81 @@ export default function DiscoverEventsScreen() {
         value={query}
       />
 
+      <View style={styles.locationRow}>
+        <Pressable onPress={useCurrentLocation} style={styles.locationButton}>
+          <AppText style={styles.locationButtonText}>Use My Location</AppText>
+        </Pressable>
+        {currentLocation ? (
+          <Pressable onPress={clearLocation} style={styles.clearButton}>
+            <AppText style={styles.clearButtonText}>Clear Location</AppText>
+          </Pressable>
+        ) : null}
+      </View>
+
+      {currentLocation ? (
+        <View style={styles.segmentRow}>
+          {RADIUS_OPTIONS.map((radius) => (
+            <Pressable
+              key={radius}
+              onPress={() => setRadiusMiles(radius)}
+              style={[
+                styles.radiusButton,
+                radiusMiles === radius && styles.radiusButtonActive
+              ]}
+            >
+              <AppText
+                style={[
+                  styles.radiusText,
+                  radiusMiles === radius && styles.radiusTextActive
+                ]}
+              >
+                {radius} mi
+              </AppText>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
+
+      {locationError ? <FeatureCard title="Location" detail={locationError} /> : null}
+
       {loading ? <FeatureCard title="Loading events" detail="Finding public dance events." /> : null}
       {message ? <FeatureCard title="Events" detail={message} /> : null}
       {errorMessage ? <FeatureCard title="Events need attention" detail={errorMessage} /> : null}
+
+      {favoriteEvents.length > 0 ? (
+        <View style={styles.sectionHeading}>
+          <AppText variant="eyebrow">Favorited Events</AppText>
+          <AppText variant="caption">Events you saved to your DanceFlow account.</AppText>
+        </View>
+      ) : null}
+
+      {favoriteEvents.map((event) => (
+        <View key={`favorite-${event.id}`} style={[styles.eventCard, styles.favoriteCard]}>
+          <View style={styles.cardTop}>
+            <View style={{ flex: 1 }}>
+              <AppText style={styles.eventTitle}>{event.name}</AppText>
+              <AppText variant="caption">
+                {event.hostName} · {event.location}
+              </AppText>
+            </View>
+            <View style={styles.badge}>
+              <AppText style={styles.badgeText}>Saved</AppText>
+            </View>
+          </View>
+          <View style={styles.schedulePill}>
+            <Ionicons color={colors.primary} name="calendar-outline" size={17} />
+            <AppText style={styles.scheduleText}>{event.schedule}</AppText>
+          </View>
+        </View>
+      ))}
+
+      <View style={styles.sectionHeading}>
+        <AppText variant="eyebrow">Event Search</AppText>
+        <AppText variant="caption">
+          {filteredEvents.length} matching event{filteredEvents.length === 1 ? "" : "s"}
+          {currentLocation ? ` within ${radiusMiles} miles` : ""}
+        </AppText>
+      </View>
 
       {filteredEvents.length ? (
         filteredEvents.map((event) => (
@@ -117,7 +287,7 @@ export default function DiscoverEventsScreen() {
               <View style={{ flex: 1 }}>
                 <AppText style={styles.eventTitle}>{event.name}</AppText>
                 <AppText variant="caption">
-                  {event.hostName} · {event.location}
+                  {event.hostName} · {event.location}{formatDistance(event.distanceMiles)}
                 </AppText>
               </View>
               {event.registrationRequired ? (
@@ -140,7 +310,11 @@ export default function DiscoverEventsScreen() {
                 onPress={() => toggleFavorite(event)}
                 variant="secondary"
               />
-              <AppButton label="Open" onPress={() => Linking.openURL(event.webUrl)} variant="secondary" />
+              <AppButton
+                label="Open"
+                onPress={() => router.push(`/events/${event.id}` as unknown as RouterPushTarget)}
+                variant="secondary"
+              />
               <Pressable onPress={() => shareEvent(event)} style={styles.iconButton}>
                 <Ionicons color={colors.primary} name="share-outline" size={20} />
               </Pressable>
@@ -238,6 +412,22 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     width: 48
   },
+  clearButton: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  clearButtonText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  favoriteCard: {
+    backgroundColor: colors.surfaceAlt
+  },
   input: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -247,6 +437,54 @@ const styles = StyleSheet.create({
     fontSize: 16,
     minHeight: 48,
     paddingHorizontal: 12
+  },
+  locationButton: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  locationButtonText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: "800"
+  },
+  locationRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  radiusButton: {
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8
+  },
+  radiusButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary
+  },
+  radiusText: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "700"
+  },
+  radiusTextActive: {
+    color: "#fff"
+  },
+  sectionHeading: {
+    gap: 4,
+    paddingHorizontal: 2,
+    paddingTop: 6
+  },
+  segmentRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
   },
   schedulePill: {
     alignItems: "center",

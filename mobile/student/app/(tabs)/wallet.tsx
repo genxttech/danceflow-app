@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Image, Linking, StyleSheet, View } from "react-native";
-import { router } from "expo-router";
+import { router, useFocusEffect } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -230,6 +230,13 @@ export default function WalletScreen() {
     loadWallet();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadWallet();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [session?.user.id])
+  );
 
   const hasPortalAccess = linkedStudios.length > 0;
   const isSignedIn = Boolean(session);

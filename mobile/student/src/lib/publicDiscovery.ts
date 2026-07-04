@@ -45,13 +45,7 @@ export async function setPublicFavoriteForMobile({
     return false;
   }
 
-  const payload: {
-    event_id?: string;
-    partner_profile_id?: string;
-    studio_id?: string;
-    target_type: FavoriteTargetType;
-    user_id: string;
-  } = {
+  const { error: insertError } = await supabase.from("user_favorites").insert({
     user_id: userId,
     target_type: targetType,
     ...(targetType === "studio"
@@ -59,9 +53,7 @@ export async function setPublicFavoriteForMobile({
       : targetType === "event"
         ? { event_id: targetId }
         : { partner_profile_id: targetId })
-  };
-
-  const { error: insertError } = await supabase.from("user_favorites").insert(payload as any);
+  });
 
   if (insertError) {
     throw insertError;
@@ -101,6 +93,75 @@ export type PublicEventItem = {
   webUrl: string;
 };
 
+export type PublicEventTicketType = {
+  id: string;
+  name: string;
+  description: string | null;
+  ticketKind: string;
+  price: number;
+  regularPrice: number;
+  currency: string;
+  capacity: number | null;
+  active: boolean;
+  saleStartsAt: string | null;
+  saleEndsAt: string | null;
+  isEarlyBird: boolean;
+  earlyBirdEndsAt: string | null;
+  attendeesPerTicket: number;
+};
+
+export type PublicEventDocumentRequirement = {
+  id: string;
+  title: string;
+  description: string | null;
+  body: string;
+  requiresSignature: boolean;
+};
+
+export type PublicPartnerProfileItem = {
+  id: string;
+  displayName: string;
+  headline: string | null;
+  bio: string | null;
+  location: string;
+  city: string | null;
+  state: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  leadFollowRole: string;
+  danceStyles: string[];
+  skillLevel: string;
+  goals: string[];
+  listingIntent: string;
+  availabilityNotes: string | null;
+  favorited: boolean;
+  webUrl: string;
+};
+
+export type PublicJobPostingItem = {
+  id: string;
+  studioId: string;
+  studioName: string;
+  studioSlug: string | null;
+  title: string;
+  roleType: string;
+  employmentType: string;
+  locationType: string;
+  location: string;
+  city: string | null;
+  state: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  compensationSummary: string | null;
+  danceStyles: string[];
+  requirements: string | null;
+  description: string | null;
+  applyUrl: string | null;
+  applyEmail: string | null;
+  applyPhone: string | null;
+  webUrl: string;
+};
+
 type StudioRow = {
   id: string;
   slug: string | null;
@@ -131,11 +192,154 @@ type EventRow = {
   status: string | null;
   public_summary: string | null;
   public_description: string | null;
+  account_required_for_registration?: boolean | null;
+  registration_opens_at?: string | null;
+  registration_closes_at?: string | null;
+  capacity?: number | null;
+  waitlist_enabled?: boolean | null;
   beginner_friendly: boolean | null;
   public_directory_enabled: boolean | null;
   registration_required: boolean | null;
   latitude: number | null;
   longitude: number | null;
+};
+
+type TicketTypeRow = {
+  id: string;
+  event_id: string;
+  name: string;
+  description: string | null;
+  ticket_kind: string | null;
+  price: number | null;
+  currency: string | null;
+  capacity: number | null;
+  active: boolean | null;
+  sale_starts_at: string | null;
+  sale_ends_at: string | null;
+  early_bird_enabled: boolean | null;
+  early_bird_price: number | null;
+  early_bird_ends_at: string | null;
+  attendees_per_ticket: number | null;
+  sort_order?: number | null;
+};
+
+function activeTicketPrice(ticket: TicketTypeRow) {
+  const regularPrice = Number(ticket.price ?? 0);
+  const earlyBirdPrice =
+    ticket.early_bird_price === null || ticket.early_bird_price === undefined
+      ? null
+      : Number(ticket.early_bird_price);
+  const earlyBirdEndsAt = ticket.early_bird_ends_at
+    ? new Date(ticket.early_bird_ends_at).getTime()
+    : null;
+
+  if (
+    ticket.early_bird_enabled &&
+    earlyBirdPrice !== null &&
+    Number.isFinite(earlyBirdPrice) &&
+    earlyBirdPrice >= 0 &&
+    earlyBirdEndsAt !== null &&
+    earlyBirdEndsAt >= Date.now()
+  ) {
+    return {
+      price: earlyBirdPrice,
+      regularPrice,
+      isEarlyBird: true,
+      earlyBirdEndsAt: ticket.early_bird_ends_at
+    };
+  }
+
+  return {
+    price: regularPrice,
+    regularPrice,
+    isEarlyBird: false,
+    earlyBirdEndsAt: ticket.early_bird_ends_at
+  };
+}
+
+type EventDocumentRequirementRow = {
+  id: string;
+  template_id: string;
+  template_version_id: string | null;
+  document_templates:
+    | {
+        title: string | null;
+        description: string | null;
+        body: string | null;
+        requires_signature: boolean | null;
+        is_active: boolean | null;
+      }
+    | {
+        title: string | null;
+        description: string | null;
+        body: string | null;
+        requires_signature: boolean | null;
+        is_active: boolean | null;
+      }[]
+    | null;
+  document_template_versions:
+    | {
+        title: string | null;
+        description: string | null;
+        body: string | null;
+        requires_signature: boolean | null;
+      }
+    | {
+        title: string | null;
+        description: string | null;
+        body: string | null;
+        requires_signature: boolean | null;
+      }[]
+    | null;
+};
+
+type PartnerProfileRow = {
+  id: string;
+  display_name: string;
+  headline: string | null;
+  bio: string | null;
+  city: string | null;
+  state: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  lead_follow_role: string;
+  dance_styles: string[] | null;
+  skill_level: string;
+  goals: string[] | null;
+  listing_intent: string | null;
+  availability_notes: string | null;
+};
+
+type JobPostingRow = {
+  id: string;
+  studio_id: string;
+  title: string;
+  role_type: string;
+  employment_type: string;
+  location_type: string;
+  city: string | null;
+  state: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  compensation_summary: string | null;
+  dance_styles: string[] | null;
+  requirements: string | null;
+  description: string | null;
+  apply_url: string | null;
+  apply_email: string | null;
+  apply_phone: string | null;
+  studios:
+    | {
+        slug: string | null;
+        public_name: string | null;
+        name: string;
+      }
+    | {
+        slug: string | null;
+        public_name: string | null;
+        name: string;
+      }[]
+    | null;
 };
 
 type OrganizerRow = {
@@ -376,100 +580,14 @@ export type PublicStudioDetail = PublicStudioItem & {
 };
 
 export type PublicEventDetail = PublicEventItem & {
+  accountRequiredForRegistration: boolean;
+  registrationOpensAt: string | null;
+  registrationClosesAt: string | null;
+  capacity: number | null;
+  waitlistEnabled: boolean;
   registerUrl: string;
-};
-
-export type PublicPartnerProfileItem = {
-  id: string;
-  displayName: string;
-  headline: string | null;
-  bio: string | null;
-  location: string;
-  city: string | null;
-  state: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  leadFollowRole: string;
-  danceStyles: string[];
-  skillLevel: string;
-  goals: string[];
-  listingIntent: string;
-  availabilityNotes: string | null;
-  favorited: boolean;
-  webUrl: string;
-};
-
-export type PublicJobPostingItem = {
-  id: string;
-  studioId: string;
-  studioName: string;
-  studioSlug: string | null;
-  title: string;
-  roleType: string;
-  employmentType: string;
-  locationType: string;
-  location: string;
-  city: string | null;
-  state: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  compensationSummary: string | null;
-  danceStyles: string[];
-  requirements: string | null;
-  description: string | null;
-  applyUrl: string | null;
-  applyEmail: string | null;
-  applyPhone: string | null;
-  webUrl: string;
-};
-
-type PartnerProfileRow = {
-  id: string;
-  display_name: string;
-  headline: string | null;
-  bio: string | null;
-  city: string | null;
-  state: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  lead_follow_role: string;
-  dance_styles: string[] | null;
-  skill_level: string;
-  goals: string[] | null;
-  listing_intent: string | null;
-  availability_notes: string | null;
-};
-
-type JobPostingRow = {
-  id: string;
-  studio_id: string;
-  title: string;
-  role_type: string;
-  employment_type: string;
-  location_type: string;
-  city: string | null;
-  state: string | null;
-  latitude: number | null;
-  longitude: number | null;
-  compensation_summary: string | null;
-  dance_styles: string[] | null;
-  requirements: string | null;
-  description: string | null;
-  apply_url: string | null;
-  apply_email: string | null;
-  apply_phone: string | null;
-  studios:
-    | {
-        slug: string | null;
-        public_name: string | null;
-        name: string;
-      }
-    | {
-        slug: string | null;
-        public_name: string | null;
-        name: string;
-      }[]
-    | null;
+  ticketTypes: PublicEventTicketType[];
+  requiredDocuments: PublicEventDocumentRequirement[];
 };
 
 export async function getPublicStudioDetailForMobile(
@@ -498,12 +616,114 @@ export async function getPublicEventDetailForMobile(
   eventId: string,
   userId?: string | null
 ): Promise<PublicEventDetail | null> {
-  const events = await getPublicEventsForMobile(userId);
+  const [events, eventResult, ticketsResult, documentsResult] = await Promise.all([
+    getPublicEventsForMobile(userId),
+    supabase
+      .from("events")
+      .select(
+        "id, account_required_for_registration, registration_opens_at, registration_closes_at, capacity, waitlist_enabled"
+      )
+      .eq("id", eventId)
+      .maybeSingle(),
+    supabase
+      .from("event_ticket_types")
+      .select(
+        "id, event_id, name, description, ticket_kind, price, currency, capacity, active, sale_starts_at, sale_ends_at, early_bird_enabled, early_bird_price, early_bird_ends_at, attendees_per_ticket, sort_order"
+      )
+      .eq("event_id", eventId)
+      .eq("active", true)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true }),
+    supabase
+      .from("event_document_requirements")
+      .select(
+        `
+        id,
+        template_id,
+        template_version_id,
+        document_templates:template_id (
+          title,
+          description,
+          body,
+          requires_signature,
+          is_active
+        ),
+        document_template_versions:template_version_id (
+          title,
+          description,
+          body,
+          requires_signature
+        )
+      `
+      )
+      .eq("event_id", eventId)
+      .eq("active", true)
+      .eq("is_required", true)
+  ]);
+
+  if (eventResult.error) throw eventResult.error;
+  if (ticketsResult.error) throw ticketsResult.error;
+  if (documentsResult.error) throw documentsResult.error;
+
   const event = events.find((item) => item.id === eventId);
-  if (!event) return null;
+  const eventRow = eventResult.data as Pick<
+    EventRow,
+    | "account_required_for_registration"
+    | "registration_opens_at"
+    | "registration_closes_at"
+    | "capacity"
+    | "waitlist_enabled"
+  > | null;
+
+  if (!event || !eventRow) return null;
+
+  const ticketTypes = ((ticketsResult.data ?? []) as TicketTypeRow[]).map((ticket) => {
+    const activePrice = activeTicketPrice(ticket);
+
+    return {
+      id: ticket.id,
+      name: ticket.name,
+      description: ticket.description,
+      ticketKind: ticket.ticket_kind ?? "general",
+      price: activePrice.price,
+      regularPrice: activePrice.regularPrice,
+      currency: ticket.currency ?? "USD",
+      capacity: ticket.capacity,
+      active: ticket.active === true,
+      saleStartsAt: ticket.sale_starts_at,
+      saleEndsAt: ticket.sale_ends_at,
+      isEarlyBird: activePrice.isEarlyBird,
+      earlyBirdEndsAt: activePrice.earlyBirdEndsAt,
+      attendeesPerTicket: Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1)
+    };
+  });
+
+  const requiredDocuments = ((documentsResult.data ?? []) as EventDocumentRequirementRow[])
+    .map((requirement) => {
+      const template = firstJoin(requirement.document_templates);
+      const version = firstJoin(requirement.document_template_versions);
+
+      if (template?.is_active === false) return null;
+
+      return {
+        id: requirement.id,
+        title: version?.title ?? template?.title ?? "Required document",
+        description: version?.description ?? template?.description ?? null,
+        body: version?.body ?? template?.body ?? "",
+        requiresSignature: Boolean(version?.requires_signature ?? template?.requires_signature ?? true)
+      };
+    })
+    .filter((document): document is PublicEventDocumentRequirement => Boolean(document));
 
   return {
     ...event,
+    accountRequiredForRegistration: eventRow.account_required_for_registration === true,
+    registrationOpensAt: eventRow.registration_opens_at ?? null,
+    registrationClosesAt: eventRow.registration_closes_at ?? null,
+    capacity: eventRow.capacity ?? null,
+    waitlistEnabled: eventRow.waitlist_enabled === true,
+    ticketTypes,
+    requiredDocuments,
     registerUrl: `${danceFlowWebUrl()}/events/${event.slug}/register`
   };
 }

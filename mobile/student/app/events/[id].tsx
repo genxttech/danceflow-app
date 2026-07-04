@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
-import { Linking, Pressable, Share, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -10,47 +9,51 @@ import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   getPublicEventDetailForMobile,
-  setPublicFavoriteForMobile,
   type PublicEventDetail
 } from "@/lib/publicDiscovery";
 
-function routeId(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] : value;
+type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
+
+function ticketPrice(ticket: PublicEventDetail["ticketTypes"][number]) {
+  return new Intl.NumberFormat(undefined, {
+    currency: ticket.currency || "USD",
+    style: "currency"
+  }).format(ticket.price);
+}
+
+function earlyBirdLabel(ticket: PublicEventDetail["ticketTypes"][number]) {
+  if (!ticket.isEarlyBird) return null;
+
+  if (!ticket.earlyBirdEndsAt) return "Early bird";
+
+  const date = new Date(ticket.earlyBirdEndsAt);
+  if (Number.isNaN(date.getTime())) return "Early bird";
+
+  return `Early bird ends ${date.toLocaleDateString()}`;
 }
 
 export default function EventDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const eventId = routeId(id);
-  const { session } = useAuth();
   const router = useRouter();
+  const { session } = useAuth();
   const [event, setEvent] = useState<PublicEventDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [opening, setOpening] = useState(false);
-  const [favoriteMessage, setFavoriteMessage] = useState<string | null>(null);
-  const [savingFavorite, setSavingFavorite] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
 
-    if (!eventId) {
-      setError("We could not find that event.");
-      setLoading(false);
-      return;
-    }
+    if (!id) return;
 
     setLoading(true);
-    setError(null);
-
-    getPublicEventDetailForMobile(eventId, session?.user.id ?? null)
+    getPublicEventDetailForMobile(id, session?.user.id)
       .then((detail) => {
         if (!mounted) return;
         setEvent(detail);
-        if (!detail) setError("This event is no longer available.");
       })
       .catch(() => {
         if (!mounted) return;
-        setError("We could not load this event yet. Please try again.");
+        setErrorMessage("This event could not be loaded.");
       })
       .finally(() => {
         if (!mounted) return;
@@ -60,146 +63,151 @@ export default function EventDetailScreen() {
     return () => {
       mounted = false;
     };
-  }, [eventId, session?.user.id]);
+  }, [id, session?.user.id]);
 
-  async function toggleFavorite() {
-    const userId = session?.user.id ?? null;
-
-    if (!event || !userId) {
-      setFavoriteMessage("Sign in to save events.");
-      return;
-    }
-
-    setSavingFavorite(true);
-    setFavoriteMessage(null);
-
-    try {
-      await setPublicFavoriteForMobile({
-        favorited: !event.favorited,
-        targetId: event.id,
-        targetType: "event",
-        userId
-      });
-
-      setEvent({ ...event, favorited: !event.favorited });
-      setFavoriteMessage(
-        !event.favorited ? "Event saved to your favorites." : "Event removed from your favorites."
-      );
-    } catch {
-      setFavoriteMessage("We could not update your favorite yet. Please try again.");
-    } finally {
-      setSavingFavorite(false);
-    }
+  if (loading) {
+    return (
+      <Screen>
+        <FeatureCard title="Loading event" detail="Checking ticket options and registration details." />
+      </Screen>
+    );
   }
 
-  async function shareEvent() {
-    if (!event) return;
-
-    const url = event.registerUrl || event.webUrl;
-
-    await Share.share({
-      title: event.name,
-      message: `${event.name}\n${url}`,
-      url
-    });
-  }
-
-  async function openRegistration() {
-    if (!event?.registerUrl) return;
-    setOpening(true);
-    try {
-      await Linking.openURL(event.registerUrl);
-    } finally {
-      setOpening(false);
-    }
+  if (!event || errorMessage) {
+    return (
+      <Screen>
+        <FeatureCard title="Event unavailable" detail={errorMessage ?? "This event could not be found."} />
+        <AppButton label="Back to events" onPress={() => router.push("/discover/events" as unknown as RouterPushTarget)} />
+      </Screen>
+    );
   }
 
   return (
     <Screen>
-      <AppButton label="Back to Discover" variant="ghost" onPress={() => router.back()} />
+      <AppText variant="eyebrow">Event</AppText>
+      <AppText variant="title">{event.name}</AppText>
+      <AppText variant="caption">{event.hostName}</AppText>
+      <AppText>{event.summary ?? "Event details are coming soon."}</AppText>
 
-      {loading ? (
-        <FeatureCard title="Loading event" detail="Getting the latest event details." />
-      ) : null}
+      <View style={styles.infoCard}>
+        <AppText variant="subtitle">When and where</AppText>
+        <AppText variant="caption">{event.schedule}</AppText>
+        <AppText variant="caption">{event.location}</AppText>
+      </View>
 
-      {error ? <FeatureCard title="Event unavailable" detail={error} /> : null}
+      <View style={styles.infoCard}>
+        <AppText variant="subtitle">Tickets</AppText>
+        {event.ticketTypes.length === 0 ? (
+          <AppText variant="caption">No mobile ticket options are available yet.</AppText>
+        ) : (
+          event.ticketTypes.map((ticket) => (
+            <View key={ticket.id} style={styles.ticketRow}>
+              <View style={{ flex: 1 }}>
+                <AppText style={styles.ticketName}>{ticket.name}</AppText>
+                <AppText variant="caption">
+                  {ticket.attendeesPerTicket > 1
+                    ? `Admits ${ticket.attendeesPerTicket} attendees`
+                    : "Admits 1 attendee"}
+                </AppText>
+              </View>
+              <View style={styles.priceBlock}>
+                {ticket.isEarlyBird && ticket.regularPrice !== ticket.price ? (
+                  <AppText style={styles.regularPrice}>
+                    {new Intl.NumberFormat(undefined, {
+                      currency: ticket.currency || "USD",
+                      style: "currency"
+                    }).format(ticket.regularPrice)}
+                  </AppText>
+                ) : null}
+                <AppText style={styles.price}>{ticketPrice(ticket)}</AppText>
+                {earlyBirdLabel(ticket) ? (
+                  <AppText style={styles.earlyBirdLabel}>{earlyBirdLabel(ticket)}</AppText>
+                ) : null}
+              </View>
+            </View>
+          ))
+        )}
+      </View>
 
-      {event ? (
-        <>
-          <AppText variant="eyebrow">
-            {event.registrationRequired ? "Tickets / registration" : "Event"}
-          </AppText>
-          <AppText variant="title">{event.name}</AppText>
-          <AppText variant="caption">{event.hostName}</AppText>
-
-          <View style={styles.iconRow}>
-            <Pressable
-              accessibilityLabel={event.favorited ? "Remove saved event" : "Save event"}
-              disabled={savingFavorite}
-              onPress={toggleFavorite}
-              style={[styles.iconButton, event.favorited && styles.iconButtonActive]}
-            >
-              <Ionicons
-                color={event.favorited ? "#fff" : colors.primary}
-                name={event.favorited ? "heart" : "heart-outline"}
-                size={22}
-              />
-            </Pressable>
-            <Pressable accessibilityLabel="Share event" onPress={shareEvent} style={styles.iconButton}>
-              <Ionicons color={colors.primary} name="share-outline" size={22} />
-            </Pressable>
-          </View>
-
-          {favoriteMessage ? <AppText variant="caption">{favoriteMessage}</AppText> : null}
-
-          <View style={styles.details}>
-            <FeatureCard title="When" detail={event.schedule} />
-            <FeatureCard title="Where" detail={event.location} />
-            {event.summary ? (
-              <FeatureCard title="About this event" detail={event.summary} />
-            ) : (
-              <FeatureCard
-                title="About this event"
-                detail="More details are available on the event registration page."
-              />
-            )}
-          </View>
-
-          <AppButton
-            label={event.registrationRequired ? "Register / Buy Tickets" : "View Event Page"}
-            loading={opening}
-            onPress={openRegistration}
-          />
+      {event.requiredDocuments.length > 0 ? (
+        <View style={styles.infoCard}>
+          <AppText variant="subtitle">Required documents</AppText>
           <AppText variant="caption">
-            Registration opens in DanceFlow so your tickets and receipts stay connected.
+            You will review and sign these before checkout.
           </AppText>
-        </>
+          {event.requiredDocuments.map((document) => (
+            <AppText key={document.id} style={styles.documentTitle}>
+              {document.title}
+            </AppText>
+          ))}
+        </View>
       ) : null}
+
+      {!session ? (
+        <FeatureCard
+          title="Sign in to register"
+          detail="Use your DanceFlow account so tickets can appear in Wallet after payment."
+        />
+      ) : null}
+
+      <AppButton
+        disabled={!session || event.ticketTypes.length === 0}
+        label={session ? "Register in app" : "Sign in to register"}
+        onPress={() =>
+          session
+            ? router.push(`/events/${event.id}/register` as unknown as RouterPushTarget)
+            : router.push("/(auth)/sign-in" as unknown as RouterPushTarget)
+        }
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  details: {
-    gap: 12
+  documentTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: "800"
   },
-  iconRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10
-  },
-  iconButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
+  infoCard: {
     backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: colors.border
+    gap: 8,
+    padding: 16
   },
-  iconButtonActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary
+  price: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  priceBlock: {
+    alignItems: "flex-end",
+    gap: 2
+  },
+  earlyBirdLabel: {
+    color: colors.success,
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  regularPrice: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    textDecorationLine: "line-through"
+  },
+  ticketName: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: "800"
+  },
+  ticketRow: {
+    alignItems: "center",
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    paddingTop: 10
   }
 });
