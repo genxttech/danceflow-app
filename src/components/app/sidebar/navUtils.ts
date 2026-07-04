@@ -46,6 +46,7 @@ export function isActivePath(pathname: string, href: string) {
     "/app/clients/new",
     "/app/events/new",
     "/app/events/sell-tickets",
+    "/app/analytics",
   ]);
 
   if (exactOnlyRoutes.has(href)) {
@@ -71,6 +72,15 @@ function normalizeNavLabel(item: NavItem) {
 
   if (item.href === "/app/analytics" || lower === "analytics" || lower === "studio analytics") {
     return "Studio Analytics";
+  }
+
+  if (
+    item.href === "/app/analytics/dance-goals" ||
+    lower === "dance goal analytics" ||
+    lower === "dance goals analytics" ||
+    lower === "goal analytics"
+  ) {
+    return "Dance Goal Analytics";
   }
 
   if (item.href === "/app/reports" || lower === "reports") {
@@ -1001,6 +1011,72 @@ function injectInstructorPayLink(sections: NavSectionType[]): NavSectionType[] {
   ];
 }
 
+function injectDanceGoalAnalyticsLink(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const hasAnalytics = flatItems.some((item) => item.href === "/app/analytics");
+  const hasDanceGoalAnalytics = flatItems.some(
+    (item) => item.href === "/app/analytics/dance-goals",
+  );
+
+  if (!hasAnalytics || hasDanceGoalAnalytics) {
+    return sections;
+  }
+
+  const danceGoalAnalyticsItem: NavItem = {
+    label: "Dance Goal Analytics",
+    href: "/app/analytics/dance-goals",
+    icon: "reports",
+  };
+
+  const insightsSectionIndex = sections.findIndex((section) => {
+    const title = section.title.trim().toLowerCase();
+
+    return (
+      title === "insights" ||
+      title === "reports" ||
+      section.items.some(
+        (item) => item.href === "/app/analytics" || item.href === "/app/reports",
+      )
+    );
+  });
+
+  if (insightsSectionIndex >= 0) {
+    return sections.map((section, index) => {
+      if (index !== insightsSectionIndex) {
+        return section;
+      }
+
+      const analyticsIndex = section.items.findIndex(
+        (item) => item.href === "/app/analytics",
+      );
+
+      if (analyticsIndex >= 0) {
+        return {
+          ...section,
+          items: [
+            ...section.items.slice(0, analyticsIndex + 1),
+            danceGoalAnalyticsItem,
+            ...section.items.slice(analyticsIndex + 1),
+          ],
+        };
+      }
+
+      return {
+        ...section,
+        items: [...section.items, danceGoalAnalyticsItem],
+      };
+    });
+  }
+
+  return [
+    ...sections,
+    {
+      title: "Insights",
+      items: [danceGoalAnalyticsItem],
+    },
+  ];
+}
+
 function injectDirectTaskLinks(sections: NavSectionType[]): NavSectionType[] {
   const flatItems = sections.flatMap((section) => section.items);
   const hasHref = (href: string) => flatItems.some((item) => item.href === href);
@@ -1270,6 +1346,7 @@ function optimizeNavigationForTasks(sections: NavSectionType[], options: Normali
     ]),
     makeSection("Insights", available, used, [
       "/app/analytics",
+      "/app/analytics/dance-goals",
       "/app/reports",
       "/app/aria",
     ]),
@@ -1376,7 +1453,8 @@ export function normalizeSections(input: unknown, options: NormalizeSectionsOpti
   const withDocumentsLink = injectDocumentsLink(withSyllabusLink);
   const withAutomationsLink = injectAutomationsLink(withDocumentsLink);
   const withInstructorPayLink = injectInstructorPayLink(withAutomationsLink);
-  const withBookingRequestsLink = injectBookingRequestsLink(withInstructorPayLink);
+  const withDanceGoalAnalyticsLink = injectDanceGoalAnalyticsLink(withInstructorPayLink);
+  const withBookingRequestsLink = injectBookingRequestsLink(withDanceGoalAnalyticsLink);
   const withMyAvailabilityLink = injectMyAvailabilityLink(withBookingRequestsLink);
   const withDirectTaskLinks = injectDirectTaskLinks(withMyAvailabilityLink);
   const withDiscoveryExpansionLinks = injectDiscoveryExpansionLinks(withDirectTaskLinks);

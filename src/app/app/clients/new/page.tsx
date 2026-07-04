@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import {
   ArrowLeft,
   GraduationCap,
@@ -24,11 +24,144 @@ const initialState: ActionState = {
   error: "",
 };
 
+const DANCE_STYLE_GROUPS = [
+  {
+    label: "American Smooth",
+    options: [
+      "American Smooth",
+      "American Smooth - Waltz",
+      "American Smooth - Tango",
+      "American Smooth - Foxtrot",
+      "American Smooth - Viennese Waltz",
+    ],
+  },
+  {
+    label: "American Rhythm",
+    options: [
+      "American Rhythm",
+      "American Rhythm - Cha Cha",
+      "American Rhythm - Rumba",
+      "American Rhythm - East Coast Swing",
+      "American Rhythm - Bolero",
+      "American Rhythm - Mambo",
+    ],
+  },
+  {
+    label: "International Ballroom",
+    options: [
+      "International Ballroom",
+      "International Ballroom - Waltz",
+      "International Ballroom - Tango",
+      "International Ballroom - Viennese Waltz",
+      "International Ballroom - Foxtrot",
+      "International Ballroom - Quickstep",
+    ],
+  },
+  {
+    label: "International Latin",
+    options: [
+      "International Latin",
+      "International Latin - Cha Cha",
+      "International Latin - Samba",
+      "International Latin - Rumba",
+      "International Latin - Paso Doble",
+      "International Latin - Jive",
+    ],
+  },
+  {
+    label: "Country",
+    options: [
+      "Country",
+      "Country - Two Step",
+      "Country - West Coast Swing",
+      "Country - Nightclub Two Step",
+      "Country - Waltz",
+      "Country - Polka",
+    ],
+  },
+  {
+    label: "Social / Club",
+    options: [
+      "Social / Club",
+      "Social / Club - Salsa",
+      "Social / Club - Bachata",
+      "Social / Club - Merengue",
+      "Social / Club - Hustle",
+      "Social / Club - Argentine Tango",
+    ],
+  },
+];
+
+const DANCE_GOALS = [
+  "Social dancing",
+  "Practice partner",
+  "Wedding dance",
+  "Date night",
+  "Showcase",
+  "Competition",
+  "Confidence",
+  "Fitness",
+  "New hobby",
+  "Meet people",
+  "Improve technique",
+  "Prepare for an event",
+];
+
+function CheckboxGroup({
+  name,
+  groups,
+}: {
+  name: string;
+  groups: { label: string; options: string[] }[];
+}) {
+  return (
+    <div className="space-y-4">
+      {groups.map((group) => (
+        <div key={`${name}-${group.label}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-900">{group.label}</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {group.options.map((option) => (
+              <label key={`${name}-${group.label}-${option}`} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
+                <input
+                  type="checkbox"
+                  name={name}
+                  value={option}
+                  className="h-4 w-4 rounded border-slate-300 text-[#5B197A] focus:ring-[#7C2D92]"
+                />
+                <span>{option}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function GoalCheckboxes({ name }: { name: string }) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {DANCE_GOALS.map((goal) => (
+        <label key={`${name}-${goal}`} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <input
+            type="checkbox"
+            name={name}
+            value={goal}
+            className="h-4 w-4 rounded border-slate-300 text-[#5B197A] focus:ring-[#7C2D92]"
+          />
+          <span>{goal}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
+
 export default function NewClientPage() {
   const [state, formAction, pending] = useActionState(
     createClientAction,
     initialState
   );
+  const [includePartner, setIncludePartner] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -43,7 +176,7 @@ export default function NewClientPage() {
             </h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-white/85 md:text-base">
               Create a client record, save contact details, track dance
-              interests, and keep follow-up notes in one clean place.
+              styles and goals, and keep follow-up notes in one clean place.
             </p>
           </div>
 
@@ -67,7 +200,7 @@ export default function NewClientPage() {
             <p className="text-xs uppercase tracking-[0.2em] text-white/65">
               Best next step
             </p>
-            <p className="mt-1 text-sm font-semibold">Add notes and interests</p>
+            <p className="mt-1 text-sm font-semibold">Add notes, styles, and goals</p>
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-white/65">
@@ -99,7 +232,7 @@ export default function NewClientPage() {
             Dance details
           </h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">
-            Track level, interests, referral source, and notes from the first
+            Track level, dance styles, goals, referral source, and notes from the first
             conversation.
           </p>
         </div>
@@ -354,11 +487,11 @@ export default function NewClientPage() {
             Client profile
           </p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-            Add status, dance interests, and source
+            Add status, dance styles, goals, and source
           </h2>
           <p className="mt-1 text-sm leading-6 text-slate-600">
             These fields help your team know where the relationship stands and
-            what kind of dancing they care about.
+            why they want to dance.
           </p>
 
           <div className="mt-6 grid gap-5 md:grid-cols-2">
@@ -406,18 +539,31 @@ export default function NewClientPage() {
             </div>
 
             <div className="md:col-span-2">
-              <label
-                htmlFor="danceInterests"
-                className="block text-sm font-medium text-slate-700"
-              >
-                Dance interests
-              </label>
-              <input
-                id="danceInterests"
-                name="danceInterests"
-                placeholder="Country, ballroom, salsa, wedding dance..."
-                className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
-              />
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-medium text-slate-700">
+                  Dance Styles
+                </p>
+                <p className="text-xs leading-5 text-slate-500">
+                  Select style categories and any specific dances they want to learn.
+                </p>
+              </div>
+              <div className="mt-3">
+                <CheckboxGroup name="danceStyles" groups={DANCE_STYLE_GROUPS} />
+              </div>
+            </div>
+
+            <div className="md:col-span-2">
+              <div className="flex flex-col gap-1">
+                <p className="text-sm font-medium text-slate-700">
+                  Dance Goals
+                </p>
+                <p className="text-xs leading-5 text-slate-500">
+                  Select the reasons they are coming in. These will support conversion analytics later.
+                </p>
+              </div>
+              <div className="mt-3">
+                <GoalCheckboxes name="danceGoals" />
+              </div>
             </div>
 
             <div className="md:col-span-2">
@@ -458,6 +604,136 @@ export default function NewClientPage() {
               />
             </div>
           </div>
+        </section>
+
+        <section className="rounded-[28px] border border-[#E9D5FF] bg-[#FAF5FF] p-5 shadow-sm md:p-6">
+          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
+                Optional partner
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                Add this client's partner
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">
+                Use this when a couple comes in together and both people need client records.
+                You can still link two existing accounts separately later.
+              </p>
+            </div>
+
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-[#6B21A8] shadow-sm">
+              <Users className="h-6 w-6" />
+            </div>
+          </div>
+
+          <label className="mt-5 flex items-start gap-3 rounded-2xl border border-[#E9D5FF] bg-white p-4 shadow-sm">
+            <input
+              type="checkbox"
+              name="createPartner"
+              checked={includePartner}
+              onChange={(event) => setIncludePartner(event.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-slate-300 text-[#5B197A] focus:ring-[#7C2D92]"
+            />
+            <div>
+              <p className="font-medium text-slate-950">
+                Create a second linked client record
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                The two records will be linked as partners after both are created.
+              </p>
+            </div>
+          </label>
+
+          {includePartner ? (
+            <div className="mt-6 space-y-6 rounded-3xl border border-[#E9D5FF] bg-white p-5">
+              <div className="grid gap-5 md:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="partnerFirstName"
+                    className="block text-sm font-medium text-slate-700"
+                  >
+                    Partner first name *
+                  </label>
+                  <input
+                    id="partnerFirstName"
+                    name="partnerFirstName"
+                    required={includePartner}
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="partnerLastName"
+                    className="block text-sm font-medium text-slate-700"
+                  >
+                    Partner last name *
+                  </label>
+                  <input
+                    id="partnerLastName"
+                    name="partnerLastName"
+                    required={includePartner}
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="partnerEmail"
+                    className="block text-sm font-medium text-slate-700"
+                  >
+                    Partner email
+                  </label>
+                  <input
+                    id="partnerEmail"
+                    name="partnerEmail"
+                    type="email"
+                    placeholder="partner@example.com"
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="partnerPhone"
+                    className="block text-sm font-medium text-slate-700"
+                  >
+                    Partner phone
+                  </label>
+                  <input
+                    id="partnerPhone"
+                    name="partnerPhone"
+                    placeholder="(555) 555-5555"
+                    className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-3 text-sm outline-none transition focus:border-[#7C2D92] focus:ring-2 focus:ring-[#E9D5FF]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-slate-700">
+                  Partner Dance Styles
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Leave blank to use the first client's selected styles.
+                </p>
+                <div className="mt-3">
+                  <CheckboxGroup name="partnerDanceStyles" groups={DANCE_STYLE_GROUPS} />
+                </div>
+              </div>
+
+              <div>
+                <p className="text-sm font-medium text-slate-700">
+                  Partner Dance Goals
+                </p>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  Leave blank to use the first client's selected goals.
+                </p>
+                <div className="mt-3">
+                  <GoalCheckboxes name="partnerDanceGoals" />
+                </div>
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <section className="rounded-[28px] border border-[#BFDBFE] bg-[#EFF6FF] p-5 shadow-sm md:p-6">

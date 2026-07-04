@@ -27,6 +27,7 @@ import {
   updateIndependentInstructorSettingsAction,
   adjustLessonCountCorrectionAction,
   addClientAccountLedgerEntryAction,
+  addClientActivityNoteAction,
   refundClientPaymentAction,
 } from "./actions";
 import {
@@ -213,6 +214,18 @@ type LeadActivityRow = {
   created_at: string;
   follow_up_due_at: string | null;
   completed_at: string | null;
+  profiles:
+    | { full_name: string | null; email: string | null }
+    | { full_name: string | null; email: string | null }[]
+    | null;
+};
+
+type ClientActivityNoteRow = {
+  id: string;
+  note_type: string;
+  body: string;
+  occurred_at: string;
+  created_at: string;
   profiles:
     | { full_name: string | null; email: string | null }
     | { full_name: string | null; email: string | null }[]
@@ -673,6 +686,24 @@ function activityLabel(value: string) {
   return "Note";
 }
 
+function clientNoteTypeLabel(value: string) {
+  if (value === "follow_up") return "Follow-Up";
+  if (value === "sales") return "Sales";
+  if (value === "lesson") return "Lesson";
+  if (value === "billing") return "Billing";
+  if (value === "concern") return "Concern";
+  return "General";
+}
+
+function clientNoteTypeBadgeClass(value: string) {
+  if (value === "follow_up") return "bg-violet-50 text-violet-700";
+  if (value === "sales") return "bg-emerald-50 text-emerald-700";
+  if (value === "lesson") return "bg-blue-50 text-blue-700";
+  if (value === "billing") return "bg-amber-50 text-amber-700";
+  if (value === "concern") return "bg-rose-50 text-rose-700";
+  return "bg-slate-100 text-slate-700";
+}
+
 function automationRuleLabel(value: string) {
   if (value === "low_package_balance") return "Low Package Balance";
   if (value === "no_upcoming_lesson") return "No Upcoming Lesson";
@@ -1067,6 +1098,13 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.success === "client_note_saved") {
+    return {
+      kind: "success" as const,
+      message: "Client note saved.",
+    };
+  }
+
   if (search.success === "payment_refunded") {
     return {
       kind: "success" as const,
@@ -1362,6 +1400,34 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
+  if (search.error === "client_note_missing_fields") {
+    return {
+      kind: "error" as const,
+      message: "Choose a note type and enter a note before saving.",
+    };
+  }
+
+  if (search.error === "client_note_invalid_type") {
+    return {
+      kind: "error" as const,
+      message: "Choose a valid client note type.",
+    };
+  }
+
+  if (search.error === "client_note_invalid_date") {
+    return {
+      kind: "error" as const,
+      message: "Choose a valid date and time for the client note.",
+    };
+  }
+
+  if (search.error === "client_note_save_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not save the client note.",
+    };
+  }
+
   if (search.error === "refund_missing_fields") {
     return {
       kind: "error" as const,
@@ -1639,6 +1705,7 @@ export default async function ClientDetailPage({
     { data: payments, error: paymentsError },
     { data: ledger, error: ledgerError },
     { data: accountLedger, error: accountLedgerError },
+    { data: clientActivityNotes, error: clientActivityNotesError },
     { data: leadActivities, error: leadActivitiesError },
     { data: packageTemplates, error: packageTemplatesError },
     { data: membershipPlans, error: membershipPlansError },
@@ -1795,6 +1862,25 @@ export default async function ClientDetailPage({
       .eq("client_id", id)
       .order("entry_date", { ascending: false })
       .order("created_at", { ascending: false }),
+
+    supabase
+      .from("client_activity_notes")
+      .select(`
+        id,
+        note_type,
+        body,
+        occurred_at,
+        created_at,
+        profiles:created_by (
+          full_name,
+          email
+        )
+      `)
+      .eq("studio_id", studioId)
+      .eq("client_id", id)
+      .order("occurred_at", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(100),
 
     supabase
       .from("lead_activities")
@@ -2016,6 +2102,7 @@ export default async function ClientDetailPage({
   if (paymentsError) throw new Error(`Failed to load payments: ${paymentsError.message}`);
   if (ledgerError) throw new Error(`Failed to load lesson ledger: ${ledgerError.message}`);
   if (accountLedgerError) throw new Error(`Failed to load client account ledger: ${accountLedgerError.message}`);
+  if (clientActivityNotesError) throw new Error(`Failed to load client activity notes: ${clientActivityNotesError.message}`);
   if (leadActivitiesError) throw new Error(`Failed to load lead activities: ${leadActivitiesError.message}`);
   if (packageTemplatesError) throw new Error(`Failed to load package templates: ${packageTemplatesError.message}`);
   if (membershipPlansError) throw new Error(`Failed to load membership plans: ${membershipPlansError.message}`);
@@ -2114,6 +2201,7 @@ export default async function ClientDetailPage({
   const typedLedger = (ledger ?? []) as LedgerRow[];
   const typedAccountLedger = (accountLedger ?? []) as ClientAccountLedgerRow[];
   const accountLedgerPreview = typedAccountLedger.slice(0, 20);
+  const typedClientActivityNotes = (clientActivityNotes ?? []) as ClientActivityNoteRow[];
   const typedLeadActivities = (leadActivities ?? []) as LeadActivityRow[];
   const typedAutomationActions = (automationActionsData ?? []) as ClientAutomationActionRow[];
   const typedAutomationDeliveries = automationDeliveriesData;
@@ -4175,12 +4263,136 @@ export default async function ClientDetailPage({
           ) : null}
 
           {activeTab === "notes" ? (
-          <SectionCard title="Notes">
-            <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
-              <p className="whitespace-pre-wrap text-slate-700">
-                {typedClient.notes ?? "No notes recorded."}
-              </p>
+          <SectionCard
+            title="Notes / Activity Ledger"
+            subtitle="Studio-only dated notes for calls, follow-ups, lessons, billing context, concerns, and sales conversations."
+          >
+            {canEditClients(role) ? (
+              <form
+                action={addClientActivityNoteAction}
+                className="rounded-2xl border border-[#E9D5FF] bg-[#FAF5FF] p-4"
+              >
+                <input type="hidden" name="clientId" value={typedClient.id} />
+                <input
+                  type="hidden"
+                  name="returnTo"
+                  value={`/app/clients/${typedClient.id}?tab=notes`}
+                />
+
+                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                  <div>
+                    <label
+                      htmlFor="clientNoteType"
+                      className="mb-1 block text-sm font-medium text-[var(--brand-text)]"
+                    >
+                      Note type
+                    </label>
+                    <select
+                      id="clientNoteType"
+                      name="noteType"
+                      defaultValue="general"
+                      className="w-full rounded-xl border border-[#E9D5FF] bg-white px-3 py-2 text-sm"
+                    >
+                      <option value="general">General</option>
+                      <option value="follow_up">Follow-Up</option>
+                      <option value="sales">Sales</option>
+                      <option value="lesson">Lesson</option>
+                      <option value="billing">Billing</option>
+                      <option value="concern">Concern</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="clientNoteOccurredAt"
+                      className="mb-1 block text-sm font-medium text-[var(--brand-text)]"
+                    >
+                      Date / time
+                    </label>
+                    <input
+                      id="clientNoteOccurredAt"
+                      name="occurredAt"
+                      type="datetime-local"
+                      defaultValue={new Date().toISOString().slice(0, 16)}
+                      className="w-full rounded-xl border border-[#E9D5FF] bg-white px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <label
+                    htmlFor="clientActivityNoteBody"
+                    className="mb-1 block text-sm font-medium text-[var(--brand-text)]"
+                  >
+                    Note
+                  </label>
+                  <textarea
+                    id="clientActivityNoteBody"
+                    name="body"
+                    rows={4}
+                    required
+                    className="w-full rounded-xl border border-[#E9D5FF] bg-white px-3 py-2 text-sm"
+                    placeholder="Example: Discussed wedding dance goals, recommended intro package, follow up Friday after partner confirms schedule."
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="mt-4 rounded-2xl bg-[#6B21A8] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#581C87]"
+                >
+                  Add Note
+                </button>
+              </form>
+            ) : null}
+
+            <div className="mt-5 space-y-3">
+              {typedClientActivityNotes.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-[var(--brand-border)] bg-[var(--brand-surface)] px-4 py-6 text-sm text-slate-500">
+                  No staff notes have been added yet.
+                  {typedClient.notes ? " The legacy profile note is shown below for reference." : ""}
+                </div>
+              ) : (
+                typedClientActivityNotes.map((note) => (
+                  <article
+                    key={note.id}
+                    className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <span
+                          className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${clientNoteTypeBadgeClass(note.note_type)}`}
+                        >
+                          {clientNoteTypeLabel(note.note_type)}
+                        </span>
+                        <p className="mt-2 text-xs text-slate-500">
+                          {fmtDateTime(note.occurred_at, studioTimeZone)} · Added by{" "}
+                          {getAuthorName(note.profiles)}
+                        </p>
+                      </div>
+
+                      <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-500 ring-1 ring-slate-200">
+                        Logged {fmtShortDateTime(note.created_at, studioTimeZone)}
+                      </span>
+                    </div>
+
+                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                      {note.body}
+                    </p>
+                  </article>
+                ))
+              )}
             </div>
+
+            {typedClient.notes ? (
+              <details className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-[var(--brand-text)]">
+                  Legacy profile note
+                </summary>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">
+                  {typedClient.notes}
+                </p>
+              </details>
+            ) : null}
           </SectionCard>
           ) : null}
 

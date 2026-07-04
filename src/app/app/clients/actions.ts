@@ -17,6 +17,13 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function getStringList(formData: FormData, key: string) {
+  return formData
+    .getAll(key)
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean);
+}
+
 function appendQueryParam(url: string, key: string, value: string) {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
@@ -178,7 +185,10 @@ function normalizeClientPayload(params: {
   state: string;
   postalCode: string;
   country: string;
-  danceInterests: string;
+  danceStyles: string[];
+  danceInterests?: string;
+  danceGoals?: string[];
+  includeDanceGoals?: boolean;
   skillLevel: string;
   notes: string;
   referralSource: string;
@@ -198,7 +208,10 @@ function normalizeClientPayload(params: {
     state,
     postalCode,
     country,
+    danceStyles,
     danceInterests,
+    danceGoals,
+    includeDanceGoals = false,
     skillLevel,
     notes,
     referralSource,
@@ -210,6 +223,9 @@ function normalizeClientPayload(params: {
   const normalizedLinkedInstructorId = isIndependentInstructor
     ? linkedInstructorId
     : null;
+  const normalizedDanceInterests = danceStyles.length
+    ? danceStyles.join(", ")
+    : danceInterests ?? "";
 
   return {
     first_name: firstName,
@@ -223,7 +239,8 @@ function normalizeClientPayload(params: {
     state: state || null,
     postal_code: postalCode || null,
     country: country || null,
-    dance_interests: danceInterests || null,
+    dance_interests: normalizedDanceInterests || null,
+    ...(includeDanceGoals ? { dance_goals: danceGoals?.length ? danceGoals : null } : {}),
     skill_level: skillLevel
       ? normalizeOptionValue(CLIENT_SKILL_LEVEL_OPTIONS, skillLevel)
       : null,
@@ -255,7 +272,8 @@ export async function createClientAction(
     const state = getString(formData, "state");
     const postalCode = getString(formData, "postalCode");
     const country = getString(formData, "country");
-    const danceInterests = getString(formData, "danceInterests");
+    const danceStyles = getStringList(formData, "danceStyles");
+    const danceGoals = getStringList(formData, "danceGoals");
     const skillLevel = getString(formData, "skillLevel");
     const notes = getString(formData, "notes");
     const referralSource = getString(formData, "referralSource");
@@ -264,6 +282,13 @@ export async function createClientAction(
     const isIndependentInstructor =
       formData.get("isIndependentInstructor") === "on";
     const clientPhoto = getOptionalImageFile(formData, "clientPhoto");
+    const createPartner = formData.get("createPartner") === "on";
+    const partnerFirstName = getString(formData, "partnerFirstName");
+    const partnerLastName = getString(formData, "partnerLastName");
+    const partnerEmail = getString(formData, "partnerEmail").toLowerCase();
+    const partnerPhone = getString(formData, "partnerPhone");
+    const partnerDanceStyles = getStringList(formData, "partnerDanceStyles");
+    const partnerDanceGoals = getStringList(formData, "partnerDanceGoals");
 
     const linkedInstructorId = linkedInstructorIdRaw || null;
 
@@ -273,6 +298,13 @@ export async function createClientAction(
 
     if (birthday && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
       return { error: "Birthday must be a valid date." };
+    }
+
+    if (createPartner && (!partnerFirstName || !partnerLastName)) {
+      return {
+        error:
+          "Partner first name and last name are required when adding a partner.",
+      };
     }
 
     const dropdownError = validateClientDropdowns({
@@ -319,6 +351,23 @@ export async function createClientAction(
       }
     }
 
+    if (partnerEmail) {
+      const { data: duplicatePartner } = await supabase
+        .from("clients")
+        .select("id")
+        .eq("studio_id", studioId)
+        .eq("email", partnerEmail)
+        .limit(1)
+        .maybeSingle();
+
+      if (duplicatePartner) {
+        return {
+          error:
+            "A client with the partner email already exists in this studio. Create the first client, then link the existing partner record.",
+        };
+      }
+    }
+
     const payload = normalizeClientPayload({
       firstName,
       lastName,
@@ -331,7 +380,9 @@ export async function createClientAction(
       state,
       postalCode,
       country,
-      danceInterests,
+      danceStyles,
+      danceGoals,
+      includeDanceGoals: true,
       skillLevel,
       notes,
       referralSource,
@@ -352,6 +403,8 @@ export async function createClientAction(
       return { error: photoResult.error };
     }
 
+    const partnerClientId = createPartner ? randomUUID() : null;
+
     const { error } = await supabase.from("clients").insert({
       id: clientId,
       studio_id: studioId,
@@ -361,6 +414,52 @@ export async function createClientAction(
 
     if (error) {
       return { error: `Client creation failed: ${error.message}` };
+    }
+
+    if (createPartner && partnerClientId) {
+      const partnerPayload = normalizeClientPayload({
+        firstName: partnerFirstName,
+        lastName: partnerLastName,
+        email: partnerEmail,
+        phone: partnerPhone,
+        birthday: "",
+        addressLine1,
+        addressLine2,
+        city,
+        state,
+        postalCode,
+        country,
+        danceStyles: partnerDanceStyles.length ? partnerDanceStyles : danceStyles,
+        danceGoals: partnerDanceGoals.length ? partnerDanceGoals : danceGoals,
+        includeDanceGoals: true,
+        skillLevel,
+        notes: "",
+        referralSource,
+        status,
+        linkedInstructorId: null,
+        isIndependentInstructor: false,
+      });
+
+      const { error: partnerError } = await supabase.from("clients").insert({
+        id: partnerClientId,
+        studio_id: studioId,
+        ...partnerPayload,
+        partner_client_id: clientId,
+      });
+
+      if (partnerError) {
+        return { error: `Partner creation failed: ${partnerError.message}` };
+      }
+
+      const { error: linkError } = await supabase
+        .from("clients")
+        .update({ partner_client_id: partnerClientId })
+        .eq("id", clientId)
+        .eq("studio_id", studioId);
+
+      if (linkError) {
+        return { error: `Partner link failed: ${linkError.message}` };
+      }
     }
   } catch (error) {
     return {
@@ -393,6 +492,8 @@ export async function updateClientAction(
     const postalCode = getString(formData, "postalCode");
     const country = getString(formData, "country");
     const danceInterests = getString(formData, "danceInterests");
+    const danceStyles = getStringList(formData, "danceStyles");
+    const danceGoals = getStringList(formData, "danceGoals");
     const skillLevel = getString(formData, "skillLevel");
     const notes = getString(formData, "notes");
     const referralSource = getString(formData, "referralSource");
@@ -486,7 +587,10 @@ export async function updateClientAction(
       state,
       postalCode,
       country,
+      danceStyles,
       danceInterests,
+      danceGoals,
+      includeDanceGoals: formData.has("danceGoals"),
       skillLevel,
       notes,
       referralSource,

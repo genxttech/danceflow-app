@@ -20,6 +20,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import AriaAvatar from "@/components/app/AriaAvatar";
 import AriaInsightCard from "@/components/app/AriaInsightCard";
+import { getDanceGoalIntelligence } from "@/lib/aria/danceGoalInsights";
 
 type ClientPackageRow = {
   id: string;
@@ -1224,6 +1225,10 @@ export default async function AriaOpportunityHubPage() {
     []) as ConversionPackageRow[];
   const conversionMemberships = (conversionMembershipsResult.data ??
     []) as ConversionMembershipRow[];
+  const danceGoalIntelligence = await getDanceGoalIntelligence({
+    studioId,
+    range: "90",
+  });
 
   const lowBalancePackages = packages.filter((pkg) => {
     const lowestRemaining = packageLowestRemaining(pkg);
@@ -1654,6 +1659,48 @@ export default async function AriaOpportunityHubPage() {
             href="/app/analytics?range=90"
             actionLabel="Review retention gaps"
           />
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#BE185D]">
+              ARIA Dance Goal Intelligence
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+              What client goals are telling ARIA
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              ARIA reads Dance Goal Analytics to connect motivation with conversion,
+              retention, lessons, and lifetime spend.
+            </p>
+          </div>
+          <Link
+            href="/app/analytics/dance-goals?range=90"
+            className="inline-flex items-center gap-2 text-sm font-semibold text-[#BE185D] hover:underline"
+          >
+            Open Dance Goal Analytics
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+
+        <div className="grid gap-4 lg:grid-cols-2">
+          {danceGoalIntelligence.recommendations.slice(0, 2).map((recommendation) => (
+            <AriaInsightCard
+              key={recommendation.title}
+              eyebrow="ARIA Goal Signal"
+              title={recommendation.title}
+              insight={recommendation.insight}
+              recommendation={recommendation.recommendation}
+              metric={recommendation.metric}
+              primaryAction={{
+                href: "/app/analytics/dance-goals?range=90",
+                label: "Review goal metrics",
+              }}
+              compact
+            />
+          ))}
         </div>
       </section>
 

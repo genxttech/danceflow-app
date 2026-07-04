@@ -1023,6 +1023,64 @@ export async function addClientAccountLedgerEntryAction(formData: FormData) {
   redirectWithResult(returnTo, "success", "account_ledger_entry_saved");
 }
 
+export async function addClientActivityNoteAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const noteType = getString(formData, "noteType") || "general";
+  const body = getString(formData, "body");
+  const occurredAt = getString(formData, "occurredAt");
+  const returnTo =
+    getString(formData, "returnTo") || `/app/clients/${clientId}?tab=notes`;
+  const allowedNoteTypes = new Set([
+    "general",
+    "follow_up",
+    "sales",
+    "lesson",
+    "billing",
+    "concern",
+  ]);
+
+  if (!clientId || !body) {
+    redirectWithResult(returnTo, "error", "client_note_missing_fields");
+  }
+
+  if (!allowedNoteTypes.has(noteType)) {
+    redirectWithResult(returnTo, "error", "client_note_invalid_type");
+  }
+
+  const parsedOccurredAt = occurredAt ? new Date(occurredAt) : new Date();
+
+  if (Number.isNaN(parsedOccurredAt.getTime())) {
+    redirectWithResult(returnTo, "error", "client_note_invalid_date");
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+
+  await getStudioClientOrRedirect({
+    supabase,
+    studioId,
+    clientId,
+    returnTo,
+  });
+
+  const { data: userData } = await supabase.auth.getUser();
+
+  const { error } = await supabase.from("client_activity_notes").insert({
+    studio_id: studioId,
+    client_id: clientId,
+    note_type: noteType,
+    body,
+    occurred_at: parsedOccurredAt.toISOString(),
+    created_by: userData.user?.id ?? null,
+  });
+
+  if (error) {
+    redirectWithResult(returnTo, "error", "client_note_save_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  redirectWithResult(returnTo, "success", "client_note_saved");
+}
+
 export async function refundClientPaymentAction(formData: FormData) {
   const clientId = getString(formData, "clientId");
   const paymentId = getString(formData, "paymentId");

@@ -792,6 +792,35 @@ export default async function AnalyticsPage({
         {RETENTION_WINDOW_DAYS} days of the first purchase.
       </section>
 
+      <section className="grid gap-4 lg:grid-cols-3">
+        <Link
+          href={`/app/analytics/dance-goals?range=${range}`}
+          className="group rounded-lg border border-[#E9D5FF] bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-[#C084FC] hover:shadow-md"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
+                New analytics
+              </p>
+              <h2 className="mt-2 text-lg font-semibold text-slate-950">
+                Dance Goal Analytics
+              </h2>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Compare conversion, retention, lifetime spend, and lesson activity
+                by the goals clients select at intake.
+              </p>
+            </div>
+            <div className="rounded-lg bg-[#F3E8FF] p-3 text-[#6B21A8]">
+              <Target className="h-5 w-5" />
+            </div>
+          </div>
+          <span className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[#6B21A8]">
+            Open goal analytics
+            <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
+          </span>
+        </Link>
+      </section>
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Lead → Intro"
