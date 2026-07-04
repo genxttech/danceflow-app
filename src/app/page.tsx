@@ -9,14 +9,14 @@ import { JsonLd } from "@/components/seo/JsonLd";
 const featureCards = [
   {
     eyebrow: "For dancers",
-    title: "Find places to dance and events to attend.",
+    title: "Find places, partners, events, and dance opportunities.",
     description:
-      "DanceFlow gives dancers a public discovery path for studios, events, favorites, registrations, and future portal access from the studios they dance with.",
+      "DanceFlow gives dancers a public discovery path for studios, events, partner profiles, dance jobs, favorites, registrations, and portal access from the studios they dance with.",
     accent: "pink",
     bullets: [
-      "Discover studios and events",
+      "Discover studios, events, partners, and jobs",
       "Register for events and private lesson opportunities",
-      "Save favorites and use portal access when invited",
+      "Create a dancer partner profile and save favorites",
     ],
   },
   {
@@ -49,9 +49,9 @@ const audienceCards = [
   {
     title: "Dancers",
     description:
-      "Find studios and events, save favorites, register when events are open, and use your portal when a studio invites you.",
-    href: "/discover/events",
-    cta: "Find Events",
+      "Find studios, events, dance partners, and job opportunities. Create a dancer profile, save favorites, register when events are open, and use your portal when a studio invites you.",
+    href: "/discover",
+    cta: "Explore Discovery",
     accent: "pink",
   },
   {
@@ -236,7 +236,7 @@ export default async function HomePage() {
                       DanceFlow
                     </p>
                     <p className="mt-1 text-base text-slate-600">
-                      Find dance opportunities and keep dance businesses growing
+                    Find dance opportunities, partners, and places to grow
                     </p>
                   </div>
                 </div>
@@ -246,7 +246,7 @@ export default async function HomePage() {
                 </h1>
 
                 <p className="mt-5 max-w-2xl text-lg leading-8 text-slate-600">
-                  DanceFlow helps dancers discover studios and events, while giving studios and organizers the tools to manage CRM, scheduling, registrations, tickets, payments, reports, marketing, AI-assisted follow-up, and student progress in one connected place.
+                  DanceFlow helps dancers discover studios, events, partners, and dance jobs, while giving studios and organizers the tools to manage CRM, scheduling, registrations, tickets, payments, reports, marketing, AI-assisted follow-up, and student progress in one connected place.
                 </p>
 
                 <div className="mt-8 flex flex-wrap gap-3">
@@ -270,11 +270,18 @@ export default async function HomePage() {
                   >
                     Find Events
                   </Link>
+
+                  <Link
+                    href="/discover/partners"
+                    className="rounded-xl border border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Find Partners
+                  </Link>
                 </div>
 
                 <div className="mt-8 grid gap-3 sm:grid-cols-3">
                   {[
-                    "Find studios and events nearby",
+                    "Find studios, events, partners, and jobs nearby",
                     "Register and check in faster",
                     "Studios get a 30-day trial",
                   ].map((item) => (
@@ -333,7 +340,7 @@ export default async function HomePage() {
               Built for the full path from discovery to follow-up
             </h2>
             <p className="mt-4 text-lg leading-8 text-slate-600">
-              Dancers need a simple way to find where to dance. Studios and organizers need tools that turn interest into registrations, relationships, better reporting, smarter follow-up, and smoother day-to-day operations.
+              Dancers need a simple way to find where to dance, who to practice with, and where opportunities are posted. Studios and organizers need tools that turn interest into registrations, relationships, better reporting, smarter follow-up, and smoother day-to-day operations.
             </p>
           </div>
 
@@ -385,7 +392,7 @@ export default async function HomePage() {
                   Dancers, studios, and organizers each get a clear experience.
                 </h2>
                 <p className="mt-4 text-base leading-7 text-slate-600">
-                  DanceFlow is public-facing for dancers and operational for the studios and organizers that serve them, with founder pricing available during launch.
+                  DanceFlow is public-facing for dancers and operational for the studios and organizers that serve them, with discovery paths for studios, events, partners, and dance jobs.
                 </p>
               </div>
 

@@ -25,8 +25,8 @@ export default async function ExplorerGetStartedPage() {
             Your DanceFlow account is ready
           </h1>
           <p className="mt-4 text-lg leading-8 text-slate-600">
-            Use your free account to explore the public side of DanceFlow and make
-            it easier to stay connected to the dance world.
+            Use your free account to explore studios, events, partner listings,
+            job postings, and your own dancer profile inside DanceFlow.
           </p>
         </div>
 
@@ -54,10 +54,18 @@ export default async function ExplorerGetStartedPage() {
               </div>
 
               <div className="rounded-2xl bg-slate-50 p-5">
-                <p className="font-medium text-slate-900">Track your activity</p>
+                <p className="font-medium text-slate-900">Create a partner profile</p>
                 <p className="mt-1 text-sm leading-6 text-slate-600">
-                  As the member side grows, this account becomes the place to track
-                  your interests, registrations, and favorites.
+                  Look for practice, social, showcase, or competition partners.
+                  Keep communication inside DanceFlow and hide your profile anytime.
+                </p>
+              </div>
+
+              <div className="rounded-2xl bg-slate-50 p-5">
+                <p className="font-medium text-slate-900">Find dance opportunities</p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Browse studio job postings, save favorites, and keep your dancer
+                  activity connected to one account.
                 </p>
               </div>
             </div>
@@ -89,6 +97,36 @@ export default async function ExplorerGetStartedPage() {
                 <p className="font-medium text-slate-900">Find events</p>
                 <p className="mt-1 text-sm text-slate-600">
                   Browse workshops, classes, socials, and other public events.
+                </p>
+              </Link>
+
+              <Link
+                href="/discover/partners"
+                className="rounded-2xl border bg-slate-50 p-5 hover:bg-slate-100"
+              >
+                <p className="font-medium text-slate-900">Find a partner</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Search dancer profiles by goals, role, level, location, and style.
+                </p>
+              </Link>
+
+              <Link
+                href="/account/partner-search"
+                className="rounded-2xl border border-orange-200 bg-orange-50 p-5 hover:bg-orange-100"
+              >
+                <p className="font-medium text-slate-900">Create your dancer profile</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Add or pause your Partner Search profile from your account.
+                </p>
+              </Link>
+
+              <Link
+                href="/discover/jobs"
+                className="rounded-2xl border bg-slate-50 p-5 hover:bg-slate-100"
+              >
+                <p className="font-medium text-slate-900">Browse dance jobs</p>
+                <p className="mt-1 text-sm text-slate-600">
+                  Find instructor, coach, front desk, event staff, and studio roles.
                 </p>
               </Link>
             </div>

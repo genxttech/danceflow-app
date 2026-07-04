@@ -1088,7 +1088,7 @@ export default async function EventCheckInPage({
 
       <form
         action={checkInEventTicketCodeAction}
-        className="sticky top-2 z-30 rounded-[28px] border-2 border-[var(--brand-primary)] bg-white/95 p-4 shadow-xl backdrop-blur md:static md:border-[var(--brand-border)] md:p-5 md:shadow-sm"
+        className="rounded-[28px] border border-[var(--brand-border)] bg-white p-5 shadow-sm"
       >
         <input type="hidden" name="eventId" value={typedEvent.id} />
         {isGroupClass && selectedSessionId ? (
@@ -1115,7 +1115,7 @@ export default async function EventCheckInPage({
               Fast check-in
             </p>
             <p className="text-sm text-slate-600">
-              Scan or enter a ticket code without scrolling.
+              Scan or enter a ticket code for this event.
             </p>
           </div>
           <span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-semibold text-[var(--brand-primary)]">

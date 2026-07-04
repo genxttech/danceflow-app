@@ -14,40 +14,51 @@ export const metadata = {
 };
 
 type SearchParams = Promise<{
-  intent?: string;
+  intent?: string | string[];
   lat?: string;
   lng?: string;
   q?: string;
   radius?: string;
   role?: string;
   skill?: string;
-  style?: string;
+  style?: string | string[];
 }>;
 
 const roleOptions = ["either", "lead", "follow", "switch"];
 const skillOptions = ["newcomer", "beginner", "social", "intermediate", "advanced", "professional"];
 const intentOptions = ["practice", "social", "showcase", "competition"];
-const danceStyles = [
-  "Country Two Step",
-  "West Coast Swing",
-  "East Coast Swing",
-  "Nightclub Two Step",
-  "Country Waltz",
-  "Polka",
-  "Waltz",
-  "Tango",
-  "Foxtrot",
-  "Viennese Waltz",
-  "Quickstep",
-  "Cha Cha",
-  "Rumba",
-  "Samba",
-  "Bolero",
-  "Mambo",
-  "Salsa",
-  "Bachata",
-  "Argentine Tango",
-  "Hustle",
+const danceStyleGroups = [
+  {
+    label: "American Smooth",
+    styles: ["Waltz", "Tango", "Foxtrot", "Viennese Waltz"],
+  },
+  {
+    label: "American Rhythm",
+    styles: ["Cha Cha", "Rumba", "East Coast Swing", "Bolero", "Mambo"],
+  },
+  {
+    label: "International Ballroom",
+    styles: ["Waltz", "Tango", "Viennese Waltz", "Foxtrot", "Quickstep"],
+  },
+  {
+    label: "International Latin",
+    styles: ["Cha Cha", "Samba", "Rumba", "Paso Doble", "Jive"],
+  },
+  {
+    label: "Country",
+    styles: [
+      "Country Two Step",
+      "West Coast Swing",
+      "East Coast Swing",
+      "Nightclub Two Step",
+      "Country Waltz",
+      "Polka",
+    ],
+  },
+  {
+    label: "Social / Club",
+    styles: ["Salsa", "Bachata", "Argentine Tango", "Hustle", "Lindy Hop", "Zouk", "Kizomba"],
+  },
 ];
 
 function numberParam(value: string | undefined) {
@@ -56,26 +67,32 @@ function numberParam(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function arrayParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value : value ? [value] : [];
+}
+
 export default async function PartnerSearchDiscoveryPage({
   searchParams,
 }: {
   searchParams: SearchParams;
 }) {
   const query = await searchParams;
+  const selectedStyles = arrayParam(query.style);
+  const selectedIntents = arrayParam(query.intent);
   const profiles = await getPublishedPartnerProfiles({
-    intent: query.intent,
+    intent: selectedIntents,
     latitude: numberParam(query.lat),
     longitude: numberParam(query.lng),
     query: query.q,
     radiusMiles: numberParam(query.radius) ?? 50,
     role: query.role,
     skill: query.skill,
-    style: query.style,
+    style: selectedStyles,
   });
 
   return (
     <main className="min-h-screen bg-slate-50">
-      <section className="border-b bg-white">
+      <section className="border-b border-indigo-100 bg-gradient-to-br from-white via-white to-indigo-50">
         <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
           <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--brand-primary)]">
             Partner Search
@@ -96,7 +113,7 @@ export default async function PartnerSearchDiscoveryPage({
               </p>
             </div>
             <Link
-              href="/get-started/explorer"
+              href="/account/partner-search"
               className="inline-flex rounded-xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800"
             >
               Create a dancer profile
@@ -114,18 +131,28 @@ export default async function PartnerSearchDiscoveryPage({
               placeholder="Search style, city, role, goal, or level"
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm md:col-span-3"
             />
-            <select
-              name="intent"
-              defaultValue={query.intent ?? ""}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="">Any goal</option>
-              {intentOptions.map((intent) => (
-                <option key={intent} value={intent}>
-                  {formatPartnerIntent(intent)}
-                </option>
-              ))}
-            </select>
+            <fieldset className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 md:col-span-3">
+              <legend className="px-1 text-sm font-semibold text-slate-800">
+                Goals
+              </legend>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {intentOptions.map((intent) => (
+                  <label
+                    key={intent}
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
+                  >
+                    <input
+                      type="checkbox"
+                      name="intent"
+                      value={intent}
+                      defaultChecked={selectedIntents.includes(intent)}
+                      className="h-4 w-4 rounded border-slate-300 text-[var(--brand-primary)]"
+                    />
+                    {formatPartnerIntent(intent)}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             <select
               name="role"
               defaultValue={query.role ?? ""}
@@ -150,18 +177,47 @@ export default async function PartnerSearchDiscoveryPage({
                 </option>
               ))}
             </select>
-            <select
-              name="style"
-              defaultValue={query.style ?? ""}
-              className="rounded-xl border border-slate-200 px-3 py-2 text-sm md:col-span-2"
-            >
-              <option value="">Any dance style</option>
-              {danceStyles.map((style) => (
-                <option key={style} value={style}>
-                  {style}
-                </option>
-              ))}
-            </select>
+            <fieldset className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 md:col-span-3">
+              <legend className="px-1 text-sm font-semibold text-slate-800">
+                Dance styles
+              </legend>
+              <p className="mt-1 text-sm text-slate-500">
+                Select full categories, individual dances, or both.
+              </p>
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                {danceStyleGroups.map((group) => (
+                  <div key={group.label} className="rounded-2xl border border-white bg-white p-4 shadow-sm">
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[var(--brand-primary)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-primary)]">
+                      <input
+                        type="checkbox"
+                        name="style"
+                        value={group.label}
+                        defaultChecked={selectedStyles.includes(group.label)}
+                        className="h-4 w-4 rounded border-slate-300 text-[var(--brand-primary)]"
+                      />
+                      {group.label} - all styles
+                    </label>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {group.styles.map((style) => (
+                        <label
+                          key={`${group.label}-${style}`}
+                          className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
+                        >
+                          <input
+                            type="checkbox"
+                            name="style"
+                            value={style}
+                            defaultChecked={selectedStyles.includes(style)}
+                            className="h-4 w-4 rounded border-slate-300 text-[var(--brand-primary)]"
+                          />
+                          {style}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </fieldset>
             <select
               name="radius"
               defaultValue={query.radius ?? "50"}
@@ -202,7 +258,7 @@ export default async function PartnerSearchDiscoveryPage({
             {profiles.map((profile) => (
               <article
                 key={profile.id}
-                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-md"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>

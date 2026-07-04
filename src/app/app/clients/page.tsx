@@ -24,15 +24,26 @@ type ClientRow = {
 };
 
 function statusBadgeClass(status: string) {
-  if (status === "lead") return "bg-blue-50 text-blue-700";
-  if (status === "contacted") return "bg-amber-50 text-amber-700";
-  if (status === "consultation_booked") return "bg-purple-50 text-purple-700";
-  if (status === "converted") return "bg-green-50 text-green-700";
-  if (status === "lost") return "bg-red-50 text-red-700";
-  if (status === "active") return "bg-green-50 text-green-700";
-  if (status === "inactive") return "bg-slate-100 text-slate-700";
-  if (status === "archived") return "bg-red-50 text-red-700";
-  return "bg-slate-100 text-slate-700";
+  if (status === "lead") return "border-sky-200 bg-sky-50 text-sky-700";
+  if (status === "contacted") return "border-amber-200 bg-amber-50 text-amber-700";
+  if (status === "consultation_booked") return "border-violet-200 bg-violet-50 text-violet-700";
+  if (status === "converted") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "lost") return "border-rose-200 bg-rose-50 text-rose-700";
+  if (status === "active") return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (status === "inactive") return "border-slate-200 bg-slate-100 text-slate-700";
+  if (status === "archived") return "border-rose-200 bg-rose-50 text-rose-700";
+  return "border-slate-200 bg-slate-100 text-slate-700";
+}
+
+function statusLabel(status: string) {
+  return status
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function initialsFor(client: Pick<ClientRow, "first_name" | "last_name">) {
+  return `${client.first_name.charAt(0)}${client.last_name.charAt(0)}`.toUpperCase();
 }
 
 function StatCard({
@@ -45,13 +56,13 @@ function StatCard({
   icon: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-[var(--brand-border)] bg-white/90 p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm text-slate-500">{label}</p>
+          <p className="text-sm font-medium text-slate-500">{label}</p>
           <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
         </div>
-        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)] ring-1 ring-[var(--brand-border)]">
           <Icon className="h-5 w-5" />
         </div>
       </div>
@@ -227,7 +238,7 @@ export default async function ClientsPage({
         <StatCard label="Inactive / Archived" value={inactiveCount + archivedCount} icon={UserRoundX} />
       </div>
 
-      <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="rounded-[28px] border border-[var(--brand-border)] bg-white p-5 shadow-sm">
         <div className="mb-4 flex items-start gap-3">
           <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
             <Filter className="h-5 w-5" />
@@ -251,7 +262,7 @@ export default async function ClientsPage({
                 name="q"
                 defaultValue={resolvedSearchParams.q ?? ""}
                 placeholder="Name, email, phone, interests, referral..."
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-slate-900 outline-none transition focus:border-[var(--brand-primary)] focus:bg-white focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
               />
             </div>
 
@@ -263,7 +274,7 @@ export default async function ClientsPage({
                 id="status"
                 name="status"
                 defaultValue={selectedStatus}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-2 text-slate-900 outline-none transition focus:border-[var(--brand-primary)] focus:bg-white focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
               >
                 {statusOptions.map((option) => (
                   <option key={option.value || "all"} value={option.value}>
@@ -276,14 +287,14 @@ export default async function ClientsPage({
             <div className="flex items-end gap-2">
               <button
                 type="submit"
-                className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
+                className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 font-medium text-white hover:opacity-90"
               >
                 Apply
               </button>
 
               <Link
                 href="/app/clients"
-                className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 font-medium text-slate-700 hover:bg-slate-50"
               >
                 Reset
               </Link>
@@ -304,94 +315,103 @@ export default async function ClientsPage({
           typedClients.map((client) => (
             <div
               key={client.id}
-              className="rounded-2xl border bg-white p-5 shadow-sm"
+              className="group overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:border-[var(--brand-border)] hover:shadow-md"
             >
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-3">
+              <div className="h-1.5 bg-[linear-gradient(90deg,var(--brand-primary)_0%,#7c3aed_48%,#f97316_100%)]" />
+              <div className="p-5">
+                <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="flex min-w-0 gap-4">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--brand-primary)_0%,#4b2e83_100%)] text-lg font-semibold text-white shadow-sm">
+                      {initialsFor(client)}
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Link
+                          href={`/app/clients/${client.id}`}
+                          className="text-xl font-semibold tracking-tight text-slate-950 hover:text-[var(--brand-primary)]"
+                        >
+                          {client.first_name} {client.last_name}
+                        </Link>
+
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${statusBadgeClass(
+                            client.status
+                          )}`}
+                        >
+                          {statusLabel(client.status)}
+                        </span>
+
+                        {client.skill_level ? (
+                          <span className="inline-flex rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+                            {client.skill_level}
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-4">
+                        <div className="min-w-0 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Email</p>
+                          <p className="mt-1 break-words text-sm font-semibold text-slate-900">
+                            {client.email ?? "Not added"}
+                          </p>
+                        </div>
+
+                        <div className="min-w-0 rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Phone</p>
+                          <p className="mt-1 break-words text-sm font-semibold text-slate-900">
+                            {client.phone ?? "Not added"}
+                          </p>
+                        </div>
+
+                        <div className="min-w-0 rounded-2xl border border-orange-100 bg-orange-50/70 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-orange-500">
+                            Dance Interests
+                          </p>
+                          <p className="mt-1 break-words text-sm font-semibold text-orange-950">
+                            {client.dance_interests ?? "Not added"}
+                          </p>
+                        </div>
+
+                        <div className="min-w-0 rounded-2xl border border-violet-100 bg-violet-50/70 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-violet-500">
+                            Referral Source
+                          </p>
+                          <p className="mt-1 break-words text-sm font-semibold text-violet-950">
+                            {client.referral_source ?? "Not added"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3 xl:justify-end">
                     <Link
                       href={`/app/clients/${client.id}`}
-                      className="text-lg font-semibold text-slate-900 hover:underline"
+                      className="rounded-xl border border-[var(--brand-border)] bg-white px-4 py-2 text-sm font-semibold text-[var(--brand-primary)] hover:bg-[var(--brand-primary-soft)]"
                     >
-                      {client.first_name} {client.last_name}
+                      View
                     </Link>
 
-                    <span
-                      className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${statusBadgeClass(
-                        client.status
-                      )}`}
+                    <Link
+                      href={`/app/clients/${client.id}/edit`}
+                      className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
                     >
-                      {client.status}
-                    </span>
+                      Edit
+                    </Link>
 
-                    {client.skill_level ? (
-                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                        {client.skill_level}
-                      </span>
+                    {client.status !== "archived" ? (
+                      <form action={archiveClientAction}>
+                        <input type="hidden" name="clientId" value={client.id} />
+                        <button
+                          type="submit"
+                          className="rounded-xl border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                        >
+                          Archive
+                        </button>
+                      </form>
                     ) : null}
                   </div>
-
-                  <div className="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2 2xl:grid-cols-4">
-                    <div className="min-w-0">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Email</p>
-                      <p className="mt-1 break-words text-sm font-medium text-slate-900">
-                        {client.email ?? "—"}
-                      </p>
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">Phone</p>
-                      <p className="mt-1 break-words text-sm font-medium text-slate-900">
-                        {client.phone ?? "—"}
-                      </p>
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">
-                        Dance Interests
-                      </p>
-                      <p className="mt-1 break-words text-sm font-medium text-slate-900">
-                        {client.dance_interests ?? "—"}
-                      </p>
-                    </div>
-
-                    <div className="min-w-0">
-                      <p className="text-xs uppercase tracking-wide text-slate-400">
-                        Referral Source
-                      </p>
-                      <p className="mt-1 break-words text-sm font-medium text-slate-900">
-                        {client.referral_source ?? "—"}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-3 xl:justify-end">
-                  <Link
-                    href={`/app/clients/${client.id}`}
-                    className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-                  >
-                    View
-                  </Link>
-
-                  <Link
-                    href={`/app/clients/${client.id}/edit`}
-                    className="rounded-xl border px-4 py-2 hover:bg-slate-50"
-                  >
-                    Edit
-                  </Link>
-
-                  {client.status !== "archived" ? (
-                    <form action={archiveClientAction}>
-                      <input type="hidden" name="clientId" value={client.id} />
-                      <button
-                        type="submit"
-                        className="rounded-xl border border-red-200 px-4 py-2 text-red-700 hover:bg-red-50"
-                      >
-                        Archive
-                      </button>
-                    </form>
-                  ) : null}
                 </div>
               </div>
             </div>

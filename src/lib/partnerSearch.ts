@@ -68,18 +68,83 @@ export function formatPartnerIntent(value: string) {
 }
 
 export type PartnerSearchFilters = {
-  intent?: string;
+  intent?: string | string[];
   latitude?: number | null;
   longitude?: number | null;
   query?: string;
   radiusMiles?: number;
   role?: string;
   skill?: string;
-  style?: string;
+  style?: string | string[];
 };
+
+const danceStyleGroups = [
+  {
+    label: "American Smooth",
+    styles: ["Waltz", "Tango", "Foxtrot", "Viennese Waltz"],
+  },
+  {
+    label: "American Rhythm",
+    styles: ["Cha Cha", "Rumba", "East Coast Swing", "Bolero", "Mambo"],
+  },
+  {
+    label: "International Ballroom",
+    styles: ["Waltz", "Tango", "Viennese Waltz", "Foxtrot", "Quickstep"],
+  },
+  {
+    label: "International Latin",
+    styles: ["Cha Cha", "Samba", "Rumba", "Paso Doble", "Jive"],
+  },
+  {
+    label: "Country",
+    styles: [
+      "Country Two Step",
+      "West Coast Swing",
+      "East Coast Swing",
+      "Nightclub Two Step",
+      "Country Waltz",
+      "Polka",
+    ],
+  },
+  {
+    label: "Social / Club",
+    styles: ["Salsa", "Bachata", "Argentine Tango", "Hustle", "Lindy Hop", "Zouk", "Kizomba"],
+  },
+];
 
 function normalize(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
+}
+
+function styleFilterOptions(style: string | string[] | null | undefined) {
+  const selectedStyles = Array.isArray(style) ? style : style ? [style] : [];
+  const expanded = new Set<string>();
+
+  selectedStyles.forEach((selectedStyle) => {
+    const normalizedStyle = normalize(selectedStyle);
+
+    if (!normalizedStyle) {
+      return;
+    }
+
+    const group = danceStyleGroups.find(
+      (item) => normalize(item.label) === normalizedStyle,
+    );
+
+    if (group) {
+      expanded.add(group.label);
+      group.styles.forEach((groupStyle) => expanded.add(groupStyle));
+      return;
+    }
+
+    expanded.add(selectedStyle);
+  });
+
+  return Array.from(expanded);
+}
+
+function filterOptions(value: string | string[] | null | undefined) {
+  return Array.isArray(value) ? value : value ? [value] : [];
 }
 
 function milesBetween(
@@ -138,6 +203,8 @@ export async function getPublishedPartnerProfiles(filters: PartnerSearchFilters 
 
   return profiles.filter((profile) => {
     const search = normalize(filters.query);
+    const styleOptions = styleFilterOptions(filters.style);
+    const intentOptions = filterOptions(filters.intent);
     const matchesSearch =
       !search ||
       [
@@ -168,8 +235,16 @@ export async function getPublishedPartnerProfiles(filters: PartnerSearchFilters 
       matchesSearch &&
       (!filters.role || profile.leadFollowRole === filters.role) &&
       (!filters.skill || profile.skillLevel === filters.skill) &&
-      (!filters.intent || profile.listingIntent === filters.intent) &&
-      (!filters.style || profile.danceStyles.includes(filters.style)) &&
+      (intentOptions.length === 0 ||
+        intentOptions.some((intent) => {
+          const normalizedIntent = normalize(intent);
+          return (
+            normalize(profile.listingIntent) === normalizedIntent ||
+            profile.goals.some((goal) => normalize(goal) === normalizedIntent)
+          );
+        })) &&
+      (styleOptions.length === 0 ||
+        styleOptions.some((style) => profile.danceStyles.includes(style))) &&
       matchesDistance
     );
   });

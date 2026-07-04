@@ -56,22 +56,86 @@ const skillOptions: Array<{ label: string; value: PartnerSkillLevel }> = [
   { label: "Professional", value: "professional" }
 ];
 
+const goalOptions = intentOptions.map((option) => option.label);
+
+const stateOptions = [
+  "AL",
+  "AK",
+  "AZ",
+  "AR",
+  "CA",
+  "CO",
+  "CT",
+  "DE",
+  "DC",
+  "FL",
+  "GA",
+  "HI",
+  "ID",
+  "IL",
+  "IN",
+  "IA",
+  "KS",
+  "KY",
+  "LA",
+  "ME",
+  "MD",
+  "MA",
+  "MI",
+  "MN",
+  "MS",
+  "MO",
+  "MT",
+  "NE",
+  "NV",
+  "NH",
+  "NJ",
+  "NM",
+  "NY",
+  "NC",
+  "ND",
+  "OH",
+  "OK",
+  "OR",
+  "PA",
+  "RI",
+  "SC",
+  "SD",
+  "TN",
+  "TX",
+  "UT",
+  "VT",
+  "VA",
+  "WA",
+  "WV",
+  "WI",
+  "WY"
+];
+
 const danceStyleGroups = [
+  {
+    label: "American Smooth",
+    styles: ["Waltz", "Tango", "Foxtrot", "Viennese Waltz"]
+  },
+  {
+    label: "American Rhythm",
+    styles: ["Cha Cha", "Rumba", "East Coast Swing", "Bolero", "Mambo"]
+  },
+  {
+    label: "International Ballroom",
+    styles: ["Waltz", "Tango", "Viennese Waltz", "Foxtrot", "Quickstep"]
+  },
+  {
+    label: "International Latin",
+    styles: ["Cha Cha", "Samba", "Rumba", "Paso Doble", "Jive"]
+  },
   {
     label: "Country",
     styles: ["Country Two Step", "West Coast Swing", "East Coast Swing", "Nightclub Two Step", "Country Waltz", "Polka"]
   },
   {
-    label: "Ballroom",
-    styles: ["Waltz", "Tango", "Foxtrot", "Viennese Waltz", "Quickstep"]
-  },
-  {
-    label: "Latin and Rhythm",
-    styles: ["Cha Cha", "Rumba", "Samba", "Paso Doble", "Jive", "Bolero", "Mambo"]
-  },
-  {
-    label: "Social and Club",
-    styles: ["Salsa", "Bachata", "Kizomba", "Zouk", "Argentine Tango", "Hustle"]
+    label: "Social / Club",
+    styles: ["Salsa", "Bachata", "Argentine Tango", "Hustle", "Lindy Hop", "Zouk", "Kizomba"]
   }
 ];
 
@@ -92,6 +156,36 @@ function parseList(value: string) {
 
 function joinList(values: string[]) {
   return Array.from(new Set(values)).join(", ");
+}
+
+function selectionSummary(values: string[], emptyLabel = "Any") {
+  if (values.length === 0) return emptyLabel;
+  if (values.length === 1) return values[0];
+  return `${values.length} selected`;
+}
+
+function toggleListValue(value: string, listValue: string) {
+  const selected = parseList(listValue);
+  const active = selected.includes(value);
+  return joinList(active ? selected.filter((item) => item !== value) : [...selected, value]);
+}
+
+function styleFilterOptions(styles: string[]) {
+  const expanded = new Set<string>();
+
+  styles.forEach((selectedStyle) => {
+    const group = danceStyleGroups.find((item) => normalize(item.label) === normalize(selectedStyle));
+
+    if (group) {
+      expanded.add(group.label);
+      group.styles.forEach((groupStyle) => expanded.add(groupStyle));
+      return;
+    }
+
+    expanded.add(selectedStyle);
+  });
+
+  return Array.from(expanded);
 }
 
 function profilePhotoUrl(profile: DancerPartnerProfile) {
@@ -178,6 +272,7 @@ function DanceStylePicker({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const selected = parseList(value);
 
   function toggle(style: string) {
@@ -187,27 +282,263 @@ function DanceStylePicker({
 
   return (
     <View style={styles.stylePicker}>
-      {danceStyleGroups.map((group) => (
-        <View key={group.label} style={styles.styleGroup}>
-          <AppText style={styles.styleGroupTitle}>{group.label}</AppText>
-          <View style={styles.optionRow}>
-            {group.styles.map((style) => {
-              const active = selected.includes(style);
-              return (
-                <Pressable
-                  key={style}
-                  onPress={() => toggle(style)}
-                  style={[styles.optionPill, active && styles.optionPillActive]}
-                >
-                  <AppText style={[styles.optionText, active && styles.optionTextActive]}>
-                    {style}
-                  </AppText>
-                </Pressable>
-              );
-            })}
-          </View>
+      <Pressable onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.dropdownLabel}>Dance styles</AppText>
+          <AppText style={styles.dropdownValue}>{selectionSummary(selected, "Select styles")}</AppText>
         </View>
-      ))}
+        <Ionicons color={colors.primary} name={expanded ? "chevron-up" : "chevron-down"} size={20} />
+      </Pressable>
+      {expanded
+        ? danceStyleGroups.map((group) => (
+            <View key={group.label} style={styles.styleGroup}>
+              <Pressable
+                onPress={() => toggle(group.label)}
+                style={[
+                  styles.categoryPill,
+                  selected.includes(group.label) && styles.optionPillActive
+                ]}
+              >
+                <AppText
+                  style={[
+                    styles.categoryPillText,
+                    selected.includes(group.label) && styles.optionTextActive
+                  ]}
+                >
+                  {group.label} - all styles
+                </AppText>
+              </Pressable>
+              <View style={styles.optionRow}>
+                {group.styles.map((style) => {
+                  const active = selected.includes(style);
+                  return (
+                    <Pressable
+                      key={style}
+                      onPress={() => toggle(style)}
+                      style={[styles.optionPill, active && styles.optionPillActive]}
+                    >
+                      <AppText style={[styles.optionText, active && styles.optionTextActive]}>
+                        {style}
+                      </AppText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          ))
+        : null}
+    </View>
+  );
+}
+
+function CollapsibleSinglePicker({
+  emptyLabel = "Any",
+  label,
+  options,
+  value,
+  onChange
+}: {
+  emptyLabel?: string;
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <View style={styles.dropdownField}>
+      <Pressable onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.dropdownLabel}>{label}</AppText>
+          <AppText style={styles.dropdownValue}>{value || emptyLabel}</AppText>
+        </View>
+        <Ionicons color={colors.primary} name={expanded ? "chevron-up" : "chevron-down"} size={20} />
+      </Pressable>
+      {expanded ? (
+        <View style={styles.optionRow}>
+          <Pressable
+            onPress={() => onChange("")}
+            style={[styles.optionPill, !value && styles.optionPillActive]}
+          >
+            <AppText style={[styles.optionText, !value && styles.optionTextActive]}>
+              {emptyLabel}
+            </AppText>
+          </Pressable>
+          {options.map((option) => {
+            const active = option === value;
+            return (
+              <Pressable
+                key={option}
+                onPress={() => onChange(option)}
+                style={[styles.optionPill, active && styles.optionPillActive]}
+              >
+                <AppText style={[styles.optionText, active && styles.optionTextActive]}>
+                  {option}
+                </AppText>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function CollapsibleMultiPicker({
+  emptyLabel = "Any",
+  label,
+  options,
+  value,
+  onChange
+}: {
+  emptyLabel?: string;
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const selected = parseList(value);
+
+  return (
+    <View style={styles.dropdownField}>
+      <Pressable onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.dropdownLabel}>{label}</AppText>
+          <AppText style={styles.dropdownValue}>{selectionSummary(selected, emptyLabel)}</AppText>
+        </View>
+        <Ionicons color={colors.primary} name={expanded ? "chevron-up" : "chevron-down"} size={20} />
+      </Pressable>
+      {expanded ? (
+        <View style={styles.optionRow}>
+          {options.map((option) => {
+            const active = selected.includes(option);
+            return (
+              <Pressable
+                key={option}
+                onPress={() => onChange(toggleListValue(option, value))}
+                style={[styles.optionPill, active && styles.optionPillActive]}
+              >
+                <AppText style={[styles.optionText, active && styles.optionTextActive]}>
+                  {option}
+                </AppText>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function CollapsibleArrayPicker({
+  emptyLabel = "Any",
+  label,
+  options,
+  value,
+  onChange
+}: {
+  emptyLabel?: string;
+  label: string;
+  options: string[];
+  value: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  function toggle(option: string) {
+    onChange(value.includes(option) ? value.filter((item) => item !== option) : [...value, option]);
+  }
+
+  return (
+    <View style={styles.dropdownField}>
+      <Pressable onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.dropdownLabel}>{label}</AppText>
+          <AppText style={styles.dropdownValue}>{selectionSummary(value, emptyLabel)}</AppText>
+        </View>
+        <Ionicons color={colors.primary} name={expanded ? "chevron-up" : "chevron-down"} size={20} />
+      </Pressable>
+      {expanded ? (
+        <View style={styles.optionRow}>
+          {options.map((option) => {
+            const active = value.includes(option);
+            return (
+              <Pressable
+                key={option}
+                onPress={() => toggle(option)}
+                style={[styles.optionPill, active && styles.optionPillActive]}
+              >
+                <AppText style={[styles.optionText, active && styles.optionTextActive]}>
+                  {option}
+                </AppText>
+              </Pressable>
+            );
+          })}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+function DanceStyleFilterPicker({
+  value,
+  onChange
+}: {
+  value: string[];
+  onChange: (value: string[]) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  function toggle(style: string) {
+    onChange(value.includes(style) ? value.filter((item) => item !== style) : [...value, style]);
+  }
+
+  return (
+    <View style={styles.stylePicker}>
+      <Pressable onPress={() => setExpanded((current) => !current)} style={styles.dropdownButton}>
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.dropdownLabel}>Dance styles</AppText>
+          <AppText style={styles.dropdownValue}>{selectionSummary(value, "Any style")}</AppText>
+        </View>
+        <Ionicons color={colors.primary} name={expanded ? "chevron-up" : "chevron-down"} size={20} />
+      </Pressable>
+      {expanded
+        ? danceStyleGroups.map((group) => (
+            <View key={group.label} style={styles.styleGroup}>
+              <Pressable
+                onPress={() => toggle(group.label)}
+                style={[
+                  styles.categoryPill,
+                  value.includes(group.label) && styles.optionPillActive
+                ]}
+              >
+                <AppText
+                  style={[
+                    styles.categoryPillText,
+                    value.includes(group.label) && styles.optionTextActive
+                  ]}
+                >
+                  {group.label} - all styles
+                </AppText>
+              </Pressable>
+              <View style={styles.optionRow}>
+                {group.styles.map((style) => (
+                  <Pressable
+                    key={`${group.label}-${style}`}
+                    onPress={() => toggle(style)}
+                    style={[styles.optionPill, value.includes(style) && styles.optionPillActive]}
+                  >
+                    <AppText style={[styles.optionText, value.includes(style) && styles.optionTextActive]}>
+                      {style}
+                    </AppText>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          ))
+        : null}
     </View>
   );
 }
@@ -225,8 +556,8 @@ export default function PartnerSearchScreen() {
   const [query, setQuery] = useState("");
   const [filterRole, setFilterRole] = useState<PartnerRole | "">("");
   const [filterSkill, setFilterSkill] = useState<PartnerSkillLevel | "">("");
-  const [filterIntent, setFilterIntent] = useState<PartnerListingIntent | "">("");
-  const [filterStyle, setFilterStyle] = useState("");
+  const [filterIntents, setFilterIntents] = useState<string[]>([]);
+  const [filterStyles, setFilterStyles] = useState<string[]>([]);
   const [filterLocation, setFilterLocation] = useState<FilterLocation>(null);
   const [radiusMiles, setRadiusMiles] = useState(50);
   const [message, setMessage] = useState<string | null>(null);
@@ -236,6 +567,7 @@ export default function PartnerSearchScreen() {
 
   const filteredProfiles = useMemo(() => {
     const search = normalize(query);
+    const styleOptions = styleFilterOptions(filterStyles);
 
     return profiles.filter((profile) =>
       (!search ||
@@ -249,11 +581,16 @@ export default function PartnerSearchScreen() {
           profile.listingIntent,
           ...profile.danceStyles,
           ...profile.goals
-        ].some((value) => normalize(value).includes(search))) &&
+      ].some((value) => normalize(value).includes(search))) &&
       (!filterRole || profile.leadFollowRole === filterRole) &&
       (!filterSkill || profile.skillLevel === filterSkill) &&
-      (!filterIntent || profile.listingIntent === filterIntent) &&
-      (!filterStyle || profile.danceStyles.includes(filterStyle)) &&
+      (!filterIntents.length ||
+        filterIntents.some((intent) =>
+          normalize(profile.listingIntent) === normalize(intent) ||
+          profile.goals.some((goal) => normalize(goal) === normalize(intent))
+        )) &&
+      (!styleOptions.length ||
+        styleOptions.some((style) => profile.danceStyles.includes(style))) &&
       (!filterLocation ||
         (profile.latitude !== null &&
           profile.longitude !== null &&
@@ -262,7 +599,7 @@ export default function PartnerSearchScreen() {
             longitude: profile.longitude
           }) <= radiusMiles))
     );
-  }, [filterIntent, filterLocation, filterRole, filterSkill, filterStyle, profiles, query, radiusMiles]);
+  }, [filterIntents, filterLocation, filterRole, filterSkill, filterStyles, profiles, query, radiusMiles]);
 
   async function loadPartnerSearch() {
     if (!user) return;
@@ -351,6 +688,8 @@ export default function PartnerSearchScreen() {
         setMessage(
           "Saved as a draft. Remove lesson ads, coaching offers, links, phone numbers, or service language before submitting."
         );
+      } else if (result.visibility === "paused") {
+        setMessage("Partner profile hidden. You can turn it back on anytime.");
       } else if (result.visibility === "published") {
         setMessage("Listing submitted for review. It appears after approval.");
       } else {
@@ -363,6 +702,11 @@ export default function PartnerSearchScreen() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function toggleProfileVisibility() {
+    if (!myProfile) return;
+    await saveProfile(myProfile.visibility === "paused" ? "published" : "paused");
   }
 
   async function sendConnectionRequest(profileId: string) {
@@ -446,8 +790,8 @@ export default function PartnerSearchScreen() {
     setQuery("");
     setFilterRole("");
     setFilterSkill("");
-    setFilterIntent("");
-    setFilterStyle("");
+    setFilterIntents([]);
+    setFilterStyles([]);
     setFilterLocation(null);
     setRadiusMiles(50);
   }
@@ -482,7 +826,11 @@ export default function PartnerSearchScreen() {
             <View style={{ flex: 1 }}>
               <AppText variant="eyebrow">Your listing</AppText>
               <AppText variant="subtitle">
-                {myProfile.visibility === "published" ? "Submitted for review" : "Draft listing"}
+                {myProfile.visibility === "paused"
+                  ? "Hidden from Partner Search"
+                  : myProfile.visibility === "published"
+                    ? "Submitted for review"
+                    : "Draft listing"}
               </AppText>
             </View>
             <View style={styles.statusPill}>
@@ -490,6 +838,33 @@ export default function PartnerSearchScreen() {
                 {labelFor(myProfile.moderationStatus)}
               </AppText>
             </View>
+          </View>
+
+          <View style={styles.visibilityCard}>
+            <View style={{ flex: 1 }}>
+              <AppText style={styles.visibilityTitle}>Partner profile visibility</AppText>
+              <AppText variant="caption">
+                {myProfile.visibility === "paused"
+                  ? "Your profile is hidden from Partner Search."
+                  : "Your profile can appear in Partner Search after approval."}
+              </AppText>
+            </View>
+            <Pressable
+              accessibilityRole="switch"
+              accessibilityState={{ checked: myProfile.visibility !== "paused" }}
+              onPress={toggleProfileVisibility}
+              style={[
+                styles.visibilitySwitch,
+                myProfile.visibility !== "paused" && styles.visibilitySwitchOn
+              ]}
+            >
+              <View
+                style={[
+                  styles.visibilitySwitchKnob,
+                  myProfile.visibility !== "paused" && styles.visibilitySwitchKnobOn
+                ]}
+              />
+            </Pressable>
           </View>
 
           <Field
@@ -528,18 +903,27 @@ export default function PartnerSearchScreen() {
             placeholder="Looking for a country two step practice partner"
             value={myProfile.headline}
           />
-          <View style={styles.twoColumn}>
-            <Field
-              label="City"
-              onChangeText={(value) => updateProfile((profile) => ({ ...profile, city: value }))}
-              value={myProfile.city}
-            />
-            <Field
+          <View style={styles.field}>
+            <CollapsibleSinglePicker
               label="State"
-              onChangeText={(value) => updateProfile((profile) => ({ ...profile, state: value }))}
+              emptyLabel="Any"
+              options={stateOptions}
               value={myProfile.state}
+              onChange={(value) =>
+                updateProfile((profile) => ({
+                  ...profile,
+                  state: value
+                }))
+              }
             />
           </View>
+
+          <Field
+            label="City"
+            onChangeText={(value) => updateProfile((profile) => ({ ...profile, city: value }))}
+            placeholder="Enter your city"
+            value={myProfile.city}
+          />
 
           <View style={styles.field}>
             <AppText variant="eyebrow">Looking for</AppText>
@@ -575,12 +959,15 @@ export default function PartnerSearchScreen() {
               onChange={(value) => updateProfile((profile) => ({ ...profile, danceStyles: value }))}
             />
           </View>
-          <Field
-            label="Goals"
-            onChangeText={(value) => updateProfile((profile) => ({ ...profile, goals: value }))}
-            placeholder="Practice, social dance, showcase, competition"
-            value={myProfile.goals}
-          />
+          <View style={styles.field}>
+            <CollapsibleMultiPicker
+              label="Goals"
+              emptyLabel="Select goals"
+              options={goalOptions}
+              value={myProfile.goals}
+              onChange={(value) => updateProfile((profile) => ({ ...profile, goals: value }))}
+            />
+          </View>
           <Field
             label="Bio"
             multiline
@@ -672,11 +1059,12 @@ export default function PartnerSearchScreen() {
           </View>
         </View>
         <View style={styles.filterSection}>
-          <AppText style={styles.filterTitle}>Looking for</AppText>
-          <OptionRow
-            options={[{ label: "Any", value: "" }, ...intentOptions]}
-            value={filterIntent}
-            onChange={setFilterIntent}
+          <CollapsibleArrayPicker
+            label="Goals"
+            emptyLabel="Any goal"
+            options={goalOptions}
+            value={filterIntents}
+            onChange={setFilterIntents}
           />
         </View>
         <View style={styles.filterSection}>
@@ -696,27 +1084,7 @@ export default function PartnerSearchScreen() {
           />
         </View>
         <View style={styles.filterSection}>
-          <AppText style={styles.filterTitle}>Dance style</AppText>
-          <View style={styles.stylePicker}>
-            {danceStyleGroups.map((group) => (
-              <View key={group.label} style={styles.styleGroup}>
-                <AppText style={styles.styleGroupTitle}>{group.label}</AppText>
-                <View style={styles.optionRow}>
-                  {group.styles.map((style) => (
-                    <Pressable
-                      key={style}
-                      onPress={() => setFilterStyle(filterStyle === style ? "" : style)}
-                      style={[styles.optionPill, filterStyle === style && styles.optionPillActive]}
-                    >
-                      <AppText style={[styles.optionText, filterStyle === style && styles.optionTextActive]}>
-                        {style}
-                      </AppText>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            ))}
-          </View>
+          <DanceStyleFilterPicker value={filterStyles} onChange={setFilterStyles} />
         </View>
         <Pressable onPress={clearFilters} style={styles.clearFiltersButton}>
           <AppText style={styles.clearFiltersText}>Clear filters</AppText>
@@ -818,6 +1186,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "900"
   },
+  categoryPill: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.background,
+    borderColor: colors.primary,
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8
+  },
+  categoryPillText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: "900"
+  },
   editorCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -830,6 +1212,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexDirection: "row",
     gap: 12
+  },
+  dropdownButton: {
+    alignItems: "center",
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    minHeight: 52,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  dropdownField: {
+    gap: 8
+  },
+  dropdownLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0.4,
+    textTransform: "uppercase"
+  },
+  dropdownValue: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "800",
+    marginTop: 2
   },
   field: {
     gap: 6
@@ -1054,5 +1464,42 @@ const styles = StyleSheet.create({
   twoColumn: {
     flexDirection: "row",
     gap: 10
+  },
+  visibilityCard: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 12
+  },
+  visibilitySwitch: {
+    alignItems: "center",
+    backgroundColor: colors.border,
+    borderRadius: 999,
+    height: 32,
+    justifyContent: "center",
+    paddingHorizontal: 3,
+    width: 56
+  },
+  visibilitySwitchKnob: {
+    alignSelf: "flex-start",
+    backgroundColor: "#fff",
+    borderRadius: 999,
+    height: 26,
+    width: 26
+  },
+  visibilitySwitchKnobOn: {
+    alignSelf: "flex-end"
+  },
+  visibilitySwitchOn: {
+    backgroundColor: colors.primary
+  },
+  visibilityTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900"
   }
 });

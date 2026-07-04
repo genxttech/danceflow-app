@@ -20,13 +20,13 @@ export const knowledgebaseArticles: KnowledgebaseArticle[] = [
     content: `
 ## Overview
 
-DanceFlow is a dance studio CRM, scheduler, and discovery platform built to help studios manage their business while helping dancers find places to dance.
+DanceFlow is a dance studio CRM, scheduler, event, and discovery platform built to help studios manage their business while helping dancers find places to dance, people to practice with, events to attend, and dance opportunities.
 
 Most studio tools focus only on internal scheduling or payments. DanceFlow connects both sides of the business:
 
 **Studio operations + public discovery**
 
-That means studios can manage clients, lessons, instructors, packages, memberships, payments, rooms, and leads while also giving dancers a way to discover studios, events, classes, and opportunities.
+That means studios can manage clients, lessons, instructors, packages, memberships, payments, rooms, leads, events, hiring posts, and follow-up while also giving dancers a way to discover studios, events, classes, partner profiles, and job opportunities.
 
 ## Who DanceFlow is for
 
@@ -36,6 +36,7 @@ DanceFlow is designed for:
 - Country dance studios
 - Independent dance instructors
 - Event organizers
+- Dancers looking for partners, events, studios, and dance jobs
 - Studio owners who rent floor space
 - Front desk and admin staff who manage daily studio operations
 
@@ -54,6 +55,23 @@ Studios can use DanceFlow to manage:
 - Client portal access
 - Independent instructor floor rentals
 - Reports
+- Public discovery listings
+- Now Hiring job postings
+- Event registrations, tickets, and check-in
+
+## What dancers can do
+
+Dancers can use DanceFlow to:
+
+- Discover public studio profiles
+- Browse events, classes, socials, workshops, and ticketed activities
+- Create a dancer-owned Partner Search profile
+- Search for dance partners by goals, role, level, location, and styles
+- Keep Partner Search conversations inside DanceFlow
+- Hide or pause a Partner Search profile anytime
+- Browse studio job postings
+- Save favorites and return to them later
+- Access studio portals when a studio links them
 
 ## What makes DanceFlow different
 
@@ -61,7 +79,7 @@ DanceFlow is built around real studio workflows.
 
 Instead of only acting as a calendar or payment system, DanceFlow helps connect the full path:
 
-**Dancer discovers studio → becomes a lead → becomes a client → books lessons → buys packages or memberships → stays connected through the portal**
+**Dancer discovers studio, event, partner, or job → connects through DanceFlow → becomes a lead, attendee, partner match, applicant, or client → stays connected through the portal and app**
 
 For studios that rent floor space, DanceFlow also supports independent instructor portal access so instructors can book host studio floor space while keeping their own business separate.
 `,
@@ -188,6 +206,96 @@ You can schedule:
 ## Step 11: Review reports and payments
 
 Use reports and client payment history to monitor activity, revenue, packages, and balances.
+`,
+  },
+  {
+    slug: "using-partner-search",
+    title: "Using Partner Search",
+    category: "Discovery",
+    audience: "public",
+    description:
+      "Learn how dancers can create a Partner Search profile, choose goals and styles, and keep communication inside DanceFlow.",
+    content: `
+## Overview
+
+Partner Search helps dancers find other dancers who are looking for practice, social dance, showcase, or competition partners.
+
+Partner Search is dancer-owned. A studio does not need to create the profile for the dancer.
+
+## Creating a dancer profile
+
+Any logged-in DanceFlow account can create a Partner Search profile.
+
+From the website, go to:
+
+**Account > Partner Search**
+
+From the student app, open:
+
+**Discover > Partners**
+
+Your profile can include:
+
+- Display name
+- Headline
+- City and state
+- Lead, follow, switch, or either role
+- Skill level
+- Dance style categories and individual dances
+- One or more goals
+- Bio
+- Availability
+- Profile photo in the mobile app
+
+## Goals are multi-select
+
+A dancer can select more than one goal.
+
+For example, someone may be open to:
+
+- Practice
+- Social
+- Showcase
+- Competition
+
+Search filters also support multiple goals, so a dancer can look for people who match more than one intent.
+
+## Dance styles and categories
+
+Dance styles use preset choices to reduce typos and search mismatches.
+
+Dancers can select broad categories, individual dances, or both.
+
+Examples:
+
+- American Smooth
+- American Rhythm
+- International Ballroom
+- International Latin
+- Country
+- Social / Club
+- Country Two Step
+- West Coast Swing
+- Salsa
+- Bachata
+
+## Profile visibility
+
+Dancers can hide their Partner Search profile at any time.
+
+Use this if:
+
+- You found a partner
+- You want to pause new requests
+- You are not currently looking
+
+Hidden profiles do not appear in public Partner Search results.
+
+## Safety and communication
+
+Partner Search is intended for dancers looking for dance partners.
+
+DanceFlow keeps communication inside the platform. Public lesson ads, coaching offers, paid service promotions, outside booking links, phone numbers, emails, and studio promotions are not allowed in Partner Search profiles.
 `,
   },
   {
