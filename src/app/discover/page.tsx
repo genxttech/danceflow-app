@@ -36,6 +36,8 @@ export default async function DiscoverLandingPage() {
   const [
     studioCountResult,
     eventCountResult,
+    partnerCountResult,
+    jobCountResult,
     { data: featuredStudios, error: featuredStudiosError },
   ] = await Promise.all([
     supabase
@@ -49,6 +51,17 @@ export default async function DiscoverLandingPage() {
       .eq("visibility", "public")
       .eq("public_directory_enabled", true)
       .in("status", ["published", "open"]),
+
+    supabase
+      .from("dancer_partner_profiles")
+      .select("*", { count: "exact", head: true })
+      .eq("visibility", "published")
+      .eq("moderation_status", "approved"),
+
+    supabase
+      .from("studio_job_postings")
+      .select("*", { count: "exact", head: true })
+      .eq("status", "published"),
 
     supabase
       .from("studios")
@@ -76,6 +89,8 @@ export default async function DiscoverLandingPage() {
 
   const publicStudioCount = studioCountResult.count ?? 0;
   const publicEventCount = eventCountResult.count ?? 0;
+  const publicPartnerCount = partnerCountResult.count ?? 0;
+  const publicJobCount = jobCountResult.count ?? 0;
   const typedFeaturedStudios = (featuredStudios ?? []) as StudioPreviewRow[];
 
   return (
@@ -96,9 +111,9 @@ export default async function DiscoverLandingPage() {
               </h1>
 
               <p className="mt-5 max-w-3xl text-lg leading-8 text-slate-600">
-                Search studios, explore public events, and discover beginner-friendly
-                opportunities from one clean directory built for dancers and the
-                communities that serve them.
+                Search studios, explore public events, find partner listings,
+                and browse studio opportunities from one clean directory built
+                for dancers and the communities that serve them.
               </p>
 
               <div className="mt-8 flex flex-wrap gap-3">
@@ -116,6 +131,20 @@ export default async function DiscoverLandingPage() {
                   Browse Events
                 </Link>
 
+                <Link
+                  href="/discover/partners"
+                  className="rounded-2xl border border-[var(--brand-border)] bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
+                >
+                  Partner Search
+                </Link>
+
+                <Link
+                  href="/discover/jobs"
+                  className="rounded-2xl border border-[var(--brand-border)] bg-white px-5 py-3 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
+                >
+                  Now Hiring
+                </Link>
+
                 {!user ? (
                   <Link
                     href="/signup"
@@ -126,7 +155,7 @@ export default async function DiscoverLandingPage() {
                 ) : null}
               </div>
 
-              <div className="mt-10 grid gap-4 sm:grid-cols-3">
+              <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <div className="rounded-3xl border border-[var(--brand-border)] bg-white/80 p-5 shadow-sm">
                   <p className="text-sm font-medium text-slate-500">Public Studios</p>
                   <p className="mt-2 text-3xl font-semibold text-slate-950">
@@ -144,11 +173,19 @@ export default async function DiscoverLandingPage() {
                 </div>
 
                 <div className="rounded-3xl border border-[var(--brand-border)] bg-white/80 p-5 shadow-sm">
-                  <p className="text-sm font-medium text-slate-500">Best For</p>
-                  <p className="mt-2 text-lg font-semibold text-slate-950">
-                    New and returning dancers
+                  <p className="text-sm font-medium text-slate-500">Partner Listings</p>
+                  <p className="mt-2 text-3xl font-semibold text-slate-950">
+                    {publicPartnerCount}
                   </p>
-                  <p className="mt-1 text-xs text-slate-500">Simple first steps</p>
+                  <p className="mt-1 text-xs text-slate-500">Dancer profiles</p>
+                </div>
+
+                <div className="rounded-3xl border border-[var(--brand-border)] bg-white/80 p-5 shadow-sm">
+                  <p className="text-sm font-medium text-slate-500">Now Hiring</p>
+                  <p className="mt-2 text-3xl font-semibold text-slate-950">
+                    {publicJobCount}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">Studio openings</p>
                 </div>
               </div>
 
@@ -193,12 +230,23 @@ export default async function DiscoverLandingPage() {
                   </Link>
 
                   <Link
-                    href="/discover/studios?offering=private_lessons"
+                    href="/discover/partners"
                     className="block rounded-2xl border border-white/15 bg-white/10 px-4 py-4 text-white backdrop-blur hover:bg-white/15"
                   >
-                    <p className="font-semibold">I want private lessons</p>
+                    <p className="font-semibold">I want a practice partner</p>
                     <p className="mt-1 text-sm text-white/75">
-                      Explore studios offering one-on-one instruction and coaching.
+                      Search dancer-owned partner listings for practice, social dance,
+                      showcases, and competition goals.
+                    </p>
+                  </Link>
+
+                  <Link
+                    href="/discover/jobs"
+                    className="block rounded-2xl border border-white/15 bg-white/10 px-4 py-4 text-white backdrop-blur hover:bg-white/15"
+                  >
+                    <p className="font-semibold">I am looking for dance work</p>
+                    <p className="mt-1 text-sm text-white/75">
+                      Browse instructor, coach, front desk, and event staff openings.
                     </p>
                   </Link>
                 </div>

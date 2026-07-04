@@ -35,9 +35,39 @@ type StudioJobPostingRow = {
   published_at: string | null;
 };
 
-function listValue(value: string[] | null | undefined) {
-  return (value ?? []).join(", ");
-}
+const danceStyleGroups = [
+  {
+    label: "American Smooth",
+    styles: ["Waltz", "Tango", "Foxtrot", "Viennese Waltz"],
+  },
+  {
+    label: "American Rhythm",
+    styles: ["Cha Cha", "Rumba", "East Coast Swing", "Bolero", "Mambo"],
+  },
+  {
+    label: "International Ballroom",
+    styles: ["Waltz", "Tango", "Viennese Waltz", "Foxtrot", "Quickstep"],
+  },
+  {
+    label: "International Latin",
+    styles: ["Cha Cha", "Samba", "Rumba", "Paso Doble", "Jive"],
+  },
+  {
+    label: "Country",
+    styles: [
+      "Country Two Step",
+      "West Coast Swing",
+      "East Coast Swing",
+      "Nightclub Two Step",
+      "Country Waltz",
+      "Polka",
+    ],
+  },
+  {
+    label: "Social / Club",
+    styles: ["Salsa", "Bachata", "Argentine Tango", "Hustle", "Lindy Hop", "Zouk", "Kizomba"],
+  },
+];
 
 export default async function AppNowHiringPage({
   searchParams,
@@ -72,6 +102,7 @@ export default async function AppNowHiringPage({
         ? postings.find((posting) => posting.id === query.edit) ?? postings[0] ?? null
         : postings[0] ?? null;
   const formKey = selectedPosting ? `edit-${selectedPosting.id}` : "new-posting";
+  const selectedDanceStyles = new Set(selectedPosting?.dance_styles ?? []);
 
   return (
     <div className="space-y-8">
@@ -86,7 +117,7 @@ export default async function AppNowHiringPage({
         </div>
       ) : null}
 
-      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="rounded-[28px] border border-indigo-100 bg-gradient-to-br from-white via-white to-indigo-50/60 p-6 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[var(--brand-primary)]">
@@ -102,7 +133,7 @@ export default async function AppNowHiringPage({
           </div>
           <Link
             href="/discover/jobs"
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium hover:bg-slate-50"
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             Public View
           </Link>
@@ -202,15 +233,47 @@ export default async function AppNowHiringPage({
               className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
             />
           </label>
-          <label className="block text-sm font-medium text-slate-700 md:col-span-2">
-            Dance styles
-            <input
-              name="danceStyles"
-              defaultValue={listValue(selectedPosting?.dance_styles)}
-              className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-2"
-              placeholder="Country Two Step, Ballroom, Latin, Swing"
-            />
-          </label>
+          <fieldset className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 md:col-span-2">
+            <legend className="px-1 text-sm font-semibold text-slate-800">
+              Dance styles
+            </legend>
+            <p className="mt-1 text-sm text-slate-500">
+              Select the styles this role should support. Preset styles keep search results consistent.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {danceStyleGroups.map((group) => (
+                <div key={group.label} className="rounded-2xl border border-white bg-white p-4 shadow-sm">
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-[var(--brand-primary)] bg-white px-3 py-2 text-sm font-semibold text-[var(--brand-primary)]">
+                    <input
+                      type="checkbox"
+                      name="danceStyles"
+                      value={group.label}
+                      defaultChecked={selectedDanceStyles.has(group.label)}
+                      className="h-4 w-4 rounded border-slate-300 text-[var(--brand-primary)]"
+                    />
+                    {group.label} - all styles
+                  </label>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {group.styles.map((style) => (
+                      <label
+                        key={style}
+                        className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:border-[var(--brand-primary)] hover:text-[var(--brand-primary)]"
+                      >
+                        <input
+                          type="checkbox"
+                          name="danceStyles"
+                          value={style}
+                          defaultChecked={selectedDanceStyles.has(style)}
+                          className="h-4 w-4 rounded border-slate-300 text-[var(--brand-primary)]"
+                        />
+                        {style}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </fieldset>
           <label className="block text-sm font-medium text-slate-700 md:col-span-2">
             Compensation summary
             <input

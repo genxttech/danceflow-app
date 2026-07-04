@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { buildStudioLocationQuery, geocodeAddress } from "@/lib/geocoding";
 import { createClient } from "@/lib/supabase/server";
 
 function getString(formData: FormData, key: string) {
@@ -22,6 +23,19 @@ function getList(formData: FormData, key: string) {
     .filter(Boolean);
 }
 
+function getMultiList(formData: FormData, key: string) {
+  const selected = formData
+    .getAll(key)
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean);
+
+  if (selected.length > 0) {
+    return Array.from(new Set(selected));
+  }
+
+  return getList(formData, key);
+}
+
 export async function saveStudioJobPostingAction(formData: FormData) {
   const supabase = await createClient();
   const {
@@ -37,22 +51,41 @@ export async function saveStudioJobPostingAction(formData: FormData) {
   const postingId = getString(formData, "postingId");
   const title = getString(formData, "title");
   const status = getString(formData, "status") || "draft";
+  const locationType = getString(formData, "locationType") || "in_person";
+  const city = getOptionalString(formData, "city");
+  const state = getOptionalString(formData, "state");
 
   if (!title) {
     redirect("/app/now-hiring?error=missing_title");
   }
 
   const now = new Date().toISOString();
+  const locationQuery =
+    locationType === "remote"
+      ? ""
+      : buildStudioLocationQuery({ city, state, postalCode: null });
+  const geocodeResult = locationQuery
+    ? await geocodeAddress(locationQuery)
+    : null;
+  const locationPayload =
+    locationType === "remote"
+      ? { latitude: null, longitude: null }
+      : geocodeResult
+        ? {
+            latitude: geocodeResult.latitude,
+            longitude: geocodeResult.longitude,
+          }
+        : {};
   const payload = {
     studio_id: studioId,
     title,
     role_type: getString(formData, "roleType") || "instructor",
     employment_type: getString(formData, "employmentType") || "contract",
-    location_type: getString(formData, "locationType") || "in_person",
-    city: getOptionalString(formData, "city"),
-    state: getOptionalString(formData, "state"),
+    location_type: locationType,
+    city,
+    state,
     compensation_summary: getOptionalString(formData, "compensationSummary"),
-    dance_styles: getList(formData, "danceStyles"),
+    dance_styles: getMultiList(formData, "danceStyles"),
     requirements: getOptionalString(formData, "requirements"),
     description: getOptionalString(formData, "description"),
     apply_url: getOptionalString(formData, "applyUrl"),
@@ -63,6 +96,7 @@ export async function saveStudioJobPostingAction(formData: FormData) {
     published_at: status === "published" ? now : null,
     created_by: user.id,
     updated_at: now,
+    ...locationPayload,
   };
 
   const { error } = postingId

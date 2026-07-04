@@ -103,8 +103,56 @@ export type JobPostingFilters = {
   style?: string;
 };
 
+const danceStyleGroups = [
+  {
+    label: "American Smooth",
+    styles: ["Waltz", "Tango", "Foxtrot", "Viennese Waltz"],
+  },
+  {
+    label: "American Rhythm",
+    styles: ["Cha Cha", "Rumba", "East Coast Swing", "Bolero", "Mambo"],
+  },
+  {
+    label: "International Ballroom",
+    styles: ["Waltz", "Tango", "Viennese Waltz", "Foxtrot", "Quickstep"],
+  },
+  {
+    label: "International Latin",
+    styles: ["Cha Cha", "Samba", "Rumba", "Paso Doble", "Jive"],
+  },
+  {
+    label: "Country",
+    styles: [
+      "Country Two Step",
+      "West Coast Swing",
+      "East Coast Swing",
+      "Nightclub Two Step",
+      "Country Waltz",
+      "Polka",
+    ],
+  },
+  {
+    label: "Social / Club",
+    styles: ["Salsa", "Bachata", "Argentine Tango", "Hustle", "Lindy Hop", "Zouk", "Kizomba"],
+  },
+];
+
 function normalize(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
+}
+
+function styleFilterOptions(style: string | null | undefined) {
+  const normalizedStyle = normalize(style);
+
+  if (!normalizedStyle) {
+    return [];
+  }
+
+  const group = danceStyleGroups.find(
+    (item) => normalize(item.label) === normalizedStyle,
+  );
+
+  return group ? [group.label, ...group.styles] : [style ?? ""];
 }
 
 function milesBetween(
@@ -199,6 +247,7 @@ export async function getPublishedStudioJobPostings(filters: JobPostingFilters =
 
   return postings.filter((posting) => {
     const search = normalize(filters.query);
+    const styleOptions = styleFilterOptions(filters.style);
     const matchesSearch =
       !search ||
       [
@@ -230,7 +279,8 @@ export async function getPublishedStudioJobPostings(filters: JobPostingFilters =
       (!filters.roleType || posting.roleType === filters.roleType) &&
       (!filters.employmentType || posting.employmentType === filters.employmentType) &&
       (!filters.locationType || posting.locationType === filters.locationType) &&
-      (!filters.style || posting.danceStyles.includes(filters.style)) &&
+      (styleOptions.length === 0 ||
+        styleOptions.some((style) => posting.danceStyles.includes(style))) &&
       matchesDistance
     );
   });
