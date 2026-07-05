@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { Linking, StyleSheet, TextInput, View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { ActivityIndicator, Linking, StyleSheet, TextInput, View } from "react-native";
+import { type Href, useLocalSearchParams, useRouter } from "expo-router";
+import { useStripe } from "@stripe/stripe-react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
-import { createStudentEventCheckout } from "@/lib/eventCheckout";
+import {
+  confirmStudentEventOrder,
+  createStudentEventCheckout,
+  getStudentEventOrderStatus
+} from "@/lib/eventCheckout";
 import { useAuth } from "@/lib/auth";
 import {
   getPublicEventDetailForMobile,
@@ -26,7 +31,25 @@ function attendeeRequestCount(ticket: PublicEventTicketType, quantity: number) {
 }
 
 function eventCheckoutReturnUrl() {
-  return "danceflow://events/orders/pending?checkout=event";
+  return "danceflow://wallet?checkout=event";
+}
+
+function walletCheckoutPath(orderId: string): Href {
+  return {
+    pathname: "/wallet",
+    params: {
+      checkout: "event",
+      orderId
+    }
+  };
+}
+
+function nativePaymentsEnabled() {
+  return Boolean(process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY);
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function earlyBirdLabel(ticket: PublicEventTicketType) {
@@ -50,11 +73,13 @@ function remainingSpotsLabel(ticket: PublicEventTicketType) {
 export default function EventRegisterScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const { session } = useAuth();
   const [event, setEvent] = useState<PublicEventDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [checkoutStatusMessage, setCheckoutStatusMessage] = useState<string | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [buyerFirstName, setBuyerFirstName] = useState("");
   const [buyerLastName, setBuyerLastName] = useState("");
@@ -130,6 +155,7 @@ export default function EventRegisterScreen() {
 
     setSubmitting(true);
     setErrorMessage(null);
+    setCheckoutStatusMessage(null);
 
     try {
       const trimmedAdditionalNames = Array.from({ length: additionalNameCount }, (_, index) =>
@@ -156,7 +182,7 @@ export default function EventRegisterScreen() {
 
       const returnUrl = eventCheckoutReturnUrl();
 
-      const result = await createStudentEventCheckout({
+      const checkoutInput = {
         additionalAttendeeNames: trimmedAdditionalNames,
         buyerFirstName: buyerFirstName.trim(),
         buyerLastName: buyerLastName.trim(),
@@ -171,16 +197,84 @@ export default function EventRegisterScreen() {
           ticketTypeId: selection.ticket.id,
           quantity: selection.quantity
         }))
+      };
+
+      const result = await createStudentEventCheckout({
+        ...checkoutInput,
+        paymentMode: nativePaymentsEnabled() ? "payment_sheet" : "checkout"
       });
 
-      if (result.completed || !result.checkoutUrl) {
-        router.replace(`/events/orders/${result.orderId}`);
+      if (result.completed) {
+        router.replace(walletCheckoutPath(result.orderId));
         return;
+      }
+
+      if (result.clientSecret) {
+        const initialized = await initPaymentSheet({
+          defaultBillingDetails: {
+            email: session.user.email ?? undefined,
+            name: [buyerFirstName.trim(), buyerLastName.trim()].filter(Boolean).join(" ")
+          },
+          merchantDisplayName: "DanceFlow",
+          paymentIntentClientSecret: result.clientSecret,
+          returnURL: returnUrl
+        });
+
+        if (initialized.error) {
+          const fallback = await createStudentEventCheckout({
+            ...checkoutInput,
+            paymentMode: "checkout"
+          });
+
+          if (!fallback.checkoutUrl) {
+            throw new Error(initialized.error.message || "Native checkout could not be started.");
+          }
+
+          await Linking.openURL(fallback.checkoutUrl);
+          return;
+        }
+
+        const payment = await presentPaymentSheet();
+        if (payment.error) {
+          throw new Error(payment.error.message || "Payment was not completed.");
+        }
+
+        setCheckoutStatusMessage("Payment received. Preparing your tickets...");
+
+        try {
+          await confirmStudentEventOrder(result.orderId);
+          setCheckoutStatusMessage("Payment confirmed. Ticket codes are being issued...");
+
+          for (let attempt = 0; attempt < 8; attempt += 1) {
+            const orderStatus = await getStudentEventOrderStatus(result.orderId);
+
+            if (orderStatus.ticketsReady) {
+              break;
+            }
+
+            if (orderStatus.paymentStatus === "paid") {
+              setCheckoutStatusMessage("Payment confirmed. Ticket codes are being issued...");
+            }
+
+            await wait(attempt < 2 ? 1200 : 2500);
+          }
+        } catch {
+          setCheckoutStatusMessage("Payment received. Opening Wallet while tickets finish syncing...");
+          await wait(1200);
+        }
+
+        router.replace(walletCheckoutPath(result.orderId));
+        return;
+      }
+
+      if (!result.checkoutUrl) {
+        throw new Error("Checkout could not be started.");
       }
 
       await Linking.openURL(result.checkoutUrl);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "Checkout could not be started.");
+      setCheckoutStatusMessage(null);
     } finally {
       setSubmitting(false);
     }
@@ -221,6 +315,15 @@ export default function EventRegisterScreen() {
       <AppText variant="caption">{session.user.email}</AppText>
 
       {errorMessage ? <FeatureCard title="Checkout needs attention" detail={errorMessage} /> : null}
+      {checkoutStatusMessage ? (
+        <View style={styles.statusCard}>
+          <ActivityIndicator color={colors.primary} />
+          <View style={{ flex: 1 }}>
+            <AppText variant="subtitle">Finishing checkout</AppText>
+            <AppText variant="caption">{checkoutStatusMessage}</AppText>
+          </View>
+        </View>
+      ) : null}
 
       <View style={styles.section}>
         <AppText variant="subtitle">1. Choose tickets</AppText>
@@ -357,8 +460,8 @@ export default function EventRegisterScreen() {
       </View>
 
       <AppButton
-        disabled={selectedTickets.length === 0 || total <= 0}
-        label="Continue to secure checkout"
+        disabled={selectedTickets.length === 0 || Boolean(checkoutStatusMessage)}
+        label={checkoutStatusMessage ? "Finishing checkout..." : "Continue to secure checkout"}
         loading={submitting}
         onPress={submitCheckout}
       />
@@ -428,6 +531,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 10,
     padding: 16
+  },
+  statusCard: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    padding: 14
   },
   ticketCard: {
     borderColor: colors.border,

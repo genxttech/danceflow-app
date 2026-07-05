@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { Image, Linking, StyleSheet, View } from "react-native";
-import { router, useFocusEffect } from "expo-router";
+import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
+import {
+  getStudentEventOrderStatus,
+  type StudentEventOrderTicket,
+  type StudentEventOrderStatus
+} from "@/lib/eventCheckout";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
   formatCurrency,
@@ -19,6 +24,8 @@ import {
   type StudentTicket,
   type StudentWallet
 } from "@/lib/studentWallet";
+
+const CHECKOUT_SYNC_REFRESH_LIMIT = 180;
 
 function statusLabel(value: string | null | undefined) {
   return (value ?? "active").replace(/_/g, " ");
@@ -45,21 +52,34 @@ function studentDisplayName(linkedStudios: LinkedStudioAccess[]) {
   return name || "DanceFlow student";
 }
 
-function studentPassQrUrl(linkedStudios: LinkedStudioAccess[]) {
-  const primary = linkedStudios[0];
-  const webBase = (process.env.EXPO_PUBLIC_DANCEFLOW_WEB_URL ?? "https://idanceflow.com").replace(/\/$/, "");
+function normalizeParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
 
-  if (!primary?.clientId || !primary.studioSlug) return null;
-
-  // V1 mobile display pass. A later scanner phase can resolve this opaque pass payload
-  // into the studio/client check-in workflow.
-  const payload = `danceflow-pass:${primary.studioSlug}:${primary.clientId}`;
-  return `${webBase}/api/tickets/qr?code=${encodeURIComponent(payload)}`;
+function orderTicketToWalletTicket(ticket: StudentEventOrderTicket): StudentTicket {
+  return {
+    checkedInAt: ticket.checkedInAt,
+    city: ticket.city,
+    eventDate: ticket.eventDate,
+    eventId: ticket.eventId,
+    eventName: ticket.eventName,
+    eventSlug: ticket.eventSlug,
+    eventTime: ticket.eventTime,
+    id: ticket.id,
+    qrImageUrl: ticket.qrImageUrl,
+    registrationId: ticket.registrationId,
+    state: ticket.state,
+    studioId: "",
+    studioName: "Event",
+    ticketCode: ticket.ticketCode,
+    ticketName: ticket.ticketName,
+    venue: ticket.venue,
+    waiverSignedAt: ticket.waiverSignedAt
+  };
 }
 
 function StudentPassCard({ linkedStudios }: { linkedStudios: LinkedStudioAccess[] }) {
   const primary = linkedStudios[0];
-  const qrUrl = studentPassQrUrl(linkedStudios);
   const name = studentDisplayName(linkedStudios);
   const studioName = primary?.studioPublicName || primary?.studioName || "Connected studio";
 
@@ -72,14 +92,6 @@ function StudentPassCard({ linkedStudios }: { linkedStudios: LinkedStudioAccess[
         <AppText variant="caption">Use this pass for studio lookup and future student check-ins.</AppText>
         <AppButton label="Edit profile" onPress={() => router.push("/profile")} variant="secondary" />
       </View>
-      {qrUrl ? (
-        <Image
-          accessibilityIgnoresInvertColors
-          resizeMode="contain"
-          source={{ uri: qrUrl }}
-          style={styles.passQrImage}
-        />
-      ) : null}
     </View>
   );
 }
@@ -194,13 +206,20 @@ function TicketCard({ ticket }: { ticket: StudentTicket }) {
 
 export default function WalletScreen() {
   const { session } = useAuth();
+  const params = useLocalSearchParams<{ checkout?: string; orderId?: string }>();
+  const checkoutSource = normalizeParam(params.checkout);
+  const checkoutOrderId = normalizeParam(params.orderId);
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [wallet, setWallet] = useState<StudentWallet | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [checkoutRefreshes, setCheckoutRefreshes] = useState(0);
+  const [checkoutOrderStatus, setCheckoutOrderStatus] = useState<StudentEventOrderStatus | null>(null);
+  const [checkoutStatusError, setCheckoutStatusError] = useState<string | null>(null);
 
-  async function loadWallet() {
+  async function loadWallet(options?: { background?: boolean }) {
     const userId = session?.user.id;
+    const background = options?.background === true;
 
     if (!userId) {
       setLinkedStudios([]);
@@ -209,7 +228,9 @@ export default function WalletScreen() {
       return;
     }
 
-    setLoading(true);
+    if (!background) {
+      setLoading(true);
+    }
     setErrorMessage(null);
 
     try {
@@ -219,10 +240,28 @@ export default function WalletScreen() {
       const nextWallet = await loadStudentWallet(access.linkedStudios, session?.user.email ?? null);
       setWallet(nextWallet);
     } catch {
-      setErrorMessage("Your wallet could not be loaded. Try again in a moment.");
-      setWallet(null);
+      if (checkoutSource === "event") {
+        setErrorMessage(null);
+      } else {
+        setErrorMessage("Your wallet could not be loaded. Try again in a moment.");
+        setWallet(null);
+      }
     } finally {
-      setLoading(false);
+      if (!background) {
+        setLoading(false);
+      }
+    }
+  }
+
+  async function loadCheckoutOrderStatus() {
+    if (!checkoutOrderId) return;
+
+    try {
+      const nextStatus = await getStudentEventOrderStatus(checkoutOrderId);
+      setCheckoutOrderStatus(nextStatus);
+      setCheckoutStatusError(null);
+    } catch (error) {
+      setCheckoutStatusError(error instanceof Error ? error.message : "Ticket status could not be checked.");
     }
   }
 
@@ -238,13 +277,59 @@ export default function WalletScreen() {
     }, [session?.user.id])
   );
 
+  useEffect(() => {
+    if (checkoutSource !== "event" || checkoutRefreshes >= CHECKOUT_SYNC_REFRESH_LIMIT) return;
+
+    const timer = setTimeout(() => {
+      setCheckoutRefreshes((current) => current + 1);
+      loadCheckoutOrderStatus();
+      loadWallet({ background: true });
+    }, checkoutRefreshes === 0 ? 1200 : 2500);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkoutRefreshes, checkoutOrderId, checkoutSource, session?.user.id]);
+
   const hasPortalAccess = linkedStudios.length > 0;
   const isSignedIn = Boolean(session);
   const memberships = wallet?.memberships ?? [];
   const packages = wallet?.packages ?? [];
   const paymentRequests = wallet?.paymentRequests ?? [];
-  const tickets = wallet?.tickets ?? [];
+  const walletTickets = wallet?.tickets ?? [];
+  const checkoutFallbackTickets = (checkoutOrderStatus?.tickets ?? [])
+    .filter((ticket) => !walletTickets.some((walletTicket) => walletTicket.id === ticket.id))
+    .map(orderTicketToWalletTicket);
+  const tickets = [...walletTickets, ...checkoutFallbackTickets];
   const registrations = wallet?.registrations ?? [];
+  const checkoutOrderTicketsAvailable = Boolean(
+    checkoutOrderStatus?.registrationIds.some((registrationId) =>
+      tickets.some((ticket) => ticket.registrationId === registrationId)
+    )
+  );
+  const legacyCheckoutHasTickets = checkoutSource === "event" && !checkoutOrderId && tickets.length > 0;
+  const showCheckoutSync =
+    checkoutSource === "event" &&
+    !checkoutOrderTicketsAvailable &&
+    !legacyCheckoutHasTickets &&
+    checkoutRefreshes < CHECKOUT_SYNC_REFRESH_LIMIT;
+  const checkoutSyncTitle =
+    checkoutOrderStatus?.paymentStatus === "paid"
+      ? checkoutOrderStatus.ticketsReady
+        ? "Tickets are ready"
+        : "Issuing your ticket codes"
+      : checkoutStatusError
+        ? "Checking ticket status"
+        : "Checking for your new tickets";
+  const checkoutSyncDetail =
+    checkoutOrderStatus?.paymentStatus === "paid"
+      ? checkoutOrderStatus.ticketsReady
+        ? "Ticket codes are ready. Wallet is refreshing so they appear here."
+        : `Payment is confirmed. ${checkoutOrderStatus.ticketCodesIssued}/${checkoutOrderStatus.ticketCount} ticket codes have been issued.`
+      : checkoutStatusError
+        ? checkoutStatusError
+        : checkoutOrderId
+          ? "Waiting for payment confirmation and ticket issuing status."
+          : "Stripe confirmed the purchase. Ticket codes can take a moment to finish issuing, so Wallet will refresh automatically.";
 
   return (
     <Screen>
@@ -301,6 +386,20 @@ export default function WalletScreen() {
         <FeatureCard
           title="Loading wallet..."
           detail="Checking your tickets, passes, and studio items."
+        />
+      ) : null}
+
+      {!loading && showCheckoutSync ? (
+        <View style={styles.syncCard}>
+          <AppText variant="subtitle">{checkoutSyncTitle}</AppText>
+          <AppText variant="caption">{checkoutSyncDetail}</AppText>
+        </View>
+      ) : null}
+
+      {!loading && checkoutSource === "event" && !checkoutOrderTicketsAvailable && !legacyCheckoutHasTickets && checkoutRefreshes >= CHECKOUT_SYNC_REFRESH_LIMIT ? (
+        <FeatureCard
+          title="Ticket sync is taking longer than expected"
+          detail="Payment completed, but Wallet has not found the ticket yet. Refresh once more or check the webhook logs for the event order."
         />
       ) : null}
 
@@ -398,7 +497,7 @@ export default function WalletScreen() {
         </>
       ) : null}
 
-{isSignedIn ? <AppButton label="Refresh wallet" onPress={loadWallet} variant="secondary" /> : null}
+{isSignedIn ? <AppButton label="Refresh wallet" onPress={() => loadWallet()} variant="secondary" /> : null}
     </Screen>
   );
 }
@@ -490,6 +589,14 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     flex: 1,
     gap: 6,
+    padding: 16
+  },
+  syncCard: {
+    backgroundColor: "#ecfeff",
+    borderColor: "#67e8f9",
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 8,
     padding: 16
   },
   ticketCard: {

@@ -32,10 +32,18 @@
       
     },
     "plugins": [
-      "expo-router",
-      "expo-secure-store",
-      "expo-notifications"
-    ],
+  "expo-router",
+  "expo-secure-store",
+  "expo-notifications",
+  "expo-dev-client",
+  [
+    "@stripe/stripe-react-native",
+    {
+      "merchantIdentifier": "",
+      "enableGooglePay": true
+    }
+  ]
+],
     "experiments": {
       "typedRoutes": true
     },

@@ -1,9 +1,12 @@
 import { useEffect } from "react";
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { StripeProvider } from "@stripe/stripe-react-native";
 import { AuthProvider, useAuth } from "@/lib/auth";
 import { usePushNotificationBootstrap } from "@/lib/pushNotifications";
 import { hydrateAppearanceMode } from "@/constants/theme";
+
+const stripePublishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY || "";
 
 function AppStack() {
   const { session } = useAuth();
@@ -85,13 +88,6 @@ function AppStack() {
             title: "Register"
           }}
         />
-        <Stack.Screen
-          name="events/orders/[orderId]"
-          options={{
-            headerShown: true,
-            title: "Checkout"
-          }}
-        />
       </Stack>
     </>
   );
@@ -99,8 +95,10 @@ function AppStack() {
 
 export default function RootLayout() {
   return (
-    <AuthProvider>
-      <AppStack />
-    </AuthProvider>
+    <StripeProvider publishableKey={stripePublishableKey}>
+      <AuthProvider>
+        <AppStack />
+      </AuthProvider>
+    </StripeProvider>
   );
 }

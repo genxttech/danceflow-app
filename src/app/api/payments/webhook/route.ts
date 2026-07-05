@@ -1948,6 +1948,134 @@ async function handleEventCartOrderCheckoutCompleted(
   return true;
 }
 
+async function handleEventCartOrderPaymentIntentSucceeded(
+  supabase: SupabaseClient,
+  stripe: Stripe,
+  paymentIntent: Stripe.PaymentIntent
+) {
+  const source = getString(paymentIntent.metadata?.source);
+  if (source !== "event_cart_order") return false;
+
+  const orderId = getString(paymentIntent.metadata?.order_id);
+  if (!orderId) {
+    throw new Error("Event cart PaymentIntent missing order_id metadata.");
+  }
+
+  const paymentIntentId = paymentIntent.id;
+  const amountTotal = Number(paymentIntent.amount_received ?? paymentIntent.amount ?? 0) / 100;
+  const currency = (paymentIntent.currency ?? "usd").toUpperCase();
+  const paidAt = new Date().toISOString();
+
+  const { error: orderUpdateError } = await supabase
+    .from("event_orders")
+    .update({
+      status: "confirmed",
+      payment_status: "paid",
+      stripe_payment_intent_id: paymentIntentId,
+      total_amount: amountTotal,
+      currency,
+      paid_at: paidAt,
+      updated_at: paidAt,
+    })
+    .eq("id", orderId);
+
+  if (orderUpdateError) {
+    throw new Error(orderUpdateError.message);
+  }
+
+  const { data: registrations, error: registrationsError } = await supabase
+    .from("event_registrations")
+    .select("id, total_price, currency, payment_status")
+    .eq("order_id", orderId);
+
+  if (registrationsError) {
+    throw new Error(registrationsError.message);
+  }
+
+  for (const registration of registrations ?? []) {
+    const { error: registrationUpdateError } = await supabase
+      .from("event_registrations")
+      .update({
+        status: "confirmed",
+        payment_status: "paid",
+        stripe_payment_intent_id: paymentIntentId,
+      })
+      .eq("id", registration.id);
+
+    if (registrationUpdateError) {
+      throw new Error(registrationUpdateError.message);
+    }
+
+    const { data: existingPayment, error: existingPaymentError } = await supabase
+      .from("event_payments")
+      .select("id")
+      .eq("registration_id", registration.id)
+      .eq("stripe_payment_intent_id", paymentIntentId)
+      .maybeSingle();
+
+    if (existingPaymentError) {
+      throw new Error(existingPaymentError.message);
+    }
+
+    if (!existingPayment) {
+      const { error: paymentInsertError } = await supabase
+        .from("event_payments")
+        .insert({
+          registration_id: registration.id,
+          amount: Number(registration.total_price ?? 0),
+          currency: registration.currency || currency,
+          payment_method: "stripe_payment_sheet",
+          status: "paid",
+          source: "stripe",
+          stripe_payment_intent_id: paymentIntentId,
+          external_reference: paymentIntentId,
+          notes: "Created by Stripe payment_intent.succeeded webhook for native event checkout.",
+        });
+
+      if (paymentInsertError) {
+        throw new Error(paymentInsertError.message);
+      }
+    }
+
+    await safeCaptureStudioEventRegistrationLead({
+      supabase,
+      registrationId: registration.id,
+    });
+
+    await safeCaptureOrganizerEventRegistrationContact({
+      supabase,
+      registrationId: registration.id,
+    });
+  }
+
+  await syncFeeDetailsForPaymentIntent(supabase, stripe, paymentIntentId);
+
+  await safeQueuePaidEventCartOrderConfirmation({
+    supabase,
+    orderId,
+  });
+
+  const { error: slotUpdateError } = await supabase
+    .from("event_private_lesson_slots")
+    .update({
+      status: "booked",
+      payment_status: "paid",
+      stripe_payment_intent_id: paymentIntentId,
+      booked_at: paidAt,
+      held_until: null,
+      hold_token: null,
+      updated_at: paidAt,
+    })
+    .eq("order_id", orderId)
+    .in("status", ["available", "held"]);
+
+  if (slotUpdateError) {
+    throw new Error(slotUpdateError.message);
+  }
+
+  return true;
+}
+
 async function handleEventPrivateLessonCheckoutCompleted(
   supabase: SupabaseClient,
   session: Stripe.Checkout.Session
@@ -3483,7 +3611,14 @@ export async function POST(request: Request) {
           supabase,
           paymentIntent
         );
-        if (!handledTerminal) {
+        const handledEventCart = handledTerminal
+          ? false
+          : await handleEventCartOrderPaymentIntentSucceeded(
+              supabase,
+              stripe,
+              paymentIntent
+            );
+        if (!handledTerminal && !handledEventCart) {
           await syncFeeDetailsForPaymentIntent(supabase, stripe, paymentIntent.id);
         }
         break;

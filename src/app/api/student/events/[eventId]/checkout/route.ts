@@ -21,6 +21,7 @@ type CheckoutBody = {
   documentRequirementIds?: string[];
   documentSignatureName?: string;
   notes?: string;
+  paymentMode?: "checkout" | "payment_sheet";
   returnUrl?: string;
   ticketSelections?: TicketSelectionInput[];
 };
@@ -183,6 +184,14 @@ function safeMobileReturnUrl(value: string | undefined, fallback: string) {
 
 function calculateApplicationFeeAmount(amount: number, feePercent: number) {
   return Math.round(Math.max(0, Math.round(amount * 100)) * Math.max(0, feePercent));
+}
+
+function getStripePublishableKey() {
+  return (
+    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ||
+    process.env.STRIPE_PUBLISHABLE_KEY ||
+    ""
+  ).trim();
 }
 
 async function getOrganizerPlatformFeePercent(supabase: SupabaseClient, studioId: string) {
@@ -751,6 +760,60 @@ export async function POST(request: NextRequest, { params }: Params) {
       ? stripeSuccessUrl
       : successUrl;
     const releaseUrl = `${baseUrl}/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(event.slug)}`;
+
+    if (body.paymentMode === "payment_sheet") {
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount: Math.round(totalAmount * 100),
+        currency: currency.toLowerCase(),
+        receipt_email: buyerEmail,
+        automatic_payment_methods: {
+          enabled: true,
+        },
+        ...(applicationFeeAmount > 0 ? { application_fee_amount: applicationFeeAmount } : {}),
+        transfer_data: {
+          destination: connectedAccountId,
+        },
+        metadata: {
+          source: "event_cart_order",
+          studio_id: event.studio_id,
+          event_id: event.id,
+          event_slug: event.slug,
+          order_id: order.id,
+          registration_id: registrationIds[0] ?? "",
+          registration_ids: registrationIds.join(","),
+          buyer_email: buyerEmail,
+          connected_account_id: connectedAccountId,
+          client_surface: "student_app",
+          mobile_return_url: checkoutSuccessUrl,
+        },
+      });
+
+      if (!paymentIntent.client_secret) {
+        throw new Error("Stripe did not return a native payment secret.");
+      }
+
+      const { error: paymentIntentLinkError } = await supabase
+        .from("event_orders")
+        .update({
+          stripe_payment_intent_id: paymentIntent.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", order.id);
+
+      if (paymentIntentLinkError) throw new Error(paymentIntentLinkError.message);
+
+      await supabase
+        .from("event_registrations")
+        .update({ stripe_payment_intent_id: paymentIntent.id })
+        .in("id", registrationIds);
+
+      return NextResponse.json({
+        clientSecret: paymentIntent.client_secret,
+        orderId: order.id,
+        publishableKey: getStripePublishableKey(),
+        registrationIds,
+      });
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",

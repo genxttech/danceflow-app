@@ -21,11 +21,21 @@ type EventOrderRow = {
         id: string;
         name: string | null;
         slug: string | null;
+        start_date: string | null;
+        start_time: string | null;
+        venue_name: string | null;
+        city: string | null;
+        state: string | null;
       }
     | {
         id: string;
         name: string | null;
         slug: string | null;
+        start_date: string | null;
+        start_time: string | null;
+        venue_name: string | null;
+        city: string | null;
+        state: string | null;
       }[]
     | null;
 };
@@ -39,6 +49,11 @@ type RegistrationRow = {
   event_registration_attendees:
     | {
         id: string;
+        first_name: string | null;
+        last_name: string | null;
+        sort_order: number | null;
+        checked_in_at: string | null;
+        waiver_signed_at: string | null;
         ticket_code: string | null;
         ticket_issued_at: string | null;
       }[]
@@ -64,6 +79,21 @@ function jsonError(message: string, status = 400) {
 
 function pickOne<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function appBaseUrl(request: NextRequest) {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    request.nextUrl.origin
+  ).replace(/\/$/, "");
+}
+
+function attendeeName(
+  attendee: { first_name: string | null; last_name: string | null; sort_order: number | null }
+) {
+  const fullName = [attendee.first_name, attendee.last_name].filter(Boolean).join(" ").trim();
+  return fullName || `Ticket ${attendee.sort_order ?? ""}`.trim();
 }
 
 async function userFromRequest(supabase: SupabaseClient, request: NextRequest) {
@@ -102,7 +132,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         "expires_at",
         "paid_at",
         "cancelled_at",
-        "events:event_id ( id, name, slug )",
+        "events:event_id ( id, name, slug, start_date, start_time, venue_name, city, state )",
       ].join(", ")
     )
     .eq("id", orderId)
@@ -128,7 +158,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         "payment_status",
         "quantity",
         "user_id",
-        "event_registration_attendees ( id, ticket_code, ticket_issued_at )",
+        "event_registration_attendees ( id, first_name, last_name, sort_order, checked_in_at, waiver_signed_at, ticket_code, ticket_issued_at )",
       ].join(", ")
     )
     .eq("order_id", orderRow.id)
@@ -147,6 +177,29 @@ export async function GET(request: NextRequest, { params }: Params) {
   const status = orderRow.status ?? "pending";
   const ticketsReady = paymentStatus === "paid" && ticketCount > 0 && ticketCodesIssued >= ticketCount;
   const event = pickOne(orderRow.events);
+  const baseUrl = appBaseUrl(request);
+  const tickets = registrationRows.flatMap((registration) =>
+    (registration.event_registration_attendees ?? []).map((attendee) => ({
+      checkedInAt: attendee.checked_in_at,
+      city: event?.city ?? null,
+      eventDate: event?.start_date ?? null,
+      eventId: orderRow.event_id,
+      eventName: event?.name ?? "Event",
+      eventSlug: event?.slug ?? null,
+      eventTime: event?.start_time ?? null,
+      id: attendee.id,
+      qrImageUrl: attendee.ticket_code
+        ? `${baseUrl}/api/tickets/qr?code=${encodeURIComponent(attendee.ticket_code)}`
+        : null,
+      registrationId: registration.id,
+      state: event?.state ?? null,
+      ticketCode: attendee.ticket_code,
+      ticketIssuedAt: attendee.ticket_issued_at,
+      ticketName: attendeeName(attendee),
+      venue: event?.venue_name ?? null,
+      waiverSignedAt: attendee.waiver_signed_at,
+    }))
+  );
 
   return NextResponse.json({
     cancelledAt: orderRow.cancelled_at,
@@ -162,6 +215,7 @@ export async function GET(request: NextRequest, { params }: Params) {
     status,
     ticketCodesIssued,
     ticketCount,
+    tickets,
     ticketsReady,
     totalAmount: Number(orderRow.total_amount ?? 0),
   });
