@@ -85,6 +85,13 @@ function AppStack() {
             title: "Register"
           }}
         />
+        <Stack.Screen
+          name="events/orders/[orderId]"
+          options={{
+            headerShown: true,
+            title: "Checkout"
+          }}
+        />
       </Stack>
     </>
   );

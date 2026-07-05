@@ -81,6 +81,12 @@ type EventDocumentRequirementRow = {
     | null;
 };
 
+type TicketHoldCountRow = {
+  ticket_type_id: string | null;
+  quantity: number | null;
+  event_ticket_types?: { attendees_per_ticket: number | null } | { attendees_per_ticket: number | null }[] | null;
+};
+
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -209,6 +215,114 @@ async function getOrganizerPlatformFeePercent(supabase: SupabaseClient, studioId
 
   if (!addOns?.length) return 0;
   return planCode === "pro" ? 0.03 : 0.0325;
+}
+
+async function loadActiveTicketHoldCounts(
+  supabase: SupabaseClient,
+  ticketTypeIds: string[]
+) {
+  if (!ticketTypeIds.length) return new Map<string, number>();
+
+  const { data, error } = await supabase
+    .from("event_registrations")
+    .select(
+      `
+      ticket_type_id,
+      quantity,
+      status,
+      payment_status,
+      event_ticket_types (
+        attendees_per_ticket
+      ),
+      event_orders!inner (
+        status,
+        payment_status,
+        expires_at
+      )
+    `
+    )
+    .in("ticket_type_id", ticketTypeIds)
+    .eq("status", "pending")
+    .eq("payment_status", "pending")
+    .eq("event_orders.status", "pending")
+    .eq("event_orders.payment_status", "pending")
+    .gt("event_orders.expires_at", new Date().toISOString());
+
+  if (error) throw new Error(error.message);
+
+  const counts = new Map<string, number>();
+  for (const row of (data ?? []) as TicketHoldCountRow[]) {
+    if (!row.ticket_type_id) continue;
+    const ticketType = pickOne(row.event_ticket_types);
+    const admitsPerTicket = Math.max(1, Number(ticketType?.attendees_per_ticket ?? 1) || 1);
+    counts.set(
+      row.ticket_type_id,
+      (counts.get(row.ticket_type_id) ?? 0) + Math.max(1, Number(row.quantity ?? 1) || 1) * admitsPerTicket
+    );
+  }
+
+  return counts;
+}
+
+async function loadConfirmedTicketCounts(
+  supabase: SupabaseClient,
+  ticketTypeIds: string[]
+) {
+  if (!ticketTypeIds.length) return new Map<string, number>();
+
+  const { data, error } = await supabase
+    .from("event_registrations")
+    .select("ticket_type_id, quantity, event_ticket_types ( attendees_per_ticket )")
+    .in("ticket_type_id", ticketTypeIds)
+    .or("payment_status.eq.paid,status.in.(confirmed,checked_in,attended)");
+
+  if (error) throw new Error(error.message);
+
+  const counts = new Map<string, number>();
+  for (const row of (data ?? []) as TicketHoldCountRow[]) {
+    if (!row.ticket_type_id) continue;
+    const ticketType = pickOne(row.event_ticket_types);
+    const admitsPerTicket = Math.max(1, Number(ticketType?.attendees_per_ticket ?? 1) || 1);
+    counts.set(
+      row.ticket_type_id,
+      (counts.get(row.ticket_type_id) ?? 0) + Math.max(1, Number(row.quantity ?? 1) || 1) * admitsPerTicket
+    );
+  }
+
+  return counts;
+}
+
+async function assertTicketCapacityAvailable(params: {
+  supabase: SupabaseClient;
+  selections: TicketSelectionInput[];
+  ticketsById: Map<string, TicketTypeRow>;
+}) {
+  const ticketTypeIds = Array.from(params.ticketsById.keys());
+  const [confirmedCounts, holdCounts] = await Promise.all([
+    loadConfirmedTicketCounts(params.supabase, ticketTypeIds),
+    loadActiveTicketHoldCounts(params.supabase, ticketTypeIds),
+  ]);
+
+  for (const selection of params.selections) {
+    const ticket = params.ticketsById.get(selection.ticketTypeId);
+    if (!ticket || ticket.capacity == null) continue;
+
+    const capacity = Number(ticket.capacity);
+    const reserved =
+      (confirmedCounts.get(ticket.id) ?? 0) + (holdCounts.get(ticket.id) ?? 0);
+    const remaining = Math.max(0, capacity - reserved);
+    const admitsPerTicket = Math.max(1, Number(ticket.attendees_per_ticket ?? 1) || 1);
+    const requestedTickets = Math.max(1, Number(selection.quantity ?? 1) || 1);
+    const requested = requestedTickets * admitsPerTicket;
+
+    if (requested > remaining) {
+      throw new Error(
+        remaining > 0
+          ? `Only ${remaining} admission spot${remaining === 1 ? "" : "s"} remain for ${ticket.name}.`
+          : `${ticket.name} is sold out.`
+      );
+    }
+  }
 }
 
 async function userFromRequest(supabase: SupabaseClient, request: NextRequest) {
@@ -345,6 +459,21 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const ticketsById = new Map((tickets as TicketTypeRow[]).map((ticket) => [ticket.id, ticket]));
+
+  try {
+    await assertTicketCapacityAvailable({
+      supabase,
+      selections,
+      ticketsById,
+    });
+  } catch (error) {
+    return jsonError(
+      error instanceof Error
+        ? error.message
+        : "Selected ticket quantity is no longer available."
+    );
+  }
+
   const additionalAttendeeNames = (body.additionalAttendeeNames ?? []).map((name) => name.trim()).filter(Boolean);
   let additionalAttendeeCursor = 0;
   let totalAmount = 0;
@@ -610,19 +739,23 @@ export async function POST(request: NextRequest, { params }: Params) {
     const connectedAccountId = studio.stripe_connected_account_id;
     const baseUrl = appBaseUrl(request);
     const successUrl = `${baseUrl}/events/${encodeURIComponent(event.slug)}?success=cart_paid&order=${encodeURIComponent(order.id)}`;
+    const orderReturnUrl = `danceflow://events/orders/${encodeURIComponent(order.id)}?checkout=event`;
     const mobileReturn = safeMobileReturnUrl(
       body.returnUrl,
-      successUrl
+      orderReturnUrl
     );
-    const stripeSuccessUrl = mobileReturn.startsWith("danceflow://")
+    const stripeSuccessUrl = mobileReturn.startsWith("danceflow://events/orders/") && !mobileReturn.includes("/pending")
       ? mobileReturn
+      : orderReturnUrl;
+    const checkoutSuccessUrl = stripeSuccessUrl.startsWith("danceflow://")
+      ? stripeSuccessUrl
       : successUrl;
     const releaseUrl = `${baseUrl}/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(event.slug)}`;
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: buyerEmail,
-      success_url: stripeSuccessUrl,
+      success_url: checkoutSuccessUrl,
       cancel_url: releaseUrl,
       line_items: orderItems.map((item) => ({
         quantity: Number(item.quantity ?? 1),
@@ -648,7 +781,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           registration_id: registrationIds[0] ?? "",
           registration_ids: registrationIds.join(","),
           connected_account_id: connectedAccountId,
-          mobile_return_url: mobileReturn,
+          mobile_return_url: checkoutSuccessUrl,
         },
       },
       metadata: {
@@ -662,7 +795,7 @@ export async function POST(request: NextRequest, { params }: Params) {
         buyer_email: buyerEmail,
         connected_account_id: connectedAccountId,
         client_surface: "student_app",
-        mobile_return_url: mobileReturn,
+        mobile_return_url: checkoutSuccessUrl,
       },
     });
 

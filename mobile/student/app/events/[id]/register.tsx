@@ -26,7 +26,7 @@ function attendeeRequestCount(ticket: PublicEventTicketType, quantity: number) {
 }
 
 function eventCheckoutReturnUrl() {
-  return "danceflow://wallet?checkout=event";
+  return "danceflow://events/orders/pending?checkout=event";
 }
 
 function earlyBirdLabel(ticket: PublicEventTicketType) {
@@ -38,6 +38,13 @@ function earlyBirdLabel(ticket: PublicEventTicketType) {
   if (Number.isNaN(date.getTime())) return "Early bird";
 
   return `Early bird ends ${date.toLocaleDateString()}`;
+}
+
+function remainingSpotsLabel(ticket: PublicEventTicketType) {
+  if (ticket.remainingAdmissionSpots === null) return "Admission spots available";
+  if (ticket.remainingAdmissionSpots === 0) return "Sold out";
+
+  return `${ticket.remainingAdmissionSpots} admission spot${ticket.remainingAdmissionSpots === 1 ? "" : "s"} left`;
 }
 
 export default function EventRegisterScreen() {
@@ -167,7 +174,7 @@ export default function EventRegisterScreen() {
       });
 
       if (result.completed || !result.checkoutUrl) {
-        router.replace("/wallet");
+        router.replace(`/events/orders/${result.orderId}`);
         return;
       }
 
@@ -230,6 +237,9 @@ export default function EventRegisterScreen() {
                     {ticket.attendeesPerTicket > 1
                       ? `Admits ${ticket.attendeesPerTicket} attendees`
                       : "Admits 1 attendee"}
+                  </AppText>
+                  <AppText style={ticket.remainingAdmissionSpots === 0 ? styles.soldOutText : styles.remainingText}>
+                    {remainingSpotsLabel(ticket)}
                   </AppText>
                 </View>
                 <View style={styles.priceBlock}>
@@ -398,6 +408,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     textDecorationLine: "line-through"
+  },
+  remainingText: {
+    color: colors.success,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 4
+  },
+  soldOutText: {
+    color: colors.danger,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 4
   },
   section: {
     backgroundColor: colors.surface,

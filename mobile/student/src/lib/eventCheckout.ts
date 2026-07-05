@@ -26,6 +26,24 @@ export type CreateEventCheckoutResult = {
   registrationIds: string[];
 };
 
+export type StudentEventOrderStatus = {
+  cancelledAt: string | null;
+  currency: string;
+  eventId: string;
+  eventName: string;
+  eventSlug: string | null;
+  expiresAt: string | null;
+  orderId: string;
+  paidAt: string | null;
+  paymentStatus: string;
+  registrationIds: string[];
+  status: string;
+  ticketCodesIssued: number;
+  ticketCount: number;
+  ticketsReady: boolean;
+  totalAmount: number;
+};
+
 export async function createStudentEventCheckout(input: CreateEventCheckoutInput) {
   return danceflowApiFetch<CreateEventCheckoutResult>(
     `/api/student/events/${encodeURIComponent(input.eventId)}/checkout`,
@@ -44,5 +62,11 @@ export async function createStudentEventCheckout(input: CreateEventCheckoutInput
       }),
       method: "POST",
     }
+  );
+}
+
+export async function getStudentEventOrderStatus(orderId: string) {
+  return danceflowApiFetch<StudentEventOrderStatus>(
+    `/api/student/events/orders/${encodeURIComponent(orderId)}`
   );
 }
