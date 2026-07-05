@@ -25,12 +25,24 @@ type DocumentTemplate = {
   title: string;
   description: string | null;
   body: string;
+  default_consent_text: string | null;
   applies_to: string;
   requires_signature: boolean;
   is_required: boolean;
   is_active: boolean;
   current_version: number;
+  current_version_id: string | null;
   updated_at: string;
+  document_template_versions: DocumentTemplateVersion[] | null;
+};
+
+type DocumentTemplateVersion = {
+  id: string;
+  version_number: number | null;
+  title: string | null;
+  created_at: string | null;
+  published_at: string | null;
+  created_by: string | null;
 };
 
 type OrganizerOption = {
@@ -90,6 +102,13 @@ function titleCase(value: string) {
   return value
     .replaceAll("_", " ")
     .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "Not recorded";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not recorded";
+  return date.toLocaleString();
 }
 
 function statusMessage(searchParams: SearchParams) {
@@ -312,6 +331,19 @@ function DocumentTemplateForm({
             placeholder="Paste or write the waiver, policy, or agreement text here."
           />
         </label>
+
+        <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)] lg:col-span-2">
+          Electronic signature consent text
+          <textarea
+            name="defaultConsentText"
+            rows={3}
+            className="w-full rounded-2xl border border-[var(--brand-border)] px-4 py-3 text-sm leading-6"
+            placeholder="I have reviewed this document, agree to sign electronically, and confirm that my typed name is my signature."
+          />
+          <span className="block text-xs font-normal leading-5 text-[var(--brand-muted)]">
+            This text is stored with each signature so the studio can prove what the signer accepted.
+          </span>
+        </label>
       </div>
 
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -376,6 +408,9 @@ function TemplateCard({
   const attachedEvents = eventRequirements.filter(
     (requirement) => requirement.template_id === template.id,
   );
+  const versions = [...(template.document_template_versions ?? [])].sort(
+    (a, b) => Number(b.version_number ?? 0) - Number(a.version_number ?? 0),
+  );
 
   return (
     <details className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
@@ -403,6 +438,10 @@ function TemplateCard({
             <p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">
               {template.description ||
                 `${titleCase(template.applies_to)} · Version ${template.current_version}`}
+            </p>
+            <p className="mt-1 text-xs font-semibold text-[var(--brand-muted)]">
+              Current version {template.current_version}
+              {template.updated_at ? ` · Updated ${formatDateTime(template.updated_at)}` : ""}
             </p>
           </div>
 
@@ -600,6 +639,36 @@ function TemplateCard({
         </div>
       ) : null}
 
+      {versions.length ? (
+        <div className="mt-5 rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
+          <h4 className="text-sm font-bold text-[var(--brand-text)]">
+            Version history
+          </h4>
+          <div className="mt-3 divide-y divide-[var(--brand-border)] rounded-2xl border border-[var(--brand-border)] bg-white">
+            {versions.slice(0, 5).map((version) => (
+              <div
+                key={version.id}
+                className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <span className="font-bold text-[var(--brand-text)]">
+                    Version {version.version_number ?? "?"}
+                  </span>
+                  {version.id === template.current_version_id ? (
+                    <span className="ml-2 rounded-full bg-green-50 px-2 py-1 text-xs font-bold text-green-700">
+                      Current
+                    </span>
+                  ) : null}
+                </div>
+                <span className="text-xs font-semibold text-[var(--brand-muted)]">
+                  Published {formatDateTime(version.published_at ?? version.created_at)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
       <form
         action={updateDocumentTemplateAction}
         className="mt-5 border-t border-[var(--brand-border)] pt-5"
@@ -670,6 +739,19 @@ function TemplateCard({
               className="w-full rounded-2xl border border-[var(--brand-border)] px-4 py-3 text-sm leading-6"
             />
           </label>
+          <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)] lg:col-span-2">
+            Electronic signature consent text
+            <textarea
+              name="defaultConsentText"
+              defaultValue={template.default_consent_text ?? ""}
+              rows={3}
+              className="w-full rounded-2xl border border-[var(--brand-border)] px-4 py-3 text-sm leading-6"
+              placeholder="I have reviewed this document, agree to sign electronically, and confirm that my typed name is my signature."
+            />
+            <span className="block text-xs font-normal leading-5 text-[var(--brand-muted)]">
+              Each edit creates a new version and stores this consent text for future signatures.
+            </span>
+          </label>
         </div>
 
         <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -718,7 +800,31 @@ export default async function DocumentsPage({
   let templateQuery = supabase
     .from("document_templates")
     .select(
-      "id, scope, organizer_id, document_type, title, description, body, applies_to, requires_signature, is_required, is_active, current_version, updated_at",
+      `
+      id,
+      scope,
+      organizer_id,
+      document_type,
+      title,
+      description,
+      body,
+      default_consent_text,
+      applies_to,
+      requires_signature,
+      is_required,
+      is_active,
+      current_version,
+      current_version_id,
+      updated_at,
+      document_template_versions (
+        id,
+        version_number,
+        title,
+        created_at,
+        published_at,
+        created_by
+      )
+    `,
     )
     .order("updated_at", { ascending: false });
 

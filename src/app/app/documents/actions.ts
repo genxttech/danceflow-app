@@ -165,6 +165,7 @@ export async function createDocumentTemplateAction(
   const title = cleanText(getString(formData, "title"), 160);
   const description = cleanText(getString(formData, "description"), 500);
   const body = cleanText(getString(formData, "body"), 20000);
+  const defaultConsentText = cleanText(getString(formData, "defaultConsentText"), 1000);
   const documentType = getString(formData, "documentType") || "waiver";
   const appliesTo = getString(formData, "appliesTo") || "manual";
 
@@ -184,6 +185,7 @@ export async function createDocumentTemplateAction(
     title,
     description: description || null,
     body,
+    default_consent_text: defaultConsentText || null,
     applies_to: appliesTo,
     requires_signature: getBool(formData, "requiresSignature"),
     is_required: getBool(formData, "isRequired"),
@@ -205,7 +207,7 @@ export async function createDocumentTemplateAction(
     );
   }
 
-  const { error: versionError } = await owner.supabase
+  const { data: version, error: versionError } = await owner.supabase
     .from("document_template_versions")
     .insert({
       template_id: template.id,
@@ -215,12 +217,27 @@ export async function createDocumentTemplateAction(
       body,
       requires_signature: payload.requires_signature,
       is_required: payload.is_required,
+      consent_text: defaultConsentText || null,
       created_by: owner.userId,
-    });
+      published_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
 
-  if (versionError) {
+  if (versionError || !version) {
     redirect(
-      `/app/documents?error=${encodeURIComponent(versionError.message)}`,
+      `/app/documents?error=${encodeURIComponent(versionError?.message ?? "Could not create the template version.")}`,
+    );
+  }
+
+  const { error: currentVersionError } = await owner.supabase
+    .from("document_templates")
+    .update({ current_version_id: version.id })
+    .eq("id", template.id);
+
+  if (currentVersionError) {
+    redirect(
+      `/app/documents?error=${encodeURIComponent(currentVersionError.message)}`,
     );
   }
 
@@ -243,6 +260,7 @@ export async function updateDocumentTemplateAction(
   const title = cleanText(getString(formData, "title"), 160);
   const description = cleanText(getString(formData, "description"), 500);
   const body = cleanText(getString(formData, "body"), 20000);
+  const defaultConsentText = cleanText(getString(formData, "defaultConsentText"), 1000);
   const documentType = getString(formData, "documentType") || "waiver";
   const appliesTo = getString(formData, "appliesTo") || "manual";
 
@@ -271,26 +289,7 @@ export async function updateDocumentTemplateAction(
 
   const nextVersion = Number(existing.current_version ?? 1) + 1;
 
-  const { error } = await owner.supabase
-    .from("document_templates")
-    .update({
-      document_type: documentType,
-      title,
-      description: description || null,
-      body,
-      applies_to: appliesTo,
-      requires_signature: getBool(formData, "requiresSignature"),
-      is_required: getBool(formData, "isRequired"),
-      current_version: nextVersion,
-      updated_by: owner.userId,
-    })
-    .eq("id", templateId);
-
-  if (error) {
-    redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
-  }
-
-  const { error: versionError } = await owner.supabase
+  const { data: version, error: versionError } = await owner.supabase
     .from("document_template_versions")
     .insert({
       template_id: templateId,
@@ -300,13 +299,38 @@ export async function updateDocumentTemplateAction(
       body,
       requires_signature: getBool(formData, "requiresSignature"),
       is_required: getBool(formData, "isRequired"),
+      consent_text: defaultConsentText || null,
       created_by: owner.userId,
-    });
+      published_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
 
-  if (versionError) {
+  if (versionError || !version) {
     redirect(
-      `/app/documents?error=${encodeURIComponent(versionError.message)}`,
+      `/app/documents?error=${encodeURIComponent(versionError?.message ?? "Could not create the template version.")}`,
     );
+  }
+
+  const { error } = await owner.supabase
+    .from("document_templates")
+    .update({
+      document_type: documentType,
+      title,
+      description: description || null,
+      body,
+      default_consent_text: defaultConsentText || null,
+      applies_to: appliesTo,
+      requires_signature: getBool(formData, "requiresSignature"),
+      is_required: getBool(formData, "isRequired"),
+      current_version: nextVersion,
+      current_version_id: version.id,
+      updated_by: owner.userId,
+    })
+    .eq("id", templateId);
+
+  if (error) {
+    redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
   }
 
   revalidatePath("/app/documents");

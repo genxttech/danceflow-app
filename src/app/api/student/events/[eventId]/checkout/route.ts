@@ -88,6 +88,20 @@ type TicketHoldCountRow = {
   event_ticket_types?: { attendees_per_ticket: number | null } | { attendees_per_ticket: number | null }[] | null;
 };
 
+function requestIpAddress(request: NextRequest) {
+  const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  return forwardedFor || realIp || null;
+}
+
+function requestDeviceMetadata(request: NextRequest) {
+  return {
+    userAgent: request.headers.get("user-agent") || null,
+    acceptLanguage: request.headers.get("accept-language") || null,
+    platform: "student_app",
+  };
+}
+
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -378,6 +392,9 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const buyerEmail = user.email.toLowerCase();
+  const signerIpAddress = requestIpAddress(request);
+  const signerUserAgent = request.headers.get("user-agent") || null;
+  const signerDeviceMetadata = requestDeviceMetadata(request);
 
   const { data: event, error: eventError } = await supabase
     .from("events")
@@ -641,6 +658,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       for (const requiredDocument of requiredDocumentRows) {
         const template = pickOne(requiredDocument.document_templates);
         if (!template) continue;
+        const signedAt = new Date().toISOString();
 
         const { data: assignment, error: assignmentError } = await supabase
           .from("document_assignments")
@@ -653,7 +671,9 @@ export async function POST(request: NextRequest, { params }: Params) {
             event_registration_id: registration.id,
             assigned_to_email: buyerEmail,
             status: "signed",
-            signed_at: new Date().toISOString(),
+            signer_user_id: user.id,
+            signed_at: signedAt,
+            completed_at: signedAt,
           })
           .select("id")
           .single();
@@ -662,7 +682,45 @@ export async function POST(request: NextRequest, { params }: Params) {
           throw new Error(assignmentError?.message ?? "Could not save event document signature.");
         }
 
-        const { error: signatureError } = await supabase.from("document_signatures").insert({
+        const consentText =
+          "I have reviewed the required event document(s), agree to sign electronically, and confirm that my typed name is my signature.";
+
+        const { data: signature, error: signatureError } = await supabase
+          .from("document_signatures")
+          .insert({
+            assignment_id: assignment.id,
+            template_id: requiredDocument.template_id,
+            template_version_id: requiredDocument.template_version_id,
+            studio_id: event.studio_id,
+            organizer_id: event.organizer_id,
+            event_id: event.id,
+            event_registration_id: registration.id,
+            signer_user_id: user.id,
+            signer_name: body.documentSignatureName,
+            signer_email: buyerEmail,
+            signed_at: signedAt,
+            signed_body: template.body,
+            signature_method: "typed",
+            signature_text: body.documentSignatureName,
+            consent_text: consentText,
+            ip_address: signerIpAddress,
+            user_agent: signerUserAgent,
+            device_metadata: signerDeviceMetadata,
+            metadata: {
+              source: "student_app_event_checkout",
+              order_id: order.id,
+              registration_id: registration.id,
+            },
+          })
+          .select("id")
+          .single();
+
+        if (signatureError || !signature) {
+          throw new Error(signatureError?.message ?? "Could not save document signature.");
+        }
+
+        const { error: auditError } = await supabase.from("document_signature_audit_events").insert({
+          signature_id: signature.id,
           assignment_id: assignment.id,
           template_id: requiredDocument.template_id,
           template_version_id: requiredDocument.template_version_id,
@@ -670,16 +728,21 @@ export async function POST(request: NextRequest, { params }: Params) {
           organizer_id: event.organizer_id,
           event_id: event.id,
           event_registration_id: registration.id,
-          signer_name: body.documentSignatureName,
-          signer_email: buyerEmail,
-          signed_body: template.body,
-          signature_text: body.documentSignatureName,
-          consent_text:
-            "I have reviewed the required event document(s), agree to sign electronically, and confirm that my typed name is my signature.",
-          user_agent: request.headers.get("user-agent") || null,
+          actor_user_id: user.id,
+          actor_email: buyerEmail,
+          event_type: "signed",
+          event_summary: "Student signed required event document during mobile checkout.",
+          ip_address: signerIpAddress,
+          user_agent: signerUserAgent,
+          metadata: {
+            consent_text: consentText,
+            signature_method: "typed",
+            source: "student_app_event_checkout",
+            order_id: order.id,
+          },
         });
 
-        if (signatureError) throw new Error(signatureError.message);
+        if (auditError) throw new Error(auditError.message);
       }
 
       orderItems.push({
