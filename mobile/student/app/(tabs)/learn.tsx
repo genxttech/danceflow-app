@@ -1,4 +1,4 @@
-import { Link } from "expo-router";
+import { Link, type Href } from "expo-router";
 import { useEffect, useState } from "react";
 import { Image, StyleSheet, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
@@ -30,6 +30,14 @@ const emptyOverview: StudentLearnOverview = {
     "How can I feel more confident at my next lesson?"
   ]
 };
+
+function groupRecapHref(recapId: string): Href {
+  return `/learn/group-recaps/${recapId}` as Href;
+}
+
+function lessonRecapHref(lessonId: string): Href {
+  return `/learn/lessons/${lessonId}` as Href;
+}
 
 function FocusCard({ focus }: { focus: StudentPracticeFocus }) {
   return (
@@ -95,6 +103,9 @@ function GroupRecapCard({ recap }: { recap: StudentGroupLessonRecap }) {
           {recap.mediaLinks.length} shared link{recap.mediaLinks.length === 1 ? "" : "s"}
         </AppText>
       ) : null}
+      <Link href={groupRecapHref(recap.id)} asChild>
+        <AppButton label="Read full recap" variant="secondary" />
+      </Link>
     </View>
   );
 }
@@ -118,6 +129,9 @@ function LatestRecapCard({
             ? `Review what you worked on with ${lesson.instructorName}.`
             : "Review what you worked on and what to practice next."}
         </AppText>
+        <Link href={lessonRecapHref(lesson.id)} asChild>
+          <AppButton label="Read full recap" variant="secondary" />
+        </Link>
       </View>
     );
   }

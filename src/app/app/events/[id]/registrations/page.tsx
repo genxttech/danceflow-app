@@ -1652,6 +1652,15 @@ export default async function EventRegistrationsPage({
                         </span>
                       </div>
 
+                      <div className="mt-4">
+                        <Link
+                          href={`/app/events/${typedEvent.id}/registrations/${registration.id}`}
+                          className="inline-flex rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
+                        >
+                          View registration details
+                        </Link>
+                      </div>
+
                       {attendeeRows.length > 0 ? (
                         <details
                           className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3"

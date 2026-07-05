@@ -2,6 +2,7 @@ import { supabase } from "@/lib/supabase";
 import { type LinkedStudioAccess } from "@/lib/studentAccess";
 
 const DEFAULT_WEB_BASE_URL = "https://idanceflow.com";
+const WALLET_CACHE_TTL_MS = 15000;
 
 function webBaseUrl() {
   const value = process.env.EXPO_PUBLIC_DANCEFLOW_WEB_URL ?? DEFAULT_WEB_BASE_URL;
@@ -111,6 +112,15 @@ export type StudentWallet = {
   tickets: StudentTicket[];
 };
 
+type LoadStudentWalletOptions = {
+  force?: boolean;
+};
+
+type WalletCacheEntry = {
+  expiresAt: number;
+  wallet: StudentWallet;
+};
+
 type PackageRow = {
   id: string;
   studio_id: string;
@@ -201,6 +211,20 @@ function attendeeName(row: TicketRow) {
 
 function paymentCheckoutUrl(paymentId: string) {
   return `${webBaseUrl()}/api/stripe/client-checkout?paymentId=${encodeURIComponent(paymentId)}`;
+}
+
+const walletCache = new Map<string, WalletCacheEntry>();
+
+function walletCacheKey(linkedStudios: LinkedStudioAccess[], accountEmail?: string | null) {
+  const accessKey = linkedStudios
+    .map((item) => `${item.studioId}:${item.clientId}`)
+    .sort()
+    .join("|");
+  return `${accountEmail?.trim().toLowerCase() ?? ""}|${accessKey}`;
+}
+
+export function clearStudentWalletCache() {
+  walletCache.clear();
 }
 
 export function formatWalletDate(value: string | null | undefined) {
@@ -318,8 +342,17 @@ function dedupeRegistrations(rows: EventRegistrationRow[]) {
 
 export async function loadStudentWallet(
   linkedStudios: LinkedStudioAccess[],
-  accountEmail?: string | null
+  accountEmail?: string | null,
+  options?: LoadStudentWalletOptions
 ): Promise<StudentWallet> {
+  const cacheKey = walletCacheKey(linkedStudios, accountEmail);
+  const cached = walletCache.get(cacheKey);
+  const now = Date.now();
+
+  if (!options?.force && cached && cached.expiresAt > now) {
+    return cached.wallet;
+  }
+
   const clientIds = linkedStudios.map((item) => item.clientId).filter(Boolean);
   const studioIds = linkedStudios.map((item) => item.studioId).filter(Boolean);
 
@@ -491,5 +524,8 @@ export async function loadStudentWallet(
     });
   }
 
-  return { memberships, packages, paymentRequests, registrations, tickets };
+  const wallet = { memberships, packages, paymentRequests, registrations, tickets };
+  walletCache.set(cacheKey, { expiresAt: Date.now() + WALLET_CACHE_TTL_MS, wallet });
+
+  return wallet;
 }

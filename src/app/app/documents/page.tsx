@@ -42,7 +42,20 @@ type DocumentTemplateVersion = {
   title: string | null;
   created_at: string | null;
   published_at: string | null;
+  archived_at: string | null;
   created_by: string | null;
+};
+
+type DocumentSignatureSummary = {
+  id: string;
+  template_id: string;
+  signed_at: string | null;
+};
+
+type DocumentAssignmentSummary = {
+  id: string;
+  template_id: string;
+  status: string | null;
 };
 
 type OrganizerOption = {
@@ -390,12 +403,16 @@ function TemplateCard({
   clients,
   events,
   eventRequirements,
+  pendingAssignmentCount,
+  signedRecordCount,
 }: {
   template: DocumentTemplate;
   organizers: OrganizerOption[];
   clients: ClientOption[];
   events: EventOption[];
   eventRequirements: EventRequirement[];
+  pendingAssignmentCount: number;
+  signedRecordCount: number;
 }) {
   const organizerName = organizers.find(
     (organizer) => organizer.id === template.organizer_id,
@@ -443,6 +460,17 @@ function TemplateCard({
               Current version {template.current_version}
               {template.updated_at ? ` · Updated ${formatDateTime(template.updated_at)}` : ""}
             </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700 ring-1 ring-emerald-200">
+                {signedRecordCount} signed record{signedRecordCount === 1 ? "" : "s"}
+              </span>
+              <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700 ring-1 ring-amber-200">
+                {pendingAssignmentCount} pending assignment{pendingAssignmentCount === 1 ? "" : "s"}
+              </span>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold text-slate-600">
+                {versions.length} version{versions.length === 1 ? "" : "s"}
+              </span>
+            </div>
           </div>
 
           <form action={toggleDocumentTemplateStatusAction}>
@@ -641,14 +669,24 @@ function TemplateCard({
 
       {versions.length ? (
         <div className="mt-5 rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-4">
-          <h4 className="text-sm font-bold text-[var(--brand-text)]">
-            Version history
-          </h4>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h4 className="text-sm font-bold text-[var(--brand-text)]">
+                Version history
+              </h4>
+              <p className="mt-1 text-xs leading-5 text-[var(--brand-muted)]">
+                Signed receipts stay tied to the exact version accepted by the signer.
+              </p>
+            </div>
+            <span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-bold text-[var(--brand-primary)]">
+              Current v{template.current_version}
+            </span>
+          </div>
           <div className="mt-3 divide-y divide-[var(--brand-border)] rounded-2xl border border-[var(--brand-border)] bg-white">
             {versions.slice(0, 5).map((version) => (
               <div
                 key={version.id}
-                className="flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between"
+                className="flex flex-col gap-2 px-4 py-3 text-sm sm:flex-row sm:items-start sm:justify-between"
               >
                 <div>
                   <span className="font-bold text-[var(--brand-text)]">
@@ -659,13 +697,24 @@ function TemplateCard({
                       Current
                     </span>
                   ) : null}
+                  {version.title ? (
+                    <p className="mt-1 text-xs font-semibold text-[var(--brand-muted)]">
+                      {version.title}
+                    </p>
+                  ) : null}
                 </div>
-                <span className="text-xs font-semibold text-[var(--brand-muted)]">
-                  Published {formatDateTime(version.published_at ?? version.created_at)}
-                </span>
+                <div className="text-left text-xs font-semibold text-[var(--brand-muted)] sm:text-right">
+                  <p>Published {formatDateTime(version.published_at ?? version.created_at)}</p>
+                  {version.archived_at ? <p>Archived {formatDateTime(version.archived_at)}</p> : null}
+                </div>
               </div>
             ))}
           </div>
+          {versions.length > 5 ? (
+            <p className="mt-3 text-xs font-semibold text-[var(--brand-muted)]">
+              Showing latest 5 of {versions.length} versions.
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -682,6 +731,13 @@ function TemplateCard({
             value={template.organizer_id}
           />
         ) : null}
+
+        <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          <p className="font-bold">Editing publishes a new version.</p>
+          <p className="mt-1 leading-6">
+            Future assignments and event checkout signatures use the new version. Existing signed receipts keep the exact document text, consent text, and version that were accepted.
+          </p>
+        </div>
 
         <div className="grid gap-4 lg:grid-cols-2">
           <label className="space-y-2 text-sm font-semibold text-[var(--brand-text)]">
@@ -822,6 +878,7 @@ export default async function DocumentsPage({
         title,
         created_at,
         published_at,
+        archived_at,
         created_by
       )
     `,
@@ -837,6 +894,48 @@ export default async function DocumentsPage({
   }
 
   const { data: templates, error } = await templateQuery;
+  const templateIds = ((templates ?? []) as { id: string }[]).map((template) => template.id);
+
+  const [
+    { data: signatureRows, error: signaturesError },
+    { data: assignmentRows, error: assignmentsError },
+  ] = templateIds.length
+    ? await Promise.all([
+        supabase
+          .from("document_signatures")
+          .select("id, template_id, signed_at")
+          .in("template_id", templateIds)
+          .limit(10000),
+        supabase
+          .from("document_assignments")
+          .select("id, template_id, status")
+          .in("template_id", templateIds)
+          .neq("status", "void")
+          .limit(10000),
+      ])
+    : [{ data: [], error: null }, { data: [], error: null }];
+
+  const signedCountByTemplateId = new Map<string, number>();
+  for (const signature of (signatureRows ?? []) as DocumentSignatureSummary[]) {
+    signedCountByTemplateId.set(
+      signature.template_id,
+      (signedCountByTemplateId.get(signature.template_id) ?? 0) + 1,
+    );
+  }
+
+  const pendingCountByTemplateId = new Map<string, number>();
+  for (const assignment of (assignmentRows ?? []) as DocumentAssignmentSummary[]) {
+    if (assignment.status !== "pending") continue;
+    pendingCountByTemplateId.set(
+      assignment.template_id,
+      (pendingCountByTemplateId.get(assignment.template_id) ?? 0) + 1,
+    );
+  }
+
+  const totalSignedRecords = Array.from(signedCountByTemplateId.values()).reduce(
+    (sum, count) => sum + count,
+    0,
+  );
 
   const events = await getEventOptions(supabase, studioId, organizerIds);
   const eventRequirements = await getEventRequirements(
@@ -854,7 +953,19 @@ export default async function DocumentsPage({
     .order("last_name", { ascending: true });
 
   const message = statusMessage(resolvedSearchParams);
-  const isError = Boolean(resolvedSearchParams.error || error || clientsError);
+  const isError = Boolean(
+    resolvedSearchParams.error ||
+      error ||
+      clientsError ||
+      signaturesError ||
+      assignmentsError,
+  );
+  const pageMessage =
+    error?.message ??
+    clientsError?.message ??
+    signaturesError?.message ??
+    assignmentsError?.message ??
+    message;
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 p-4 sm:p-6 lg:p-8">
@@ -874,19 +985,15 @@ export default async function DocumentsPage({
         </div>
       </section>
 
-      {message || error || clientsError ? (
+      {pageMessage ? (
         <div
           className={`rounded-2xl border p-4 text-sm ${isError ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}
         >
-          {error
-            ? error.message
-            : clientsError
-              ? clientsError.message
-              : message}
+          {pageMessage}
         </div>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-3">
+      <section className="grid gap-4 md:grid-cols-4">
         <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
           <p className="text-sm font-semibold text-[var(--brand-muted)]">
             Active templates
@@ -916,6 +1023,14 @@ export default async function DocumentsPage({
                 (template) => template.scope === "organizer",
               ).length
             }
+          </p>
+        </div>
+        <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
+          <p className="text-sm font-semibold text-[var(--brand-muted)]">
+            Signed records
+          </p>
+          <p className="mt-2 text-3xl font-bold text-[var(--brand-text)]">
+            {totalSignedRecords}
           </p>
         </div>
       </section>
@@ -951,6 +1066,8 @@ export default async function DocumentsPage({
                 clients={(clients ?? []) as ClientOption[]}
                 events={events}
                 eventRequirements={eventRequirements}
+                pendingAssignmentCount={pendingCountByTemplateId.get(template.id) ?? 0}
+                signedRecordCount={signedCountByTemplateId.get(template.id) ?? 0}
               />
             ))}
           </div>

@@ -141,9 +141,41 @@ type DocumentSignatureRow = {
   id: string;
   event_registration_id: string | null;
   template_id: string;
+  template_version_id: string | null;
   signer_name: string;
   signer_email: string | null;
+  signer_user_id: string | null;
+  signature_method: string | null;
+  signature_text: string | null;
+  consent_text: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  device_metadata: Record<string, unknown> | null;
+  metadata: Record<string, unknown> | null;
   signed_at: string;
+  document_templates:
+    | { title: string | null }
+    | { title: string | null }[]
+    | null;
+  document_template_versions:
+    | { version_number: number | null; title: string | null }
+    | { version_number: number | null; title: string | null }[]
+    | null;
+};
+
+type DocumentAuditEventRow = {
+  id: string;
+  signature_id: string | null;
+  assignment_id: string | null;
+  template_id: string | null;
+  template_version_id: string | null;
+  event_type: string;
+  event_summary: string | null;
+  actor_email: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
 };
 
 function one<T>(value: T | T[] | null): T | null {
@@ -287,6 +319,24 @@ function requirementTitle(value: EventDocumentRequirementRow["document_templates
   return one(value)?.title ?? "Required document";
 }
 
+function compactJson(value: Record<string, unknown> | null) {
+  if (!value || Object.keys(value).length === 0) return null;
+  return JSON.stringify(value);
+}
+
+function signatureDocumentTitle(signature: DocumentSignatureRow) {
+  return one(signature.document_template_versions)?.title ??
+    one(signature.document_templates)?.title ??
+    "Signed document";
+}
+
+function signatureVersionLabel(signature: DocumentSignatureRow) {
+  const version = one(signature.document_template_versions);
+  return typeof version?.version_number === "number"
+    ? `Version ${version.version_number}`
+    : "Version not recorded";
+}
+
 export default async function EventRegistrationDetailPage({
   params,
   searchParams,
@@ -324,6 +374,7 @@ export default async function EventRegistrationDetailPage({
     { data: ticketEmails, error: ticketEmailsError },
     { data: documentRequirements, error: documentRequirementsError },
     { data: documentSignatures, error: documentSignaturesError },
+    { data: documentAuditEvents, error: documentAuditEventsError },
   ] = await Promise.all([
     supabase
       .from("events")
@@ -422,8 +473,36 @@ export default async function EventRegistrationDetailPage({
 
     supabase
       .from("document_signatures")
-      .select("id, event_registration_id, template_id, signer_name, signer_email, signed_at")
+      .select(
+        `
+        id,
+        event_registration_id,
+        template_id,
+        template_version_id,
+        signer_name,
+        signer_email,
+        signer_user_id,
+        signature_method,
+        signature_text,
+        consent_text,
+        ip_address,
+        user_agent,
+        device_metadata,
+        metadata,
+        signed_at,
+        document_templates ( title ),
+        document_template_versions ( version_number, title )
+      `,
+      )
       .eq("event_registration_id", registrationId),
+
+    supabase
+      .from("document_signature_audit_events")
+      .select(
+        "id, signature_id, assignment_id, template_id, template_version_id, event_type, event_summary, actor_email, ip_address, user_agent, metadata, created_at",
+      )
+      .eq("event_registration_id", registrationId)
+      .order("created_at", { ascending: false }),
   ]);
 
   if (eventError || !event) notFound();
@@ -435,6 +514,7 @@ export default async function EventRegistrationDetailPage({
   if (ticketEmailsError) throw new Error(`Failed to load ticket email audit: ${ticketEmailsError.message}`);
   if (documentRequirementsError) throw new Error(`Failed to load document requirements: ${documentRequirementsError.message}`);
   if (documentSignaturesError) throw new Error(`Failed to load document signatures: ${documentSignaturesError.message}`);
+  if (documentAuditEventsError) throw new Error(`Failed to load document signature audit events: ${documentAuditEventsError.message}`);
 
   const typedRegistration = registration as RegistrationRow;
   const ticket = one(typedRegistration.event_ticket_types);
@@ -468,6 +548,7 @@ export default async function EventRegistrationDetailPage({
   const emailRows = (ticketEmails ?? []) as TicketEmailAuditRow[];
   const requirementRows = (documentRequirements ?? []) as EventDocumentRequirementRow[];
   const signatureRows = (documentSignatures ?? []) as DocumentSignatureRow[];
+  const auditRows = (documentAuditEvents ?? []) as DocumentAuditEventRow[];
 
   const fullName = `${typedRegistration.attendee_first_name} ${typedRegistration.attendee_last_name}`.trim();
   const amount = Number(typedRegistration.total_amount ?? typedRegistration.total_price ?? 0);
@@ -866,10 +947,85 @@ export default async function EventRegistrationDetailPage({
               )}
               {signatureRows.map((signature) => (
                 <div key={signature.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
-                  <p className="font-semibold text-slate-900">Signed by {signature.signer_name}</p>
-                  <p className="mt-1 text-slate-500">{signature.signer_email ?? "No email"} • {formatDateTime(signature.signed_at)}</p>
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <p className="font-semibold text-slate-900">{signatureDocumentTitle(signature)}</p>
+                      <p className="mt-1 text-slate-600">
+                        Signed by {signature.signer_name} {signature.signer_email ? `• ${signature.signer_email}` : ""}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                      Signed
+                    </span>
+                  </div>
+                  <div className="mt-4">
+                    <Link
+                      href={`/app/events/${id}/registrations/${registrationId}/signed-documents/${signature.id}`}
+                      className="inline-flex rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      Open printable receipt
+                    </Link>
+                    <Link
+                      href={`/app/events/${id}/registrations/${registrationId}/signed-documents/${signature.id}/pdf`}
+                      className="ml-2 inline-flex rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white shadow-sm hover:bg-slate-800"
+                    >
+                      Download PDF
+                    </Link>
+                  </div>
+                  <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Signed at</dt>
+                      <dd className="mt-1 text-slate-900">{formatDateTime(signature.signed_at)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Document version</dt>
+                      <dd className="mt-1 text-slate-900">{signatureVersionLabel(signature)}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Signature method</dt>
+                      <dd className="mt-1 text-slate-900">{friendlyEventValue(signature.signature_method ?? "typed")}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">IP address</dt>
+                      <dd className="mt-1 text-slate-900">{signature.ip_address ?? "Not recorded"}</dd>
+                    </div>
+                  </dl>
+                  {signature.consent_text ? (
+                    <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Consent accepted</p>
+                      <p className="mt-2 whitespace-pre-wrap text-slate-700">{signature.consent_text}</p>
+                    </div>
+                  ) : null}
+                  {signature.user_agent ? (
+                    <p className="mt-3 break-words text-xs text-slate-500">User agent: {signature.user_agent}</p>
+                  ) : null}
+                  {compactJson(signature.device_metadata) ? (
+                    <p className="mt-2 break-words text-xs text-slate-500">Device: {compactJson(signature.device_metadata)}</p>
+                  ) : null}
                 </div>
               ))}
+              {auditRows.length > 0 ? (
+                <details className="rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+                  <summary className="cursor-pointer font-semibold text-slate-800">Signature audit trail</summary>
+                  <div className="mt-4 space-y-3">
+                    {auditRows.map((event) => (
+                      <div key={event.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                          <p className="font-semibold text-slate-900">{friendlyEventValue(event.event_type)}</p>
+                          <p className="text-xs text-slate-500">{formatDateTime(event.created_at)}</p>
+                        </div>
+                        {event.event_summary ? <p className="mt-1 text-slate-600">{event.event_summary}</p> : null}
+                        <p className="mt-2 text-xs text-slate-500">
+                          {event.actor_email ?? "No actor email"}{event.ip_address ? ` • ${event.ip_address}` : ""}
+                        </p>
+                        {event.user_agent ? (
+                          <p className="mt-1 break-words text-xs text-slate-500">User agent: {event.user_agent}</p>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
             </div>
           </div>
         </section>

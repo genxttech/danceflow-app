@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Image, Linking, StyleSheet, View } from "react-native";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
@@ -25,7 +25,10 @@ import {
   type StudentWallet
 } from "@/lib/studentWallet";
 
-const CHECKOUT_SYNC_REFRESH_LIMIT = 180;
+const CHECKOUT_SYNC_REFRESH_LIMIT = 18;
+const CHECKOUT_SYNC_REFRESH_INITIAL_DELAY_MS = 1200;
+const CHECKOUT_SYNC_REFRESH_INTERVAL_MS = 3000;
+const WALLET_BACKGROUND_REFRESH_COOLDOWN_MS = 15000;
 
 function statusLabel(value: string | null | undefined) {
   return (value ?? "active").replace(/_/g, " ");
@@ -216,10 +219,13 @@ export default function WalletScreen() {
   const [checkoutRefreshes, setCheckoutRefreshes] = useState(0);
   const [checkoutOrderStatus, setCheckoutOrderStatus] = useState<StudentEventOrderStatus | null>(null);
   const [checkoutStatusError, setCheckoutStatusError] = useState<string | null>(null);
+  const walletLoadInFlightRef = useRef(false);
+  const lastWalletLoadAtRef = useRef(0);
 
-  async function loadWallet(options?: { background?: boolean }) {
+  async function loadWallet(options?: { background?: boolean; force?: boolean }) {
     const userId = session?.user.id;
     const background = options?.background === true;
+    const force = options?.force === true;
 
     if (!userId) {
       setLinkedStudios([]);
@@ -227,6 +233,15 @@ export default function WalletScreen() {
       setLoading(false);
       return;
     }
+
+    if (walletLoadInFlightRef.current) return;
+
+    const now = Date.now();
+    if (background && !force && now - lastWalletLoadAtRef.current < WALLET_BACKGROUND_REFRESH_COOLDOWN_MS) {
+      return;
+    }
+
+    walletLoadInFlightRef.current = true;
 
     if (!background) {
       setLoading(true);
@@ -237,8 +252,9 @@ export default function WalletScreen() {
       const access = await getStudentAccess(userId);
       setLinkedStudios(access.linkedStudios);
 
-      const nextWallet = await loadStudentWallet(access.linkedStudios, session?.user.email ?? null);
+      const nextWallet = await loadStudentWallet(access.linkedStudios, session?.user.email ?? null, { force });
       setWallet(nextWallet);
+      lastWalletLoadAtRef.current = Date.now();
     } catch {
       if (checkoutSource === "event") {
         setErrorMessage(null);
@@ -250,6 +266,7 @@ export default function WalletScreen() {
       if (!background) {
         setLoading(false);
       }
+      walletLoadInFlightRef.current = false;
     }
   }
 
@@ -260,6 +277,10 @@ export default function WalletScreen() {
       const nextStatus = await getStudentEventOrderStatus(checkoutOrderId);
       setCheckoutOrderStatus(nextStatus);
       setCheckoutStatusError(null);
+
+      if (nextStatus.ticketsReady) {
+        await loadWallet({ background: true, force: true });
+      }
     } catch (error) {
       setCheckoutStatusError(error instanceof Error ? error.message : "Ticket status could not be checked.");
     }
@@ -284,7 +305,7 @@ export default function WalletScreen() {
       setCheckoutRefreshes((current) => current + 1);
       loadCheckoutOrderStatus();
       loadWallet({ background: true });
-    }, checkoutRefreshes === 0 ? 1200 : 2500);
+    }, checkoutRefreshes === 0 ? CHECKOUT_SYNC_REFRESH_INITIAL_DELAY_MS : CHECKOUT_SYNC_REFRESH_INTERVAL_MS);
 
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -497,7 +518,7 @@ export default function WalletScreen() {
         </>
       ) : null}
 
-{isSignedIn ? <AppButton label="Refresh wallet" onPress={() => loadWallet()} variant="secondary" /> : null}
+{isSignedIn ? <AppButton label="Refresh wallet" onPress={() => loadWallet({ force: true })} variant="secondary" /> : null}
     </Screen>
   );
 }
