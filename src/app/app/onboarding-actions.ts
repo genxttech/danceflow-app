@@ -43,6 +43,7 @@ export async function dismissWorkspaceOnboardingAction(formData: FormData) {
   }
 
   revalidatePath("/app");
+  revalidatePath("/app/onboarding");
 }
 
 export async function completeWorkspaceOnboardingAction(checklistTypeInput: "studio" | "organizer") {
@@ -79,4 +80,5 @@ export async function completeWorkspaceOnboardingAction(checklistTypeInput: "stu
   }
 
   revalidatePath("/app");
+  revalidatePath("/app/onboarding");
 }

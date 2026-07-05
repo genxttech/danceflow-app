@@ -111,8 +111,8 @@ function normalizeNavLabel(item: NavItem) {
     return "Event Check-In";
   }
 
-  if (item.href === "/app/schedule/requests") {
-    return "Booking Requests";
+  if (item.href === "/app/schedule/requests" || item.href === "/app/schedule/self-service") {
+    return "Self-service Requests";
   }
 
   if (item.href === "/app/documents") {
@@ -1133,13 +1133,20 @@ function injectBookingRequestsLink(sections: NavSectionType[]): NavSectionType[]
   const flatItems = sections.flatMap((section) => section.items);
   const hasScheduleAccess = flatItems.some((item) => item.href === "/app/schedule");
 
-  if (!hasScheduleAccess || flatItems.some((item) => item.href === "/app/schedule/requests")) {
+  if (
+    !hasScheduleAccess ||
+    flatItems.some(
+      (item) =>
+        item.href === "/app/schedule/self-service" ||
+        item.href === "/app/schedule/requests",
+    )
+  ) {
     return sections;
   }
 
   const bookingRequestsItem: NavItem = {
-    label: "Booking Requests",
-    href: "/app/schedule/requests",
+    label: "Self-service Requests",
+    href: "/app/schedule/self-service",
     icon: "schedule",
   };
 
@@ -1294,7 +1301,7 @@ function optimizeNavigationForTasks(sections: NavSectionType[], options: Normali
     ]),
     makeSection("Daily Operations", available, used, [
       "/app/schedule",
-      "/app/schedule/requests",
+      "/app/schedule/self-service",
       "/app/calendar",
       "/app/clients",
       "/app/clients/new",

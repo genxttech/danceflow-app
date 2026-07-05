@@ -19,12 +19,195 @@ type ClientRecord = {
   postal_code: string | null;
   country: string | null;
   dance_interests: string | null;
+  dance_goals?: string[] | null;
   skill_level: string | null;
   notes: string | null;
   referral_source: string | null;
   photo_url: string | null;
   status: string;
 };
+
+const CLIENT_STATUS_OPTIONS = [
+  { value: "lead", label: "Lead" },
+  { value: "active", label: "Active" },
+  { value: "inactive", label: "Inactive" },
+  { value: "archived", label: "Archived" },
+];
+
+const CLIENT_SKILL_LEVEL_OPTIONS = [
+  { value: "newcomer", label: "Newcomer" },
+  { value: "beginner", label: "Beginner" },
+  { value: "intermediate", label: "Intermediate" },
+  { value: "advanced", label: "Advanced" },
+  { value: "competitive", label: "Competitive" },
+  { value: "professional", label: "Professional" },
+];
+
+const CLIENT_REFERRAL_SOURCE_OPTIONS = [
+  { value: "manual", label: "Staff entered" },
+  { value: "walk_in", label: "Walk-in" },
+  { value: "phone_call", label: "Phone call" },
+  { value: "website", label: "Website" },
+  { value: "google", label: "Google/Search" },
+  { value: "social_media", label: "Social media" },
+  { value: "friend_referral", label: "Friend referral" },
+  { value: "student_referral", label: "Student referral" },
+  { value: "event_registration", label: "Event registration" },
+  { value: "public_intro_booking", label: "Public intro booking" },
+  { value: "studio_portal", label: "Studio portal" },
+  { value: "advertising", label: "Advertising" },
+  { value: "other", label: "Other" },
+];
+
+const DANCE_STYLE_GROUPS = [
+  {
+    label: "American Smooth",
+    options: [
+      "American Smooth",
+      "American Smooth - Waltz",
+      "American Smooth - Tango",
+      "American Smooth - Foxtrot",
+      "American Smooth - Viennese Waltz",
+    ],
+  },
+  {
+    label: "American Rhythm",
+    options: [
+      "American Rhythm",
+      "American Rhythm - Cha Cha",
+      "American Rhythm - Rumba",
+      "American Rhythm - East Coast Swing",
+      "American Rhythm - Bolero",
+      "American Rhythm - Mambo",
+    ],
+  },
+  {
+    label: "International Ballroom",
+    options: [
+      "International Ballroom",
+      "International Ballroom - Waltz",
+      "International Ballroom - Tango",
+      "International Ballroom - Viennese Waltz",
+      "International Ballroom - Foxtrot",
+      "International Ballroom - Quickstep",
+    ],
+  },
+  {
+    label: "International Latin",
+    options: [
+      "International Latin",
+      "International Latin - Cha Cha",
+      "International Latin - Samba",
+      "International Latin - Rumba",
+      "International Latin - Paso Doble",
+      "International Latin - Jive",
+    ],
+  },
+  {
+    label: "Country",
+    options: [
+      "Country",
+      "Country - Two Step",
+      "Country - West Coast Swing",
+      "Country - Nightclub Two Step",
+      "Country - Waltz",
+      "Country - Polka",
+    ],
+  },
+  {
+    label: "Social / Club",
+    options: [
+      "Social / Club",
+      "Social / Club - Salsa",
+      "Social / Club - Bachata",
+      "Social / Club - Merengue",
+      "Social / Club - Hustle",
+      "Social / Club - Argentine Tango",
+    ],
+  },
+];
+
+const DANCE_GOALS = [
+  "Social dancing",
+  "Practice partner",
+  "Wedding dance",
+  "Date night",
+  "Showcase",
+  "Competition",
+  "Confidence",
+  "Fitness",
+  "New hobby",
+  "Meet people",
+  "Improve technique",
+  "Prepare for an event",
+];
+
+function parseList(value: string | string[] | null | undefined) {
+  if (Array.isArray(value)) return value.map((item) => item.trim()).filter(Boolean);
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function CheckboxGroup({
+  groups,
+  name,
+  selected,
+}: {
+  groups: { label: string; options: string[] }[];
+  name: string;
+  selected: Set<string>;
+}) {
+  return (
+    <div className="space-y-4">
+      {groups.map((group) => (
+        <div key={`${name}-${group.label}`} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-900">{group.label}</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {group.options.map((option) => (
+              <label key={`${name}-${group.label}-${option}`} className="flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
+                <input
+                  type="checkbox"
+                  name={name}
+                  value={option}
+                  defaultChecked={selected.has(option)}
+                  className="h-4 w-4 rounded border-slate-300 text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
+                />
+                <span>{option}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function GoalCheckboxes({
+  name,
+  selected,
+}: {
+  name: string;
+  selected: Set<string>;
+}) {
+  return (
+    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+      {DANCE_GOALS.map((goal) => (
+        <label key={`${name}-${goal}`} className="flex items-center gap-2 rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm">
+          <input
+            type="checkbox"
+            name={name}
+            value={goal}
+            defaultChecked={selected.has(goal)}
+            className="h-4 w-4 rounded border-slate-300 text-[var(--brand-primary)] focus:ring-[var(--brand-primary)]"
+          />
+          <span>{goal}</span>
+        </label>
+      ))}
+    </div>
+  );
+}
 
 export default function EditClientForm({
   client,
@@ -35,6 +218,8 @@ export default function EditClientForm({
     updateClientAction,
     initialState
   );
+  const selectedDanceStyles = new Set(parseList(client.dance_interests));
+  const selectedDanceGoals = new Set(parseList(client.dance_goals ?? []));
 
   return (
     <div className="space-y-6">
@@ -91,7 +276,8 @@ export default function EditClientForm({
                 className="mt-3 block w-full text-sm text-slate-700 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
               />
               <p className="mt-2 text-xs text-slate-500">
-                JPG, PNG, or WebP up to 5MB.
+                JPG, PNG, or WebP up to 5MB. On supported mobile devices,
+                choose a photo from the library or take a new one.
               </p>
             </div>
           </div>
@@ -299,13 +485,14 @@ export default function EditClientForm({
           </div>
         </section>
 
-        <section className="space-y-4 rounded-2xl border border-slate-200 p-4">
+        <section className="space-y-5 rounded-2xl border border-violet-200 bg-violet-50/45 p-4">
           <div>
-            <h3 className="text-base font-semibold text-slate-950">
+            <h3 className="text-base font-semibold text-violet-950">
               Dance profile
             </h3>
-            <p className="mt-1 text-sm text-slate-600">
-              Give instructors quick context for lessons and follow-up.
+            <p className="mt-1 text-sm leading-6 text-violet-900">
+              Use consistent fields so instructors can personalize lessons and
+              management can track conversion by source, style, level, and goal.
             </p>
           </div>
 
@@ -315,33 +502,23 @@ export default function EditClientForm({
                 htmlFor="danceInterests"
                 className="mb-1 block text-sm font-medium text-slate-700"
               >
-                Dance Interests
-              </label>
-              <input
-                id="danceInterests"
-                name="danceInterests"
-                defaultValue={client.dance_interests ?? ""}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
-              />
-            </div>
-
-            <div>
-              <label
-                htmlFor="skillLevel"
-                className="mb-1 block text-sm font-medium text-slate-700"
-              >
                 Skill Level
               </label>
-              <input
+              <select
                 id="skillLevel"
                 name="skillLevel"
                 defaultValue={client.skill_level ?? ""}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
-              />
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+              >
+                <option value="">Not set</option>
+                {CLIENT_SKILL_LEVEL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </div>
-          </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label
                 htmlFor="referralSource"
@@ -349,14 +526,56 @@ export default function EditClientForm({
               >
                 Referral Source
               </label>
-              <input
+              <select
                 id="referralSource"
                 name="referralSource"
                 defaultValue={client.referral_source ?? ""}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+              >
+                <option value="">Not set</option>
+                {CLIENT_REFERRAL_SOURCE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-slate-700">
+                Dance Interests
+              </p>
+              <p className="text-xs leading-5 text-slate-500">
+                Multi-select the styles and dances this client cares about.
+              </p>
+            </div>
+            <div className="mt-3">
+              <CheckboxGroup
+                groups={DANCE_STYLE_GROUPS}
+                name="danceStyles"
+                selected={selectedDanceStyles}
               />
             </div>
+          </div>
 
+          <div>
+            <div className="flex flex-col gap-1">
+              <p className="text-sm font-medium text-slate-700">
+                Dance Goals
+              </p>
+              <p className="text-xs leading-5 text-slate-500">
+                Goals can change over time. Update these whenever their reason
+                for dancing changes so follow-up and analytics stay accurate.
+              </p>
+            </div>
+            <div className="mt-3">
+              <GoalCheckboxes name="danceGoals" selected={selectedDanceGoals} />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label
                 htmlFor="status"
@@ -368,12 +587,13 @@ export default function EditClientForm({
                 id="status"
                 name="status"
                 defaultValue={client.status}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
               >
-                <option value="lead">Lead</option>
-                <option value="active">Active</option>
-                <option value="inactive">Inactive</option>
-                <option value="archived">Archived</option>
+                {CLIENT_STATUS_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

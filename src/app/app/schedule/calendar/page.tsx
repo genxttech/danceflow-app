@@ -62,7 +62,7 @@ type EventRow = {
   event_type: string | null;
   status: string;
   start_date: string;
-  end_date: string;
+  end_date: string | null;
   start_time: string | null;
   end_time: string | null;
   venue_name: string | null;
@@ -243,6 +243,10 @@ function getEventDateTime(
   return `${date}T${time || fallbackTime}`;
 }
 
+function getWeekday(date: string) {
+  return new Date(`${date}T12:00:00Z`).getUTCDay();
+}
+
 async function getStudioTimezone(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
@@ -268,13 +272,22 @@ async function getStudioTimezone(params: {
 function eventOverlapsDays(event: EventRow, days: string[]) {
   const firstDay = days[0];
   const lastDay = days[days.length - 1];
+  const eventEndDate = event.end_date ?? lastDay;
 
-  return event.start_date <= lastDay && event.end_date >= firstDay;
+  return event.start_date <= lastDay && eventEndDate >= firstDay;
 }
 
 function expandEventForDays(event: EventRow, days: string[]): CalendarItem[] {
+  const eventEndDate = event.end_date ?? days[days.length - 1];
+  const groupClassWeekday =
+    event.event_type === "group_class" ? getWeekday(event.start_date) : null;
+
   return days
-    .filter((day) => event.start_date <= day && event.end_date >= day)
+    .filter((day) => {
+      if (event.start_date > day || eventEndDate < day) return false;
+      if (groupClassWeekday === null) return true;
+      return getWeekday(day) === groupClassWeekday;
+    })
     .map((day) => ({
       kind: "event" as const,
       id: event.id,
@@ -482,7 +495,7 @@ export default async function ScheduleCalendarPage({
     .eq("studio_id", studioId)
     .in("status", ["draft", "published"])
     .lte("start_date", days[days.length - 1])
-    .gte("end_date", days[0])
+    .or(`end_date.gte.${days[0]},end_date.is.null`)
     .order("start_date", { ascending: true });
 
   if (selectedStatus) {

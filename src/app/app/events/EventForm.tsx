@@ -68,6 +68,7 @@ type EventFormState = {
 };
 
 type ScheduleMode = "single" | "multi";
+type PublishingMode = "internal" | "direct_link" | "public_directory";
 
 type EventFormInitialValues = {
   id?: string;
@@ -134,18 +135,40 @@ const EVENT_TYPE_OPTIONS = [
 ] as const;
 
 const EVENT_STATUS_OPTIONS = [
-  { value: "draft", label: "Draft" },
-  { value: "published", label: "Published" },
-  { value: "open", label: "Open" },
-  { value: "closed", label: "Closed" },
+  { value: "draft", label: "Not live / draft" },
+  { value: "published", label: "Live by link" },
+  { value: "open", label: "Live and accepting registration" },
+  { value: "closed", label: "Live but registration closed" },
   { value: "cancelled", label: "Cancelled" },
 ] as const;
 
 const EVENT_VISIBILITY_OPTIONS = [
-  { value: "private", label: "Private" },
-  { value: "unlisted", label: "Unlisted" },
-  { value: "public", label: "Public" },
+  { value: "private", label: "Internal only" },
+  { value: "unlisted", label: "Public page by direct link" },
+  { value: "public", label: "Public/discoverable" },
 ] as const;
+
+const PUBLISHING_MODE_OPTIONS: {
+  value: PublishingMode;
+  label: string;
+  helper: string;
+}[] = [
+  {
+    value: "internal",
+    label: "Internal only",
+    helper: "Keeps this event out of public pages and Public Discovery. Use this for internal classes, planning, or private offerings.",
+  },
+  {
+    value: "direct_link",
+    label: "Live by direct link",
+    helper: "Creates a public event page that can be shared by URL, but keeps it out of the public dance directory.",
+  },
+  {
+    value: "public_directory",
+    label: "Public Discovery",
+    helper: "Publishes the event publicly and makes it eligible for DanceFlow Public Discovery.",
+  },
+];
 
 type StyleOption = {
   key: string;
@@ -418,18 +441,61 @@ function getEventTypeHelpText(eventType: string) {
 function getStatusHelpText(status: string) {
   switch (status) {
     case "draft":
-      return "Visible only internally until you are ready to publish.";
+      return "Not live. Visible internally while you finish setup.";
     case "published":
-      return "Published and ready to appear where allowed by visibility.";
+      return "Live page is available where visibility allows, but registration is not actively open.";
     case "open":
-      return "Published and actively open for registration.";
+      return "Live and actively accepting registration when registration is enabled.";
     case "closed":
-      return "Not accepting new registrations.";
+      return "Live page can remain visible, but new registration is closed.";
     case "cancelled":
       return "Cancelled and should no longer be promoted.";
     default:
       return "";
   }
+}
+
+function getPublishingMode(params: {
+  publicDirectoryEnabled: boolean;
+  status: string;
+  visibility: string;
+}): PublishingMode {
+  if (params.publicDirectoryEnabled) {
+    return "public_directory";
+  }
+
+  if (params.visibility === "private") {
+    return "internal";
+  }
+
+  if (params.visibility === "unlisted" || params.visibility === "public" || params.status === "published" || params.status === "open") {
+    return "direct_link";
+  }
+
+  return "internal";
+}
+
+function getPublishingSummary(params: {
+  publicDirectoryEnabled: boolean;
+  registrationRequired: boolean;
+  status: string;
+  visibility: string;
+}) {
+  if (params.publicDirectoryEnabled) {
+    return params.registrationRequired
+      ? "Public Discovery is on. The event is public and registration can open when status is Live and accepting registration."
+      : "Public Discovery is on. The event is public, but registration is not required.";
+  }
+
+  if (params.visibility === "unlisted") {
+    return "This event has a public page by direct link, but it will not appear in Public Discovery.";
+  }
+
+  if (params.visibility === "public") {
+    return "This event is public. Turn on Public Discovery if it should appear in the directory.";
+  }
+
+  return "This event is internal only and hidden from public event pages and Public Discovery.";
 }
 
 function makeBlankSession(
@@ -701,6 +767,11 @@ export default function EventForm({
           startDate,
         )} · Ongoing weekly class`
     : "";
+  const publishingMode = getPublishingMode({
+    publicDirectoryEnabled,
+    status,
+    visibility,
+  });
 
   const singleOrganizer = organizers.length === 1 ? organizers[0] : null;
   const isStudioHostedEvent = !organizerWorkspace && organizers.length === 0;
@@ -709,20 +780,47 @@ export default function EventForm({
   const organizerSelectionLocked =
     organizerWorkspace && Boolean(singleOrganizer);
 
-  const visibilitySummary = useMemo(() => {
-    if (publicDirectoryEnabled) {
-      return "Public directory enabled overrides visibility to make the event discoverable.";
+  const visibilitySummary = useMemo(
+    () =>
+      getPublishingSummary({
+        publicDirectoryEnabled,
+        registrationRequired,
+        status,
+        visibility,
+      }),
+    [publicDirectoryEnabled, registrationRequired, status, visibility],
+  );
+
+  function handlePublishingModeChange(nextMode: PublishingMode) {
+    if (nextMode === "public_directory") {
+      setPublicDirectoryEnabled(true);
+      setVisibility("public");
+      setStatus("open");
+      return;
     }
 
-    switch (visibility) {
-      case "public":
-        return "Public pages can show this event when organizer and publication rules allow it.";
-      case "unlisted":
-        return "The event can be shared by direct link but is not listed in discovery.";
-      default:
-        return "Private events stay internal and out of public discovery.";
+    if (nextMode === "direct_link") {
+      setPublicDirectoryEnabled(false);
+      setVisibility("unlisted");
+      setStatus((current) =>
+        current === "draft" || current === "cancelled" ? "published" : current,
+      );
+      return;
     }
-  }, [publicDirectoryEnabled, visibility]);
+
+    setPublicDirectoryEnabled(false);
+    setVisibility("private");
+    setStatus((current) => (current === "cancelled" ? current : "draft"));
+  }
+
+  function handleStatusChange(nextStatus: string) {
+    setStatus(nextStatus);
+
+    if (publicDirectoryEnabled && nextStatus === "draft") {
+      setPublicDirectoryEnabled(false);
+      setVisibility("private");
+    }
+  }
 
   function handleDanceCategoryChange(categoryKey: string) {
     setDanceCategory(categoryKey);
@@ -951,6 +1049,13 @@ export default function EventForm({
         type="hidden"
         name="waitlistEnabled"
         value={eventCommerceEnabled && waitlistEnabled ? "true" : "false"}
+      />
+      <input type="hidden" name="status" value={status} />
+      <input type="hidden" name="visibility" value={visibility} />
+      <input
+        type="hidden"
+        name="publicDirectoryEnabled"
+        value={publicDirectoryEnabled ? "true" : "false"}
       />
 
       <input
@@ -1205,57 +1310,115 @@ export default function EventForm({
                 </p>
               </div>
 
-              <div>
-                <label
-                  htmlFor="status"
-                  className="mb-1.5 block text-sm font-medium"
-                >
-                  Status
-                  <RequiredAsterisk />
-                </label>
-                <select
-                  id="status"
-                  name="status"
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                >
-                  {EVENT_STATUS_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-slate-500">
-                  {getStatusHelpText(status)}
-                </p>
-              </div>
+              <div className="md:col-span-2 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/25 p-4">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h4 className="text-base font-semibold text-slate-950">
+                      Publishing destination
+                    </h4>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      Choose how this event should be seen. DanceFlow will set
+                      the matching status, visibility, and Public Discovery
+                      options for you.
+                    </p>
+                  </div>
+                  <span className="w-fit rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                    {visibilitySummary}
+                  </span>
+                </div>
 
-              <div>
-                <label
-                  htmlFor="visibility"
-                  className="mb-1.5 block text-sm font-medium"
-                >
-                  Visibility
-                  <RequiredAsterisk />
-                </label>
-                <select
-                  id="visibility"
-                  name="visibility"
-                  value={visibility}
-                  onChange={(e) => setVisibility(e.target.value)}
-                  disabled={publicDirectoryEnabled}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm disabled:bg-slate-100"
-                >
-                  {EVENT_VISIBILITY_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-xs text-slate-500">
-                  {visibilitySummary}
-                </p>
+                <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                  {PUBLISHING_MODE_OPTIONS.map((option) => {
+                    const selected = publishingMode === option.value;
+
+                    return (
+                      <label
+                        key={option.value}
+                        className={`cursor-pointer rounded-xl border p-4 transition ${
+                          selected
+                            ? "border-[var(--brand-primary)] bg-white shadow-sm ring-2 ring-[var(--brand-primary-soft)]"
+                            : "border-slate-200 bg-white/80 hover:bg-white"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="publishingMode"
+                          value={option.value}
+                          checked={selected}
+                          onChange={() => handlePublishingModeChange(option.value)}
+                          className="sr-only"
+                        />
+                        <span className="block text-sm font-semibold text-slate-950">
+                          {option.label}
+                        </span>
+                        <span className="mt-2 block text-xs leading-5 text-slate-600">
+                          {option.helper}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label
+                      htmlFor="status"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      Event state
+                      <RequiredAsterisk />
+                    </label>
+                    <select
+                      id="status"
+                      value={status}
+                      onChange={(e) => handleStatusChange(e.target.value)}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm"
+                    >
+                      {EVENT_STATUS_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {getStatusHelpText(status)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="visibility"
+                      className="mb-1.5 block text-sm font-medium"
+                    >
+                      Visibility detail
+                      <RequiredAsterisk />
+                    </label>
+                    <select
+                      id="visibility"
+                      value={visibility}
+                      onChange={(e) => {
+                        const nextVisibility = e.target.value;
+                        setVisibility(nextVisibility);
+                        if (nextVisibility !== "public") {
+                          setPublicDirectoryEnabled(false);
+                        }
+                      }}
+                      disabled={publicDirectoryEnabled}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm disabled:bg-slate-100"
+                    >
+                      {EVENT_VISIBILITY_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {publicDirectoryEnabled
+                        ? "Public Discovery keeps visibility set to public."
+                        : "Use Internal only for staff-only events or direct link for hidden public pages."}
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div className="md:col-span-2 rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -2600,17 +2763,21 @@ export default function EventForm({
               Public Discovery
             </h3>
             <p className="mt-2 text-sm text-orange-800">
-              Use these settings to control whether this event appears in the
-              public dance directory.
+              Turn this on when this should be discoverable by students in the
+              public dance directory. DanceFlow will set the event live, public,
+              and directory-eligible.
             </p>
 
             <div className="mt-4 space-y-3">
               <label className="flex items-start gap-3 rounded-xl border border-orange-200 bg-white p-4">
                 <input
                   type="checkbox"
-                  name="publicDirectoryEnabled"
                   checked={publicDirectoryEnabled}
-                  onChange={(e) => setPublicDirectoryEnabled(e.target.checked)}
+                  onChange={(e) =>
+                    e.target.checked
+                      ? handlePublishingModeChange("public_directory")
+                      : handlePublishingModeChange("direct_link")
+                  }
                   className="mt-1"
                 />
                 <div>
@@ -2618,8 +2785,9 @@ export default function EventForm({
                     Show in public dance directory
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Published/open events with this enabled can appear in public
-                    event discovery.
+                    Automatically sets this event to Live and accepting
+                    registration, Public/discoverable visibility, and Public
+                    Discovery enabled.
                   </p>
                 </div>
               </label>
@@ -2831,7 +2999,7 @@ export default function EventForm({
                   type="checkbox"
                   checked={waitlistEnabled}
                   onChange={(e) => setWaitlistEnabled(e.target.checked)}
-                  disabled={!eventCommerceEnabled || !hasCapacity}
+                  disabled={!eventCommerceEnabled}
                   className="mt-1"
                 />
                 <div>
@@ -2842,7 +3010,8 @@ export default function EventForm({
                   </p>
                   {!hasCapacity ? (
                     <p className="mt-2 text-xs text-slate-500">
-                      Add a capacity limit to use waitlist mode.
+                      Add event, ticket, location, or session capacity so the
+                      system knows when to move new registrants to the waitlist.
                     </p>
                   ) : null}
                 </div>

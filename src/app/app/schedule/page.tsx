@@ -106,7 +106,7 @@ type EventRow = {
   status: string;
   visibility: string;
   start_date: string;
-  end_date: string;
+  end_date: string | null;
   start_time: string | null;
   end_time: string | null;
   venue_name: string | null;
@@ -129,6 +129,7 @@ type ScheduleListItem =
     }
   | {
       kind: "event";
+      occurrence_date?: string;
       sort_key: string;
       event: EventRow;
     };
@@ -146,6 +147,50 @@ function addDaysLocal(date: string, days: number) {
     start.getMonth(),
     start.getDate() + days,
   );
+}
+
+function formatLocalDateKey(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function maxLocalDate(a: Date, b: Date) {
+  return a.getTime() >= b.getTime() ? a : b;
+}
+
+function minLocalDate(a: Date, b: Date) {
+  return a.getTime() <= b.getTime() ? a : b;
+}
+
+function getWeeklyGroupClassOccurrenceDate(
+  event: EventRow,
+  rangeStartDate: string,
+  rangeEndExclusiveDate: string,
+) {
+  const seriesStart = startOfLocalDate(event.start_date);
+  const rangeStart = startOfLocalDate(rangeStartDate);
+  const rangeEndExclusive = startOfLocalDate(rangeEndExclusiveDate);
+  const seriesEndExclusive = event.end_date
+    ? addDaysLocal(event.end_date, 1)
+    : rangeEndExclusive;
+  const effectiveStart = maxLocalDate(seriesStart, rangeStart);
+  const effectiveEndExclusive = minLocalDate(seriesEndExclusive, rangeEndExclusive);
+
+  if (effectiveStart >= effectiveEndExclusive) return null;
+
+  const targetWeekday = seriesStart.getDay();
+  const occurrence = new Date(effectiveStart);
+  const daysUntilClass =
+    (targetWeekday - occurrence.getDay() + 7) % 7;
+
+  occurrence.setDate(occurrence.getDate() + daysUntilClass);
+
+  if (occurrence >= effectiveEndExclusive) return null;
+
+  return formatLocalDateKey(occurrence);
 }
 
 function getTimeZoneParts(value: Date, timeZone: string) {
@@ -244,15 +289,26 @@ function formatDate(value: string) {
   });
 }
 
-function formatEventDateRange(event: EventRow) {
-  const sameDay = event.start_date === event.end_date;
+function formatEventDateRange(event: EventRow, occurrenceDate?: string) {
   const hasTimes = Boolean(event.start_time && event.end_time);
 
-  if (sameDay && hasTimes) {
+  if (event.event_type === "group_class" && occurrenceDate) {
+    const occurrenceLabel = hasTimes
+      ? `${formatDate(occurrenceDate)} • ${event.start_time} – ${event.end_time}`
+      : `${formatDate(occurrenceDate)} • Weekly class`;
+    const seriesLabel =
+      event.end_date && event.end_date !== event.start_date
+        ? `Series ${formatDate(event.start_date)} – ${formatDate(event.end_date)}`
+        : null;
+
+    return [occurrenceLabel, seriesLabel].filter(Boolean).join(" · ");
+  }
+
+  if ((!event.end_date || event.start_date === event.end_date) && hasTimes) {
     return `${formatDate(event.start_date)} • ${event.start_time} – ${event.end_time}`;
   }
 
-  if (sameDay) {
+  if (!event.end_date || event.start_date === event.end_date) {
     return `${formatDate(event.start_date)} • All day`;
   }
 
@@ -284,32 +340,62 @@ function eventTypeLabel(value: string) {
 }
 
 function statusBadgeClass(status: string) {
-  if (status === "scheduled") return "bg-blue-50 text-blue-700";
-  if (status === "attended") return "bg-green-50 text-green-700";
-  if (status === "cancelled") return "bg-red-50 text-red-700";
-  if (status === "no_show") return "bg-amber-50 text-amber-700";
-  if (status === "rescheduled") return "bg-purple-50 text-purple-700";
-  if (status === "published") return "bg-green-50 text-green-700";
-  if (status === "draft") return "bg-amber-50 text-amber-700";
-  return "bg-slate-100 text-slate-700";
+  if (status === "scheduled") return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
+  if (status === "attended") return "bg-green-50 text-green-700 ring-1 ring-green-100";
+  if (status === "cancelled") return "bg-red-50 text-red-700 ring-1 ring-red-100";
+  if (status === "no_show") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
+  if (status === "rescheduled") return "bg-purple-50 text-purple-700 ring-1 ring-purple-100";
+  if (status === "published") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100";
+  if (status === "draft") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function appointmentTypeBadgeClass(type: string) {
-  if (type === "floor_space_rental") return "bg-indigo-50 text-indigo-700";
-  if (type === "intro_lesson") return "bg-cyan-50 text-cyan-700";
-  if (type === "group_class") return "bg-green-50 text-green-700";
-  if (type === "coaching") return "bg-purple-50 text-purple-700";
-  if (type === "practice_party") return "bg-amber-50 text-amber-700";
-  if (type === "event") return "bg-rose-50 text-rose-700";
-  return "bg-slate-100 text-slate-700";
+  if (type === "floor_space_rental") return "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100";
+  if (type === "intro_lesson") return "bg-cyan-50 text-cyan-700 ring-1 ring-cyan-100";
+  if (type === "group_class") return "bg-green-50 text-green-700 ring-1 ring-green-100";
+  if (type === "coaching") return "bg-purple-50 text-purple-700 ring-1 ring-purple-100";
+  if (type === "practice_party") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
+  if (type === "event") return "bg-rose-50 text-rose-700 ring-1 ring-rose-100";
+  return "bg-slate-100 text-slate-700 ring-1 ring-slate-200";
 }
 
 function eventTypeBadgeClass(type: string) {
-  if (type === "group_class") return "bg-blue-50 text-blue-700";
-  if (type === "practice_party") return "bg-amber-50 text-amber-700";
-  if (type === "workshop") return "bg-violet-50 text-violet-700";
-  if (type === "social_dance") return "bg-emerald-50 text-emerald-700";
-  return "bg-rose-50 text-rose-700";
+  if (type === "group_class") return "bg-blue-50 text-blue-700 ring-1 ring-blue-100";
+  if (type === "practice_party") return "bg-amber-50 text-amber-700 ring-1 ring-amber-100";
+  if (type === "workshop") return "bg-violet-50 text-violet-700 ring-1 ring-violet-100";
+  if (type === "social_dance") return "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100";
+  if (type === "competition") return "bg-fuchsia-50 text-fuchsia-700 ring-1 ring-fuchsia-100";
+  return "bg-rose-50 text-rose-700 ring-1 ring-rose-100";
+}
+
+function eventCardClass(type: string) {
+  if (type === "group_class") {
+    return "border-blue-200 bg-gradient-to-br from-blue-50 via-white to-white shadow-sm ring-1 ring-blue-100/70";
+  }
+  if (type === "practice_party") {
+    return "border-amber-200 bg-gradient-to-br from-amber-50 via-white to-white shadow-sm ring-1 ring-amber-100/70";
+  }
+  if (type === "workshop") {
+    return "border-violet-200 bg-gradient-to-br from-violet-50 via-white to-white shadow-sm ring-1 ring-violet-100/70";
+  }
+  if (type === "social_dance") {
+    return "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-white shadow-sm ring-1 ring-emerald-100/70";
+  }
+  if (type === "competition") {
+    return "border-fuchsia-200 bg-gradient-to-br from-fuchsia-50 via-white to-white shadow-sm ring-1 ring-fuchsia-100/70";
+  }
+
+  return "border-rose-200 bg-gradient-to-br from-rose-50 via-white to-white shadow-sm ring-1 ring-rose-100/70";
+}
+
+function eventAccentClass(type: string) {
+  if (type === "group_class") return "from-blue-500 to-cyan-400";
+  if (type === "practice_party") return "from-amber-500 to-orange-400";
+  if (type === "workshop") return "from-violet-500 to-purple-400";
+  if (type === "social_dance") return "from-emerald-500 to-teal-400";
+  if (type === "competition") return "from-fuchsia-500 to-pink-400";
+  return "from-rose-500 to-pink-400";
 }
 
 function getClientName(
@@ -509,13 +595,13 @@ function StatCard({
   icon: React.ComponentType<{ className?: string }>;
 }) {
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm ring-1 ring-[var(--brand-primary-soft)]/50 transition hover:-translate-y-0.5 hover:shadow-md">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm text-slate-500">{label}</p>
+          <p className="text-sm font-medium text-slate-500">{label}</p>
           <p className="mt-2 text-3xl font-semibold text-slate-950">{value}</p>
         </div>
-        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+        <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)] ring-1 ring-[var(--brand-border)]">
           <Icon className="h-5 w-5" />
         </div>
       </div>
@@ -757,7 +843,8 @@ export default async function SchedulePage({
   const baseDate = getBaseDate(params.date, studioTimeZone);
   const { startIso: todayStart, endIso: todayEnd } =
     getLocalDayUtcRange(baseDate, studioTimeZone);
-  const next7LocalDate = addDaysLocal(baseDate, 7).toISOString().slice(0, 10);
+  const next7LocalDate = formatLocalDateKey(addDaysLocal(baseDate, 7));
+  const tomorrowLocalDate = formatLocalDateKey(addDaysLocal(baseDate, 1));
   const next7End = getLocalDayUtcRange(next7LocalDate, studioTimeZone).startIso;
 
   let appointmentsQuery = supabase
@@ -862,11 +949,11 @@ export default async function SchedulePage({
   if (scope === "today") {
     eventsQuery = eventsQuery
       .lte("start_date", todayDate)
-      .gte("end_date", todayDate);
+      .or(`end_date.gte.${todayDate},end_date.is.null`);
   } else if (scope === "next7") {
     eventsQuery = eventsQuery
       .lte("start_date", next7Date)
-      .gte("end_date", todayDate);
+      .or(`end_date.gte.${todayDate},end_date.is.null`);
   }
 
   if (statusFilter !== "all") {
@@ -1009,6 +1096,13 @@ export default async function SchedulePage({
     );
   }
 
+  const eventOccurrenceRange =
+    scope === "today"
+      ? { endExclusive: tomorrowLocalDate, start: baseDate }
+      : scope === "next7"
+        ? { endExclusive: next7LocalDate, start: baseDate }
+        : null;
+
   const typedEvents = ((events ?? []) as EventRow[])
     .filter((event) => {
       if (sourceFilter === "public_intro") return false;
@@ -1016,6 +1110,16 @@ export default async function SchedulePage({
       if (sourceFilter === "floor_rentals") return false;
       if (instructorFilter !== "all") return false;
       if (roomFilter !== "all") return false;
+
+      if (event.event_type === "group_class" && eventOccurrenceRange) {
+        return Boolean(
+          getWeeklyGroupClassOccurrenceDate(
+            event,
+            eventOccurrenceRange.start,
+            eventOccurrenceRange.endExclusive,
+          ),
+        );
+      }
 
       return true;
     })
@@ -1045,11 +1149,23 @@ export default async function SchedulePage({
       sort_key: appointment.starts_at,
       appointment,
     })),
-    ...typedEvents.map((event) => ({
-      kind: "event" as const,
-      sort_key: `${event.start_date}T${event.start_time || "00:00:00"}`,
-      event,
-    })),
+    ...typedEvents.map((event) => {
+      const occurrenceDate =
+        event.event_type === "group_class" && eventOccurrenceRange
+          ? getWeeklyGroupClassOccurrenceDate(
+              event,
+              eventOccurrenceRange.start,
+              eventOccurrenceRange.endExclusive,
+            ) ?? undefined
+          : undefined;
+
+      return {
+        kind: "event" as const,
+        occurrence_date: occurrenceDate,
+        sort_key: `${occurrenceDate ?? event.start_date}T${event.start_time || "00:00:00"}`,
+        event,
+      };
+    }),
   ].sort((a, b) => a.sort_key.localeCompare(b.sort_key));
 
   const scheduledCount = typedAppointments.filter(
@@ -1171,7 +1287,7 @@ export default async function SchedulePage({
 
         <div className="border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-5">
+            <div className="rounded-2xl border border-sky-200 bg-gradient-to-br from-sky-50 to-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold text-sky-950">
                 See your day at a glance
               </h2>
@@ -1181,7 +1297,7 @@ export default async function SchedulePage({
               </p>
             </div>
 
-            <div className="rounded-2xl border border-violet-200 bg-violet-50 p-5">
+            <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold text-violet-950">
                 Use filters to find what you need faster
               </h2>
@@ -1191,7 +1307,7 @@ export default async function SchedulePage({
               </p>
             </div>
 
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <div className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-5 shadow-sm">
               <h2 className="text-lg font-semibold text-amber-950">
                 Keep lessons moving smoothly
               </h2>
@@ -1524,7 +1640,7 @@ export default async function SchedulePage({
         ) : null}
       </section>
 
-      <form className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <form className="rounded-[28px] border border-[var(--brand-border)] bg-white/95 p-5 shadow-sm ring-1 ring-[var(--brand-primary-soft)]/60">
         <div className="mb-4 flex items-start gap-3">
           <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
             <Filter className="h-5 w-5" />
@@ -1549,7 +1665,7 @@ export default async function SchedulePage({
               name="q"
               defaultValue={params.q ?? ""}
               placeholder="Client, instructor, room, type, event..."
-              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
             />
           </div>
 
@@ -1562,7 +1678,7 @@ export default async function SchedulePage({
               name="date"
               type="date"
               defaultValue={baseDate}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
             />
           </div>
 
@@ -1574,7 +1690,7 @@ export default async function SchedulePage({
               id="scope"
               name="scope"
               defaultValue={scope}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
             >
               <option value="today">Today</option>
               <option value="next7">Next 7 Days</option>
@@ -1590,7 +1706,7 @@ export default async function SchedulePage({
               id="source"
               name="source"
               defaultValue={sourceFilter}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
             >
               <option value="all">All</option>
               <option value="events">Events Only</option>
@@ -1611,7 +1727,7 @@ export default async function SchedulePage({
               id="instructor"
               name="instructor"
               defaultValue={instructorFilter}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
             >
               <option value="all">All</option>
               {(instructors ?? []).map((instructor) => (
@@ -1630,7 +1746,7 @@ export default async function SchedulePage({
               id="room"
               name="room"
               defaultValue={roomFilter}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
             >
               <option value="all">All</option>
               {(rooms ?? []).map((room) => (
@@ -1649,7 +1765,7 @@ export default async function SchedulePage({
               id="status"
               name="status"
               defaultValue={statusFilter}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 shadow-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
             >
               <option value="all">All</option>
               <option value="scheduled">Scheduled</option>
@@ -1666,13 +1782,13 @@ export default async function SchedulePage({
         <div className="mt-4 flex flex-wrap gap-3">
           <button
             type="submit"
-            className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
+            className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 font-medium text-white shadow-sm hover:brightness-95"
           >
             Apply Filters
           </button>
           <Link
             href="/app/schedule"
-            className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+            className="rounded-xl border border-slate-200 bg-white px-4 py-2 font-medium text-slate-700 shadow-sm hover:bg-slate-50"
           >
             Reset
           </Link>
@@ -1681,7 +1797,7 @@ export default async function SchedulePage({
 
       <div className="space-y-4">
         {mixedItems.length === 0 ? (
-          <div className="rounded-[28px] border border-slate-200 bg-white p-10 text-center text-slate-500 shadow-sm">
+          <div className="rounded-[28px] border border-dashed border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/25 p-10 text-center text-slate-500 shadow-sm">
             <p className="text-base font-medium text-slate-900">
               No schedule items match your current filters.
             </p>
@@ -1697,14 +1813,15 @@ export default async function SchedulePage({
               return (
                 <div
                   key={`event-${event.id}`}
-                  className="rounded-2xl border bg-white p-5 shadow-sm"
+                  className={`relative overflow-hidden rounded-2xl border p-5 transition hover:-translate-y-0.5 hover:shadow-md ${eventCardClass(event.event_type)}`}
                 >
+                  <div className={`absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b ${eventAccentClass(event.event_type)}`} />
                   <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-                    <div className="min-w-0">
+                    <div className="min-w-0 pl-2">
                       <div className="flex flex-wrap items-center gap-3">
                         <Link
                           href={`/app/events/${event.id}`}
-                          className="text-lg font-semibold text-slate-900 hover:underline"
+                          className="text-lg font-semibold text-slate-950 hover:text-[var(--brand-primary)]"
                         >
                           {event.name}
                         </Link>
@@ -1725,27 +1842,27 @@ export default async function SchedulePage({
                           {eventTypeLabel(event.event_type)}
                         </span>
 
-                        <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
-                          Read Only
+                        <span className="inline-flex rounded-full bg-white/80 px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                          Event listing
                         </span>
                       </div>
 
-                      <p className="mt-2 text-sm text-slate-600">
-                        Event offering shown here for operational visibility.
+                      <p className="mt-2 text-sm leading-6 text-slate-600">
+                        Shown on the schedule for staffing, room planning, registration, and check-in visibility.
                       </p>
 
-                      <div className="mt-3 grid gap-x-8 gap-y-3 sm:grid-cols-2 xl:grid-cols-4">
-                        <div className="min-w-0">
-                          <p className="text-xs uppercase tracking-wide text-slate-400">
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3 shadow-sm">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                             When
                           </p>
                           <p className="mt-1 text-sm font-medium text-slate-900">
-                            {formatEventDateRange(event)}
+                            {formatEventDateRange(event, item.occurrence_date)}
                           </p>
                         </div>
 
-                        <div className="min-w-0">
-                          <p className="text-xs uppercase tracking-wide text-slate-400">
+                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3 shadow-sm">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                             Organizer
                           </p>
                           <p className="mt-1 text-sm font-medium text-slate-900">
@@ -1753,8 +1870,8 @@ export default async function SchedulePage({
                           </p>
                         </div>
 
-                        <div className="min-w-0">
-                          <p className="text-xs uppercase tracking-wide text-slate-400">
+                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3 shadow-sm">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                             Location
                           </p>
                           <p className="mt-1 text-sm font-medium text-slate-900">
@@ -1766,8 +1883,8 @@ export default async function SchedulePage({
                           </p>
                         </div>
 
-                        <div className="min-w-0">
-                          <p className="text-xs uppercase tracking-wide text-slate-400">
+                        <div className="min-w-0 rounded-xl border border-white/70 bg-white/70 p-3 shadow-sm">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                             Visibility
                           </p>
                           <p className="mt-1 text-sm font-medium text-slate-900">
@@ -1780,14 +1897,14 @@ export default async function SchedulePage({
                     <div className="flex flex-wrap gap-3 xl:justify-end">
                       <Link
                         href={`/app/events/${event.id}`}
-                        className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                        className="rounded-xl bg-[var(--brand-primary)] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:brightness-95"
                       >
                         View Event
                       </Link>
 
                       <Link
                         href={`/app/events/${event.id}`}
-                        className="rounded-xl border px-4 py-2 hover:bg-slate-50"
+                        className="rounded-xl border border-slate-200 bg-white/80 px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-white"
                       >
                         Check-In / Roster
                       </Link>
@@ -1821,7 +1938,7 @@ export default async function SchedulePage({
             return (
               <div
                 key={`appointment-${appointment.id}`}
-                className="rounded-2xl border bg-white p-5 shadow-sm"
+                className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-[var(--brand-border)] hover:shadow-md"
               >
                 <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                   <div className="min-w-0">

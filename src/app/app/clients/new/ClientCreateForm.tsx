@@ -180,7 +180,10 @@ export default function ClientCreateForm({
           accept="image/jpeg,image/png,image/webp"
           className="mt-3 block w-full text-sm text-slate-700 file:mr-4 file:rounded-xl file:border-0 file:bg-slate-900 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
         />
-        <p className="mt-2 text-xs text-slate-500">JPG, PNG, or WebP up to 5MB.</p>
+        <p className="mt-2 text-xs text-slate-500">
+          JPG, PNG, or WebP up to 5MB. On supported mobile devices, choose a
+          photo from the library or take a new one.
+        </p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2">

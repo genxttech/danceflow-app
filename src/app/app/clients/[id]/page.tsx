@@ -54,7 +54,9 @@ type ClientRecord = {
   status: string;
   skill_level: string | null;
   dance_interests: string | null;
+  dance_goals: string[] | null;
   referral_source: string | null;
+  photo_url: string | null;
   notes: string | null;
   is_independent_instructor: boolean | null;
   linked_instructor_id: string | null;
@@ -1000,6 +1002,19 @@ function leadSourceBadgeClass(value: string | null) {
   return "bg-slate-100 text-slate-700";
 }
 
+function parseClientList(value: string | string[] | null | undefined) {
+  if (Array.isArray(value)) return value.map((item) => item.trim()).filter(Boolean);
+  return (value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function clientQrImageUrl(studioSlug: string, clientId: string) {
+  const payload = `danceflow-client:${studioSlug}:${clientId}`;
+  return `/api/tickets/qr?code=${encodeURIComponent(payload)}`;
+}
+
 function leadRecommendedNextStep(params: {
   isPublicIntroLead: boolean;
   isEventRegistrationLead: boolean;
@@ -1739,7 +1754,9 @@ export default async function ClientDetailPage({
         status,
         skill_level,
         dance_interests,
+        dance_goals,
         referral_source,
+        photo_url,
         notes,
         is_independent_instructor,
         linked_instructor_id,
@@ -2177,6 +2194,10 @@ export default async function ClientDetailPage({
       ? typedStudio.timezone.trim()
       : CLIENT_DETAIL_DEFAULT_TIME_ZONE;
   const typedClient = client as ClientRecord;
+  const clientInitials = `${typedClient.first_name.slice(0, 1)}${typedClient.last_name.slice(0, 1)}`.toUpperCase();
+  const clientDanceInterests = parseClientList(typedClient.dance_interests);
+  const clientDanceGoals = parseClientList(typedClient.dance_goals);
+  const clientQrUrl = clientQrImageUrl(typedStudio.slug, typedClient.id);
   const typedInstructors = (instructors ?? []) as InstructorOption[];
   const typedPackages = (packages ?? []) as ClientPackageRow[];
   const typedUpcoming = (upcomingAppointments ?? []) as AppointmentRow[];
@@ -2503,7 +2524,38 @@ export default async function ClientDetailPage({
 
       <div className="overflow-hidden rounded-[32px] border border-[var(--brand-border)] bg-[linear-gradient(135deg,rgba(255,255,255,0.94)_0%,rgba(255,249,243,0.98)_100%)] p-6 shadow-sm">
         <div className="flex flex-col gap-6">
-          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+          <div className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)]">
+            <aside className="rounded-[28px] border border-[var(--brand-border)] bg-white p-4 shadow-sm">
+              <div className="overflow-hidden rounded-3xl border border-slate-200 bg-[var(--brand-primary-soft)]">
+                <div className="flex aspect-square items-center justify-center bg-white text-5xl font-semibold text-[var(--brand-primary)]">
+                  {typedClient.photo_url ? (
+                    <img
+                      src={typedClient.photo_url}
+                      alt={`${typedClient.first_name} ${typedClient.last_name}`}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span>{clientInitials}</span>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-center">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                  Client QR
+                </p>
+                <img
+                  src={clientQrUrl}
+                  alt={`${typedClient.first_name} ${typedClient.last_name} QR code`}
+                  className="mx-auto mt-3 h-32 w-32 rounded-xl border border-slate-200 bg-white p-2"
+                />
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Use for front desk lookup, check-in, and future client pass flows.
+                </p>
+              </div>
+            </aside>
+
+            <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
             <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
                 Client Profile
@@ -2693,30 +2745,31 @@ export default async function ClientDetailPage({
               ) : null}
             </div>
           </div>
+          </div>
 
-          <div className="grid gap-x-8 gap-y-5 sm:grid-cols-2 2xl:grid-cols-4">
-            <div className="min-w-0">
+          <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-4">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
               <p className="text-sm text-slate-500">Email</p>
               <p className="mt-1 break-words font-medium text-[var(--brand-text)]">
                 {typedClient.email ?? "—"}
               </p>
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
               <p className="text-sm text-slate-500">Phone</p>
               <p className="mt-1 break-words font-medium text-[var(--brand-text)]">
                 {typedClient.phone ?? "—"}
               </p>
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
               <p className="text-sm text-slate-500">Birthday</p>
               <p className="mt-1 break-words font-medium text-[var(--brand-text)]">
                 {formatClientBirthday(typedClient.birthday)}
               </p>
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
               <p className="text-sm text-slate-500">Mailing Address</p>
               <div className="mt-1 space-y-0.5 break-words font-medium text-[var(--brand-text)]">
                 {formatMailingAddress(typedClient).map((line) => (
@@ -2725,14 +2778,37 @@ export default async function ClientDetailPage({
               </div>
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 rounded-2xl border border-violet-200 bg-violet-50/80 p-4 shadow-sm 2xl:col-span-2">
               <p className="text-sm text-slate-500">Dance Interests</p>
-              <p className="mt-1 break-words font-medium text-[var(--brand-text)]">
-                {typedClient.dance_interests ?? "—"}
-              </p>
+              {clientDanceInterests.length ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {clientDanceInterests.map((interest) => (
+                    <span key={interest} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-violet-700 ring-1 ring-violet-200">
+                      {interest}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1 break-words font-medium text-[var(--brand-text)]">—</p>
+              )}
             </div>
 
-            <div className="min-w-0">
+            <div className="min-w-0 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-4 shadow-sm">
+              <p className="text-sm text-slate-500">Dance Goals</p>
+              {clientDanceGoals.length ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {clientDanceGoals.map((goal) => (
+                    <span key={goal} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                      {goal}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <p className="mt-1 break-words font-medium text-[var(--brand-text)]">—</p>
+              )}
+            </div>
+
+            <div className="min-w-0 rounded-2xl border border-slate-200 bg-white/80 p-4 shadow-sm">
               <p className="text-sm text-slate-500">Referral Source</p>
               <p className="mt-1 break-words font-medium text-[var(--brand-text)]">
                 {typedClient.referral_source ? leadSourceLabel(typedClient.referral_source) : "—"}

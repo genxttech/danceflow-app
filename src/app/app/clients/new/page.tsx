@@ -474,11 +474,11 @@ export default function NewClientPage() {
               name="clientPhoto"
               type="file"
               accept="image/jpeg,image/png,image/webp"
-              capture="environment"
               className="mt-3 block w-full text-sm text-slate-700 file:mr-4 file:rounded-xl file:border-0 file:bg-[#5B197A] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-[#4A1363]"
             />
             <p className="mt-3 text-xs leading-5 text-slate-500">
-              JPG, PNG, or WebP up to 5MB. On supported mobile devices, the file picker can open the camera.
+              JPG, PNG, or WebP up to 5MB. On supported mobile devices, choose
+              a photo from the library or take a new one.
             </p>
           </div>
                 </section>  

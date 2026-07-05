@@ -592,114 +592,122 @@ function WorkspaceOnboardingChecklist({
   const totalCount = tasks.length;
   const percentComplete =
     totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+  const nextTask = tasks.find((task) => !task.complete) ?? null;
+  const previewTasks = tasks.slice(0, 4);
 
   if (totalCount === 0 || completedCount === totalCount) return null;
 
   const title =
     checklistType === "organizer"
-      ? "Set up your organizer workspace"
-      : "Set up your studio workspace";
+      ? "Launch your event workspace"
+      : "Launch your studio workspace";
 
   const subtitle =
     checklistType === "organizer"
-      ? "Finish the core steps needed to publish events, take registrations, and manage attendees."
-      : "Finish the core steps needed to run scheduling, clients, payments, and portal access smoothly.";
+      ? "A few focused steps to publish events, accept registrations, and run the door smoothly."
+      : "A few focused steps to get scheduling, clients, payments, and student access ready.";
 
   return (
-    <section className="overflow-hidden rounded-[32px] border border-[#E9D5FF] bg-white shadow-sm">
-      <div className="bg-gradient-to-r from-[#FCF8FF] via-white to-[#FFF7ED] px-6 py-5 md:px-7">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#7C2D92]">
-              Launch Checklist
-            </p>
-            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-              {title}
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-              {subtitle}
-            </p>
+    <section className="overflow-hidden rounded-[28px] border border-[#E9D5FF] bg-white shadow-sm">
+      <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="bg-gradient-to-r from-[#FCF8FF] via-white to-[#FFF7ED] p-6 md:p-7">
+          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[#7C2D92]">
+                Launch Setup
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                {title}
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+                {subtitle}
+              </p>
+            </div>
+
+            <div className="shrink-0 rounded-2xl border border-[#E9D5FF] bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
+              <span className="font-semibold text-slate-950">
+                {completedCount} of {totalCount}
+              </span>{" "}
+              ready
+            </div>
           </div>
 
-          <div className="rounded-2xl border border-[#E9D5FF] bg-white px-4 py-3 text-sm text-slate-700 shadow-sm">
-            <span className="font-semibold text-slate-950">
-              {completedCount} of {totalCount}
-            </span>{" "}
-            complete
+          <div className="mt-5 h-2 overflow-hidden rounded-full bg-[#F3E8FF]">
+            <div
+              className="h-full rounded-full bg-[#7C2D92] transition-all"
+              style={{ width: `${percentComplete}%` }}
+            />
           </div>
-        </div>
 
-        <div className="mt-5 h-2 overflow-hidden rounded-full bg-[#F3E8FF]">
-          <div
-            className="h-full rounded-full bg-[#7C2D92] transition-all"
-            style={{ width: `${percentComplete}%` }}
-          />
-        </div>
-      </div>
-
-      <div className="grid gap-3 p-6 md:grid-cols-2">
-        {tasks.map((task) => (
-          <Link
-            key={task.key}
-            href={task.href}
-            className={`group rounded-2xl border p-4 transition hover:-translate-y-0.5 hover:shadow-sm ${
-              task.complete
-                ? "border-emerald-200 bg-emerald-50"
-                : "border-slate-200 bg-slate-50 hover:border-[#D8B4FE] hover:bg-white"
-            }`}
-          >
-            <div className="flex items-start gap-3">
-              <div
-                className={`mt-0.5 rounded-full p-1 ${
-                  task.complete
-                    ? "bg-emerald-100 text-emerald-700"
-                    : "bg-white text-slate-400 ring-1 ring-slate-200"
-                }`}
-              >
-                {task.complete ? (
-                  <CheckCircle2 className="h-4 w-4" />
-                ) : (
-                  <Circle className="h-4 w-4" />
-                )}
-              </div>
-
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-slate-950">
-                  {task.title}
-                </h3>
-                <p className="mt-1 text-sm leading-5 text-slate-600">
-                  {task.description}
-                </p>
-
-                {!task.complete ? (
-                  <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[#6B21A8]">
-                    Complete step
-                    <ArrowRight className="h-3.5 w-3.5 transition group-hover:translate-x-0.5" />
-                  </span>
-                ) : null}
+          {nextTask ? (
+            <div className="mt-5 rounded-2xl border border-white bg-white/80 p-4 shadow-sm">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7C2D92]">
+                Recommended next
+              </p>
+              <h3 className="mt-2 text-base font-semibold text-slate-950">
+                {nextTask.title}
+              </h3>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                {nextTask.description}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Link
+                  href="/app/onboarding"
+                  className="inline-flex items-center gap-2 rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4B1465]"
+                >
+                  Continue setup
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link
+                  href={nextTask.href}
+                  className="inline-flex items-center gap-2 rounded-xl border border-[#E9D5FF] bg-white px-4 py-2 text-sm font-semibold text-[#6B21A8] hover:border-[#D8B4FE] hover:bg-[#FCF8FF]"
+                >
+                  Open this step
+                </Link>
               </div>
             </div>
-          </Link>
-        ))}
-      </div>
+          ) : null}
+        </div>
 
-      <div className="border-t border-[#F3E8FF] bg-slate-50/70 px-6 py-4">
-        <form
-          action={dismissWorkspaceOnboardingAction}
-          className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
-        >
-          <input type="hidden" name="checklistType" value={checklistType} />
-          <p className="text-xs leading-5 text-slate-500">
-            This checklist updates automatically as workspace setup items are
-            completed.
-          </p>
-          <button
-            type="submit"
-            className="self-start rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:border-[#D8B4FE] hover:text-[#6B21A8] sm:self-auto"
-          >
-            Hide for now
-          </button>
-        </form>
+        <div className="border-t border-[#F3E8FF] bg-slate-50/80 p-6 lg:border-l lg:border-t-0">
+          <div className="space-y-3">
+            {previewTasks.map((task) => (
+              <div key={task.key} className="flex items-start gap-3">
+                <div
+                  className={`mt-0.5 rounded-full p-1 ${
+                    task.complete
+                      ? "bg-emerald-100 text-emerald-700"
+                      : "bg-white text-slate-400 ring-1 ring-slate-200"
+                  }`}
+                >
+                  {task.complete ? (
+                    <CheckCircle2 className="h-4 w-4" />
+                  ) : (
+                    <Circle className="h-4 w-4" />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-slate-950">
+                    {task.title}
+                  </p>
+                  <p className="mt-0.5 text-xs leading-5 text-slate-500">
+                    {task.complete ? "Ready" : "Not set yet"}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <form action={dismissWorkspaceOnboardingAction} className="mt-5">
+            <input type="hidden" name="checklistType" value={checklistType} />
+            <button
+              type="submit"
+              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-600 hover:border-[#D8B4FE] hover:text-[#6B21A8]"
+            >
+              Hide for now
+            </button>
+          </form>
+        </div>
       </div>
     </section>
   );

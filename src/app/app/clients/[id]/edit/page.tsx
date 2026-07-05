@@ -24,6 +24,7 @@ type ClientRow = {
   status: string;
   skill_level: string | null;
   dance_interests: string | null;
+  dance_goals: string[] | null;
   referral_source: string | null;
   notes: string | null;
   photo_url: string | null;
@@ -82,6 +83,7 @@ const role = context.studioRole ?? "";
         status,
         skill_level,
         dance_interests,
+        dance_goals,
         referral_source,
         notes,
         photo_url,
