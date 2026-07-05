@@ -102,6 +102,7 @@ export type PublicEventTicketType = {
   regularPrice: number;
   currency: string;
   capacity: number | null;
+  remainingAdmissionSpots: number | null;
   active: boolean;
   saleStartsAt: string | null;
   saleEndsAt: string | null;
@@ -223,6 +224,12 @@ type TicketTypeRow = {
   sort_order?: number | null;
 };
 
+type TicketCapacityRegistrationRow = {
+  ticket_type_id: string | null;
+  quantity: number | null;
+  event_ticket_types?: { attendees_per_ticket: number | null } | { attendees_per_ticket: number | null }[] | null;
+};
+
 function activeTicketPrice(ticket: TicketTypeRow) {
   const regularPrice = Number(ticket.price ?? 0);
   const earlyBirdPrice =
@@ -255,6 +262,65 @@ function activeTicketPrice(ticket: TicketTypeRow) {
     isEarlyBird: false,
     earlyBirdEndsAt: ticket.early_bird_ends_at
   };
+}
+
+function admissionCountFor(row: TicketCapacityRegistrationRow) {
+  const ticketType = firstJoin(row.event_ticket_types);
+  const admitsPerTicket = Math.max(1, Number(ticketType?.attendees_per_ticket ?? 1) || 1);
+  return Math.max(1, Number(row.quantity ?? 1) || 1) * admitsPerTicket;
+}
+
+async function loadTicketAdmissionCounts(ticketTypeIds: string[]) {
+  if (!ticketTypeIds.length) return new Map<string, number>();
+
+  const [confirmedResult, heldResult] = await Promise.all([
+    supabase
+      .from("event_registrations")
+      .select("ticket_type_id, quantity, event_ticket_types ( attendees_per_ticket )")
+      .in("ticket_type_id", ticketTypeIds)
+      .or("payment_status.eq.paid,status.in.(confirmed,checked_in,attended)"),
+    supabase
+      .from("event_registrations")
+      .select(
+        `
+        ticket_type_id,
+        quantity,
+        event_ticket_types (
+          attendees_per_ticket
+        ),
+        event_orders!inner (
+          status,
+          payment_status,
+          expires_at
+        )
+      `
+      )
+      .in("ticket_type_id", ticketTypeIds)
+      .eq("status", "pending")
+      .eq("payment_status", "pending")
+      .eq("event_orders.status", "pending")
+      .eq("event_orders.payment_status", "pending")
+      .gt("event_orders.expires_at", new Date().toISOString())
+  ]);
+
+  if (confirmedResult.error) throw confirmedResult.error;
+  if (heldResult.error) throw heldResult.error;
+
+  const counts = new Map<string, number>();
+  for (const row of [
+    ...((confirmedResult.data ?? []) as TicketCapacityRegistrationRow[]),
+    ...((heldResult.data ?? []) as TicketCapacityRegistrationRow[])
+  ]) {
+    if (!row.ticket_type_id) continue;
+    counts.set(row.ticket_type_id, (counts.get(row.ticket_type_id) ?? 0) + admissionCountFor(row));
+  }
+
+  return counts;
+}
+
+function remainingAdmissionSpotsFor(ticket: TicketTypeRow, reservedAdmissionCount: number) {
+  if (ticket.capacity == null) return null;
+  return Math.max(0, Number(ticket.capacity) - reservedAdmissionCount);
 }
 
 type EventDocumentRequirementRow = {
@@ -677,7 +743,10 @@ export async function getPublicEventDetailForMobile(
 
   if (!event || !eventRow) return null;
 
-  const ticketTypes = ((ticketsResult.data ?? []) as TicketTypeRow[]).map((ticket) => {
+  const ticketRows = (ticketsResult.data ?? []) as TicketTypeRow[];
+  const admissionCounts = await loadTicketAdmissionCounts(ticketRows.map((ticket) => ticket.id));
+
+  const ticketTypes = ticketRows.map((ticket) => {
     const activePrice = activeTicketPrice(ticket);
 
     return {
@@ -689,6 +758,7 @@ export async function getPublicEventDetailForMobile(
       regularPrice: activePrice.regularPrice,
       currency: ticket.currency ?? "USD",
       capacity: ticket.capacity,
+      remainingAdmissionSpots: remainingAdmissionSpotsFor(ticket, admissionCounts.get(ticket.id) ?? 0),
       active: ticket.active === true,
       saleStartsAt: ticket.sale_starts_at,
       saleEndsAt: ticket.sale_ends_at,

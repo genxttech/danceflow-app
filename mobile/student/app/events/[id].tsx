@@ -32,6 +32,13 @@ function earlyBirdLabel(ticket: PublicEventDetail["ticketTypes"][number]) {
   return `Early bird ends ${date.toLocaleDateString()}`;
 }
 
+function remainingSpotsLabel(ticket: PublicEventDetail["ticketTypes"][number]) {
+  if (ticket.remainingAdmissionSpots === null) return "Admission spots available";
+  if (ticket.remainingAdmissionSpots === 0) return "Sold out";
+
+  return `${ticket.remainingAdmissionSpots} admission spot${ticket.remainingAdmissionSpots === 1 ? "" : "s"} left`;
+}
+
 export default function EventDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -108,6 +115,9 @@ export default function EventDetailScreen() {
                   {ticket.attendeesPerTicket > 1
                     ? `Admits ${ticket.attendeesPerTicket} attendees`
                     : "Admits 1 attendee"}
+                </AppText>
+                <AppText style={ticket.remainingAdmissionSpots === 0 ? styles.soldOutText : styles.remainingText}>
+                  {remainingSpotsLabel(ticket)}
                 </AppText>
               </View>
               <View style={styles.priceBlock}>
@@ -196,6 +206,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     textDecorationLine: "line-through"
+  },
+  remainingText: {
+    color: colors.success,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 4
+  },
+  soldOutText: {
+    color: colors.danger,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 4
   },
   ticketName: {
     color: colors.text,
