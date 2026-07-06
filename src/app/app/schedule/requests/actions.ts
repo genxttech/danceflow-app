@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireAppointmentCreateAccess } from "@/lib/auth/serverRoleGuard";
+import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { detectAppointmentConflicts } from "@/lib/schedule/conflicts";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
@@ -273,6 +274,70 @@ async function queueBookingDecisionEmail(params: {
   }
 }
 
+async function sendBookingDecisionPush(params: {
+  supabase: Awaited<ReturnType<typeof requireAppointmentCreateAccess>>["supabase"];
+  studioId: string;
+  bookingRequestId: string;
+  clientId: string;
+  status: "approved" | "declined";
+  requestedStartsAt: string;
+  staffNote: string | null;
+  appointmentId?: string | null;
+}) {
+  const [{ data: client }, { data: studio }, { data: settingsRow }] =
+    await Promise.all([
+      params.supabase
+        .from("clients")
+        .select("first_name, portal_user_id")
+        .eq("id", params.clientId)
+        .eq("studio_id", params.studioId)
+        .maybeSingle(),
+      params.supabase
+        .from("studios")
+        .select("name")
+        .eq("id", params.studioId)
+        .maybeSingle(),
+      params.supabase
+        .from("studio_settings")
+        .select("timezone")
+        .eq("studio_id", params.studioId)
+        .maybeSingle(),
+    ]);
+
+  const portalUserId =
+    (client as { portal_user_id?: string | null } | null)?.portal_user_id?.trim();
+  if (!portalUserId) return;
+
+  const studioName = (studio as { name?: string | null } | null)?.name ?? "Your studio";
+  const studioTimeZone = getStudioTimeZone(
+    (settingsRow as { timezone?: string | null } | null)?.timezone,
+  );
+  const requestedTime = formatBookingRequestDateTime(params.requestedStartsAt, studioTimeZone);
+  const isApproved = params.status === "approved";
+
+  try {
+    await sendMobilePushToUser({
+      userId: portalUserId,
+      category: "schedule",
+      title: isApproved ? "Lesson request approved" : "Lesson request update",
+      body: isApproved
+        ? `${studioName} approved your lesson request for ${requestedTime}.`
+        : `${studioName} could not approve your lesson request for ${requestedTime}.`,
+      data: {
+        source: `booking_request_${params.status}`,
+        bookingRequestId: params.bookingRequestId,
+        appointmentId: params.appointmentId ?? null,
+        staffNote: params.staffNote,
+      },
+    });
+  } catch (pushError) {
+    console.error(
+      `Failed to send booking request ${params.status} mobile push`,
+      pushError instanceof Error ? pushError.message : pushError,
+    );
+  }
+}
+
 async function queueApprovedInstructorEmail(params: {
   supabase: Awaited<ReturnType<typeof requireAppointmentCreateAccess>>["supabase"];
   studioId: string;
@@ -518,6 +583,17 @@ export async function approveBookingRequestAction(formData: FormData) {
     appointmentId: appointment.id,
   });
 
+  await sendBookingDecisionPush({
+    supabase,
+    studioId,
+    bookingRequestId: typedRequest.id,
+    clientId: typedRequest.client_id,
+    status: "approved",
+    requestedStartsAt: typedRequest.requested_starts_at,
+    staffNote: staffNote || null,
+    appointmentId: appointment.id,
+  });
+
   if (typedRequest.instructor_id) {
     await queueApprovedInstructorEmail({
       supabase,
@@ -590,6 +666,16 @@ export async function declineBookingRequestAction(formData: FormData) {
 
   if (typedRequest.client_id && typedRequest.requested_starts_at) {
     await queueBookingDecisionEmail({
+      supabase,
+      studioId,
+      bookingRequestId: typedRequest.id,
+      clientId: typedRequest.client_id,
+      status: "declined",
+      requestedStartsAt: typedRequest.requested_starts_at,
+      staffNote: staffNote || null,
+    });
+
+    await sendBookingDecisionPush({
       supabase,
       studioId,
       bookingRequestId: typedRequest.id,

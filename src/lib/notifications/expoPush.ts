@@ -6,6 +6,7 @@ export type MobileNotificationCategory =
   | "favorites"
   | "learning"
   | "account"
+  | "partner"
   | "system";
 
 type PushTokenRow = {
@@ -23,6 +24,7 @@ type PreferenceRow = {
   favorite_updates: boolean;
   learning_updates: boolean;
   account_updates: boolean;
+  partner_updates: boolean;
 };
 
 type ExpoPushResult = {
@@ -54,6 +56,8 @@ function preferenceColumnForCategory(category: MobileNotificationCategory) {
       return "favorite_updates";
     case "learning":
       return "learning_updates";
+    case "partner":
+      return "partner_updates";
     case "account":
     case "system":
     default:
@@ -97,7 +101,7 @@ async function getUserPreference(userId: string) {
   const { data, error } = await supabase
     .from("mobile_notification_preferences")
     .select(
-      "user_id, push_enabled, schedule_updates, event_updates, favorite_updates, learning_updates, account_updates"
+      "user_id, push_enabled, schedule_updates, event_updates, favorite_updates, learning_updates, account_updates, partner_updates"
     )
     .eq("user_id", userId)
     .maybeSingle();

@@ -1,3 +1,4 @@
+import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { supabase } from "@/lib/supabase";
 
 const partnerMessagingDb = supabase as any;
@@ -313,78 +314,102 @@ export async function requestPartnerConnection({
 }) {
   const cleanMessage = message.trim();
 
-  const { data: partnerProfile, error: profileError } = await supabase
-    .from("dancer_partner_profiles")
-    .select("id, user_id")
-    .eq("id", partnerProfileId)
-    .single<{ id: string; user_id: string }>();
-
-  if (profileError) throw profileError;
-
-  if (partnerProfile.user_id === requesterUserId) {
-    throw new Error("You cannot message your own partner listing.");
+  if (!cleanMessage) {
+    throw new Error("Add a message first.");
   }
 
-  const { data: requestRow, error: requestError } = await supabase
-    .from("partner_connection_requests")
-    .insert({
-      partner_profile_id: partnerProfileId,
-      requester_user_id: requesterUserId,
-      message: cleanMessage
-    })
-    .select("id")
-    .single<{ id: string }>();
+  try {
+    const result = await danceflowApiFetch<{ messageId: string; threadId: string }>(
+      "/api/student/partners/messages",
+      {
+        body: JSON.stringify({
+          body: cleanMessage,
+          partnerProfileId
+        }),
+        method: "POST"
+      }
+    );
 
-  if (requestError) throw requestError;
+    return result.threadId;
+  } catch (apiError) {
+    const { data: partnerProfile, error: profileError } = await supabase
+      .from("dancer_partner_profiles")
+      .select("id, user_id")
+      .eq("id", partnerProfileId)
+      .single<{ id: string; user_id: string }>();
 
-  const { data: existingThread, error: existingThreadError } = await partnerMessagingDb
-    .from("partner_conversation_threads")
-    .select("id")
-    .eq("partner_profile_id", partnerProfileId)
-    .eq("requester_user_id", requesterUserId)
-    .eq("partner_user_id", partnerProfile.user_id)
-    .maybeSingle();
+    if (profileError) throw profileError;
 
-  if (existingThreadError) throw existingThreadError;
+    if (partnerProfile.user_id === requesterUserId) {
+      throw new Error("You cannot message your own partner listing.");
+    }
 
-  let threadId = existingThread?.id ?? null;
-  const now = new Date().toISOString();
-
-  if (!threadId) {
-    const { data: threadRow, error: threadError } = await partnerMessagingDb
-      .from("partner_conversation_threads")
+    const { data: requestRow, error: requestError } = await supabase
+      .from("partner_connection_requests")
       .insert({
-        connection_request_id: requestRow.id,
         partner_profile_id: partnerProfileId,
-        partner_user_id: partnerProfile.user_id,
         requester_user_id: requesterUserId,
-        status: "active",
-        last_message_at: now
+        message: cleanMessage
       })
       .select("id")
-      .single();
+      .single<{ id: string }>();
 
-    if (threadError) throw threadError;
-    threadId = threadRow.id;
+    if (requestError) throw requestError;
+
+    const { data: existingThread, error: existingThreadError } = await partnerMessagingDb
+      .from("partner_conversation_threads")
+      .select("id")
+      .eq("partner_profile_id", partnerProfileId)
+      .eq("requester_user_id", requesterUserId)
+      .eq("partner_user_id", partnerProfile.user_id)
+      .maybeSingle();
+
+    if (existingThreadError) throw existingThreadError;
+
+    let threadId = existingThread?.id ?? null;
+    const now = new Date().toISOString();
+
+    if (!threadId) {
+      const { data: threadRow, error: threadError } = await partnerMessagingDb
+        .from("partner_conversation_threads")
+        .insert({
+          connection_request_id: requestRow.id,
+          partner_profile_id: partnerProfileId,
+          partner_user_id: partnerProfile.user_id,
+          requester_user_id: requesterUserId,
+          status: "active",
+          last_message_at: now
+        })
+        .select("id")
+        .single();
+
+      if (threadError) throw threadError;
+      threadId = threadRow.id;
+    }
+
+    const { error: messageError } = await partnerMessagingDb.from("partner_conversation_messages").insert({
+      body: cleanMessage,
+      sender_user_id: requesterUserId,
+      thread_id: threadId
+    });
+
+    if (messageError) throw messageError;
+
+    await partnerMessagingDb
+      .from("partner_conversation_threads")
+      .update({
+        last_message_at: now,
+        updated_at: now
+      })
+      .eq("id", threadId);
+
+    console.warn(
+      "Partner message API failed; sent via legacy mobile Supabase path without push.",
+      apiError instanceof Error ? apiError.message : apiError
+    );
+
+    return threadId;
   }
-
-  const { error: messageError } = await partnerMessagingDb.from("partner_conversation_messages").insert({
-    body: cleanMessage,
-    sender_user_id: requesterUserId,
-    thread_id: threadId
-  });
-
-  if (messageError) throw messageError;
-
-  await partnerMessagingDb
-    .from("partner_conversation_threads")
-    .update({
-      last_message_at: now,
-      updated_at: now
-    })
-    .eq("id", threadId);
-
-  return threadId;
 }
 
 export async function loadPartnerThread(threadId: string, userId: string) {
@@ -446,25 +471,43 @@ export async function sendPartnerThreadMessage({
     throw new Error("Add a message first.");
   }
 
-  await loadPartnerThread(threadId, userId);
+  try {
+    await danceflowApiFetch<{ messageId: string; threadId: string }>(
+      "/api/student/partners/messages",
+      {
+        body: JSON.stringify({
+          body: cleanBody,
+          threadId
+        }),
+        method: "POST"
+      }
+    );
+  } catch (apiError) {
+    await loadPartnerThread(threadId, userId);
 
-  const { error } = await partnerMessagingDb.from("partner_conversation_messages").insert({
-    body: cleanBody,
-    sender_user_id: userId,
-    thread_id: threadId
-  });
+    const { error } = await partnerMessagingDb.from("partner_conversation_messages").insert({
+      body: cleanBody,
+      sender_user_id: userId,
+      thread_id: threadId
+    });
 
-  if (error) throw error;
+    if (error) throw error;
 
-  const now = new Date().toISOString();
+    const now = new Date().toISOString();
 
-  await partnerMessagingDb
-    .from("partner_conversation_threads")
-    .update({
-      last_message_at: now,
-      updated_at: now
-    })
-    .eq("id", threadId);
+    await partnerMessagingDb
+      .from("partner_conversation_threads")
+      .update({
+        last_message_at: now,
+        updated_at: now
+      })
+      .eq("id", threadId);
+
+    console.warn(
+      "Partner message API failed; sent via legacy mobile Supabase path without push.",
+      apiError instanceof Error ? apiError.message : apiError
+    );
+  }
 }
 
 export async function reportPartnerThread({

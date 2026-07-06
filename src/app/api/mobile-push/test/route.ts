@@ -14,6 +14,7 @@ function normalizeCategory(value: unknown): MobileNotificationCategory {
     raw === "favorites" ||
     raw === "learning" ||
     raw === "account" ||
+    raw === "partner" ||
     raw === "system"
   ) {
     return raw;

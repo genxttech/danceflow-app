@@ -14,6 +14,7 @@ import {
   type SupabaseQueryClient,
 } from "@/lib/booking/selfServiceQueries";
 import { canUseSelfServiceBooking } from "@/lib/booking/selfServicePolicy";
+import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 type BookingActionPayload = {
@@ -57,6 +58,75 @@ type AppointmentRow = {
 
 function sameNullableId(left: string | null, right: string | null) {
   return (left || null) === (right || null);
+}
+
+function formatActionLabel(actionType: BookingActionPayload["actionType"]) {
+  if (actionType === "reschedule") return "reschedule";
+  if (actionType === "cancel") return "cancellation";
+  return "booking";
+}
+
+function formatPushDateTime(value: string | null | undefined) {
+  if (!value) return null;
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function getResultAppointmentId(value: unknown) {
+  if (!value || typeof value !== "object" || !("id" in value)) return null;
+
+  const id = (value as { id?: unknown }).id;
+  return typeof id === "string" && id.trim() ? id : null;
+}
+
+async function sendSelfServiceSchedulePush(params: {
+  userId: string;
+  actionType: BookingActionPayload["actionType"];
+  status: "submitted" | "executed";
+  studioSlug: string;
+  actionRequestId: string;
+  appointmentId?: string | null;
+  startsAt?: string | null;
+}) {
+  const actionLabel = formatActionLabel(params.actionType);
+  const timeLabel = formatPushDateTime(params.startsAt);
+  const executed = params.status === "executed";
+
+  try {
+    await sendMobilePushToUser({
+      userId: params.userId,
+      category: "schedule",
+      title: executed
+        ? `Schedule ${actionLabel} confirmed`
+        : `Schedule ${actionLabel} request sent`,
+      body: executed
+        ? timeLabel
+          ? `Your ${actionLabel} is confirmed for ${timeLabel}.`
+          : `Your schedule ${actionLabel} is confirmed.`
+        : timeLabel
+          ? `Your ${actionLabel} request for ${timeLabel} was sent to the studio.`
+          : `Your schedule ${actionLabel} request was sent to the studio.`,
+      data: {
+        source: `student_self_service_${params.actionType}_${params.status}`,
+        studioSlug: params.studioSlug,
+        actionRequestId: params.actionRequestId,
+        appointmentId: params.appointmentId ?? null,
+      },
+    });
+  } catch (pushError) {
+    console.error(
+      "Failed to send self-service schedule mobile push",
+      pushError instanceof Error ? pushError.message : pushError
+    );
+  }
 }
 
 async function loadRequestContext(params: {
@@ -318,6 +388,16 @@ export async function POST(request: Request) {
             actorUserId: user.id,
           });
 
+          await sendSelfServiceSchedulePush({
+            userId: user.id,
+            actionType: "cancel",
+            status: "executed",
+            studioSlug: context.studio.slug,
+            actionRequestId: actionRequest.id,
+            appointmentId: appointment.id,
+            startsAt: appointment.starts_at,
+          });
+
           return NextResponse.json({
             actionRequest: { ...actionRequest, status: "executed" },
             appointment: appointmentResult,
@@ -340,6 +420,16 @@ export async function POST(request: Request) {
           throw new Error(failureReason);
         }
       }
+
+      await sendSelfServiceSchedulePush({
+        userId: user.id,
+        actionType: "cancel",
+        status: "submitted",
+        studioSlug: context.studio.slug,
+        actionRequestId: actionRequest.id,
+        appointmentId: appointment.id,
+        startsAt: appointment.starts_at,
+      });
 
       return NextResponse.json({ actionRequest, bookingDecision: decision });
     }
@@ -429,6 +519,16 @@ export async function POST(request: Request) {
           actorUserId: user.id,
         });
 
+        await sendSelfServiceSchedulePush({
+          userId: user.id,
+          actionType,
+          status: "executed",
+          studioSlug: slotResult.studio.slug,
+          actionRequestId: actionRequest.id,
+          appointmentId: getResultAppointmentId(appointmentResult) ?? appointment?.id ?? null,
+          startsAt: matchingSlot.startsAt,
+        });
+
         return NextResponse.json({
           actionRequest: {
             ...actionRequest,
@@ -456,6 +556,16 @@ export async function POST(request: Request) {
         throw new Error(failureReason);
       }
     }
+
+    await sendSelfServiceSchedulePush({
+      userId: user.id,
+      actionType,
+      status: "submitted",
+      studioSlug: slotResult.studio.slug,
+      actionRequestId: actionRequest.id,
+      appointmentId: appointment?.id ?? null,
+      startsAt: matchingSlot.startsAt,
+    });
 
     return NextResponse.json({
       actionRequest,

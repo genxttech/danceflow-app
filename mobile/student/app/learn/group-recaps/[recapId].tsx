@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Linking, StyleSheet, View } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter, type Href } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -15,6 +15,13 @@ import {
 
 function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
+}
+
+function lumiPromptHref(prompt: string): Href {
+  return {
+    pathname: "/lumi",
+    params: { prompt }
+  } as Href;
 }
 
 function formatPublishedAt(value: string | null) {
@@ -108,6 +115,15 @@ export default function GroupRecapDetailScreen() {
   }
 
   const publishedAt = formatPublishedAt(recap.publishedAt);
+  const lumiPrompt = [
+    `Help me review this group recap: ${recap.title}.`,
+    recap.summary ? `Summary: ${recap.summary}` : null,
+    recap.techniqueNotes ? `Technique notes: ${recap.techniqueNotes}` : null,
+    recap.practiceAssignment ? `Practice assignment: ${recap.practiceAssignment}` : null,
+    recap.safetyNotes ? `Safety notes: ${recap.safetyNotes}` : null
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <Screen>
@@ -136,7 +152,7 @@ export default function GroupRecapDetailScreen() {
       ) : null}
 
       <View style={styles.actions}>
-        <AppButton label="Ask LUMI about this recap" onPress={() => router.push("/lumi")} />
+        <AppButton label="Ask LUMI about this recap" onPress={() => router.push(lumiPromptHref(lumiPrompt))} />
         <AppButton label="Back to Learn" onPress={() => router.replace("/(tabs)/learn")} variant="secondary" />
       </View>
     </Screen>

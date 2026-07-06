@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireStudioFeature } from "@/lib/billing/access";
+import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 
 export type DocumentActionState = {
   error?: string;
@@ -384,7 +385,7 @@ export async function assignDocumentToClientAction(formData: FormData) {
 
   const { data: client, error: clientError } = await owner.supabase
     .from("clients")
-    .select("id, email")
+    .select("id, email, portal_user_id")
     .eq("id", clientId)
     .eq("studio_id", owner.studioId)
     .maybeSingle();
@@ -429,6 +430,24 @@ export async function assignDocumentToClientAction(formData: FormData) {
 
   if (error) {
     redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
+  }
+
+  const portalUserId =
+    typeof client.portal_user_id === "string" ? client.portal_user_id : null;
+
+  if (portalUserId) {
+    await sendMobilePushToUser({
+      userId: portalUserId,
+      category: "account",
+      title: "Document needs review",
+      body: "Your studio assigned a document for you to review and sign.",
+      data: {
+        source: "document_assignment_created",
+        templateId,
+      },
+    }).catch((pushError) => {
+      console.error("Failed to send document assignment mobile push", pushError);
+    });
   }
 
   revalidatePath("/app/documents");

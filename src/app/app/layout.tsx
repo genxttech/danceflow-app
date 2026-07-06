@@ -29,8 +29,6 @@ type NotificationItem = {
 
 type ProfileRow = {
   id: string;
-  first_name: string | null;
-  last_name: string | null;
   full_name: string | null;
   email: string | null;
 };
@@ -59,12 +57,6 @@ function buildDisplayName(
 ) {
   const fullName = profile?.full_name?.trim();
   if (fullName) return fullName;
-
-  const combined = [profile?.first_name ?? "", profile?.last_name ?? ""]
-    .join(" ")
-    .trim();
-
-  if (combined) return combined;
 
   return fallbackEmail ?? "Unknown User";
 }
@@ -1020,7 +1012,7 @@ export default async function AppLayout({
 
     supabase
       .from("profiles")
-      .select("id, first_name, last_name, full_name, email")
+      .select("id, full_name, email")
       .eq("id", user.id)
       .maybeSingle<ProfileRow>(),
 

@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
+import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 
 type Params = {
   params: Promise<{ eventId: string }>;
@@ -799,6 +800,27 @@ export async function POST(request: NextRequest, { params }: Params) {
           payment_status: "paid",
         })
         .in("id", registrationIds);
+
+      try {
+        await sendMobilePushToUser({
+          userId: user.id,
+          category: "event",
+          title: "Registration confirmed",
+          body: `Your registration for ${event.name} is confirmed.`,
+          data: {
+            source: "student_event_free_order_confirmed",
+            orderId: order.id,
+            eventId: event.id,
+            eventSlug: event.slug,
+            registrationIds,
+          },
+        });
+      } catch (pushError) {
+        console.error(
+          "Failed to send free event confirmation mobile push",
+          pushError instanceof Error ? pushError.message : pushError
+        );
+      }
 
       return NextResponse.json({
         completed: true,

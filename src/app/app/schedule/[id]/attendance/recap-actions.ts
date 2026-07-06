@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { createClient } from "@/lib/supabase/server";
 
 type AppointmentRow = {
@@ -32,6 +33,18 @@ type AttendanceRecipientRow = {
     | null;
 };
 
+type GroupLessonRecapRecipient = {
+  recap_id: string;
+  studio_id: string;
+  appointment_id: string;
+  client_id: string;
+  user_id: string | null;
+  guest_email: null;
+  guest_name: string | null;
+  source: string;
+  delivery_status: string;
+};
+
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
@@ -52,6 +65,37 @@ function getMediaLinks(value: string | null) {
 
 function firstJoin<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+function isGroupLessonRecapRecipient(
+  recipient: GroupLessonRecapRecipient | null
+): recipient is GroupLessonRecapRecipient {
+  return recipient !== null;
+}
+
+async function sendLearningRecapPushes(params: {
+  recapTitle: string;
+  recipients: GroupLessonRecapRecipient[];
+}) {
+  const userIds = Array.from(
+    new Set(params.recipients.map((recipient) => recipient.user_id).filter((id): id is string => Boolean(id)))
+  );
+
+  await Promise.all(
+    userIds.map((userId) =>
+      sendMobilePushToUser({
+        userId,
+        category: "learning",
+        title: "New group recap",
+        body: `${params.recapTitle} is ready to review.`,
+        data: {
+          source: "group_lesson_recap_published",
+        },
+      }).catch((error) => {
+        console.error("Failed to send group recap mobile push", error);
+      })
+    )
+  );
 }
 
 async function requireStudioAccess(appointmentId: string) {
@@ -146,7 +190,7 @@ export async function publishGroupLessonRecapAction(formData: FormData) {
   }
 
   try {
-    const { supabase, user, studioId } = await requireStudioAccess(appointmentId);
+    const { supabase, user, studioId, appointment } = await requireStudioAccess(appointmentId);
 
     const { data: recap, error: recapError } = await supabase
       .from("group_lesson_recaps")
@@ -197,7 +241,7 @@ export async function publishGroupLessonRecapAction(formData: FormData) {
           delivery_status: "available",
         };
       })
-      .filter(Boolean);
+      .filter(isGroupLessonRecapRecipient);
 
     if (recipients.length > 0) {
       const { error: recipientError } = await supabase
@@ -219,6 +263,11 @@ export async function publishGroupLessonRecapAction(formData: FormData) {
       .eq("studio_id", studioId);
 
     if (publishError) throw publishError;
+
+    await sendLearningRecapPushes({
+      recapTitle: appointment.title || "Group lesson recap",
+      recipients,
+    });
   } catch (error) {
     console.error("Publish group lesson recap failed", error);
     redirect(`${returnTo}?error=recap_publish_failed`);

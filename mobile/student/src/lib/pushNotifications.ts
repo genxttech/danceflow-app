@@ -10,6 +10,7 @@ export type NotificationPreferences = {
   favoriteUpdates: boolean;
   learningUpdates: boolean;
   accountUpdates: boolean;
+  partnerUpdates: boolean;
 };
 
 type PreferenceRow = {
@@ -19,6 +20,7 @@ type PreferenceRow = {
   favorite_updates: boolean | null;
   learning_updates: boolean | null;
   account_updates: boolean | null;
+  partner_updates: boolean | null;
 };
 
 const DEFAULT_PREFERENCES: NotificationPreferences = {
@@ -27,7 +29,8 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
   eventUpdates: true,
   favoriteUpdates: true,
   learningUpdates: false,
-  accountUpdates: true
+  accountUpdates: true,
+  partnerUpdates: true
 };
 
 let notificationHandlerConfigured = false;
@@ -65,7 +68,8 @@ function toPreferenceRow(userId: string, preferences: NotificationPreferences) {
     event_updates: preferences.eventUpdates,
     favorite_updates: preferences.favoriteUpdates,
     learning_updates: preferences.learningUpdates,
-    account_updates: preferences.accountUpdates
+    account_updates: preferences.accountUpdates,
+    partner_updates: preferences.partnerUpdates
   };
 }
 
@@ -78,7 +82,8 @@ function fromPreferenceRow(row: PreferenceRow | null | undefined): NotificationP
     eventUpdates: row.event_updates ?? DEFAULT_PREFERENCES.eventUpdates,
     favoriteUpdates: row.favorite_updates ?? DEFAULT_PREFERENCES.favoriteUpdates,
     learningUpdates: row.learning_updates ?? DEFAULT_PREFERENCES.learningUpdates,
-    accountUpdates: row.account_updates ?? DEFAULT_PREFERENCES.accountUpdates
+    accountUpdates: row.account_updates ?? DEFAULT_PREFERENCES.accountUpdates,
+    partnerUpdates: row.partner_updates ?? DEFAULT_PREFERENCES.partnerUpdates
   };
 }
 
@@ -157,7 +162,7 @@ export async function registerPushToken(userId: string, askPermission = false) {
 export async function loadNotificationPreferences(userId: string) {
   const { data, error } = await supabase
     .from("mobile_notification_preferences")
-    .select("push_enabled, schedule_updates, event_updates, favorite_updates, learning_updates, account_updates")
+    .select("push_enabled, schedule_updates, event_updates, favorite_updates, learning_updates, account_updates, partner_updates")
     .eq("user_id", userId)
     .maybeSingle();
 

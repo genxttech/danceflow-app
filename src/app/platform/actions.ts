@@ -541,6 +541,7 @@ function normalizeMobilePushCategory(value: FormDataEntryValue | null) {
     normalized === "favorites" ||
     normalized === "learning" ||
     normalized === "account" ||
+    normalized === "partner" ||
     normalized === "system"
   ) {
     return normalized;

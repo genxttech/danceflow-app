@@ -39,6 +39,13 @@ function lessonRecapHref(lessonId: string): Href {
   return `/learn/lessons/${lessonId}` as Href;
 }
 
+function lumiPromptHref(prompt: string): Href {
+  return {
+    pathname: "/lumi",
+    params: { prompt }
+  } as Href;
+}
+
 function FocusCard({ focus }: { focus: StudentPracticeFocus }) {
   return (
     <View style={styles.itemCard}>
@@ -354,12 +361,12 @@ export default function LearnScreen() {
               </AppText>
               <View style={styles.promptList}>
                 {overview.lumiPrompts.slice(0, 2).map((prompt) => (
-                  <View key={prompt} style={styles.promptChip}>
-                    <AppText variant="caption">{prompt}</AppText>
-                  </View>
+                  <Link key={prompt} href={lumiPromptHref(prompt)} asChild>
+                    <AppButton label={prompt} variant="secondary" />
+                  </Link>
                 ))}
               </View>
-              <Link href="/lumi" asChild>
+              <Link href={lumiPromptHref(overview.lumiPrompts[0] ?? "What should I practice this week?")} asChild>
                 <AppButton label="Ask LUMI what to practice" variant="secondary" />
               </Link>
             </View>

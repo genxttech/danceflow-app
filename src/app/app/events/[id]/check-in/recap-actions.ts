@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { createClient } from "@/lib/supabase/server";
 
 type EventRow = {
@@ -91,6 +92,35 @@ function buildCheckInHref(params: { eventId: string; eventSessionId?: string }) 
 
 function appendResult(url: string, result: string) {
   return `${url}${url.includes("?") ? "&" : "?"}${result}`;
+}
+
+async function sendEventGroupRecapPushes(params: {
+  eventName: string;
+  recipients: Array<Record<string, unknown>>;
+}) {
+  const userIds = Array.from(
+    new Set(
+      params.recipients
+        .map((recipient) => (typeof recipient.user_id === "string" ? recipient.user_id : null))
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+
+  await Promise.all(
+    userIds.map((userId) =>
+      sendMobilePushToUser({
+        userId,
+        category: "learning",
+        title: "New class recap",
+        body: `${params.eventName} recap is ready to review.`,
+        data: {
+          source: "event_group_lesson_recap_published",
+        },
+      }).catch((error) => {
+        console.error("Failed to send event group recap mobile push", error);
+      })
+    )
+  );
 }
 
 async function requireEventSessionAccess(params: {
@@ -217,7 +247,7 @@ export async function publishEventGroupLessonRecapAction(formData: FormData) {
   }
 
   try {
-    const { supabase, user, studioId } = await requireEventSessionAccess({
+    const { supabase, user, studioId, event } = await requireEventSessionAccess({
       eventId,
       eventSessionId,
     });
@@ -405,6 +435,11 @@ export async function publishEventGroupLessonRecapAction(formData: FormData) {
       .eq("studio_id", studioId);
 
     if (publishError) throw publishError;
+
+    await sendEventGroupRecapPushes({
+      eventName: event.name || "Class",
+      recipients,
+    });
   } catch (error) {
     console.error("Publish event group lesson recap failed", error);
     redirect(appendResult(returnTo, "error=recap_publish_failed"));

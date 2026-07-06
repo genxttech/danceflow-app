@@ -161,6 +161,7 @@ export default async function PlatformMobilePushPage({
               <option value="event">Event</option>
               <option value="favorites">Saved studios/events</option>
               <option value="learning">Learning</option>
+              <option value="partner">Partner messages</option>
             </select>
           </label>
 

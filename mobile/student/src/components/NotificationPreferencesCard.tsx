@@ -33,6 +33,11 @@ const ROWS: Array<{
     detail: "Lesson recaps, practice reminders, and LUMI progress prompts."
   },
   {
+    key: "partnerUpdates",
+    title: "Partner messages",
+    detail: "New replies in DanceFlow partner match conversations."
+  },
+  {
     key: "accountUpdates",
     title: "Account updates",
     detail: "Wallet, profile, and studio connection notices."

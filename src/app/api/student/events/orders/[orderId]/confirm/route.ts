@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
+import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 
 type Params = {
   params: Promise<{ orderId: string }>;
@@ -10,6 +11,7 @@ type EventOrderRow = {
   id: string;
   buyer_email: string | null;
   currency: string | null;
+  event_id: string | null;
   payment_status: string | null;
   status: string | null;
   stripe_payment_intent_id: string | null;
@@ -20,6 +22,12 @@ type RegistrationRow = {
   id: string;
   currency: string | null;
   total_price: number | null;
+};
+
+type EventRow = {
+  id: string;
+  name: string | null;
+  slug: string | null;
 };
 
 function getSupabaseAdmin(): SupabaseClient {
@@ -64,7 +72,7 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const { data: order, error: orderError } = await supabase
     .from("event_orders")
-    .select("id, buyer_email, currency, payment_status, status, stripe_payment_intent_id, total_amount")
+    .select("id, buyer_email, currency, event_id, payment_status, status, stripe_payment_intent_id, total_amount")
     .eq("id", orderId)
     .maybeSingle();
 
@@ -174,6 +182,37 @@ export async function POST(request: NextRequest, { params }: Params) {
       if (paymentInsertError) {
         return jsonError(paymentInsertError.message, 500);
       }
+    }
+  }
+
+  if (orderRow.event_id) {
+    try {
+      const { data: event } = await supabase
+        .from("events")
+        .select("id, name, slug")
+        .eq("id", orderRow.event_id)
+        .maybeSingle<EventRow>();
+
+      await sendMobilePushToUser({
+        userId: user.id,
+        category: "event",
+        title: "Tickets confirmed",
+        body: event?.name
+          ? `Your tickets for ${event.name} are ready.`
+          : "Your event tickets are ready.",
+        data: {
+          source: "student_event_order_confirmed",
+          orderId: orderRow.id,
+          eventId: orderRow.event_id,
+          eventSlug: event?.slug ?? null,
+          registrationIds,
+        },
+      });
+    } catch (pushError) {
+      console.error(
+        "Failed to send event confirmation mobile push",
+        pushError instanceof Error ? pushError.message : pushError
+      );
     }
   }
 
