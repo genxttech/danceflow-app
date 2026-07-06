@@ -51,6 +51,7 @@ type AppointmentRow = {
   price_amount: number | null;
   payment_status: string | null;
   billing_type: string | null;
+  location_name: string | null;
   is_recurring: boolean;
   recurrence_series_id: string | null;
   created_at: string | null;
@@ -389,6 +390,7 @@ export default async function AppointmentDetailPage({
         price_amount,
         payment_status,
         billing_type,
+        location_name,
         is_recurring,
         recurrence_series_id,
         created_at,
@@ -467,6 +469,7 @@ export default async function AppointmentDetailPage({
   const partnerId = getClientId(typedAppointment.partner_client as any);
   const instructorName = getInstructorName(typedAppointment.instructors);
   const roomName = getRoomName(typedAppointment.rooms);
+  const locationName = typedAppointment.location_name?.trim() || null;
   const referralSource = getClientReferralSource(typedAppointment.clients);
   const returnTo = `/app/schedule/${typedAppointment.id}`;
   const totalPaid = typedPayments
@@ -612,6 +615,11 @@ export default async function AppointmentDetailPage({
               <p className="mt-1 truncate text-sm font-semibold text-slate-950">
                 {instructorName} · {roomName}
               </p>
+              {locationName ? (
+                <p className="mt-1 truncate text-xs text-slate-500">
+                  {locationName}
+                </p>
+              ) : null}
             </div>
 
             <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
@@ -703,6 +711,17 @@ export default async function AppointmentDetailPage({
                 <p className="text-xs uppercase tracking-wide text-slate-400">Room</p>
                 <p className="mt-1 text-sm font-medium text-slate-900">{roomName}</p>
               </div>
+
+              {locationName ? (
+                <div>
+                  <p className="text-xs uppercase tracking-wide text-slate-400">
+                    Location
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-slate-900">
+                    {locationName}
+                  </p>
+                </div>
+              ) : null}
 
               <div>
                 <p className="text-xs uppercase tracking-wide text-slate-400">Status</p>

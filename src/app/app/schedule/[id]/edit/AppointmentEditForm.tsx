@@ -82,6 +82,7 @@ type Appointment = {
   payment_status?: string | null;
   billing_type?: string | null;
   billing_note?: string | null;
+  location_name?: string | null;
 };
 
 type PackageHealth =
@@ -608,6 +609,25 @@ export default function AppointmentEditForm({
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label
+                htmlFor="locationName"
+                className="mb-1 block text-sm font-medium"
+              >
+                Location
+              </label>
+              <input
+                id="locationName"
+                name="locationName"
+                defaultValue={appointment.location_name ?? ""}
+                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                placeholder="Optional location or venue"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Optional. Useful for instructors who teach at multiple locations.
+              </p>
             </div>
 
             <div>

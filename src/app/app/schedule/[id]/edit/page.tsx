@@ -84,6 +84,7 @@ type Appointment = {
   payment_status: string | null;
   billing_type: string | null;
   billing_note: string | null;
+  location_name: string | null;
 };
 
 type ClientRelationshipRow = {
@@ -151,7 +152,8 @@ export default async function EditAppointmentPage({
         price_amount,
         payment_status,
         billing_type,
-        billing_note
+        billing_note,
+        location_name
       `)
       .eq("id", id)
       .eq("studio_id", studioId)
