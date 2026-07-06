@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Linking, Pressable, Share, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, Share, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
+import { useRouter } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -15,6 +16,7 @@ import {
 } from "@/lib/publicDiscovery";
 
 type StudioWithDistance = PublicStudioItem & { distanceMiles: number | null };
+type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
 
 const RADIUS_OPTIONS = [10, 25, 50, 100];
 
@@ -46,6 +48,7 @@ function formatDistance(distanceMiles: number | null) {
 }
 
 export default function DiscoverStudiosScreen() {
+  const router = useRouter();
   const { session } = useAuth();
   const userId = session?.user.id ?? null;
   const [studios, setStudios] = useState<PublicStudioItem[]>([]);
@@ -320,7 +323,11 @@ export default function DiscoverStudiosScreen() {
             ) : null}
 
             <View style={styles.actionRow}>
-              <AppButton label="Open" onPress={() => Linking.openURL(studio.webUrl)} variant="secondary" />
+              <AppButton
+                label="Open"
+                onPress={() => router.push(`/studios/${studio.id}` as unknown as RouterPushTarget)}
+                variant="secondary"
+              />
               <Pressable onPress={() => shareStudio(studio)} style={styles.iconButton}>
                 <Ionicons color={colors.primary} name="share-outline" size={20} />
               </Pressable>

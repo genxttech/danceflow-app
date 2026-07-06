@@ -261,23 +261,18 @@ export default function DiscoverEventsScreen() {
                 {event.hostName} · {event.location}
               </AppText>
             </View>
-            <Pressable
-              accessibilityLabel="Remove event from favorites"
-              accessibilityRole="button"
-              onPress={() => toggleFavorite(event)}
-              style={({ pressed }) => [
-                styles.heartButton,
-                styles.heartButtonActive,
-                pressed && styles.cardPressed
-              ]}
-            >
-              <Ionicons color="#EF4444" name="heart" size={22} />
-            </Pressable>
           </View>
           <View style={styles.schedulePill}>
             <Ionicons color={colors.primary} name="calendar-outline" size={17} />
             <AppText style={styles.scheduleText}>{event.schedule}</AppText>
           </View>
+          {event.categoryLabel ? (
+            <View style={styles.metaRow}>
+              <View style={styles.categoryBadge}>
+                <AppText style={styles.categoryBadgeText}>{event.categoryLabel}</AppText>
+              </View>
+            </View>
+          ) : null}
         </View>
       ))}
 
@@ -299,29 +294,6 @@ export default function DiscoverEventsScreen() {
                   {event.hostName} · {event.location}{formatDistance(event.distanceMiles)}
                 </AppText>
               </View>
-              <View style={styles.cardActions}>
-                {event.registrationRequired ? (
-                  <View style={styles.badge}>
-                    <AppText style={styles.badgeText}>Registration</AppText>
-                  </View>
-                ) : null}
-                <Pressable
-                  accessibilityLabel={event.favorited ? "Remove event from favorites" : "Add event to favorites"}
-                  accessibilityRole="button"
-                  onPress={() => toggleFavorite(event)}
-                  style={({ pressed }) => [
-                    styles.heartButton,
-                    event.favorited && styles.heartButtonActive,
-                    pressed && styles.cardPressed
-                  ]}
-                >
-                  <Ionicons
-                    color={event.favorited ? "#EF4444" : colors.muted}
-                    name={event.favorited ? "heart" : "heart-outline"}
-                    size={22}
-                  />
-                </Pressable>
-              </View>
             </View>
 
             <View style={styles.schedulePill}>
@@ -331,7 +303,38 @@ export default function DiscoverEventsScreen() {
 
             {event.summary ? <AppText style={styles.description}>{event.summary}</AppText> : null}
 
+            {event.categoryLabel || event.registrationRequired ? (
+              <View style={styles.metaRow}>
+                {event.categoryLabel ? (
+                  <View style={styles.categoryBadge}>
+                    <AppText style={styles.categoryBadgeText}>{event.categoryLabel}</AppText>
+                  </View>
+                ) : null}
+                {event.registrationRequired ? (
+                  <View style={styles.badge}>
+                    <AppText style={styles.badgeText}>Registration</AppText>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+
             <View style={styles.actionRow}>
+              <Pressable
+                accessibilityLabel={event.favorited ? "Remove event from favorites" : "Add event to favorites"}
+                accessibilityRole="button"
+                onPress={() => toggleFavorite(event)}
+                style={({ pressed }) => [
+                  styles.heartButton,
+                  event.favorited && styles.heartButtonActive,
+                  pressed && styles.cardPressed
+                ]}
+              >
+                <Ionicons
+                  color={event.favorited ? "#EF4444" : colors.muted}
+                  name={event.favorited ? "heart" : "heart-outline"}
+                  size={22}
+                />
+              </Pressable>
               <AppButton
                 label="Open"
                 onPress={() => router.push(`/events/${event.id}` as unknown as RouterPushTarget)}
@@ -376,13 +379,22 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12
   },
-  cardActions: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 8
-  },
   cardPressed: {
     opacity: 0.78
+  },
+  categoryBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(244, 63, 142, 0.14)",
+    borderColor: "rgba(244, 63, 142, 0.28)",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  categoryBadgeText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "900"
   },
   description: {
     color: colors.text,
@@ -496,6 +508,12 @@ const styles = StyleSheet.create({
     fontWeight: "800"
   },
   locationRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  metaRow: {
+    alignItems: "center",
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 8

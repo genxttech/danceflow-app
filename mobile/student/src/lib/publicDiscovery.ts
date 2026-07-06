@@ -1,5 +1,60 @@
 import { supabase } from "@/lib/supabase";
 
+const DANCE_CATEGORY_LABELS: Record<string, string> = {
+  ballroom: "Ballroom",
+  club_latin: "Club / Social Latin",
+  country: "Country",
+  other: "Other / Mixed",
+  swing: "Swing"
+};
+
+const DANCE_STYLE_CATEGORY_BY_KEY: Record<string, string> = {
+  bachata: "club_latin",
+  ballet: "other",
+  ballroom: "ballroom",
+  ballroom_bolero: "ballroom",
+  ballroom_cha_cha: "ballroom",
+  ballroom_east_coast_swing: "ballroom",
+  ballroom_foxtrot: "ballroom",
+  ballroom_jive: "ballroom",
+  ballroom_mambo: "ballroom",
+  ballroom_paso_doble: "ballroom",
+  ballroom_quickstep: "ballroom",
+  ballroom_rumba: "ballroom",
+  ballroom_samba: "ballroom",
+  ballroom_tango: "ballroom",
+  ballroom_viennese_waltz: "ballroom",
+  ballroom_waltz: "ballroom",
+  contemporary: "other",
+  country: "country",
+  country_cha_cha: "country",
+  country_east_coast_swing: "country",
+  country_line_dance: "country",
+  country_nightclub_two_step: "country",
+  country_polka: "country",
+  country_swing: "country",
+  country_triple_two_step: "country",
+  country_two_step: "country",
+  country_waltz: "country",
+  country_west_coast_swing: "country",
+  hip_hop: "other",
+  kizomba: "club_latin",
+  latin: "club_latin",
+  line_dance: "other",
+  merengue: "club_latin",
+  nightclub_two_step: "other",
+  other: "other",
+  salsa: "club_latin",
+  swing: "swing",
+  swing_balboa: "swing",
+  swing_east_coast_swing: "swing",
+  swing_lindy_hop: "swing",
+  swing_shag: "swing",
+  swing_west_coast_swing: "swing",
+  west_coast_swing: "swing",
+  zouk: "club_latin"
+};
+
 function danceFlowWebUrl() {
   return (process.env.EXPO_PUBLIC_DANCEFLOW_WEB_URL ?? "https://idanceflow.com").replace(/\/$/, "");
 }
@@ -67,11 +122,17 @@ export type PublicStudioItem = {
   slug: string;
   name: string;
   description: string | null;
+  about: string | null;
   location: string;
   city: string | null;
   state: string | null;
   latitude: number | null;
   longitude: number | null;
+  logoUrl: string | null;
+  heroImageUrl: string | null;
+  phone: string | null;
+  email: string | null;
+  websiteUrl: string | null;
   beginnerFriendly: boolean;
   favorited: boolean;
   webUrl: string;
@@ -79,9 +140,11 @@ export type PublicStudioItem = {
 
 export type PublicEventItem = {
   id: string;
+  studioId: string | null;
   slug: string;
   name: string;
   hostName: string;
+  categoryLabel: string | null;
   schedule: string;
   location: string;
   latitude: number | null;
@@ -91,6 +154,23 @@ export type PublicEventItem = {
   registrationRequired: boolean;
   favorited: boolean;
   webUrl: string;
+};
+
+export type PublicStudioTag = {
+  key: string;
+  label: string;
+};
+
+export type PublicStudioStaffMember = {
+  id: string;
+  name: string;
+  title: string | null;
+  bio: string | null;
+  photoUrl: string | null;
+  specialties: string | null;
+  yearsExperience: number | null;
+  teachingCertifications: string | null;
+  competitiveTitles: string | null;
 };
 
 export type PublicEventTicketType = {
@@ -169,14 +249,46 @@ type StudioRow = {
   public_name: string | null;
   name: string;
   public_short_description: string | null;
+  public_about?: string | null;
   city: string | null;
   state: string | null;
+  postal_code?: string | null;
   latitude: number | null;
   longitude: number | null;
+  public_logo_url?: string | null;
+  public_hero_image_url?: string | null;
+  public_phone?: string | null;
+  public_email?: string | null;
+  public_website_url?: string | null;
   beginner_friendly: boolean | null;
   public_directory_enabled: boolean | null;
   billing_plan: string | null;
   subscription_status: string | null;
+};
+
+type StudioPublicStyleRow = {
+  studio_id: string;
+  style_key: string;
+  display_name: string;
+};
+
+type StudioPublicOfferingRow = {
+  studio_id: string;
+  offering_key: string;
+  display_name: string;
+};
+
+type InstructorPublicRow = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  public_photo_url: string | null;
+  public_title: string | null;
+  public_bio: string | null;
+  public_specialties: string | null;
+  years_experience: number | null;
+  teaching_certifications: string | null;
+  competitive_titles: string | null;
 };
 
 type EventRow = {
@@ -203,6 +315,12 @@ type EventRow = {
   registration_required: boolean | null;
   latitude: number | null;
   longitude: number | null;
+};
+
+type EventPublicStyleRow = {
+  event_id: string;
+  style_key: string;
+  display_name: string | null;
 };
 
 type TicketTypeRow = {
@@ -485,11 +603,48 @@ function formatSchedule(event: EventRow) {
   return [dateRange, timeRange].filter(Boolean).join(" · ");
 }
 
+function categoryLabelForEventStyles(styles: EventPublicStyleRow[]) {
+  const categoryKeys = new Set(
+    styles
+      .map((style) => DANCE_STYLE_CATEGORY_BY_KEY[style.style_key])
+      .filter((categoryKey): categoryKey is string => Boolean(categoryKey))
+  );
+
+  if (categoryKeys.size === 0) return null;
+  if (categoryKeys.size > 1) return DANCE_CATEGORY_LABELS.other;
+
+  const [categoryKey] = [...categoryKeys];
+  return DANCE_CATEGORY_LABELS[categoryKey] ?? null;
+}
+
+function publicStudioFromRow(studio: StudioRow, favorited: boolean): PublicStudioItem {
+  return {
+    id: studio.id,
+    slug: studio.slug!,
+    name: studioTitle(studio),
+    description: studio.public_short_description,
+    about: studio.public_about ?? null,
+    location: locationLabel(studio),
+    city: studio.city,
+    state: studio.state,
+    latitude: studio.latitude,
+    longitude: studio.longitude,
+    logoUrl: studio.public_logo_url ?? null,
+    heroImageUrl: studio.public_hero_image_url ?? null,
+    phone: studio.public_phone ?? null,
+    email: studio.public_email ?? null,
+    websiteUrl: studio.public_website_url ?? null,
+    beginnerFriendly: studio.beginner_friendly === true,
+    favorited,
+    webUrl: `${danceFlowWebUrl()}/studios/${studio.slug}`
+  };
+}
+
 export async function getPublicStudiosForMobile(userId?: string | null) {
   const { data, error } = await supabase
     .from("studios")
     .select(
-      "id, slug, public_name, name, public_short_description, city, state, latitude, longitude, beginner_friendly, public_directory_enabled, billing_plan, subscription_status"
+      "id, slug, public_name, name, public_short_description, public_about, city, state, postal_code, latitude, longitude, public_logo_url, public_hero_image_url, public_phone, public_email, public_website_url, beginner_friendly, public_directory_enabled, billing_plan, subscription_status"
     )
     .eq("public_directory_enabled", true)
     .order("public_name", { ascending: true })
@@ -521,20 +676,9 @@ export async function getPublicStudiosForMobile(userId?: string | null) {
     }
   }
 
-  return rows.map<PublicStudioItem>((studio) => ({
-    id: studio.id,
-    slug: studio.slug!,
-    name: studioTitle(studio),
-    description: studio.public_short_description,
-    location: locationLabel(studio),
-    city: studio.city,
-    state: studio.state,
-    latitude: studio.latitude,
-    longitude: studio.longitude,
-    beginnerFriendly: studio.beginner_friendly === true,
-    favorited: favoriteIds.has(studio.id),
-    webUrl: `${danceFlowWebUrl()}/studios/${studio.slug}`
-  }));
+  return rows.map<PublicStudioItem>((studio) =>
+    publicStudioFromRow(studio, favoriteIds.has(studio.id))
+  );
 }
 
 export async function getPublicEventsForMobile(userId?: string | null) {
@@ -542,7 +686,8 @@ export async function getPublicEventsForMobile(userId?: string | null) {
     { data: events, error: eventsError },
     { data: studios, error: studiosError },
     { data: organizers, error: organizersError },
-    { data: locations, error: locationsError }
+    { data: locations, error: locationsError },
+    { data: styles, error: stylesError }
   ] = await Promise.all([
     supabase
       .from("events")
@@ -563,13 +708,17 @@ export async function getPublicEventsForMobile(userId?: string | null) {
     supabase
       .from("event_locations")
       .select("event_id, location_name, venue_name, city, state, latitude, longitude, sort_order")
-      .order("sort_order", { ascending: true })
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("event_public_styles")
+      .select("event_id, style_key, display_name")
   ]);
 
   if (eventsError) throw eventsError;
   if (studiosError) throw studiosError;
   if (organizersError) throw organizersError;
   if (locationsError) throw locationsError;
+  if (stylesError) throw stylesError;
 
   const studioById = new Map(
     ((studios ?? []) as StudioRow[])
@@ -582,11 +731,18 @@ export async function getPublicEventsForMobile(userId?: string | null) {
       .map((organizer) => [organizer.id, organizer])
   );
   const locationsByEventId = new Map<string, EventLocationRow[]>();
+  const stylesByEventId = new Map<string, EventPublicStyleRow[]>();
 
   for (const location of (locations ?? []) as EventLocationRow[]) {
     const current = locationsByEventId.get(location.event_id) ?? [];
     current.push(location);
     locationsByEventId.set(location.event_id, current);
+  }
+
+  for (const style of (styles ?? []) as EventPublicStyleRow[]) {
+    const current = stylesByEventId.get(style.event_id) ?? [];
+    current.push(style);
+    stylesByEventId.set(style.event_id, current);
   }
 
   const rows = ((events ?? []) as EventRow[]).filter((event) => {
@@ -620,14 +776,17 @@ export async function getPublicEventsForMobile(userId?: string | null) {
     const studio = event.studio_id ? studioById.get(event.studio_id) : null;
     const organizer = event.organizer_id ? organizerById.get(event.organizer_id) : null;
     const firstLocation = locationsByEventId.get(event.id)?.[0] ?? null;
+    const eventStyles = stylesByEventId.get(event.id) ?? [];
     const latitude = event.latitude ?? firstLocation?.latitude ?? studio?.latitude ?? null;
     const longitude = event.longitude ?? firstLocation?.longitude ?? studio?.longitude ?? null;
 
     return {
       id: event.id,
+      studioId: event.studio_id,
       slug: event.slug!,
       name: event.name,
       hostName: organizer?.name || (studio ? studioTitle(studio) : "DanceFlow event"),
+      categoryLabel: categoryLabelForEventStyles(eventStyles),
       schedule: formatSchedule(event),
       location: firstLocation ? locationLabel(firstLocation) : locationLabel(studio ?? {}),
       latitude,
@@ -642,6 +801,9 @@ export async function getPublicEventsForMobile(userId?: string | null) {
 }
 
 export type PublicStudioDetail = PublicStudioItem & {
+  styles: PublicStudioTag[];
+  offerings: PublicStudioTag[];
+  staff: PublicStudioStaffMember[];
   upcomingEvents: PublicEventItem[];
 };
 
@@ -660,20 +822,65 @@ export async function getPublicStudioDetailForMobile(
   studioId: string,
   userId?: string | null
 ): Promise<PublicStudioDetail | null> {
-  const [studios, events] = await Promise.all([
+  const [studios, events, stylesResult, offeringsResult, staffResult] = await Promise.all([
     getPublicStudiosForMobile(userId),
-    getPublicEventsForMobile(userId)
+    getPublicEventsForMobile(userId),
+    supabase
+      .from("studio_public_styles")
+      .select("studio_id, style_key, display_name")
+      .eq("studio_id", studioId),
+    supabase
+      .from("studio_public_offerings")
+      .select("studio_id, offering_key, display_name")
+      .eq("studio_id", studioId),
+    supabase
+      .from("instructors")
+      .select(
+        "id, first_name, last_name, public_photo_url, public_title, public_bio, public_specialties, years_experience, teaching_certifications, competitive_titles"
+      )
+      .eq("studio_id", studioId)
+      .eq("active", true)
+      .eq("public_profile_enabled", true)
+      .order("display_order", { ascending: true })
+      .order("last_name", { ascending: true })
   ]);
 
   const studio = studios.find((item) => item.id === studioId);
   if (!studio) return null;
 
+  if (stylesResult.error) throw stylesResult.error;
+  if (offeringsResult.error) throw offeringsResult.error;
+  if (staffResult.error) throw staffResult.error;
+
+  const styles = ((stylesResult.data ?? []) as StudioPublicStyleRow[]).map((style) => ({
+    key: style.style_key,
+    label: style.display_name
+  }));
+  const offerings = ((offeringsResult.data ?? []) as StudioPublicOfferingRow[]).map((offering) => ({
+    key: offering.offering_key,
+    label: offering.display_name
+  }));
+  const staff = ((staffResult.data ?? []) as InstructorPublicRow[]).map((instructor) => ({
+    id: instructor.id,
+    name: `${instructor.first_name} ${instructor.last_name}`.trim(),
+    title: instructor.public_title,
+    bio: instructor.public_bio,
+    photoUrl: instructor.public_photo_url,
+    specialties: instructor.public_specialties,
+    yearsExperience: instructor.years_experience,
+    teachingCertifications: instructor.teaching_certifications,
+    competitiveTitles: instructor.competitive_titles
+  }));
+
   const upcomingEvents = events
-    .filter((event) => event.hostName === studio.name || event.location.includes(studio.city ?? "__none__"))
+    .filter((event) => event.studioId === studio.id)
     .slice(0, 10);
 
   return {
     ...studio,
+    styles,
+    offerings,
+    staff,
     upcomingEvents
   };
 }

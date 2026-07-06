@@ -98,6 +98,11 @@ export default function EventDetailScreen() {
 
       <View style={styles.infoCard}>
         <AppText variant="subtitle">When and where</AppText>
+        {event.categoryLabel ? (
+          <View style={styles.categoryBadge}>
+            <AppText style={styles.categoryBadgeText}>{event.categoryLabel}</AppText>
+          </View>
+        ) : null}
         <AppText variant="caption">{event.schedule}</AppText>
         <AppText variant="caption">{event.location}</AppText>
       </View>
@@ -174,6 +179,20 @@ export default function EventDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  categoryBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(244, 63, 142, 0.14)",
+    borderColor: "rgba(244, 63, 142, 0.28)",
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  categoryBadgeText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "900"
+  },
   documentTitle: {
     color: colors.text,
     fontSize: 14,

@@ -89,6 +89,62 @@ function AppStack() {
           }}
         />
         <Stack.Screen
+          name="studios/[id]"
+          options={{
+            headerShown: true,
+            title: "Studio"
+          }}
+        />
+        <Stack.Screen
+          name="studios/[id]/overview"
+          options={{
+            headerShown: true,
+            title: "Overview"
+          }}
+        />
+        <Stack.Screen
+          name="studios/[id]/about"
+          options={{
+            headerShown: true,
+            title: "About"
+          }}
+        />
+        <Stack.Screen
+          name="studios/[id]/dance-styles"
+          options={{
+            headerShown: true,
+            title: "Dance Styles"
+          }}
+        />
+        <Stack.Screen
+          name="studios/[id]/staff"
+          options={{
+            headerShown: true,
+            title: "Staff"
+          }}
+        />
+        <Stack.Screen
+          name="studios/[id]/offerings"
+          options={{
+            headerShown: true,
+            title: "Offerings"
+          }}
+        />
+        <Stack.Screen
+          name="studios/[id]/events"
+          options={{
+            headerShown: true,
+            title: "Events"
+          }}
+        />
+        <Stack.Screen
+          name="studios/[id]/contact"
+          options={{
+            headerShown: true,
+            title: "Contact"
+          }}
+        />
+        <Stack.Screen
           name="events/[id]"
           options={{
             headerShown: true,
