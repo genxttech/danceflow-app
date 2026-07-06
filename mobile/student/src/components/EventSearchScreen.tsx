@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, Share, StyleSheet, TextInput, View } from "react-native";
+import { Image, Pressable, Share, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
@@ -18,6 +18,43 @@ import {
 type EventWithDistance = PublicEventItem & { distanceMiles: number | null };
 type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
 const RADIUS_OPTIONS = [10, 25, 50, 100];
+
+export type EventSearchCategory =
+  | "all"
+  | "group_class"
+  | "social_dance"
+  | "workshop"
+  | "competition"
+  | "showcase"
+  | "other";
+
+const CORE_EVENT_TYPES = new Set([
+  "group_class",
+  "social_dance",
+  "workshop",
+  "competition",
+  "showcase"
+]);
+
+const EVENT_CATEGORY_LABELS: Record<EventSearchCategory, string> = {
+  all: "All Events",
+  competition: "Competitions",
+  group_class: "Group Classes",
+  other: "Other Events",
+  showcase: "Showcases",
+  social_dance: "Social Dances",
+  workshop: "Workshops"
+};
+
+const EVENT_CATEGORY_DETAILS: Record<EventSearchCategory, string> = {
+  all: "Browse all public DanceFlow events, workshops, socials, and classes.",
+  competition: "Find competitive events published by DanceFlow studios and organizers.",
+  group_class: "Find public group classes from DanceFlow studios.",
+  other: "Find parties, festivals, special events, and other public listings.",
+  showcase: "Find showcase opportunities and performance-focused events.",
+  social_dance: "Find socials, parties, and places to dance.",
+  workshop: "Find focused workshops and learning events."
+};
 
 function normalize(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
@@ -46,7 +83,25 @@ function formatDistance(distanceMiles: number | null) {
   return distanceMiles !== null ? ` · ${distanceMiles.toFixed(1)} mi` : "";
 }
 
-export default function DiscoverEventsScreen() {
+function initialsFor(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
+
+function matchesEventCategory(event: PublicEventItem, category: EventSearchCategory) {
+  if (category === "all") return true;
+  if (category === "other") {
+    return !event.eventType || !CORE_EVENT_TYPES.has(event.eventType);
+  }
+
+  return event.eventType === category;
+}
+
+export function EventSearchScreen({ category = "all" }: { category?: EventSearchCategory }) {
   const router = useRouter();
   const { session } = useAuth();
   const userId = session?.user.id ?? null;
@@ -80,15 +135,20 @@ export default function DiscoverEventsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId]);
 
+  const categoryEvents = useMemo(
+    () => events.filter((event) => matchesEventCategory(event, category)),
+    [category, events]
+  );
+
   const favoriteEvents = useMemo(
-    () => events.filter((event) => event.favorited),
-    [events]
+    () => categoryEvents.filter((event) => event.favorited),
+    [categoryEvents]
   );
 
   const filteredEvents = useMemo<EventWithDistance[]>(() => {
     const search = normalize(query);
 
-    return events
+    return categoryEvents
       .map<EventWithDistance>((event) => {
         const distanceMiles =
           currentLocation && event.latitude !== null && event.longitude !== null
@@ -129,7 +189,7 @@ export default function DiscoverEventsScreen() {
         if (a.favorited !== b.favorited) return a.favorited ? -1 : 1;
         return a.name.localeCompare(b.name);
       });
-  }, [currentLocation, events, query, radiusMiles]);
+  }, [categoryEvents, currentLocation, query, radiusMiles]);
 
   async function useCurrentLocation() {
     setLocationError(null);
@@ -188,9 +248,9 @@ export default function DiscoverEventsScreen() {
         </View>
         <View style={{ flex: 1 }}>
           <AppText variant="eyebrow">Events</AppText>
-          <AppText style={styles.heroTitle}>Find your next dance event</AppText>
+          <AppText style={styles.heroTitle}>{EVENT_CATEGORY_LABELS[category]}</AppText>
           <AppText style={styles.heroDetail}>
-            Browse public events, workshops, socials, and classes from DanceFlow studios.
+            {EVENT_CATEGORY_DETAILS[category]}
           </AppText>
         </View>
       </View>
@@ -255,6 +315,13 @@ export default function DiscoverEventsScreen() {
       {favoriteEvents.map((event) => (
         <View key={`favorite-${event.id}`} style={[styles.eventCard, styles.favoriteCard]}>
           <View style={styles.cardTop}>
+            {event.imageUrl ? (
+              <Image source={{ uri: event.imageUrl }} style={styles.cardImage} />
+            ) : (
+              <View style={styles.cardImageFallback}>
+                <AppText style={styles.cardImageInitials}>{initialsFor(event.name) || "DF"}</AppText>
+              </View>
+            )}
             <View style={{ flex: 1 }}>
               <AppText style={styles.eventTitle}>{event.name}</AppText>
               <AppText variant="caption">
@@ -277,7 +344,7 @@ export default function DiscoverEventsScreen() {
       ))}
 
       <View style={styles.sectionHeading}>
-        <AppText variant="eyebrow">Event Search</AppText>
+        <AppText variant="eyebrow">{EVENT_CATEGORY_LABELS[category]}</AppText>
         <AppText variant="caption">
           {filteredEvents.length} matching event{filteredEvents.length === 1 ? "" : "s"}
           {currentLocation ? ` within ${radiusMiles} miles` : ""}
@@ -288,6 +355,13 @@ export default function DiscoverEventsScreen() {
         filteredEvents.map((event) => (
           <View key={event.id} style={styles.eventCard}>
             <View style={styles.cardTop}>
+              {event.imageUrl ? (
+                <Image source={{ uri: event.imageUrl }} style={styles.cardImage} />
+              ) : (
+                <View style={styles.cardImageFallback}>
+                  <AppText style={styles.cardImageInitials}>{initialsFor(event.name) || "DF"}</AppText>
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <AppText style={styles.eventTitle}>{event.name}</AppText>
                 <AppText variant="caption">
@@ -381,6 +455,27 @@ const styles = StyleSheet.create({
   },
   cardPressed: {
     opacity: 0.78
+  },
+  cardImage: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 16,
+    height: 72,
+    width: 88
+  },
+  cardImageFallback: {
+    alignItems: "center",
+    backgroundColor: "rgba(244, 63, 142, 0.12)",
+    borderColor: "rgba(244, 63, 142, 0.25)",
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 72,
+    justifyContent: "center",
+    width: 88
+  },
+  cardImageInitials: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: "900"
   },
   categoryBadge: {
     alignSelf: "flex-start",

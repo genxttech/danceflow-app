@@ -89,6 +89,55 @@ function AppStack() {
           }}
         />
         <Stack.Screen
+          name="discover/events/all"
+          options={{
+            headerShown: true,
+            title: "All Events"
+          }}
+        />
+        <Stack.Screen
+          name="discover/events/group-classes"
+          options={{
+            headerShown: true,
+            title: "Group Classes"
+          }}
+        />
+        <Stack.Screen
+          name="discover/events/social-dances"
+          options={{
+            headerShown: true,
+            title: "Social Dances"
+          }}
+        />
+        <Stack.Screen
+          name="discover/events/workshops"
+          options={{
+            headerShown: true,
+            title: "Workshops"
+          }}
+        />
+        <Stack.Screen
+          name="discover/events/competitions"
+          options={{
+            headerShown: true,
+            title: "Competitions"
+          }}
+        />
+        <Stack.Screen
+          name="discover/events/showcases"
+          options={{
+            headerShown: true,
+            title: "Showcases"
+          }}
+        />
+        <Stack.Screen
+          name="discover/events/other"
+          options={{
+            headerShown: true,
+            title: "Other Events"
+          }}
+        />
+        <Stack.Screen
           name="studios/[id]"
           options={{
             headerShown: true,

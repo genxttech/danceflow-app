@@ -192,6 +192,15 @@ function profilePhotoUrl(profile: DancerPartnerProfile) {
   return profile.photoUrl.trim();
 }
 
+function initialsFor(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
+}
+
 function milesBetween(
   a: { latitude: number; longitude: number },
   b: { latitude: number; longitude: number }
@@ -944,6 +953,15 @@ export default function PartnerSearchScreen() {
         filteredProfiles.map((profile) => (
           <View key={profile.id} style={styles.partnerCard}>
             <View style={styles.partnerTop}>
+              {profile.photoUrl ? (
+                <Image source={{ uri: profile.photoUrl }} style={styles.partnerAvatar} />
+              ) : (
+                <View style={styles.partnerAvatarFallback}>
+                  <AppText style={styles.partnerAvatarInitials}>
+                    {initialsFor(profile.displayName) || "DF"}
+                  </AppText>
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <AppText style={styles.partnerName}>{profile.displayName}</AppText>
                 <AppText variant="caption">{profile.location}</AppText>
@@ -953,7 +971,7 @@ export default function PartnerSearchScreen() {
                 style={({ pressed }) => [styles.heartButton, pressed && styles.cardPressed]}
               >
                 <Ionicons
-                  color={profile.favorited ? colors.primary : colors.muted}
+                  color={profile.favorited ? "#EF4444" : colors.muted}
                   name={profile.favorited ? "heart" : "heart-outline"}
                   size={22}
                 />
@@ -1210,6 +1228,27 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     flexDirection: "row",
     gap: 12
+  },
+  partnerAvatar: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 24,
+    height: 64,
+    width: 64
+  },
+  partnerAvatarFallback: {
+    alignItems: "center",
+    backgroundColor: "rgba(244, 63, 142, 0.12)",
+    borderColor: "rgba(244, 63, 142, 0.25)",
+    borderRadius: 24,
+    borderWidth: 1,
+    height: 64,
+    justifyContent: "center",
+    width: 64
+  },
+  partnerAvatarInitials: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: "900"
   },
   photoCard: {
     alignItems: "center",

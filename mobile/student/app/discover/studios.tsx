@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, Share, StyleSheet, TextInput, View } from "react-native";
+import { Image, Pressable, Share, StyleSheet, TextInput, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Location from "expo-location";
 import { useRouter } from "expo-router";
@@ -45,6 +45,15 @@ function haversineMiles(
 
 function formatDistance(distanceMiles: number | null) {
   return distanceMiles !== null ? ` · ${distanceMiles.toFixed(1)} mi` : "";
+}
+
+function initialsFor(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join("");
 }
 
 export default function DiscoverStudiosScreen() {
@@ -256,6 +265,16 @@ export default function DiscoverStudiosScreen() {
       {favoriteStudios.map((studio) => (
         <View key={`favorite-${studio.id}`} style={[styles.studioCard, styles.favoriteCard]}>
           <View style={styles.cardTop}>
+            {studio.heroImageUrl || studio.logoUrl ? (
+              <Image
+                source={{ uri: studio.heroImageUrl ?? studio.logoUrl ?? "" }}
+                style={styles.cardImage}
+              />
+            ) : (
+              <View style={styles.cardImageFallback}>
+                <AppText style={styles.cardImageInitials}>{initialsFor(studio.name) || "DF"}</AppText>
+              </View>
+            )}
             <View style={{ flex: 1 }}>
               <AppText style={styles.studioTitle}>{studio.name}</AppText>
               <AppText variant="caption">{studio.location}</AppText>
@@ -289,6 +308,16 @@ export default function DiscoverStudiosScreen() {
         filteredStudios.map((studio) => (
           <View key={studio.id} style={styles.studioCard}>
             <View style={styles.cardTop}>
+              {studio.heroImageUrl || studio.logoUrl ? (
+                <Image
+                  source={{ uri: studio.heroImageUrl ?? studio.logoUrl ?? "" }}
+                  style={styles.cardImage}
+                />
+              ) : (
+                <View style={styles.cardImageFallback}>
+                  <AppText style={styles.cardImageInitials}>{initialsFor(studio.name) || "DF"}</AppText>
+                </View>
+              )}
               <View style={{ flex: 1 }}>
                 <AppText style={styles.studioTitle}>{studio.name}</AppText>
                 <AppText variant="caption">{studio.location}{formatDistance(studio.distanceMiles)}</AppText>
@@ -374,6 +403,27 @@ const styles = StyleSheet.create({
   },
   cardPressed: {
     opacity: 0.78
+  },
+  cardImage: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 16,
+    height: 72,
+    width: 88
+  },
+  cardImageFallback: {
+    alignItems: "center",
+    backgroundColor: "rgba(244, 63, 142, 0.12)",
+    borderColor: "rgba(244, 63, 142, 0.25)",
+    borderRadius: 16,
+    borderWidth: 1,
+    height: 72,
+    justifyContent: "center",
+    width: 88
+  },
+  cardImageInitials: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: "900"
   },
   description: {
     color: colors.text,

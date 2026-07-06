@@ -143,6 +143,8 @@ export type PublicEventItem = {
   studioId: string | null;
   slug: string;
   name: string;
+  eventType: string | null;
+  imageUrl: string | null;
   hostName: string;
   categoryLabel: string | null;
   schedule: string;
@@ -202,6 +204,7 @@ export type PublicEventDocumentRequirement = {
 export type PublicPartnerProfileItem = {
   id: string;
   displayName: string;
+  photoUrl: string | null;
   headline: string | null;
   bio: string | null;
   location: string;
@@ -297,6 +300,9 @@ type EventRow = {
   studio_id: string | null;
   organizer_id: string | null;
   name: string;
+  event_type: string | null;
+  cover_image_url?: string | null;
+  public_cover_image_url?: string | null;
   start_date: string | null;
   end_date: string | null;
   start_time: string | null;
@@ -480,6 +486,7 @@ type EventDocumentRequirementRow = {
 type PartnerProfileRow = {
   id: string;
   display_name: string;
+  photo_url: string | null;
   headline: string | null;
   bio: string | null;
   city: string | null;
@@ -692,7 +699,7 @@ export async function getPublicEventsForMobile(userId?: string | null) {
     supabase
       .from("events")
       .select(
-        "id, slug, studio_id, organizer_id, name, start_date, end_date, start_time, end_time, visibility, status, public_summary, public_description, beginner_friendly, public_directory_enabled, registration_required, latitude, longitude"
+        "id, slug, studio_id, organizer_id, name, event_type, public_cover_image_url, cover_image_url, start_date, end_date, start_time, end_time, visibility, status, public_summary, public_description, beginner_friendly, public_directory_enabled, registration_required, latitude, longitude"
       )
       .eq("visibility", "public")
       .eq("public_directory_enabled", true)
@@ -785,6 +792,8 @@ export async function getPublicEventsForMobile(userId?: string | null) {
       studioId: event.studio_id,
       slug: event.slug!,
       name: event.name,
+      eventType: event.event_type,
+      imageUrl: event.public_cover_image_url ?? event.cover_image_url ?? null,
       hostName: organizer?.name || (studio ? studioTitle(studio) : "DanceFlow event"),
       categoryLabel: categoryLabelForEventStyles(eventStyles),
       schedule: formatSchedule(event),
@@ -1009,7 +1018,7 @@ export async function getPublicPartnerProfilesForMobile(userId?: string | null) 
   const { data, error } = await supabase
     .from("dancer_partner_profiles")
     .select(
-      "id, display_name, headline, bio, city, state, latitude, longitude, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes"
+      "id, display_name, photo_url, headline, bio, city, state, latitude, longitude, lead_follow_role, dance_styles, skill_level, goals, listing_intent, availability_notes"
     )
     .eq("visibility", "published")
     .eq("moderation_status", "approved")
@@ -1043,6 +1052,7 @@ export async function getPublicPartnerProfilesForMobile(userId?: string | null) 
   return rows.map<PublicPartnerProfileItem>((profile) => ({
     id: profile.id,
     displayName: profile.display_name,
+    photoUrl: profile.photo_url,
     headline: profile.headline,
     bio: profile.bio,
     location: locationLabel(profile),
