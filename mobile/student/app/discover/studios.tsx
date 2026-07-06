@@ -257,9 +257,18 @@ export default function DiscoverStudiosScreen() {
               <AppText style={styles.studioTitle}>{studio.name}</AppText>
               <AppText variant="caption">{studio.location}</AppText>
             </View>
-            <View style={styles.badge}>
-              <AppText style={styles.badgeText}>Saved</AppText>
-            </View>
+            <Pressable
+              accessibilityLabel="Remove studio from favorites"
+              accessibilityRole="button"
+              onPress={() => toggleFavorite(studio)}
+              style={({ pressed }) => [
+                styles.heartButton,
+                styles.heartButtonActive,
+                pressed && styles.cardPressed
+              ]}
+            >
+              <Ionicons color="#EF4444" name="heart" size={22} />
+            </Pressable>
           </View>
           {studio.description ? <AppText style={styles.description}>{studio.description}</AppText> : null}
         </View>
@@ -281,11 +290,29 @@ export default function DiscoverStudiosScreen() {
                 <AppText style={styles.studioTitle}>{studio.name}</AppText>
                 <AppText variant="caption">{studio.location}{formatDistance(studio.distanceMiles)}</AppText>
               </View>
-              {studio.beginnerFriendly ? (
-                <View style={styles.badge}>
-                  <AppText style={styles.badgeText}>Beginner friendly</AppText>
-                </View>
-              ) : null}
+              <View style={styles.cardActions}>
+                {studio.beginnerFriendly ? (
+                  <View style={styles.badge}>
+                    <AppText style={styles.badgeText}>Beginner friendly</AppText>
+                  </View>
+                ) : null}
+                <Pressable
+                  accessibilityLabel={studio.favorited ? "Remove studio from favorites" : "Add studio to favorites"}
+                  accessibilityRole="button"
+                  onPress={() => toggleFavorite(studio)}
+                  style={({ pressed }) => [
+                    styles.heartButton,
+                    studio.favorited && styles.heartButtonActive,
+                    pressed && styles.cardPressed
+                  ]}
+                >
+                  <Ionicons
+                    color={studio.favorited ? "#EF4444" : colors.muted}
+                    name={studio.favorited ? "heart" : "heart-outline"}
+                    size={22}
+                  />
+                </Pressable>
+              </View>
             </View>
 
             {studio.description ? (
@@ -293,11 +320,6 @@ export default function DiscoverStudiosScreen() {
             ) : null}
 
             <View style={styles.actionRow}>
-              <AppButton
-                label={studio.favorited ? "Saved" : "Save"}
-                onPress={() => toggleFavorite(studio)}
-                variant="secondary"
-              />
               <AppButton label="Open" onPress={() => Linking.openURL(studio.webUrl)} variant="secondary" />
               <Pressable onPress={() => shareStudio(studio)} style={styles.iconButton}>
                 <Ionicons color={colors.primary} name="share-outline" size={20} />
@@ -337,6 +359,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     flexDirection: "row",
     gap: 12
+  },
+  cardActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8
+  },
+  cardPressed: {
+    opacity: 0.78
   },
   description: {
     color: colors.text,
@@ -403,6 +433,20 @@ const styles = StyleSheet.create({
   },
   favoriteCard: {
     backgroundColor: colors.surfaceAlt
+  },
+  heartButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: "center",
+    width: 42
+  },
+  heartButtonActive: {
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    borderColor: "rgba(239, 68, 68, 0.35)"
   },
   locationButton: {
     backgroundColor: colors.surfaceAlt,

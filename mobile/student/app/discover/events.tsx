@@ -261,9 +261,18 @@ export default function DiscoverEventsScreen() {
                 {event.hostName} · {event.location}
               </AppText>
             </View>
-            <View style={styles.badge}>
-              <AppText style={styles.badgeText}>Saved</AppText>
-            </View>
+            <Pressable
+              accessibilityLabel="Remove event from favorites"
+              accessibilityRole="button"
+              onPress={() => toggleFavorite(event)}
+              style={({ pressed }) => [
+                styles.heartButton,
+                styles.heartButtonActive,
+                pressed && styles.cardPressed
+              ]}
+            >
+              <Ionicons color="#EF4444" name="heart" size={22} />
+            </Pressable>
           </View>
           <View style={styles.schedulePill}>
             <Ionicons color={colors.primary} name="calendar-outline" size={17} />
@@ -290,11 +299,29 @@ export default function DiscoverEventsScreen() {
                   {event.hostName} · {event.location}{formatDistance(event.distanceMiles)}
                 </AppText>
               </View>
-              {event.registrationRequired ? (
-                <View style={styles.badge}>
-                  <AppText style={styles.badgeText}>Registration</AppText>
-                </View>
-              ) : null}
+              <View style={styles.cardActions}>
+                {event.registrationRequired ? (
+                  <View style={styles.badge}>
+                    <AppText style={styles.badgeText}>Registration</AppText>
+                  </View>
+                ) : null}
+                <Pressable
+                  accessibilityLabel={event.favorited ? "Remove event from favorites" : "Add event to favorites"}
+                  accessibilityRole="button"
+                  onPress={() => toggleFavorite(event)}
+                  style={({ pressed }) => [
+                    styles.heartButton,
+                    event.favorited && styles.heartButtonActive,
+                    pressed && styles.cardPressed
+                  ]}
+                >
+                  <Ionicons
+                    color={event.favorited ? "#EF4444" : colors.muted}
+                    name={event.favorited ? "heart" : "heart-outline"}
+                    size={22}
+                  />
+                </Pressable>
+              </View>
             </View>
 
             <View style={styles.schedulePill}>
@@ -305,11 +332,6 @@ export default function DiscoverEventsScreen() {
             {event.summary ? <AppText style={styles.description}>{event.summary}</AppText> : null}
 
             <View style={styles.actionRow}>
-              <AppButton
-                label={event.favorited ? "Saved" : "Save"}
-                onPress={() => toggleFavorite(event)}
-                variant="secondary"
-              />
               <AppButton
                 label="Open"
                 onPress={() => router.push(`/events/${event.id}` as unknown as RouterPushTarget)}
@@ -353,6 +375,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     flexDirection: "row",
     gap: 12
+  },
+  cardActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8
+  },
+  cardPressed: {
+    opacity: 0.78
   },
   description: {
     color: colors.text,
@@ -427,6 +457,20 @@ const styles = StyleSheet.create({
   },
   favoriteCard: {
     backgroundColor: colors.surfaceAlt
+  },
+  heartButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 42,
+    justifyContent: "center",
+    width: 42
+  },
+  heartButtonActive: {
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    borderColor: "rgba(239, 68, 68, 0.35)"
   },
   input: {
     backgroundColor: colors.surface,
