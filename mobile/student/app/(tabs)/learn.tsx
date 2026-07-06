@@ -1,6 +1,7 @@
-import { Link, type Href } from "expo-router";
+import { Link, router } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -10,16 +11,26 @@ import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
   loadStudentLearnOverview,
-  type StudentGroupLessonRecap,
-  type StudentLearnLesson,
   type StudentLearnOverview,
-  type StudentPracticeFocus,
-  type StudentSyllabusSummary
 } from "@/lib/studentLearn";
 
 const lumiAvatar = require("../../assets/lumi-avatar.png");
 
-const emptyOverview: StudentLearnOverview = {
+type StudentSyllabusSummary = {
+  id: string;
+  studioName: string;
+  name: string;
+  description: string | null;
+  danceStyle: string | null;
+  level: string | null;
+  totalItems: number;
+  startedItems: number;
+  activeItems: number;
+  masteredItems: number;
+  percentMastered: number;
+};
+
+const emptyOverview: StudentLearnOverview & { syllabi: StudentSyllabusSummary[] } = {
   recentLessons: [],
   groupLessonRecaps: [],
   practiceFocus: [],
@@ -31,119 +42,39 @@ const emptyOverview: StudentLearnOverview = {
   ]
 };
 
-function groupRecapHref(recapId: string): Href {
-  return `/learn/group-recaps/${recapId}` as Href;
-}
-
-function lessonRecapHref(lessonId: string): Href {
-  return `/learn/lessons/${lessonId}` as Href;
-}
-
-function lumiPromptHref(prompt: string): Href {
-  return {
-    pathname: "/lumi",
-    params: { prompt }
-  } as Href;
-}
-
-function FocusCard({ focus }: { focus: StudentPracticeFocus }) {
-  return (
-    <View style={styles.itemCard}>
-      <AppText variant="subtitle">{focus.title}</AppText>
-      <AppText variant="caption">{focus.detail}</AppText>
-    </View>
-  );
-}
-
-function SyllabusCard({ syllabus }: { syllabus: StudentSyllabusSummary }) {
-  const subtitle = [syllabus.studioName, syllabus.danceStyle, syllabus.level].filter(Boolean).join(" • ");
-
-  return (
-    <View style={styles.syllabusCard}>
-      <View style={{ flex: 1 }}>
-        <AppText variant="eyebrow">Syllabus</AppText>
-        <AppText variant="subtitle">{syllabus.name}</AppText>
-        {subtitle ? <AppText variant="caption">{subtitle}</AppText> : null}
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${syllabus.percentMastered}%` }]} />
-        </View>
-        <AppText variant="caption">
-          {syllabus.masteredItems} mastered • {syllabus.activeItems} active • {syllabus.startedItems} of {syllabus.totalItems} started
-        </AppText>
-        {syllabus.description ? <AppText variant="caption">{syllabus.description}</AppText> : null}
-      </View>
-      <View style={styles.progressBadge}>
-        <AppText style={styles.progressBadgeValue}>{syllabus.percentMastered}%</AppText>
-        <AppText style={styles.progressBadgeLabel}>mastered</AppText>
-      </View>
-    </View>
-  );
-}
-
-function GroupRecapCard({ recap }: { recap: StudentGroupLessonRecap }) {
-  const detail = [
-    recap.studioName,
-    recap.summary,
-    recap.practiceAssignment ? `Practice: ${recap.practiceAssignment}` : null,
-    recap.safetyNotes ? `Safety: ${recap.safetyNotes}` : null
-  ]
-    .filter(Boolean)
-    .join(" • ");
-
-  return (
-    <View style={styles.itemCard}>
-      <AppText variant="eyebrow">Group Recap</AppText>
-      <AppText variant="subtitle">{recap.title}</AppText>
-      {recap.publishedAt ? (
-        <AppText variant="caption">
-          Published{" "}
-          {new Intl.DateTimeFormat(undefined, {
-            month: "short",
-            day: "numeric",
-            year: "numeric"
-          }).format(new Date(recap.publishedAt))}
-        </AppText>
-      ) : null}
-      {detail ? <AppText variant="caption">{detail}</AppText> : null}
-      {recap.mediaLinks.length > 0 ? (
-        <AppText variant="caption">
-          {recap.mediaLinks.length} shared link{recap.mediaLinks.length === 1 ? "" : "s"}
-        </AppText>
-      ) : null}
-      <Link href={groupRecapHref(recap.id)} asChild>
-        <AppButton label="Read full recap" variant="secondary" />
-      </Link>
-    </View>
-  );
-}
-
-function LatestRecapCard({
-  item
+function LearnCategoryCard({
+  countLabel,
+  detail,
+  icon,
+  onPress,
+  title
 }: {
-  item:
-    | { kind: "lesson"; lesson: StudentLearnLesson }
-    | { kind: "group"; recap: StudentGroupLessonRecap };
+  countLabel: string;
+  detail: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  onPress: () => void;
+  title: string;
 }) {
-  if (item.kind === "lesson") {
-    const lesson = item.lesson;
-    return (
-      <View style={styles.itemCard}>
-        <AppText variant="eyebrow">Latest Lesson Recap</AppText>
-        <AppText variant="subtitle">{lesson.title}</AppText>
-        <AppText variant="caption">{lesson.timeText}</AppText>
-        <AppText variant="caption">
-          {lesson.instructorName
-            ? `Review what you worked on with ${lesson.instructorName}.`
-            : "Review what you worked on and what to practice next."}
-        </AppText>
-        <Link href={lessonRecapHref(lesson.id)} asChild>
-          <AppButton label="Read full recap" variant="secondary" />
-        </Link>
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.categoryCard,
+        pressed && styles.cardPressed
+      ]}
+    >
+      <View style={styles.categoryIcon}>
+        <Ionicons color="#fff" name={icon} size={24} />
       </View>
-    );
-  }
-
-  return <GroupRecapCard recap={item.recap} />;
+      <View style={{ flex: 1 }}>
+        <View style={styles.cardHeader}>
+          <AppText style={styles.categoryTitle}>{title}</AppText>
+          <AppText style={styles.countPill}>{countLabel}</AppText>
+        </View>
+        <AppText style={styles.categoryDetail}>{detail}</AppText>
+      </View>
+    </Pressable>
+  );
 }
 
 function LearnValueCard({ signedIn }: { signedIn: boolean }) {
@@ -267,18 +198,9 @@ export default function LearnScreen() {
   const recentLessons = overview.recentLessons;
   const groupLessonRecaps = overview.groupLessonRecaps;
   const practiceFocus = overview.practiceFocus;
-  const syllabi = overview.syllabi;
-  const latestLesson = recentLessons[0] ?? null;
-  const latestItems = [
-    latestLesson ? { kind: "lesson" as const, lesson: latestLesson } : null,
-    groupLessonRecaps[0] ? { kind: "group" as const, recap: groupLessonRecaps[0] } : null
-  ].filter(
-    (
-      item
-    ): item is
-      | { kind: "lesson"; lesson: StudentLearnLesson }
-      | { kind: "group"; recap: StudentGroupLessonRecap } => Boolean(item)
-  );
+  const syllabi =
+    (overview as StudentLearnOverview & { syllabi?: StudentSyllabusSummary[] }).syllabi ?? [];
+  const recapCount = recentLessons.length + groupLessonRecaps.length;
 
   return (
     <Screen>
@@ -304,72 +226,28 @@ export default function LearnScreen() {
 
       {!loading && hasPortalAccess ? (
         <>
-          {latestItems.length ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Latest recaps</AppText>
-              <AppText variant="caption">
-                Your most recent private and group lesson notes appear together here.
-              </AppText>
-              {latestItems.map((item) => (
-                <LatestRecapCard
-                  key={item.kind === "lesson" ? `lesson-${item.lesson.id}` : `group-${item.recap.id}`}
-                  item={item}
-                />
-              ))}
-            </View>
-          ) : (
-            <FeatureCard
-              label="No lessons yet"
-              title="Your learning history will appear here"
-              detail="After completed lessons or classes are visible to your portal, this tab will show recent activity and practice prompts."
+          <View style={styles.categoryList}>
+            <LearnCategoryCard
+              countLabel={`${recapCount}`}
+              detail="Recent private lessons, completed schedule items, and published group-class notes."
+              icon="reader-outline"
+              onPress={() => router.push("/learn/latest-recaps")}
+              title="Latest Recaps"
             />
-          )}
-
-          {syllabi.length ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Syllabus</AppText>
-              {syllabi.map((syllabus) => (
-                <SyllabusCard key={syllabus.id} syllabus={syllabus} />
-              ))}
-            </View>
-          ) : (
-            <FeatureCard
-              title="No visible syllabus yet"
-              detail="Assigned syllabus progress will appear here when your studio makes it visible to your account."
+            <LearnCategoryCard
+              countLabel={`${syllabi.length}`}
+              detail="Assigned syllabus progress and skill checklists from your studio."
+              icon="list-outline"
+              onPress={() => router.push("/learn/syllabus")}
+              title="Syllabus"
             />
-          )}
-
-          <View style={styles.section}>
-            <AppText variant="subtitle">Practice focus</AppText>
-            {practiceFocus.map((focus) => (
-              <FocusCard key={focus.id} focus={focus} />
-            ))}
-          </View>
-
-          <View style={styles.lumiCard}>
-            <Image
-              accessibilityIgnoresInvertColors
-              resizeMode="cover"
-              source={lumiAvatar}
-              style={styles.lumiAvatar}
+            <LearnCategoryCard
+              countLabel={`${practiceFocus.length}`}
+              detail="A short focus list based on recent lessons, recaps, and LUMI prompts."
+              icon="sparkles-outline"
+              onPress={() => router.push("/learn/practice-focus")}
+              title="Practice Focus"
             />
-            <View style={styles.lumiCopy}>
-              <AppText variant="eyebrow">LUMI</AppText>
-              <AppText variant="title">Practice coach</AppText>
-              <AppText variant="caption">
-                LUMI can turn recent lessons and upcoming goals into a focused practice plan.
-              </AppText>
-              <View style={styles.promptList}>
-                {overview.lumiPrompts.slice(0, 2).map((prompt) => (
-                  <Link key={prompt} href={lumiPromptHref(prompt)} asChild>
-                    <AppButton label={prompt} variant="secondary" />
-                  </Link>
-                ))}
-              </View>
-              <Link href={lumiPromptHref(overview.lumiPrompts[0] ?? "What should I practice this week?")} asChild>
-                <AppButton label="Ask LUMI what to practice" variant="secondary" />
-              </Link>
-            </View>
           </View>
         </>
       ) : null}
@@ -391,6 +269,57 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 6,
     padding: 14
+  },
+  cardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between"
+  },
+  cardPressed: {
+    opacity: 0.78
+  },
+  categoryCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 14,
+    padding: 16
+  },
+  categoryDetail: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4
+  },
+  categoryIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 18,
+    height: 50,
+    justifyContent: "center",
+    width: 50
+  },
+  categoryList: {
+    gap: 12
+  },
+  categoryTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  countPill: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 999,
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 5
   },
   lumiAvatar: {
     borderRadius: 34,

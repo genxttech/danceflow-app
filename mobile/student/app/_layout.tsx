@@ -47,6 +47,13 @@ function AppStack() {
           }}
         />
         <Stack.Screen
+          name="partners/draft"
+          options={{
+            headerShown: true,
+            title: "Draft Listing"
+          }}
+        />
+        <Stack.Screen
           name="jobs"
           options={{
             headerShown: true,
@@ -58,6 +65,13 @@ function AppStack() {
           options={{
             headerShown: true,
             title: "Request Lesson"
+          }}
+        />
+        <Stack.Screen
+          name="learn/syllabus/[id]"
+          options={{
+            headerShown: true,
+            title: "Syllabus Details"
           }}
         />
         <Stack.Screen

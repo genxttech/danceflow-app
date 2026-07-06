@@ -6,7 +6,6 @@ import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import {
   colors,
   colorsForScheme,
@@ -52,13 +51,6 @@ function Field({
   );
 }
 
-function profileOptions(profiles: StudentProfile[]) {
-  return profiles.map((profile) => ({
-    clientId: profile.clientId,
-    label: profile.isAccountProfile ? "DanceFlow account" : profile.studioName
-  }));
-}
-
 type RouterPushTarget = Parameters<ReturnType<typeof useRouter>["push"]>[0];
 
 const appearanceOptions: Array<{ label: string; value: AppearanceMode }> = [
@@ -75,14 +67,13 @@ export default function ProfileScreen() {
   const [saving, setSaving] = useState(false);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [profiles, setProfiles] = useState<StudentProfile[]>([]);
-  const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [appearanceMode, setAppearanceModeState] = useState<AppearanceMode>("system");
   const [message, setMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const selectedProfile = useMemo(
-    () => profiles.find((item) => item.clientId === selectedClientId) ?? profiles[0] ?? null,
-    [profiles, selectedClientId]
+    () => profiles.find((item) => item.isAccountProfile) ?? profiles[0] ?? null,
+    [profiles]
   );
 
   function updateSelected(updater: (profile: StudentProfile) => StudentProfile) {
@@ -111,7 +102,6 @@ export default function ProfileScreen() {
 
       const nextProfiles = await loadStudentProfiles(access.linkedStudios, user);
       setProfiles(nextProfiles);
-      setSelectedClientId((current) => current ?? nextProfiles[0]?.clientId ?? null);
     } catch {
       setErrorMessage("We could not load your profile yet. Try again in a moment.");
     } finally {
@@ -150,7 +140,6 @@ export default function ProfileScreen() {
     await setAppearanceMode(mode);
   }
 
-  const options = profileOptions(profiles);
   const isLinkedStudent = linkedStudios.length > 0;
 
   return (
@@ -231,29 +220,9 @@ export default function ProfileScreen() {
 
       {!loading && selectedProfile ? (
         <View style={styles.form}>
-          {options.length > 1 ? (
-            <View style={styles.studioList}>
-              {options.map((option) => {
-                const active = option.clientId === selectedProfile.clientId;
-                return (
-                  <AppButton
-                    key={option.clientId}
-                    label={option.label}
-                    onPress={() => setSelectedClientId(option.clientId)}
-                    variant={active ? "primary" : "secondary"}
-                  />
-                );
-              })}
-            </View>
-          ) : null}
-
           <FeatureCard
-            title={selectedProfile.studioName}
-            detail={
-              selectedProfile.isAccountProfile
-                ? "This is your main DanceFlow profile. Email changes are handled through your account access email."
-                : "Updates are shared with this connected studio."
-            }
+            title="DanceFlow account"
+            detail="This is your main DanceFlow profile. Studio-specific lesson, package, and membership records stay with each connected studio."
           />
 
           <View style={styles.row}>
@@ -331,8 +300,6 @@ export default function ProfileScreen() {
 
           <AppButton label={saving ? "Saving..." : "Save profile"} onPress={saveProfile} />
           <AppButton label="Refresh profile" onPress={loadProfile} variant="secondary" />
-
-          <NotificationPreferencesCard userId={session?.user.id} />
 
           <AppButton label="Sign out" onPress={signOut} variant="secondary" />
         </View>
@@ -422,10 +389,5 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "900",
     marginBottom: 4
-  },
-  studioList: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8
   }
 });

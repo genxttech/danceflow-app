@@ -1,5 +1,12 @@
 import { supabase } from "@/lib/supabase";
 
+const DEFAULT_WEB_BASE_URL = "https://idanceflow.com";
+
+function webBaseUrl() {
+  const value = process.env.EXPO_PUBLIC_DANCEFLOW_WEB_URL ?? DEFAULT_WEB_BASE_URL;
+  return value.replace(/\/$/, "");
+}
+
 export type LinkedStudioAccess = {
   clientId: string;
   studioId: string;
@@ -13,6 +20,14 @@ export type LinkedStudioAccess = {
   isIndependentInstructor: boolean;
   lumiEnabled: boolean;
 };
+
+export function studentPassCode(access: Pick<LinkedStudioAccess, "clientId" | "studioId">) {
+  return `danceflow-pass:${access.studioId}:${access.clientId}`;
+}
+
+export function studentPassQrImageUrl(access: Pick<LinkedStudioAccess, "clientId" | "studioId">) {
+  return `${webBaseUrl()}/api/tickets/qr?code=${encodeURIComponent(studentPassCode(access))}`;
+}
 
 type ClientAccessRow = {
   id: string;

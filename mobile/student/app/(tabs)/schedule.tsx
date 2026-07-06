@@ -1,5 +1,5 @@
-import { Link, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { Link } from "expo-router";
+import { useEffect, useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { AppButton } from "@/components/AppButton";
@@ -10,95 +10,39 @@ import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
-  appointmentTypeLabel,
-  formatScheduleDateTime,
   formatScheduleTimeRange,
   loadStudentScheduleOverview,
-  statusLabel,
-  type StudentBookingRequest,
-  type StudentScheduleItem,
   type StudentScheduleOverview
 } from "@/lib/studentSchedule";
+import { isClassScheduleItem, isLessonScheduleItem } from "@/lib/studentScheduleSections";
+import { loadStudentWallet, type StudentWallet } from "@/lib/studentWallet";
 
-function isPrivateLesson(item: StudentScheduleItem) {
-  const type = (item.appointmentType ?? "").toLowerCase();
-  const title = item.title.toLowerCase();
-  const subtitle = item.subtitle.toLowerCase();
+type ScheduleHubCardProps = {
+  countLabel: string;
+  detail: string;
+  href: "/schedule/lessons" | "/schedule/classes" | "/schedule/events";
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  title: string;
+};
 
-  return type.includes("private") || title.includes("private") || subtitle.includes("private");
-}
-
-function displayScheduleTitle(item: StudentScheduleItem) {
-  const typeLabel = appointmentTypeLabel(item.appointmentType);
-  const title = item.title.trim();
-  const normalizedTitle = title.toLowerCase();
-
-  if (isPrivateLesson(item) && (normalizedTitle.includes("self-service") || normalizedTitle.includes("booking"))) {
-    return typeLabel;
-  }
-
-  return title || typeLabel;
-}
-
-function displayScheduleSubtitle(item: StudentScheduleItem) {
-  const title = displayScheduleTitle(item).toLowerCase();
-  const subtitle = item.subtitle.trim();
-
-  if (!subtitle || subtitle.toLowerCase() === title) return null;
-  return subtitle;
-}
-
-function ScheduleItemCard({ item }: { item: StudentScheduleItem }) {
-  const router = useRouter();
-  const showLessonActions = isPrivateLesson(item);
-  const subtitle = displayScheduleSubtitle(item);
-
-  function openAppointment(action?: "reschedule" | "cancel") {
-    router.push({
-      pathname: "/appointments/[id]",
-      params: action ? { id: item.id, action } : { id: item.id }
-    });
-  }
-
+function ScheduleHubCard({ countLabel, detail, href, icon, label, title }: ScheduleHubCardProps) {
   return (
-    <View style={styles.itemCard}>
-      <View style={styles.itemHeader}>
-        <AppText variant="eyebrow">{statusLabel(item.status)}</AppText>
-        <AppText variant="caption">{item.studioName}</AppText>
-      </View>
-      <AppText variant="subtitle">{displayScheduleTitle(item)}</AppText>
-      <AppText variant="caption">
-        {formatScheduleTimeRange(item.startsAt, item.endsAt, item.timeZone)}
-      </AppText>
-      {subtitle ? <AppText variant="caption">{subtitle}</AppText> : null}
-
-      {showLessonActions ? (
-        <View style={styles.actionRow}>
-          <AppButton label="View" onPress={() => openAppointment()} variant="secondary" />
-          <AppButton label="Reschedule" onPress={() => openAppointment("reschedule")} variant="secondary" />
-          <AppButton label="Cancel" onPress={() => openAppointment("cancel")} variant="secondary" />
+    <Link href={href} asChild>
+      <Pressable style={({ pressed }) => [styles.hubCard, pressed && styles.cardPressed]}>
+        <View style={styles.hubIcon}>
+          <Ionicons color="#fff" name={icon} size={22} />
         </View>
-      ) : (
-        <AppButton label="View details" onPress={() => openAppointment()} variant="secondary" />
-      )}
-    </View>
-  );
-}
-
-function BookingRequestCard({ request }: { request: StudentBookingRequest }) {
-  return (
-    <View style={styles.requestCard}>
-      <View style={styles.itemHeader}>
-        <AppText variant="eyebrow">{statusLabel(request.status)}</AppText>
-        <AppText variant="caption">{request.studioName}</AppText>
-      </View>
-      <AppText variant="subtitle">Lesson request</AppText>
-      <AppText variant="caption">
-        {request.requestedStartsAt
-          ? formatScheduleDateTime(request.requestedStartsAt, request.timeZone)
-          : "Studio will follow up with available times."}
-      </AppText>
-    </View>
+        <View style={{ flex: 1 }}>
+          <View style={styles.cardHeader}>
+            <AppText variant="eyebrow">{label}</AppText>
+            <AppText style={styles.countLabel}>{countLabel}</AppText>
+          </View>
+          <AppText variant="subtitle">{title}</AppText>
+          <AppText variant="caption">{detail}</AppText>
+        </View>
+      </Pressable>
+    </Link>
   );
 }
 
@@ -112,7 +56,7 @@ function ScheduleValueCard({ signedIn }: { signedIn: boolean }) {
         <View style={{ flex: 1 }}>
           <AppText style={styles.emptyTitle}>Your dance schedule in one place</AppText>
           <AppText style={styles.emptyDetail}>
-            Connected studios can show upcoming lessons, classes, bookings, and request status here.
+            Lessons, classes, and purchased events each have their own page.
           </AppText>
         </View>
       </View>
@@ -120,7 +64,7 @@ function ScheduleValueCard({ signedIn }: { signedIn: boolean }) {
       {signedIn ? (
         <>
           <Link href="/(tabs)/discover" asChild>
-            <AppButton label="Find studios to connect with" />
+            <AppButton label="Find studios and events" />
           </Link>
           <AppText variant="caption">
             Already taking lessons? Ask your studio to connect your DanceFlow account.
@@ -140,6 +84,7 @@ export default function ScheduleScreen() {
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [overview, setOverview] = useState<StudentScheduleOverview | null>(null);
+  const [wallet, setWallet] = useState<StudentWallet | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   async function loadSchedule() {
@@ -148,6 +93,7 @@ export default function ScheduleScreen() {
     if (!userId) {
       setLinkedStudios([]);
       setOverview(null);
+      setWallet(null);
       setLoading(false);
       return;
     }
@@ -159,15 +105,17 @@ export default function ScheduleScreen() {
       const access = await getStudentAccess(userId);
       setLinkedStudios(access.linkedStudios);
 
-      if (access.linkedStudios.length === 0) {
-        setOverview(null);
-        return;
-      }
+      const [nextOverview, nextWallet] = await Promise.all([
+        access.linkedStudios.length ? loadStudentScheduleOverview(access.linkedStudios) : Promise.resolve(null),
+        loadStudentWallet(access.linkedStudios, session?.user.email ?? null)
+      ]);
 
-      setOverview(await loadStudentScheduleOverview(access.linkedStudios));
+      setOverview(nextOverview);
+      setWallet(nextWallet);
     } catch {
       setErrorMessage("Your schedule could not be loaded. Try again in a moment.");
       setOverview(null);
+      setWallet(null);
     } finally {
       setLoading(false);
     }
@@ -176,114 +124,94 @@ export default function ScheduleScreen() {
   useEffect(() => {
     loadSchedule();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user.id]);
+  }, [session?.user.email, session?.user.id]);
 
-  const hasPortalAccess = linkedStudios.length > 0;
   const isSignedIn = Boolean(session);
-  const upcoming = overview?.upcoming ?? [];
-  const recent = overview?.recent ?? [];
-  const bookingRequests = overview?.bookingRequests ?? [];
+  const lessonCount = (overview?.upcoming ?? []).filter(isLessonScheduleItem).length;
+  const classCount = (overview?.upcoming ?? []).filter(isClassScheduleItem).length;
+  const eventCount = useMemo(() => {
+    const registrationIds = new Set((wallet?.registrations ?? []).map((registration) => registration.id));
+    const ticketOnlyCount = (wallet?.tickets ?? []).filter((ticket) => !registrationIds.has(ticket.registrationId)).length;
+    return registrationIds.size + ticketOnlyCount;
+  }, [wallet]);
+  const nextItem = overview?.nextItem;
 
   return (
     <Screen>
       <View style={styles.headerRow}>
         <View style={{ flex: 1 }}>
           <AppText variant="eyebrow">Schedule</AppText>
-          <AppText variant="title">Lessons and classes</AppText>
+          <AppText variant="title">What’s next?</AppText>
           <AppText variant="caption">
-            Upcoming and recent activity from your connected studios.
+            Choose Lessons, Classes, or Events to see the right details and actions.
           </AppText>
         </View>
       </View>
 
-      {isSignedIn ? (
-        <Link href="/schedule/request" asChild>
-          <Pressable style={styles.requestButton}>
-            <View style={styles.requestButtonIcon}>
-              <Ionicons color="#fff" name="add-outline" size={22} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <AppText style={styles.requestButtonTitle}>Request Lesson</AppText>
-              <AppText style={styles.requestButtonDetail}>
-                Send a private lesson request to your studio.
-              </AppText>
-            </View>
-          </Pressable>
-        </Link>
-      ) : null}
+      {loading ? <FeatureCard title="Loading schedule..." detail="Checking lessons, classes, and events." /> : null}
+      {!loading && errorMessage ? <FeatureCard title="Schedule unavailable" detail={errorMessage} /> : null}
 
-      {loading ? (
-        <FeatureCard title="Loading schedule..." detail="Checking your connected studios." />
-      ) : null}
+      {!loading && !isSignedIn ? <ScheduleValueCard signedIn={false} /> : null}
 
-      {!loading && errorMessage ? (
-        <FeatureCard title="Schedule unavailable" detail={errorMessage} />
-      ) : null}
-
-      {!loading && !hasPortalAccess ? <ScheduleValueCard signedIn={isSignedIn} /> : null}
-
-      {!loading && hasPortalAccess ? (
+      {!loading && isSignedIn ? (
         <>
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryCard}>
-              <AppText variant="eyebrow">Upcoming</AppText>
-              <AppText variant="title">{upcoming.length}</AppText>
-              <AppText variant="caption">scheduled</AppText>
-            </View>
-            <View style={styles.summaryCard}>
-              <AppText variant="eyebrow">Requests</AppText>
-              <AppText variant="title">{bookingRequests.length}</AppText>
-              <AppText variant="caption">active</AppText>
-            </View>
+          <View style={styles.hubGrid}>
+            <ScheduleHubCard
+              countLabel={`${lessonCount}`}
+              detail="Private lessons, intro lessons, coaching, and booking requests."
+              href="/schedule/lessons"
+              icon="person-outline"
+              label="Lessons"
+              title="Lesson schedule"
+            />
+            <ScheduleHubCard
+              countLabel={`${classCount}`}
+              detail="Group classes, practice parties, rentals, and studio commitments."
+              href="/schedule/classes"
+              icon="people-outline"
+              label="Classes"
+              title="Class schedule"
+            />
+            <ScheduleHubCard
+              countLabel={`${eventCount}`}
+              detail="Purchased or registered events, tickets, and check-in details."
+              href="/schedule/events"
+              icon="ticket-outline"
+              label="Events"
+              title="Event schedule"
+            />
           </View>
 
-          {upcoming.length > 0 ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Upcoming</AppText>
-              {upcoming.slice(0, 8).map((item) => (
-                <ScheduleItemCard key={item.id} item={item} />
-              ))}
-            </View>
-          ) : (
+          {nextItem ? (
             <FeatureCard
-              title="No upcoming schedule items"
-              detail="Lessons, classes, coachings, rentals, and commitments will appear here when scheduled."
+              title={`Next up: ${nextItem.title}`}
+              detail={formatScheduleTimeRange(nextItem.startsAt, nextItem.endsAt, nextItem.timeZone)}
             />
-          )}
-
-          {bookingRequests.length > 0 ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Requests</AppText>
-              {bookingRequests.slice(0, 5).map((request) => (
-                <BookingRequestCard key={request.id} request={request} />
-              ))}
-            </View>
-          ) : null}
-
-          {recent.length > 0 ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Recent</AppText>
-              {recent.slice(0, 6).map((item) => (
-                <ScheduleItemCard key={item.id} item={item} />
-              ))}
-            </View>
+          ) : linkedStudios.length === 0 && eventCount === 0 ? (
+            <ScheduleValueCard signedIn />
           ) : null}
         </>
       ) : null}
 
-      {isSignedIn ? (
-        <AppButton label="Refresh schedule" onPress={loadSchedule} variant="secondary" />
-      ) : null}
+      {isSignedIn ? <AppButton label="Refresh schedule" onPress={loadSchedule} variant="secondary" /> : null}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  actionRow: {
+  cardHeader: {
+    alignItems: "center",
     flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 6
+    gap: 10,
+    justifyContent: "space-between"
+  },
+  cardPressed: {
+    opacity: 0.78
+  },
+  countLabel: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: "900"
   },
   emptyDetail: {
     color: "rgba(255,255,255,0.78)",
@@ -316,76 +244,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12
   },
-  itemCard: {
+  hubCard: {
+    alignItems: "center",
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,
     elevation: 2,
-    gap: 7,
+    flexDirection: "row",
+    gap: 14,
     padding: 16,
     shadowColor: colors.primaryDark,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.06,
     shadowRadius: 18
   },
-  itemHeader: {
-    alignItems: "center",
-    flexDirection: "row",
-    gap: 10,
-    justifyContent: "space-between"
+  hubGrid: {
+    gap: 12
   },
-  requestButton: {
+  hubIcon: {
     alignItems: "center",
     backgroundColor: colors.primary,
-    borderRadius: 20,
-    flexDirection: "row",
-    gap: 12,
-    padding: 16
-  },
-  requestButtonDetail: {
-    color: "rgba(255,255,255,0.82)",
-    fontSize: 13,
-    lineHeight: 19
-  },
-  requestButtonIcon: {
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.16)",
     borderRadius: 999,
     height: 44,
     justifyContent: "center",
     width: 44
-  },
-  requestButtonTitle: {
-    color: "#fff",
-    fontSize: 17,
-    fontWeight: "900",
-    marginBottom: 4
-  },
-  requestCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    elevation: 1,
-    gap: 7,
-    padding: 16
-  },
-  section: {
-    gap: 10
-  },
-  summaryCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    elevation: 1,
-    flex: 1,
-    gap: 6,
-    padding: 16
-  },
-  summaryGrid: {
-    flexDirection: "row",
-    gap: 12
   }
 });

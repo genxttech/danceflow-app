@@ -799,9 +799,9 @@ export default function PartnerSearchScreen() {
   return (
     <Screen>
       <AppText variant="eyebrow">Partner Search</AppText>
-      <AppText variant="title">Find a dance partner</AppText>
+      <AppText variant="title">Draft listing</AppText>
       <AppText variant="caption">
-        Create a dancer-owned listing for practice, social dance, showcase, or competition partners. Contact stays inside DanceFlow.
+        Create, edit, save, or submit your dancer-owned partner listing. Contact stays inside DanceFlow.
       </AppText>
 
       {loading ? <FeatureCard title="Loading Partner Search" detail="Loading dancer listings." /> : null}
@@ -820,185 +820,190 @@ export default function PartnerSearchScreen() {
         </View>
       </View>
 
-      <View style={styles.searchCard}>
-        <AppText variant="eyebrow">Browse</AppText>
-        <TextInput
-          autoCapitalize="none"
-          onChangeText={setQuery}
-          placeholder="Search style, city, role, goal, or level"
-          placeholderTextColor={colors.muted}
-          style={styles.input}
-          value={query}
-        />
-        <View style={styles.filterSection}>
-          <AppText style={styles.filterTitle}>Near me</AppText>
-          <View style={styles.optionRow}>
-            {[25, 50, 100].map((radius) => (
-              <Pressable
-                key={radius}
-                onPress={() => setRadiusMiles(radius)}
-                style={[styles.optionPill, radiusMiles === radius && styles.optionPillActive]}
-              >
-                <AppText style={[styles.optionText, radiusMiles === radius && styles.optionTextActive]}>
-                  {radius} mi
-                </AppText>
-              </Pressable>
-            ))}
-            <Pressable onPress={useMyLocationFilter} style={styles.optionPill}>
-              <AppText style={styles.optionText}>{filterLocation ? "Near me on" : "Use my location"}</AppText>
-            </Pressable>
-          </View>
-        </View>
-        <View style={styles.filterSection}>
-          <CollapsibleArrayPicker
-            label="Goals"
-            emptyLabel="Any goal"
-            options={goalOptions}
-            value={filterIntents}
-            onChange={setFilterIntents}
-          />
-        </View>
-        <View style={styles.filterSection}>
-          <AppText style={styles.filterTitle}>Role</AppText>
-          <OptionRow
-            options={[{ label: "Any", value: "" }, ...roleOptions]}
-            value={filterRole}
-            onChange={setFilterRole}
-          />
-        </View>
-        <View style={styles.filterSection}>
-          <AppText style={styles.filterTitle}>Level</AppText>
-          <OptionRow
-            options={[{ label: "Any", value: "" }, ...skillOptions]}
-            value={filterSkill}
-            onChange={setFilterSkill}
-          />
-        </View>
-        <View style={styles.filterSection}>
-          <DanceStyleFilterPicker value={filterStyles} onChange={setFilterStyles} />
-        </View>
-        <Pressable onPress={clearFilters} style={styles.clearFiltersButton}>
-          <AppText style={styles.clearFiltersText}>Clear filters</AppText>
-        </Pressable>
-      </View>
-
       {myProfile ? (
-        <Pressable
-          onPress={() => router.push("/partners/draft" as unknown as RouterPushTarget)}
-          style={({ pressed }) => [styles.listingButton, pressed && styles.cardPressed]}
-        >
-          <View style={styles.listingButtonIcon}>
-            <Ionicons color="#fff" name="create-outline" size={22} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <View style={styles.editorHeader}>
-              <View style={{ flex: 1 }}>
-                <AppText variant="eyebrow">Your Listing</AppText>
-                <AppText variant="subtitle">
-                  {myProfile.visibility === "paused"
-                    ? "Hidden from Partner Search"
-                    : myProfile.visibility === "published"
-                      ? "Submitted for review"
-                      : "Draft listing"}
-                </AppText>
-              </View>
-              <View style={styles.statusPill}>
-                <AppText style={styles.statusText}>{labelFor(myProfile.moderationStatus)}</AppText>
-              </View>
-            </View>
-            <AppText variant="caption">Create, edit, save, or submit your partner search listing.</AppText>
-          </View>
-        </Pressable>
-      ) : null}
-
-      {threads.length ? (
-        <View style={styles.messagesCard}>
+        <View style={styles.editorCard}>
           <View style={styles.editorHeader}>
             <View style={{ flex: 1 }}>
-              <AppText variant="eyebrow">Messages</AppText>
-              <AppText variant="subtitle">DanceFlow conversations</AppText>
+              <AppText variant="eyebrow">Your listing</AppText>
+              <AppText variant="subtitle">
+                {myProfile.visibility === "paused"
+                  ? "Hidden from Partner Search"
+                  : myProfile.visibility === "published"
+                    ? "Submitted for review"
+                    : "Draft listing"}
+              </AppText>
             </View>
             <View style={styles.statusPill}>
-              <AppText style={styles.statusText}>{threads.length}</AppText>
+              <AppText style={styles.statusText}>
+                {labelFor(myProfile.moderationStatus)}
+              </AppText>
             </View>
           </View>
-          {threads.map((thread) => (
+
+          <View style={styles.visibilityCard}>
+            <View style={{ flex: 1 }}>
+              <AppText style={styles.visibilityTitle}>Partner profile visibility</AppText>
+              <AppText variant="caption">
+                {myProfile.visibility === "paused"
+                  ? "Your profile is hidden from Partner Search."
+                  : "Your profile can appear in Partner Search after approval."}
+              </AppText>
+            </View>
             <Pressable
-              key={thread.id}
-              onPress={() => router.push(`/partners/${thread.id}` as unknown as RouterPushTarget)}
-              style={({ pressed }) => [styles.threadRow, pressed && styles.cardPressed]}
+              accessibilityRole="switch"
+              accessibilityState={{ checked: myProfile.visibility !== "paused" }}
+              onPress={toggleProfileVisibility}
+              style={[
+                styles.visibilitySwitch,
+                myProfile.visibility !== "paused" && styles.visibilitySwitchOn
+              ]}
             >
-              <View style={{ flex: 1 }}>
-                <AppText style={styles.threadName}>{thread.partnerDisplayName}</AppText>
-                {thread.partnerHeadline ? (
-                  <AppText variant="caption">{thread.partnerHeadline}</AppText>
-                ) : null}
-              </View>
-              <Ionicons color={colors.primary} name="chatbubble-ellipses-outline" size={20} />
+              <View
+                style={[
+                  styles.visibilitySwitchKnob,
+                  myProfile.visibility !== "paused" && styles.visibilitySwitchKnobOn
+                ]}
+              />
             </Pressable>
-          ))}
+          </View>
+
+          <Field
+            label="Display name"
+            onChangeText={(value) => updateProfile((profile) => ({ ...profile, displayName: value }))}
+            value={myProfile.displayName}
+          />
+          <View style={styles.photoCard}>
+            {profilePhotoUrl(myProfile) ? (
+              <Image
+                accessibilityIgnoresInvertColors
+                resizeMode="cover"
+                source={{ uri: profilePhotoUrl(myProfile) }}
+                style={styles.profilePhoto}
+              />
+            ) : (
+              <View style={styles.photoPlaceholder}>
+                <Ionicons color={colors.primary} name="person-outline" size={30} />
+              </View>
+            )}
+            <View style={{ flex: 1 }}>
+              <AppText variant="eyebrow">Profile photo</AppText>
+              <AppText variant="caption">
+                Add one clear photo of yourself. Public contact details and promotional images are not allowed.
+              </AppText>
+              <AppButton
+                label={uploadingPhoto ? "Uploading..." : profilePhotoUrl(myProfile) ? "Change Photo" : "Choose Photo"}
+                onPress={chooseProfilePhoto}
+                variant="secondary"
+              />
+            </View>
+          </View>
+          <Field
+            label="Headline"
+            onChangeText={(value) => updateProfile((profile) => ({ ...profile, headline: value }))}
+            placeholder="Looking for a country two step practice partner"
+            value={myProfile.headline}
+          />
+          <View style={styles.field}>
+            <CollapsibleSinglePicker
+              label="State"
+              emptyLabel="Any"
+              options={stateOptions}
+              value={myProfile.state}
+              onChange={(value) =>
+                updateProfile((profile) => ({
+                  ...profile,
+                  state: value
+                }))
+              }
+            />
+          </View>
+
+          <Field
+            label="City"
+            onChangeText={(value) => updateProfile((profile) => ({ ...profile, city: value }))}
+            placeholder="Enter your city"
+            value={myProfile.city}
+          />
+
+          <View style={styles.field}>
+            <AppText variant="eyebrow">Looking for</AppText>
+            <OptionRow
+              options={intentOptions}
+              value={myProfile.listingIntent}
+              onChange={(value) => updateProfile((profile) => ({ ...profile, listingIntent: value }))}
+            />
+          </View>
+
+          <View style={styles.field}>
+            <AppText variant="eyebrow">Role</AppText>
+            <OptionRow
+              options={roleOptions}
+              value={myProfile.leadFollowRole}
+              onChange={(value) => updateProfile((profile) => ({ ...profile, leadFollowRole: value }))}
+            />
+          </View>
+
+          <View style={styles.field}>
+            <AppText variant="eyebrow">Level</AppText>
+            <OptionRow
+              options={skillOptions}
+              value={myProfile.skillLevel}
+              onChange={(value) => updateProfile((profile) => ({ ...profile, skillLevel: value }))}
+            />
+          </View>
+
+          <View style={styles.field}>
+            <AppText variant="eyebrow">Dance styles</AppText>
+            <DanceStylePicker
+              value={myProfile.danceStyles}
+              onChange={(value) => updateProfile((profile) => ({ ...profile, danceStyles: value }))}
+            />
+          </View>
+          <View style={styles.field}>
+            <CollapsibleMultiPicker
+              label="Goals"
+              emptyLabel="Select goals"
+              options={goalOptions}
+              value={myProfile.goals}
+              onChange={(value) => updateProfile((profile) => ({ ...profile, goals: value }))}
+            />
+          </View>
+          <Field
+            label="Bio"
+            multiline
+            onChangeText={(value) => updateProfile((profile) => ({ ...profile, bio: value }))}
+            value={myProfile.bio}
+          />
+          <Field
+            label="Availability"
+            multiline
+            onChangeText={(value) => updateProfile((profile) => ({ ...profile, availabilityNotes: value }))}
+            placeholder="Weeknights after 6, Saturdays, local socials..."
+            value={myProfile.availabilityNotes}
+          />
+
+          {myProfile.moderationReason ? (
+            <FeatureCard title="Review note" detail={myProfile.moderationReason} />
+          ) : null}
+
+          <View style={styles.actionRow}>
+            <AppButton
+              label={saving ? "Saving..." : "Save Draft"}
+              onPress={() => saveProfile("draft")}
+              variant="secondary"
+            />
+            <AppButton
+              label={saving ? "Submitting..." : "Submit for Review"}
+              onPress={() => saveProfile("published")}
+            />
+          </View>
         </View>
       ) : null}
 
-      {filteredProfiles.length ? (
-        filteredProfiles.map((profile) => (
-          <View key={profile.id} style={styles.partnerCard}>
-            <View style={styles.partnerTop}>
-              <View style={{ flex: 1 }}>
-                <AppText style={styles.partnerName}>{profile.displayName}</AppText>
-                <AppText variant="caption">{profile.location}</AppText>
-              </View>
-              <Pressable
-                onPress={() => togglePartnerFavorite(profile)}
-                style={({ pressed }) => [styles.heartButton, pressed && styles.cardPressed]}
-              >
-                <Ionicons
-                  color={profile.favorited ? colors.primary : colors.muted}
-                  name={profile.favorited ? "heart" : "heart-outline"}
-                  size={22}
-                />
-              </Pressable>
-              <View style={styles.intentBadge}>
-                <AppText style={styles.intentBadgeText}>{labelFor(profile.listingIntent)}</AppText>
-              </View>
-            </View>
-            <AppText style={styles.partnerHeadline}>
-              {profile.headline || "Looking for a dance partner"}
-            </AppText>
-            {profile.bio ? <AppText variant="caption">{profile.bio}</AppText> : null}
-            <View style={styles.tagRow}>
-              <View style={styles.tag}>
-                <AppText style={styles.tagText}>{labelFor(profile.leadFollowRole)}</AppText>
-              </View>
-              <View style={styles.tag}>
-                <AppText style={styles.tagText}>{labelFor(profile.skillLevel)}</AppText>
-              </View>
-              {profile.danceStyles.slice(0, 4).map((style) => (
-                <View key={style} style={styles.accentTag}>
-                  <AppText style={styles.accentTagText}>{style}</AppText>
-                </View>
-              ))}
-            </View>
-            <TextInput
-              multiline
-              onChangeText={(value) =>
-                setRequestDrafts((current) => ({ ...current, [profile.id]: value }))
-              }
-              placeholder="Write a short, respectful connection request"
-              placeholderTextColor={colors.muted}
-              style={[styles.input, styles.requestInput]}
-              value={requestDrafts[profile.id] ?? ""}
-            />
-            <AppButton
-              label={requestBusyId === profile.id ? "Sending..." : "Request to Connect"}
-              onPress={() => sendConnectionRequest(profile.id)}
-            />
-          </View>
-        ))
-      ) : !loading ? (
+      {!myProfile && !loading ? (
         <FeatureCard
-          title="No partner listings yet"
-          detail="Try a broader search or submit your own listing for review."
+          title="Listing unavailable"
+          detail="Sign in to create or edit your partner search listing."
         />
       ) : null}
     </Screen>
@@ -1132,24 +1137,6 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontSize: 12,
     fontWeight: "900"
-  },
-  listingButton: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 20,
-    borderWidth: 1,
-    flexDirection: "row",
-    gap: 14,
-    padding: 16
-  },
-  listingButtonIcon: {
-    alignItems: "center",
-    backgroundColor: colors.primary,
-    borderRadius: 16,
-    height: 46,
-    justifyContent: "center",
-    width: 46
   },
   multilineInput: {
     minHeight: 96,

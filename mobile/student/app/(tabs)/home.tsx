@@ -1,6 +1,7 @@
-import { Link } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import { Link, router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -42,6 +43,36 @@ function firstNameFromSession(session: ReturnType<typeof useAuth>["session"]) {
   const displayName = metadataNameCandidates[0]?.trim() || displayNameFromSession(session);
   if (displayName.includes("@")) return "Dancer";
   return displayName.split(" ")[0] || "Dancer";
+}
+
+function HomeActionCard({
+  detail,
+  icon,
+  label,
+  onPress,
+  title
+}: {
+  detail: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  title: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.actionCard, pressed && styles.cardPressed]}
+    >
+      <View style={styles.actionIcon}>
+        <Ionicons color="#fff" name={icon} size={22} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <AppText variant="eyebrow">{label}</AppText>
+        <AppText variant="subtitle">{title}</AppText>
+        <AppText variant="caption">{detail}</AppText>
+      </View>
+    </Pressable>
+  );
 }
 
 export default function HomeScreen() {
@@ -170,28 +201,37 @@ export default function HomeScreen() {
             }
           />
 
-          <View style={styles.quickGrid}>
-            <View style={styles.statCard}>
-              <AppText variant="eyebrow">Upcoming</AppText>
-              <AppText variant="title">{scheduleOverview?.upcoming.length ?? 0}</AppText>
-              <AppText variant="caption">confirmed items</AppText>
-            </View>
-            <View style={styles.statCard}>
-              <AppText variant="eyebrow">Requests</AppText>
-              <AppText variant="title">{pendingRequests}</AppText>
-              <AppText variant="caption">pending or approved</AppText>
-            </View>
+          <View style={styles.actionList}>
+            <HomeActionCard
+              detail={`${scheduleOverview?.upcoming.length ?? 0} confirmed schedule item${
+                (scheduleOverview?.upcoming.length ?? 0) === 1 ? "" : "s"
+              }`}
+              icon="calendar-outline"
+              label="Upcoming"
+              onPress={() => router.push({ pathname: "/(tabs)/schedule", params: { section: "upcoming" } })}
+              title="Go to schedule"
+            />
+            <HomeActionCard
+              detail={`${pendingRequests} pending or approved request${
+                pendingRequests === 1 ? "" : "s"
+              }`}
+              icon="swap-horizontal-outline"
+              label="Requests"
+              onPress={() => router.push({ pathname: "/(tabs)/schedule", params: { section: "requests" } })}
+              title="View requests"
+            />
+            <HomeActionCard
+              detail={
+                recentCount > 0
+                  ? `${recentCount} recent schedule item${recentCount === 1 ? "" : "s"} can support recaps and practice.`
+                  : "Lesson notes, practice assignments, and skill progress will appear as your studio adds them."
+              }
+              icon="school-outline"
+              label="Progress"
+              onPress={() => router.push("/(tabs)/learn")}
+              title="Open Learn"
+            />
           </View>
-
-          <FeatureCard
-            label="Progress"
-            title="Lesson recaps and syllabus"
-            detail={
-              recentCount > 0
-                ? `${recentCount} recent schedule items are ready to support recaps, notes, and LUMI guidance.`
-                : "Lesson notes, practice assignments, and skill progress will appear as your studio adds them."
-            }
-          />
         </>
       ) : (
         <>
@@ -299,15 +339,28 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 12
   },
-  quickGrid: {
-    flexDirection: "row",
-    gap: 12
-  },
-  statCard: {
-    backgroundColor: colors.surfaceAlt,
+  actionCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
     borderRadius: 18,
-    flex: 1,
-    gap: 6,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 14,
     padding: 16
+  },
+  actionIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 16,
+    height: 46,
+    justifyContent: "center",
+    width: 46
+  },
+  actionList: {
+    gap: 10
+  },
+  cardPressed: {
+    opacity: 0.78
   }
 });

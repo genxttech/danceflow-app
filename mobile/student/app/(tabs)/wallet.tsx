@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Image, Linking, StyleSheet, View } from "react-native";
+import { Image, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
@@ -12,7 +13,7 @@ import {
   type StudentEventOrderTicket,
   type StudentEventOrderStatus
 } from "@/lib/eventCheckout";
-import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
+import { getStudentAccess, studentPassQrImageUrl, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
   formatCurrency,
   formatWalletDate,
@@ -59,6 +60,12 @@ function normalizeParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+const loadStudentWalletWithOptions = loadStudentWallet as (
+  linkedStudios: LinkedStudioAccess[],
+  email?: string | null,
+  options?: { force?: boolean }
+) => Promise<StudentWallet>;
+
 function orderTicketToWalletTicket(ticket: StudentEventOrderTicket): StudentTicket {
   return {
     checkedInAt: ticket.checkedInAt,
@@ -81,6 +88,44 @@ function orderTicketToWalletTicket(ticket: StudentEventOrderTicket): StudentTick
   };
 }
 
+function WalletCategoryCard({
+  active,
+  countLabel,
+  detail,
+  icon,
+  onPress,
+  title
+}: {
+  active: boolean;
+  countLabel: string;
+  detail: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  onPress: () => void;
+  title: string;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.categoryCard,
+        active && styles.categoryCardActive,
+        pressed && styles.cardPressed
+      ]}
+    >
+      <View style={[styles.categoryIcon, active && styles.categoryIconActive]}>
+        <Ionicons color="#fff" name={icon} size={24} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <View style={styles.cardHeader}>
+          <AppText style={styles.categoryTitle}>{title}</AppText>
+          <AppText style={styles.countPill}>{countLabel}</AppText>
+        </View>
+        <AppText style={styles.categoryDetail}>{detail}</AppText>
+      </View>
+    </Pressable>
+  );
+}
+
 function StudentPassCard({ linkedStudios }: { linkedStudios: LinkedStudioAccess[] }) {
   const primary = linkedStudios[0];
   const name = studentDisplayName(linkedStudios);
@@ -95,6 +140,14 @@ function StudentPassCard({ linkedStudios }: { linkedStudios: LinkedStudioAccess[
         <AppText variant="caption">Use this pass for studio lookup and future student check-ins.</AppText>
         <AppButton label="Edit profile" onPress={() => router.push("/profile")} variant="secondary" />
       </View>
+      {primary ? (
+        <Image
+          accessibilityIgnoresInvertColors
+          resizeMode="contain"
+          source={{ uri: studentPassQrImageUrl(primary) }}
+          style={styles.passQrImage}
+        />
+      ) : null}
     </View>
   );
 }
@@ -252,7 +305,7 @@ export default function WalletScreen() {
       const access = await getStudentAccess(userId);
       setLinkedStudios(access.linkedStudios);
 
-      const nextWallet = await loadStudentWallet(access.linkedStudios, session?.user.email ?? null, { force });
+      const nextWallet = await loadStudentWalletWithOptions(access.linkedStudios, session?.user.email ?? null, { force });
       setWallet(nextWallet);
       lastWalletLoadAtRef.current = Date.now();
     } catch {
@@ -430,91 +483,48 @@ export default function WalletScreen() {
 
       {!loading && isSignedIn ? (
         <>
-          {hasPortalAccess ? <StudentPassCard linkedStudios={linkedStudios} /> : null}
-
-          <View style={styles.summaryGrid}>
-            <View style={styles.summaryCard}>
-              <AppText variant="eyebrow">Tickets</AppText>
-              <AppText variant="title">{tickets.length}</AppText>
-              <AppText variant="caption">ready for check-in</AppText>
-            </View>
-            <View style={styles.summaryCard}>
-              <AppText variant="eyebrow">Payments</AppText>
-              <AppText variant="title">{paymentRequests.length}</AppText>
-              <AppText variant="caption">requests</AppText>
-            </View>
+          <View style={styles.categoryList}>
+            <WalletCategoryCard
+              active={false}
+              countLabel={hasPortalAccess ? "Ready" : "Basic"}
+              detail="Your DanceFlow account and connected studio access."
+              icon="person-circle-outline"
+              onPress={() => router.push("/wallet/profile")}
+              title="Profile & Settings"
+            />
+            <WalletCategoryCard
+              active={false}
+              countLabel={`${tickets.length}`}
+              detail="Event tickets, QR codes, and check-in codes."
+              icon="ticket-outline"
+              onPress={() => router.push("/wallet/event-tickets")}
+              title="Event Tickets"
+            />
+            <WalletCategoryCard
+              active={false}
+              countLabel={`${paymentRequests.length}`}
+              detail="Open payment requests from your connected studios."
+              icon="cash-outline"
+              onPress={() => router.push("/wallet/payment-requests")}
+              title="Payment Requests"
+            />
+            <WalletCategoryCard
+              active={false}
+              countLabel={`${packages.length}`}
+              detail="Lesson packages, credits, and remaining balances."
+              icon="albums-outline"
+              onPress={() => router.push("/wallet/packages")}
+              title="Packages"
+            />
+            <WalletCategoryCard
+              active={false}
+              countLabel={`${memberships.length}`}
+              detail="Active memberships, renewal dates, and membership status."
+              icon="card-outline"
+              onPress={() => router.push("/wallet/memberships")}
+              title="Memberships"
+            />
           </View>
-
-          {hasPortalAccess && paymentRequests.length > 0 ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Payment Requests</AppText>
-              {paymentRequests.map((payment) => (
-                <PaymentRequestCard key={payment.id} payment={payment} />
-              ))}
-            </View>
-          ) : hasPortalAccess ? (
-            <FeatureCard
-              title="No payment requests"
-              detail="Any unpaid payment requests from your studio will appear here."
-            />
-          ) : null}
-
-          {tickets.length > 0 ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Event tickets</AppText>
-              {tickets.slice(0, 10).map((ticket) => (
-                <TicketCard key={ticket.id} ticket={ticket} />
-              ))}
-            </View>
-          ) : registrations.length > 0 ? (
-            <FeatureCard
-              title="Registrations found"
-              detail="Your registrations are available. Ticket codes will appear here when attendee tickets are issued."
-            />
-          ) : (
-            <FeatureCard
-              title="No event tickets yet"
-              detail="Register for DanceFlow events with this account email, and tickets or check-in QR codes can appear here."
-            />
-          )}
-
-          {hasPortalAccess && memberships.length > 0 ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Memberships</AppText>
-              {memberships.map((membership) => (
-                <MembershipCard key={membership.id} membership={membership} />
-              ))}
-            </View>
-          ) : hasPortalAccess ? (
-            <FeatureCard
-              title="No active membership"
-              detail="Active, trialing, or past-due memberships from your studio will appear here."
-            />
-          ) : (
-            <FeatureCard
-              title="Studio memberships"
-              detail="Memberships appear here after a studio connects your DanceFlow account."
-            />
-          )}
-
-          {hasPortalAccess && packages.length > 0 ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Packages</AppText>
-              {packages.map((item) => (
-                <PackageCard key={item.id} item={item} />
-              ))}
-            </View>
-          ) : hasPortalAccess ? (
-            <FeatureCard
-              title="No active lesson packages"
-              detail="Lesson credits and package balances will show when you have an active package."
-            />
-          ) : (
-            <FeatureCard
-              title="Studio lesson packages"
-              detail="Lesson credits and package balances appear here after a studio connects your account."
-            />
-          )}
         </>
       ) : null}
 
@@ -546,6 +556,63 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8,
     marginTop: 4
+  },
+  cardHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between"
+  },
+  cardPressed: {
+    opacity: 0.78
+  },
+  categoryCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 22,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 14,
+    padding: 16
+  },
+  categoryCardActive: {
+    borderColor: colors.primary
+  },
+  categoryDetail: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 4
+  },
+  categoryIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 18,
+    height: 50,
+    justifyContent: "center",
+    width: 50
+  },
+  categoryIconActive: {
+    backgroundColor: colors.accent
+  },
+  categoryList: {
+    gap: 12
+  },
+  categoryTitle: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900"
+  },
+  countPill: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 999,
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 5
   },
   codeBox: {
     backgroundColor: colors.surface,

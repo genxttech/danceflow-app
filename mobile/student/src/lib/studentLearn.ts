@@ -42,6 +42,21 @@ export type StudentSyllabusSummary = {
   assignedAt: string | null;
 };
 
+export type StudentSyllabusStep = {
+  id: string;
+  title: string;
+  category: string | null;
+  description: string | null;
+  sortOrder: number | null;
+  status: string;
+  notes: string | null;
+  showNotesInPortal: boolean;
+};
+
+export type StudentSyllabusDetail = StudentSyllabusSummary & {
+  steps: StudentSyllabusStep[];
+};
+
 export type StudentGroupLessonRecap = {
   id: string;
   recapId: string;
@@ -125,6 +140,10 @@ type GroupLessonRecapRecipientRow = {
 
 type SyllabusTemplateItemRow = {
   id: string;
+  title?: string | null;
+  category?: string | null;
+  description?: string | null;
+  sort_order?: number | null;
   active: boolean | null;
 };
 
@@ -142,6 +161,8 @@ type SyllabusProgressRow = {
   id: string;
   template_item_id: string;
   status: string | null;
+  notes?: string | null;
+  show_notes_in_portal?: boolean | null;
 };
 
 type ClientSyllabusAssignmentRow = {
@@ -273,7 +294,7 @@ function toSyllabusSummary(
   const template = normalizeTemplate(row.syllabus_templates);
   const studio = studioById.get(row.studio_id);
 
-  if (!template || !studio || template.active === false || row.visible_in_portal !== true || row.archived_at) {
+  if (!template || !studio || template.active === false || row.archived_at) {
     return null;
   }
 
@@ -291,6 +312,48 @@ function toSyllabusSummary(
     description: template.description,
     assignedAt: row.assigned_at,
     ...counts
+  };
+}
+
+function statusForStep(progressRows: SyllabusProgressRow[] | null | undefined, itemId: string) {
+  return (progressRows ?? []).find((progress) => progress.template_item_id === itemId);
+}
+
+function toSyllabusDetail(
+  row: ClientSyllabusAssignmentRow,
+  studioById: Map<string, LinkedStudioAccess>
+): StudentSyllabusDetail | null {
+  const summary = toSyllabusSummary(row, studioById);
+  const template = normalizeTemplate(row.syllabus_templates);
+
+  if (!summary || !template) return null;
+
+  const steps = (template.syllabus_template_items ?? [])
+    .filter((item) => item.active !== false)
+    .sort((a, b) => {
+      const orderA = a.sort_order ?? 0;
+      const orderB = b.sort_order ?? 0;
+      if (orderA !== orderB) return orderA - orderB;
+      return (a.title ?? "").localeCompare(b.title ?? "");
+    })
+    .map((item) => {
+      const progress = statusForStep(row.client_syllabus_progress, item.id);
+
+      return {
+        id: item.id,
+        title: item.title ?? "Syllabus step",
+        category: item.category ?? null,
+        description: item.description ?? null,
+        sortOrder: item.sort_order ?? null,
+        status: progress?.status ?? "not_started",
+        notes: progress?.show_notes_in_portal === true ? progress.notes ?? null : null,
+        showNotesInPortal: progress?.show_notes_in_portal === true
+      };
+    });
+
+  return {
+    ...summary,
+    steps
   };
 }
 
@@ -518,7 +581,6 @@ export async function loadStudentLearnOverview(
     )
     .in("studio_id", studioIds)
     .in("client_id", clientIds)
-    .eq("visible_in_portal", true)
     .is("archived_at", null)
     .order("assigned_at", { ascending: false })
     .limit(10);
@@ -543,4 +605,61 @@ export async function loadStudentLearnOverview(
     syllabi,
     lumiPrompts: buildLumiPrompts(slicedLessons, groupLessonRecaps)
   };
+}
+
+export async function loadStudentSyllabusDetail(
+  linkedStudios: LinkedStudioAccess[],
+  assignmentId: string
+): Promise<StudentSyllabusDetail | null> {
+  if (!linkedStudios.length || !assignmentId) return null;
+
+  const studioIds = linkedStudios.map((studio) => studio.studioId);
+  const clientIds = linkedStudios.map((studio) => studio.clientId);
+  const studioById = new Map(linkedStudios.map((studio) => [studio.studioId, studio]));
+
+  const { data, error } = await supabase
+    .from("client_syllabus_assignments")
+    .select(
+      `
+      id,
+      studio_id,
+      client_id,
+      assigned_at,
+      visible_in_portal,
+      archived_at,
+      syllabus_templates (
+        id,
+        name,
+        dance_style,
+        level,
+        description,
+        active,
+        syllabus_template_items (
+          id,
+          title,
+          category,
+          description,
+          sort_order,
+          active
+        )
+      ),
+      client_syllabus_progress (
+        id,
+        template_item_id,
+        status,
+        notes,
+        show_notes_in_portal
+      )
+    `
+    )
+    .eq("id", assignmentId)
+    .in("studio_id", studioIds)
+    .in("client_id", clientIds)
+    .is("archived_at", null)
+    .maybeSingle();
+
+  if (error) throw error;
+  if (!data) return null;
+
+  return toSyllabusDetail(data as unknown as ClientSyllabusAssignmentRow, studioById);
 }

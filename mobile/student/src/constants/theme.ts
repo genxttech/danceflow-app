@@ -66,12 +66,12 @@ export async function getAppearanceMode(): Promise<AppearanceMode> {
 
 export async function setAppearanceMode(mode: AppearanceMode) {
   await AsyncStorage.setItem(APPEARANCE_STORAGE_KEY, mode);
-  Appearance.setColorScheme(mode === "system" ? null : mode);
+  Appearance.setColorScheme(mode === "system" ? (null as unknown as ColorSchemeName) : mode);
 }
 
 export async function hydrateAppearanceMode() {
   const mode = await getAppearanceMode();
-  Appearance.setColorScheme(mode === "system" ? null : mode);
+  Appearance.setColorScheme(mode === "system" ? (null as unknown as ColorSchemeName) : mode);
   return mode;
 }
 

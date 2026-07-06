@@ -451,7 +451,10 @@ export default function AppointmentEditForm({
   }, [clientId, linkedPartnersByClientId]);
 
   return (
-    <form action={formAction} className="space-y-8">
+    <form
+      action={formAction}
+      className="min-h-screen space-y-8 bg-gradient-to-br from-indigo-50 via-white to-cyan-50 px-4 py-8 text-slate-900 sm:px-6 lg:px-8"
+    >
       <input type="hidden" name="appointmentId" value={appointment.id} />
       <input
         type="hidden"
@@ -459,8 +462,8 @@ export default function AppointmentEditForm({
         value={showPartnerSection ? partnerClientId : ""}
       />
 
-      <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="space-y-6 rounded-2xl border bg-white p-6 shadow-sm">
+      <div className="mx-auto grid max-w-7xl gap-6 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="space-y-6 rounded-2xl border border-indigo-100 bg-white/95 p-6 shadow-xl shadow-indigo-100/60">
           <div>
             <h2 className="text-2xl font-semibold tracking-tight">
               Edit Appointment
@@ -484,7 +487,7 @@ export default function AppointmentEditForm({
                 name="appointmentType"
                 value={appointmentType}
                 onChange={(e) => setAppointmentType(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               >
                 <option value="private_lesson">Private Lesson</option>
                 <option value="group_class">Group Class</option>
@@ -504,7 +507,7 @@ export default function AppointmentEditForm({
                 id="title"
                 name="title"
                 defaultValue={appointment.title ?? ""}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                 placeholder="Optional custom title"
               />
             </div>
@@ -525,7 +528,7 @@ export default function AppointmentEditForm({
                   setPartnerClientId("");
                   setLinkedPackageId("");
                 }}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               >
                 <option value="">Select client</option>
                 {clients.map((client) => (
@@ -548,7 +551,7 @@ export default function AppointmentEditForm({
                   id="partnerClientId"
                   value={partnerClientId}
                   onChange={(e) => setPartnerClientId(e.target.value)}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                  className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                 >
                   <option value="">
                     {linkedPartners.length > 0
@@ -578,7 +581,7 @@ export default function AppointmentEditForm({
                 id="instructorId"
                 name="instructorId"
                 defaultValue={appointment.instructor_id ?? ""}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               >
                 <option value="">Select instructor</option>
                 {instructors.map((instructor) => (
@@ -600,7 +603,7 @@ export default function AppointmentEditForm({
                 id="roomId"
                 name="roomId"
                 defaultValue={appointment.room_id ?? ""}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               >
                 <option value="">Select room</option>
                 {rooms.map((room) => (
@@ -622,7 +625,7 @@ export default function AppointmentEditForm({
                 id="locationName"
                 name="locationName"
                 defaultValue={appointment.location_name ?? ""}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                 placeholder="Optional location or venue"
               />
               <p className="mt-1 text-xs text-slate-500">
@@ -643,7 +646,7 @@ export default function AppointmentEditForm({
                 type="datetime-local"
                 required
                 defaultValue={toStudioDateTimeInputValue(appointment.starts_at, studioTimeZone)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               />
             </div>
 
@@ -660,11 +663,11 @@ export default function AppointmentEditForm({
                 type="datetime-local"
                 required
                 defaultValue={toStudioDateTimeInputValue(appointment.ends_at, studioTimeZone)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
               />
             </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+            <div className="rounded-xl border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-800">
               Status updates automatically. Changing the date or time will mark
               this appointment as{" "}
               <span className="font-medium text-slate-900">Rescheduled</span>.
@@ -672,7 +675,7 @@ export default function AppointmentEditForm({
           </div>
 
           {showBillingSection ? (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+            <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900">
@@ -707,7 +710,7 @@ export default function AppointmentEditForm({
                         setLinkedPackageId("");
                       }
                     }}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+                    className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                   >
                     <option value="package_credit">Package Credit</option>
                     <option value="membership">Membership</option>
@@ -733,7 +736,7 @@ export default function AppointmentEditForm({
                         ? "Example: intro comp, owner approved"
                         : "Optional"
                     }
-                    className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2"
+                    className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
                   />
                 </div>
               </div>
@@ -779,7 +782,7 @@ export default function AppointmentEditForm({
                 name="clientPackageId"
                 value={linkedPackageId}
                 onChange={(e) => setLinkedPackageId(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 px-3 py-2"
+                className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-100"
                 disabled={!clientId}
               >
                 <option value="">
@@ -797,7 +800,7 @@ export default function AppointmentEditForm({
           )}
 
           {appointmentType === "floor_space_rental" ? (
-            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <div className="rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-teal-50 p-5">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-semibold text-emerald-900">
@@ -835,7 +838,7 @@ export default function AppointmentEditForm({
                     value={priceAmount}
                     onChange={(e) => setPriceAmount(e.target.value)}
                     placeholder="0.00"
-                    className="w-full rounded-xl border border-emerald-300 bg-white px-3 py-2"
+                    className="w-full rounded-xl border border-emerald-300 bg-white px-3 py-2 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                   />
                 </div>
 
@@ -851,7 +854,7 @@ export default function AppointmentEditForm({
                     name="paymentStatus"
                     value={paymentStatus}
                     onChange={(e) => setPaymentStatus(e.target.value)}
-                    className="w-full rounded-xl border border-emerald-300 bg-white px-3 py-2"
+                    className="w-full rounded-xl border border-emerald-300 bg-white px-3 py-2 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-100"
                   >
                     <option value="unpaid">Unpaid</option>
                     <option value="partial">Partially Paid</option>
@@ -863,7 +866,7 @@ export default function AppointmentEditForm({
               </div>
 
               <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl border border-emerald-200 bg-white p-4">
+                <div className="rounded-xl border border-emerald-200 bg-white/90 p-4 shadow-sm">
                   <p className="text-sm text-emerald-700">
                     Configured rental amount
                   </p>
@@ -874,7 +877,7 @@ export default function AppointmentEditForm({
                   </p>
                 </div>
 
-                <div className="rounded-xl border border-emerald-200 bg-white p-4">
+                <div className="rounded-xl border border-emerald-200 bg-white/90 p-4 shadow-sm">
                   <p className="text-sm text-emerald-700">
                     Current payment status
                   </p>
@@ -900,7 +903,7 @@ export default function AppointmentEditForm({
               name="notes"
               rows={4}
               defaultValue={appointment.notes ?? ""}
-              className="w-full rounded-xl border border-slate-300 px-3 py-2"
+              className="w-full rounded-xl border border-indigo-200 bg-white px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-100"
             />
           </div>
 
@@ -914,7 +917,7 @@ export default function AppointmentEditForm({
             <button
               type="submit"
               disabled={pending}
-              className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800 disabled:opacity-60"
+              className="rounded-xl bg-indigo-600 px-4 py-2 font-medium text-white shadow-lg shadow-indigo-200 hover:bg-indigo-700 disabled:opacity-60"
             >
               {pending ? "Saving..." : "Save Appointment"}
             </button>
@@ -922,27 +925,27 @@ export default function AppointmentEditForm({
         </div>
 
         <div className="space-y-6">
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="rounded-2xl border border-cyan-100 bg-white/95 p-6 shadow-xl shadow-cyan-100/60">
             <h3 className="text-xl font-semibold">Package Health</h3>
             <p className="mt-2 text-sm text-slate-600">
               Review the linked package before saving changes.
             </p>
 
             {!showPackageSection ? (
-              <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
+              <div className="mt-5 rounded-xl border border-dashed border-cyan-200 bg-cyan-50/60 px-4 py-8 text-center text-cyan-700">
                 Package linking is not used for{" "}
                 {appointmentTypeLabel(appointmentType).toLowerCase()}.
               </div>
             ) : !clientId ? (
-              <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
+              <div className="mt-5 rounded-xl border border-dashed border-cyan-200 bg-cyan-50/60 px-4 py-8 text-center text-cyan-700">
                 Select a client to review package options.
               </div>
             ) : !selectedPackage ? (
-              <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
+              <div className="mt-5 rounded-xl border border-dashed border-cyan-200 bg-cyan-50/60 px-4 py-8 text-center text-cyan-700">
                 No linked package selected.
               </div>
             ) : (
-              <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
+              <div className="mt-5 rounded-2xl border border-cyan-100 bg-cyan-50/70 p-5">
                 <div className="flex flex-wrap items-center gap-3">
                   <p className="font-semibold text-slate-900">
                     {selectedPackage.name_snapshot}
@@ -986,7 +989,7 @@ export default function AppointmentEditForm({
             )}
           </div>
 
-          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+          <div className="rounded-2xl border border-violet-100 bg-white/95 p-6 shadow-xl shadow-violet-100/60">
             <h3 className="text-xl font-semibold">Membership Benefits</h3>
             <p className="mt-2 text-sm text-slate-600">
               Check whether the client’s active membership includes or discounts
@@ -994,16 +997,16 @@ export default function AppointmentEditForm({
             </p>
 
             {!clientId ? (
-              <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
+              <div className="mt-5 rounded-xl border border-dashed border-violet-200 bg-violet-50/60 px-4 py-8 text-center text-violet-700">
                 Select a client to review membership coverage.
               </div>
             ) : !selectedMembership ? (
-              <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
+              <div className="mt-5 rounded-xl border border-dashed border-violet-200 bg-violet-50/60 px-4 py-8 text-center text-violet-700">
                 No active membership found for this client.
               </div>
             ) : (
               <div className="mt-5 space-y-4">
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+                <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-5">
                   <div className="flex flex-wrap items-center gap-3">
                     <p className="font-semibold text-slate-900">
                       {selectedMembership.name_snapshot}
@@ -1014,7 +1017,7 @@ export default function AppointmentEditForm({
                   </div>
 
                   <div className="mt-4 grid gap-3 md:grid-cols-2">
-                    <div className="rounded-xl border bg-white p-4">
+                    <div className="rounded-xl border border-violet-100 bg-white/90 p-4 shadow-sm">
                       <p className="text-sm text-slate-500">Billing</p>
                       <p className="mt-1 font-medium text-slate-900">
                         {formatCurrency(selectedMembership.price_snapshot)} /{" "}
@@ -1024,7 +1027,7 @@ export default function AppointmentEditForm({
                       </p>
                     </div>
 
-                    <div className="rounded-xl border bg-white p-4">
+                    <div className="rounded-xl border border-violet-100 bg-white/90 p-4 shadow-sm">
                       <p className="text-sm text-slate-500">Current Period</p>
                       <p className="mt-1 font-medium text-slate-900">
                         {formatShortDate(
@@ -1051,7 +1054,7 @@ export default function AppointmentEditForm({
 
                 <div className="space-y-3">
                   {applicableBenefits.length === 0 ? (
-                    <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-slate-500">
+                    <div className="rounded-xl border border-dashed border-violet-200 bg-violet-50/60 px-4 py-8 text-center text-violet-700">
                       No benefits configured on this membership.
                     </div>
                   ) : (

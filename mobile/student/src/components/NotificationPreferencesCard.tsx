@@ -1,74 +1,52 @@
-import { Switch, View, StyleSheet } from "react-native";
+import { Pressable, StyleSheet, Switch, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
-import { FeatureCard } from "@/components/FeatureCard";
 import { colors } from "@/constants/theme";
-import { useNotificationPreferences, type NotificationPreferences } from "@/lib/pushNotifications";
+import {
+  type NotificationPreferences,
+  useNotificationPreferences
+} from "@/lib/pushNotifications";
 
-type PreferenceKey = keyof NotificationPreferences;
-
-const ROWS: Array<{
-  key: PreferenceKey;
+type PreferenceOption = {
+  key: keyof NotificationPreferences;
   title: string;
   detail: string;
-}> = [
+};
+
+const preferenceOptions: PreferenceOption[] = [
   {
     key: "scheduleUpdates",
     title: "Schedule updates",
-    detail: "Lessons scheduled, rescheduled, or cancelled."
+    detail: "Private lessons, group classes, booking requests, and schedule changes."
   },
   {
     key: "eventUpdates",
     title: "Event updates",
-    detail: "Ticket reminders, event changes, and event-day notices."
+    detail: "Ticket confirmations, event reminders, and admission updates."
   },
   {
     key: "favoriteUpdates",
-    title: "Saved studio updates",
-    detail: "New events from studios and organizers you save."
+    title: "Favorite updates",
+    detail: "New classes, events, or announcements from favorites you follow."
   },
   {
     key: "learningUpdates",
     title: "Learning updates",
-    detail: "Lesson recaps, practice reminders, and LUMI progress prompts."
-  },
-  {
-    key: "partnerUpdates",
-    title: "Partner messages",
-    detail: "New replies in DanceFlow partner match conversations."
+    detail: "New recaps, syllabus updates, and practice focus reminders."
   },
   {
     key: "accountUpdates",
     title: "Account updates",
-    detail: "Wallet, profile, and studio connection notices."
+    detail: "Profile, membership, package, wallet, and payment request updates."
+  },
+  {
+    key: "partnerUpdates",
+    title: "Partner message updates",
+    detail: "Partner search messages, replies, and conversation updates."
   }
 ];
 
-function PreferenceRow({
-  title,
-  detail,
-  value,
-  disabled,
-  onValueChange
-}: {
-  title: string;
-  detail: string;
-  value: boolean;
-  disabled: boolean;
-  onValueChange: (value: boolean) => void;
-}) {
-  return (
-    <View style={styles.preferenceRow}>
-      <View style={styles.preferenceText}>
-        <AppText variant="subtitle">{title}</AppText>
-        <AppText variant="caption">{detail}</AppText>
-      </View>
-      <Switch disabled={disabled} onValueChange={onValueChange} value={value} />
-    </View>
-  );
-}
-
-export function NotificationPreferencesCard({ userId }: { userId: string | null | undefined }) {
+export function NotificationPreferencesCard({ userId }: { userId: string }) {
   const {
     preferences,
     permissionStatus,
@@ -79,69 +57,73 @@ export function NotificationPreferencesCard({ userId }: { userId: string | null 
     enableNotifications
   } = useNotificationPreferences(userId);
 
-  if (!userId) {
-    return null;
-  }
-
-  const permissionReady = permissionStatus === "granted";
-  const disabled = loading || saving;
-
-  function setPreference(key: PreferenceKey, value: boolean) {
-    updatePreferences({
-      ...preferences,
-      [key]: value
-    });
+  function updatePreference(preferenceKey: keyof NotificationPreferences, value: boolean) {
+    updatePreferences({ ...preferences, [preferenceKey]: value });
   }
 
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <AppText variant="subtitle">Notifications</AppText>
-        <AppText variant="caption">
-          Choose which DanceFlow updates you want on this device.
-        </AppText>
+        <View style={{ flex: 1 }}>
+          <AppText variant="eyebrow">Notification Preferences</AppText>
+          <AppText variant="subtitle">Choose what DanceFlow sends you</AppText>
+          <AppText variant="caption">
+            {loading
+              ? "Loading notification settings..."
+              : permissionStatus === "granted"
+                ? "Push notifications are enabled on this device."
+                : "Choose your categories, then enable push notifications when ready."}
+          </AppText>
+        </View>
+        {message ? <AppText style={styles.saved}>{message}</AppText> : null}
       </View>
-      <View style={styles.content}>
-        {!permissionReady ? (
-          <View style={styles.permissionCard}>
-            <AppText variant="subtitle">Enable push notifications</AppText>
-            <AppText variant="caption">
-              Get lesson changes, ticket reminders, saved studio updates, and account notices when they matter.
-            </AppText>
-            <AppButton
-              label={saving ? "Setting up..." : "Enable notifications"}
-              onPress={enableNotifications}
-              variant="primary"
-            />
-          </View>
-        ) : (
-          <FeatureCard
-            title="Notifications are ready"
-            detail="DanceFlow can send updates to this device."
-          />
-        )}
 
-        <PreferenceRow
-          title="Push notifications"
-          detail="Turn all mobile notifications on or off."
+      <Pressable
+        onPress={() => updatePreference("pushEnabled", !preferences.pushEnabled)}
+        style={({ pressed }) => [styles.masterOption, pressed && styles.optionPressed]}
+      >
+        <View style={{ flex: 1 }}>
+          <AppText style={styles.optionTitle}>Push notifications</AppText>
+          <AppText variant="caption">Master switch for DanceFlow mobile notifications.</AppText>
+        </View>
+        <Switch
+          disabled={saving || loading}
+          onValueChange={(value) => updatePreference("pushEnabled", value)}
+          thumbColor="#fff"
+          trackColor={{ false: colors.border, true: colors.primary }}
           value={preferences.pushEnabled}
-          disabled={disabled}
-          onValueChange={(value) => setPreference("pushEnabled", value)}
         />
+      </Pressable>
 
-        {ROWS.map((row) => (
-          <PreferenceRow
-            key={row.key}
-            title={row.title}
-            detail={row.detail}
-            value={Boolean(preferences[row.key])}
-            disabled={disabled || !preferences.pushEnabled}
-            onValueChange={(value) => setPreference(row.key, value)}
-          />
+      <View style={styles.options}>
+        {preferenceOptions.map((option) => (
+          <Pressable
+            key={option.key}
+            onPress={() => updatePreference(option.key, !preferences[option.key])}
+            style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}
+          >
+            <View style={{ flex: 1 }}>
+              <AppText style={styles.optionTitle}>{option.title}</AppText>
+              <AppText variant="caption">{option.detail}</AppText>
+            </View>
+            <Switch
+              disabled={saving || loading || !preferences.pushEnabled}
+              onValueChange={(value) => updatePreference(option.key, value)}
+              thumbColor="#fff"
+              trackColor={{ false: colors.border, true: colors.primary }}
+              value={preferences[option.key]}
+            />
+          </Pressable>
         ))}
-
-        {message ? <AppText variant="caption">{message}</AppText> : null}
       </View>
+
+      {permissionStatus !== "granted" ? (
+        <AppButton
+          label={saving ? "Updating..." : "Enable Push Notifications"}
+          onPress={enableNotifications}
+          variant="secondary"
+        />
+      ) : null}
     </View>
   );
 }
@@ -153,23 +135,14 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     gap: 14,
-    padding: 18
+    padding: 16
   },
   header: {
-    gap: 6
-  },
-  content: {
+    alignItems: "flex-start",
+    flexDirection: "row",
     gap: 12
   },
-  permissionCard: {
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    borderRadius: 16,
-    borderWidth: 1,
-    gap: 10,
-    padding: 14
-  },
-  preferenceRow: {
+  masterOption: {
     alignItems: "center",
     backgroundColor: colors.surfaceAlt,
     borderColor: colors.border,
@@ -177,11 +150,33 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     gap: 12,
-    justifyContent: "space-between",
     padding: 14
   },
-  preferenceText: {
-    flex: 1,
-    gap: 4
+  option: {
+    alignItems: "center",
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 12,
+    paddingVertical: 14
+  },
+  optionPressed: {
+    opacity: 0.78
+  },
+  options: {
+    marginTop: -2
+  },
+  optionTitle: {
+    color: colors.text,
+    fontSize: 15,
+    fontWeight: "900",
+    marginBottom: 3
+  },
+  saved: {
+    color: colors.success,
+    flexShrink: 1,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "right"
   }
 });
