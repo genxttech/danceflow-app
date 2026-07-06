@@ -820,6 +820,25 @@ export default function AppointmentCreateForm({
                 </select>
               </div>
 
+              <div className="md:col-span-2">
+                <label
+                  htmlFor="locationName"
+                  className="mb-1.5 block text-sm font-medium"
+                >
+                  Location
+                </label>
+                <input
+                  id="locationName"
+                  name="locationName"
+                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                  placeholder="Example: Main studio, rented ballroom, community center"
+                />
+                <p className="mt-1 text-xs text-slate-500">
+                  Optional. Use this when the appointment is taught at a
+                  specific studio location, rented room, or partner venue.
+                </p>
+              </div>
+
               <div>
                 <label
                   htmlFor="startsAt"

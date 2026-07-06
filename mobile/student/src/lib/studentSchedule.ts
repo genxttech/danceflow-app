@@ -13,6 +13,7 @@ export type StudentScheduleItem = {
   startsAt: string;
   endsAt: string | null;
   timeZone: string;
+  locationName: string | null;
   instructorName: string | null;
   roomName: string | null;
 };
@@ -49,6 +50,7 @@ type AppointmentRow = {
   appointment_type: string | null;
   title: string | null;
   status: string | null;
+  location_name: string | null;
   starts_at: string;
   ends_at: string | null;
   instructors:
@@ -183,8 +185,9 @@ function toScheduleItem(
   const typeLabel = appointmentTypeLabel(row.appointment_type);
   const instructor = personName(row.instructors);
   const room = roomName(row.rooms);
+  const location = row.location_name?.trim() || null;
   const title = row.title?.trim() || typeLabel;
-  const details = [instructor, room].filter(Boolean).join(" • ");
+  const details = [instructor, location, room].filter(Boolean).join(" • ");
 
   return {
     id: row.id,
@@ -198,6 +201,7 @@ function toScheduleItem(
     startsAt: row.starts_at,
     endsAt: row.ends_at,
     timeZone,
+    locationName: location,
     instructorName: instructor,
     roomName: room
   };
@@ -268,6 +272,7 @@ export async function loadStudentScheduleOverview(
         appointment_type,
         title,
         status,
+        location_name,
         starts_at,
         ends_at,
         instructors ( first_name, last_name ),
@@ -293,6 +298,7 @@ export async function loadStudentScheduleOverview(
         appointment_type,
         title,
         status,
+        location_name,
         starts_at,
         ends_at,
         instructors ( first_name, last_name ),

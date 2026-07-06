@@ -1374,6 +1374,7 @@ export async function createAppointmentAction(
     const appointmentType = getString(formData, "appointmentType");
     const title = getString(formData, "title");
     const notes = getString(formData, "notes");
+    const locationName = getNullableString(formData, "locationName");
     const status = "scheduled";
     const instructorId = getNullableString(formData, "instructorId");
     const roomId = getNullableString(formData, "roomId");
@@ -1461,6 +1462,7 @@ export async function createAppointmentAction(
           ends_at: endsAt,
           status,
           notes: notes || null,
+          location_name: locationName,
           price_amount: priceAmount,
           payment_status:
             paymentStatus ??
@@ -1585,6 +1587,7 @@ export async function createAppointmentAction(
           ends_at: endsAt,
           status,
           notes: notes || null,
+          location_name: locationName,
           billing_type: billingType,
           billing_note: billingNote,
           created_by: user.id,
@@ -1679,6 +1682,7 @@ export async function createAppointmentAction(
         ends_at: occurrenceEnd,
         status,
         notes: notes || null,
+        location_name: locationName,
         billing_type: billingType,
         billing_note: billingNote,
         created_by: user.id,
@@ -1746,6 +1750,7 @@ export async function updateAppointmentAction(
     const appointmentType = getString(formData, "appointmentType");
     const title = getString(formData, "title");
     const notes = getString(formData, "notes");
+    const locationName = getNullableString(formData, "locationName");
     const submittedStatus = getString(formData, "status");
     const scope =
       getString(formData, "scope") ||
@@ -1883,6 +1888,7 @@ export async function updateAppointmentAction(
       ends_at: endsAt,
       status,
       notes: notes || null,
+      location_name: locationName,
       billing_type: isFloorSpaceRental(appointmentType)
         ? "package_credit"
         : billingType,
