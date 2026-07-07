@@ -177,19 +177,19 @@ export async function POST(request: NextRequest) {
         status,
         client_id,
         instructor_id,
-        clients (
-          id,
-          first_name,
-          last_name,
-          email
-        ),
-        instructors (
-          id,
-          profile_user_id,
-          first_name,
-          last_name,
-          email
-        )
+        clients:clients!appointments_client_id_fkey (
+  id,
+  first_name,
+  last_name,
+  email
+),
+instructors:instructors!appointments_instructor_id_fkey (
+  id,
+  profile_user_id,
+  first_name,
+  last_name,
+  email
+)
       `
       )
       .gte("starts_at", appointmentSearchStart.toISOString())
@@ -440,4 +440,8 @@ export async function POST(request: NextRequest) {
     ok: true,
     generated: deliveries.length,
   });
+}
+
+export async function GET(request: NextRequest) {
+  return POST(request);
 }
