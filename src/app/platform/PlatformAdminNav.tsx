@@ -27,11 +27,21 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
     });
   }
 
-  if (!normalizedItems.some((item) => item.href === "/platform/alerts")) {
+  if (!normalizedItems.some((item) => item.href === "/platform/accounting")) {
     const analyticsIndex = normalizedItems.findIndex(
       (item) => item.href === "/platform/analytics",
     );
-    normalizedItems.splice(analyticsIndex >= 0 ? analyticsIndex + 1 : 1, 0, {
+    normalizedItems.splice(analyticsIndex >= 0 ? analyticsIndex + 1 : 2, 0, {
+      href: "/platform/accounting",
+      label: "Accounting",
+    });
+  }
+
+  if (!normalizedItems.some((item) => item.href === "/platform/alerts")) {
+    const accountingIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/accounting",
+    );
+    normalizedItems.splice(accountingIndex >= 0 ? accountingIndex + 1 : 1, 0, {
       href: "/platform/alerts",
       label: "Alerts",
     });
