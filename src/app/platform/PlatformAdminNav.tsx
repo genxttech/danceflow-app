@@ -20,8 +20,18 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname();
   const normalizedItems = [...items];
 
-  if (!normalizedItems.some((item) => item.href === "/platform/alerts")) {
+  if (!normalizedItems.some((item) => item.href === "/platform/analytics")) {
     normalizedItems.splice(1, 0, {
+      href: "/platform/analytics",
+      label: "Analytics",
+    });
+  }
+
+  if (!normalizedItems.some((item) => item.href === "/platform/alerts")) {
+    const analyticsIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/analytics",
+    );
+    normalizedItems.splice(analyticsIndex >= 0 ? analyticsIndex + 1 : 1, 0, {
       href: "/platform/alerts",
       label: "Alerts",
     });
@@ -61,4 +71,3 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
     </nav>
   );
 }
-
