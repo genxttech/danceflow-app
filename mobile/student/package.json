@@ -28,6 +28,7 @@
     "expo-secure-store": "latest",
     "expo-splash-screen": "latest",
     "expo-status-bar": "latest",
+    "expo-updates": "~29.0.18",
     "react": "19.1.0",
     "react-native": "0.81.5",
     "react-native-gesture-handler": "latest",

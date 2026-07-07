@@ -29,21 +29,20 @@
         "foregroundImage": "./assets/danceflow-logo.png"
       },
       "versionCode": 1
-      
     },
     "plugins": [
-  "expo-router",
-  "expo-secure-store",
-  "expo-notifications",
-  "expo-dev-client",
-  [
-    "@stripe/stripe-react-native",
-    {
-      "merchantIdentifier": "",
-      "enableGooglePay": true
-    }
-  ]
-],
+      "expo-router",
+      "expo-secure-store",
+      "expo-notifications",
+      "expo-dev-client",
+      [
+        "@stripe/stripe-react-native",
+        {
+          "merchantIdentifier": "",
+          "enableGooglePay": true
+        }
+      ]
+    ],
     "experiments": {
       "typedRoutes": true
     },
