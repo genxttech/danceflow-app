@@ -72,6 +72,12 @@ type EventPaymentRow = {
   created_at: string;
 };
 
+type EventRegistrationAccountingRow = {
+  id: string;
+  event_id: string;
+  studio_id: string | null;
+};
+
 const PLATFORM_TICKET_FEE_RATE = 0.035;
 const ORGANIZER_SUITE_ADDON_CENTS = 1200;
 
@@ -286,6 +292,7 @@ export default async function PlatformAccountingPage({
     { data: addonEntitlements, error: addonEntitlementsError },
     { data: invoices, error: invoicesError },
     { data: eventPayments, error: eventPaymentsError },
+    { data: eventRegistrations, error: eventRegistrationsError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -320,20 +327,23 @@ export default async function PlatformAccountingPage({
     supabase
       .from("event_payments")
       .select(`
-  id,
-  registration_id,
-  amount,
-  currency,
-  status,
-  source,
-  payment_method,
-  refund_amount,
-  platform_fee_amount,
-  stripe_processing_fee_amount,
-  stripe_application_fee_amount,
-  created_at
-`)
+        id,
+        registration_id,
+        amount,
+        currency,
+        status,
+        source,
+        payment_method,
+        refund_amount,
+        platform_fee_amount,
+        stripe_processing_fee_amount,
+        stripe_application_fee_amount,
+        created_at
+      `)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("event_registrations")
+      .select("id, event_id, studio_id"),
   ]);
 
   if (studiosError) throw new Error(`Failed to load studios: ${studiosError.message}`);
@@ -341,16 +351,21 @@ export default async function PlatformAccountingPage({
   if (addonEntitlementsError) throw new Error(`Failed to load add-ons: ${addonEntitlementsError.message}`);
   if (invoicesError) throw new Error(`Failed to load invoices: ${invoicesError.message}`);
   if (eventPaymentsError) throw new Error(`Failed to load event payments: ${eventPaymentsError.message}`);
+  if (eventRegistrationsError) throw new Error(`Failed to load event registrations: ${eventRegistrationsError.message}`);
 
   const typedStudios = (studios ?? []) as StudioRow[];
   const typedSubscriptions = (subscriptions ?? []) as SubscriptionRow[];
   const typedAddonEntitlements = (addonEntitlements ?? []) as AddonEntitlementRow[];
   const typedInvoices = (invoices ?? []) as StudioInvoiceRow[];
   const typedEventPayments = (eventPayments ?? []) as EventPaymentRow[];
+  const typedEventRegistrations = (eventRegistrations ?? []) as EventRegistrationAccountingRow[];
 
   const studioById = new Map(typedStudios.map((studio) => [studio.id, studio]));
   const subscriptionByStudioId = new Map(
     typedSubscriptions.map((subscription) => [subscription.studio_id, subscription])
+  );
+  const registrationById = new Map(
+    typedEventRegistrations.map((registration) => [registration.id, registration])
   );
 
   const workspaceRows = typedStudios.map((studio) => {
@@ -467,7 +482,12 @@ export default async function PlatformAccountingPage({
         .filter((invoice) => invoice.studio_id === row.studio.id)
         .reduce((sum, invoice) => sum + toMoney(invoice.amount_paid), 0);
 
-      const relatedEventPayments: EventPaymentRow[] = [];
+      const relatedEventPayments = revenueEventPaymentsInRange.filter((payment) => {
+        if (!payment.registration_id) return false;
+
+        const registration = registrationById.get(payment.registration_id);
+        return registration?.studio_id === row.studio.id;
+      });
 
       return {
         ...row,
