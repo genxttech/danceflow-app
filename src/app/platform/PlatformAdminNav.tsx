@@ -58,6 +58,26 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
     });
   }
 
+    if (!normalizedItems.some((item) => item.href === "/platform/expenses")) {
+    const accountingIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/accounting",
+    );
+    const billingIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/billing",
+    );
+    const insertAt =
+      accountingIndex >= 0
+        ? accountingIndex + 1
+        : billingIndex >= 0
+          ? billingIndex + 1
+          : normalizedItems.length;
+
+    normalizedItems.splice(insertAt, 0, {
+      href: "/platform/expenses",
+      label: "Expenses",
+    });
+  }
+
   return (
     <nav className="space-y-2">
       {normalizedItems.map((item) => {
