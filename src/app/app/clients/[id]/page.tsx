@@ -413,6 +413,8 @@ type AllClientDocumentTemplateRow = {
 };
 
 type ClientDocumentSignatureRow = {
+  id: string;
+  assignment_id: string | null;
   template_id: string;
   signed_at: string | null;
 };
@@ -444,6 +446,20 @@ type ClientDetailTab =
   | "syllabus"
   | "notes"
   | "portal";
+
+  type ClientDocumentStatusRow = {
+  id: string;
+  title: string;
+  documentType: string;
+  requiresSignature: boolean;
+  isRequired: boolean;
+  status: string;
+  assignedAt: string | null;
+  dueAt: string | null;
+  signedAt: string | null;
+  signatureId: string | null;
+  source: string;
+};
 
 const clientDetailTabs: { id: ClientDetailTab; label: string; description: string }[] = [
   { id: "overview", label: "Overview", description: "Snapshot, lead status, event history, and next best actions" },
@@ -2023,11 +2039,12 @@ export default async function ClientDetailPage({
       .eq("applies_to", "all_clients")
       .order("title", { ascending: true }),
 
-    supabase
+        supabase
       .from("document_signatures")
-      .select("template_id, signed_at")
+      .select("id, assignment_id, template_id, signed_at")
       .eq("studio_id", studioId)
-      .eq("client_id", id),
+      .eq("client_id", id)
+      .order("signed_at", { ascending: false }),
 
     supabase
       .from("sms_contact_permissions")
@@ -2446,42 +2463,72 @@ export default async function ClientDetailPage({
     const attendance = attendanceByRegistrationId.get(row.id);
     return attendance?.status === "attended";
   }).length;
-  const signedTemplateIds = new Set(
-    typedDocumentSignatures
-      .filter((row) => row.signed_at)
-      .map((row) => row.template_id),
+      const latestSignatureByTemplateId = new Map<string, ClientDocumentSignatureRow>();
+  const latestSignatureByAssignmentId = new Map<string, ClientDocumentSignatureRow>();
+
+  for (const signature of typedDocumentSignatures) {
+    if (!signature.signed_at) continue;
+
+    if (!latestSignatureByTemplateId.has(signature.template_id)) {
+      latestSignatureByTemplateId.set(signature.template_id, signature);
+    }
+
+    if (signature.assignment_id && !latestSignatureByAssignmentId.has(signature.assignment_id)) {
+      latestSignatureByAssignmentId.set(signature.assignment_id, signature);
+    }
+  }
+
+  const assignedTemplateIds = new Set(
+    typedDocumentAssignments.map((row) => row.template_id)
   );
-  const assignedTemplateIds = new Set(typedDocumentAssignments.map((row) => row.template_id));
-  const globalDocumentStatusRows = typedAllClientDocumentTemplates
-    .filter((template) => !assignedTemplateIds.has(template.id))
-    .map((template) => ({
-      id: template.id,
-      title: template.title,
-      documentType: template.document_type ?? "document",
-      requiresSignature: Boolean(template.requires_signature),
-      isRequired: Boolean(template.is_required),
-      status: signedTemplateIds.has(template.id) ? "signed" : "available",
-      assignedAt: null as string | null,
-      dueAt: null as string | null,
-      signedAt: typedDocumentSignatures.find((row) => row.template_id === template.id)?.signed_at ?? null,
-      source: "All clients",
-    }));
-  const assignedDocumentStatusRows = typedDocumentAssignments.map((assignment) => {
-    const template = getDocumentTemplateValue(assignment.document_templates);
-    return {
-      id: assignment.id,
-      title: template?.title ?? "Document",
-      documentType: template?.document_type ?? "document",
-      requiresSignature: Boolean(template?.requires_signature),
-      isRequired: Boolean(template?.is_required),
-      status: assignment.status,
-      assignedAt: assignment.assigned_at,
-      dueAt: assignment.due_at,
-      signedAt: assignment.signed_at,
-      source: "Assigned",
-    };
-  });
-  const documentStatusRows = [...assignedDocumentStatusRows, ...globalDocumentStatusRows];
+
+  const globalDocumentStatusRows: ClientDocumentStatusRow[] =
+    typedAllClientDocumentTemplates
+      .filter((template) => !assignedTemplateIds.has(template.id))
+      .map((template) => {
+        const signature = latestSignatureByTemplateId.get(template.id);
+
+        return {
+          id: template.id,
+          title: template.title,
+          documentType: template.document_type ?? "document",
+          requiresSignature: Boolean(template.requires_signature),
+          isRequired: Boolean(template.is_required),
+          status: signature ? "signed" : "available",
+          assignedAt: null,
+          dueAt: null,
+          signedAt: signature?.signed_at ?? null,
+          signatureId: signature?.id ?? null,
+          source: "All clients",
+        };
+      });
+
+  const assignedDocumentStatusRows: ClientDocumentStatusRow[] =
+    typedDocumentAssignments.map((assignment) => {
+      const template = getDocumentTemplateValue(assignment.document_templates);
+      const signature =
+        latestSignatureByAssignmentId.get(assignment.id) ??
+        latestSignatureByTemplateId.get(assignment.template_id);
+
+      return {
+        id: assignment.id,
+        title: template?.title ?? "Document",
+        documentType: template?.document_type ?? "document",
+        requiresSignature: Boolean(template?.requires_signature),
+        isRequired: Boolean(template?.is_required),
+        status: assignment.status,
+        assignedAt: assignment.assigned_at,
+        dueAt: assignment.due_at,
+        signedAt: assignment.signed_at ?? signature?.signed_at ?? null,
+        signatureId: signature?.id ?? null,
+        source: "Assigned",
+      };
+    });
+
+  const documentStatusRows: ClientDocumentStatusRow[] = [
+    ...assignedDocumentStatusRows,
+    ...globalDocumentStatusRows,
+  ];
   const requiredDocumentCount = documentStatusRows.filter((row) => row.isRequired).length;
   const pendingRequiredDocumentCount = documentStatusRows.filter(
     (row) => row.isRequired && row.status !== "signed" && row.status !== "completed",
@@ -2948,6 +2995,22 @@ export default async function ClientDetailPage({
                         {document.dueAt ? ` · Due ${fmtShortDate(document.dueAt)}` : ""}
                         {document.signedAt ? ` · Signed ${fmtShortDate(document.signedAt)}` : ""}
                       </p>
+                                            {document.signatureId ? (
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Link
+                            href={`/app/clients/${id}/documents/${document.signatureId}`}
+                            className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-semibold text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
+                          >
+                            View receipt
+                          </Link>
+                          <Link
+                            href={`/app/clients/${id}/documents/${document.signatureId}/pdf`}
+                            className="rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-semibold text-white hover:opacity-90"
+                          >
+                            PDF
+                          </Link>
+                        </div>
+                      ) : null}
                     </div>
                     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${documentStatusClass(document.status)}`}>
                       {document.status === "available"
