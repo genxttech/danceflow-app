@@ -27,14 +27,31 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
     });
   }
 
-  if (!normalizedItems.some((item) => item.href === "/platform/accounting")) {
+  if (!normalizedItems.some((item) => item.href === "/platform/studio-health")) {
     const analyticsIndex = normalizedItems.findIndex(
       (item) => item.href === "/platform/analytics",
     );
     normalizedItems.splice(analyticsIndex >= 0 ? analyticsIndex + 1 : 2, 0, {
-      href: "/platform/accounting",
-      label: "Accounting",
+      href: "/platform/studio-health",
+      label: "Studio Health",
     });
+  }
+
+  if (!normalizedItems.some((item) => item.href === "/platform/accounting")) {
+    const healthIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/studio-health",
+    );
+    const analyticsIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/analytics",
+    );
+    normalizedItems.splice(
+      healthIndex >= 0 ? healthIndex + 1 : analyticsIndex >= 0 ? analyticsIndex + 1 : 2,
+      0,
+      {
+        href: "/platform/accounting",
+        label: "Accounting",
+      },
+    );
   }
 
   if (!normalizedItems.some((item) => item.href === "/platform/alerts")) {
@@ -58,7 +75,7 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
     });
   }
 
-    if (!normalizedItems.some((item) => item.href === "/platform/expenses")) {
+  if (!normalizedItems.some((item) => item.href === "/platform/expenses")) {
     const accountingIndex = normalizedItems.findIndex(
       (item) => item.href === "/platform/accounting",
     );
