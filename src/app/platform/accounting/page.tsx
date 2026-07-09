@@ -78,6 +78,24 @@ type EventRegistrationAccountingRow = {
   studio_id: string | null;
 };
 
+type PlatformExpenseRow = {
+  id: string;
+  expense_date: string;
+  vendor_name: string;
+  description: string | null;
+  category: string;
+  amount: number | null;
+  currency: string | null;
+  payment_method: string | null;
+  status: string;
+  tax_treatment: string | null;
+  is_recurring: boolean | null;
+  recurrence_frequency: string | null;
+  receipt_url: string | null;
+  notes: string | null;
+  created_at: string;
+};
+
 const PLATFORM_TICKET_FEE_RATE = 0.035;
 const ORGANIZER_SUITE_ADDON_CENTS = 1200;
 
@@ -105,6 +123,20 @@ const PLAN_LABELS: Record<string, string> = {
   organizer: "Organizer Suite",
 };
 
+const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
+  software_tools: "Software Tools",
+  hosting_infrastructure: "Hosting / Infrastructure",
+  payment_processing: "Payment Processing",
+  contractor_payroll: "Contractor / Payroll",
+  marketing_ads: "Marketing / Ads",
+  professional_services: "Professional Services",
+  taxes_licenses: "Taxes / Licenses",
+  office_admin: "Office / Admin",
+  travel_meals: "Travel / Meals",
+  owner_draw: "Owner Draw",
+  other: "Other",
+};
+
 function getRange(value: string | undefined) {
   return RANGE_OPTIONS.find((option) => option.value === value) ?? RANGE_OPTIONS[1];
 }
@@ -123,6 +155,11 @@ function formatLabel(value: string) {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+function categoryLabel(value: string | null | undefined) {
+  const normalized = normalize(value) || "other";
+  return EXPENSE_CATEGORY_LABELS[normalized] ?? formatLabel(normalized);
 }
 
 function formatMoney(value: number, currency = "USD") {
@@ -293,6 +330,7 @@ export default async function PlatformAccountingPage({
     { data: invoices, error: invoicesError },
     { data: eventPayments, error: eventPaymentsError },
     { data: eventRegistrations, error: eventRegistrationsError },
+    { data: platformExpenses, error: platformExpensesError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -344,6 +382,12 @@ export default async function PlatformAccountingPage({
     supabase
       .from("event_registrations")
       .select("id, event_id, studio_id"),
+    supabase
+      .from("platform_expenses")
+      .select("id, expense_date, vendor_name, description, category, amount, currency, payment_method, status, tax_treatment, is_recurring, recurrence_frequency, receipt_url, notes, created_at")
+      .gte("expense_date", rangeStart.toISOString().slice(0, 10))
+      .lte("expense_date", new Date().toISOString().slice(0, 10))
+      .order("expense_date", { ascending: false }),
   ]);
 
   if (studiosError) throw new Error(`Failed to load studios: ${studiosError.message}`);
@@ -352,6 +396,7 @@ export default async function PlatformAccountingPage({
   if (invoicesError) throw new Error(`Failed to load invoices: ${invoicesError.message}`);
   if (eventPaymentsError) throw new Error(`Failed to load event payments: ${eventPaymentsError.message}`);
   if (eventRegistrationsError) throw new Error(`Failed to load event registrations: ${eventRegistrationsError.message}`);
+  if (platformExpensesError) throw new Error(`Failed to load platform expenses: ${platformExpensesError.message}`);
 
   const typedStudios = (studios ?? []) as StudioRow[];
   const typedSubscriptions = (subscriptions ?? []) as SubscriptionRow[];
@@ -359,6 +404,7 @@ export default async function PlatformAccountingPage({
   const typedInvoices = (invoices ?? []) as StudioInvoiceRow[];
   const typedEventPayments = (eventPayments ?? []) as EventPaymentRow[];
   const typedEventRegistrations = (eventRegistrations ?? []) as EventRegistrationAccountingRow[];
+  const typedPlatformExpenses = (platformExpenses ?? []) as PlatformExpenseRow[];
 
   const studioById = new Map(typedStudios.map((studio) => [studio.id, studio]));
   const subscriptionByStudioId = new Map(
@@ -437,6 +483,49 @@ export default async function PlatformAccountingPage({
   const uncapturedPlatformFees = revenueEventPaymentsInRange.filter(
     (payment) => !payment.platform_fee_amount
   ).length;
+
+  const activeExpenseRows = typedPlatformExpenses.filter(
+    (expense) => normalize(expense.status) !== "excluded"
+  );
+  const operatingExpenseRows = activeExpenseRows.filter(
+    (expense) => normalize(expense.category) !== "owner_draw"
+  );
+  const ownerDrawRows = activeExpenseRows.filter(
+    (expense) => normalize(expense.category) === "owner_draw"
+  );
+
+  const operatingExpenses = operatingExpenseRows.reduce(
+    (sum, expense) => sum + toMoney(expense.amount),
+    0
+  );
+  const ownerDraws = ownerDrawRows.reduce(
+    (sum, expense) => sum + toMoney(expense.amount),
+    0
+  );
+  const netPlatformIncome = contributionBeforeOperatingExpenses - operatingExpenses;
+
+  const expenseByCategory = Array.from(
+    operatingExpenseRows
+      .reduce<
+        Map<string, { key: string; label: string; total: number; count: number }>
+      >((map, expense) => {
+        const key = normalize(expense.category) || "other";
+        const existing = map.get(key) ?? {
+          key,
+          label: categoryLabel(key),
+          total: 0,
+          count: 0,
+        };
+
+        existing.total += toMoney(expense.amount);
+        existing.count += 1;
+        map.set(key, existing);
+        return map;
+      }, new Map())
+      .values()
+  ).sort((a, b) => b.total - a.total);
+
+  const latestExpenses = activeExpenseRows.slice(0, 8);
 
   const revenueByPlan = new Map<
     string,
@@ -521,6 +610,8 @@ export default async function PlatformAccountingPage({
       platformFees: number;
       refunds: number;
       processingFees: number;
+      operatingExpenses: number;
+      ownerDraws: number;
     }
   >();
 
@@ -532,6 +623,8 @@ export default async function PlatformAccountingPage({
       platformFees: 0,
       refunds: 0,
       processingFees: 0,
+      operatingExpenses: 0,
+      ownerDraws: 0,
     };
 
     existing.subscriptionCollections += toMoney(invoice.amount_paid);
@@ -546,11 +639,34 @@ export default async function PlatformAccountingPage({
       platformFees: 0,
       refunds: 0,
       processingFees: 0,
+      operatingExpenses: 0,
+      ownerDraws: 0,
     };
 
     existing.platformFees += estimatedPlatformFee(payment);
     existing.refunds += toMoney(payment.refund_amount);
     existing.processingFees += toMoney(payment.stripe_processing_fee_amount);
+    monthlyRows.set(key, existing);
+  }
+
+  for (const expense of activeExpenseRows) {
+    const key = monthKey(expense.expense_date);
+    const existing = monthlyRows.get(key) ?? {
+      key,
+      subscriptionCollections: 0,
+      platformFees: 0,
+      refunds: 0,
+      processingFees: 0,
+      operatingExpenses: 0,
+      ownerDraws: 0,
+    };
+
+    if (normalize(expense.category) === "owner_draw") {
+      existing.ownerDraws += toMoney(expense.amount);
+    } else {
+      existing.operatingExpenses += toMoney(expense.amount);
+    }
+
     monthlyRows.set(key, existing);
   }
 
@@ -564,19 +680,26 @@ export default async function PlatformAccountingPage({
   );
 
   const accountingInsight =
-    uncapturedPlatformFees > 0
+    netPlatformIncome < 0
       ? {
-          title: "Some event fee revenue is still estimated.",
-          insight: `${uncapturedPlatformFees} event payment${uncapturedPlatformFees === 1 ? "" : "s"} in this range do not have recorded platform fee amounts, so the page falls back to the 3.5% fee estimate for those rows.`,
-          recommendation: "Use this as an operating view, then confirm Stripe fee sync before using the numbers for formal accounting close.",
-          metric: formatMoney(totalPlatformRevenue),
+          title: "Platform expenses are outpacing revenue in this range.",
+          insight: `${formatMoney(totalPlatformRevenue)} in platform revenue less ${formatMoney(stripeProcessingFees)} in recorded Stripe processing fees and ${formatMoney(operatingExpenses)} in operating expenses leaves ${formatMoney(netPlatformIncome)} net income signal.`,
+          recommendation: "Review the expense categories and recent ledger entries before expanding recurring spend or paid acquisition.",
+          metric: formatMoney(netPlatformIncome),
         }
-      : {
-          title: "Platform revenue is ready for accounting review.",
-          insight: `This view shows ${formatMoney(subscriptionCollections)} in subscription collections and ${formatMoney(platformFeeRevenue)} in event platform fees for ${range.label.toLowerCase()}.`,
-          recommendation: "Use the monthly summary and plan mix to review revenue before exporting or reconciling in your accounting system.",
-          metric: formatMoney(contributionBeforeOperatingExpenses),
-        };
+      : uncapturedPlatformFees > 0
+        ? {
+            title: "Some event fee revenue is still estimated.",
+            insight: `${uncapturedPlatformFees} event payment${uncapturedPlatformFees === 1 ? "" : "s"} in this range do not have recorded platform fee amounts, so the page falls back to the 3.5% fee estimate for those rows. Net income is currently ${formatMoney(netPlatformIncome)} after operating expenses.`,
+            recommendation: "Use this as an operating view, then confirm Stripe fee sync before using the numbers for formal accounting close.",
+            metric: formatMoney(netPlatformIncome),
+          }
+        : {
+            title: "Platform P&L is ready for accounting review.",
+            insight: `This view shows ${formatMoney(subscriptionCollections)} in subscription collections, ${formatMoney(platformFeeRevenue)} in event platform fees, and ${formatMoney(operatingExpenses)} in operating expenses for ${range.label.toLowerCase()}.`,
+            recommendation: "Use the monthly P&L summary, expense mix, and recent ledger entries to review profitability before accounting export.",
+            metric: formatMoney(netPlatformIncome),
+          };
 
   return (
     <div className="space-y-8">
@@ -588,10 +711,10 @@ export default async function PlatformAccountingPage({
                 Platform Accounting
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
-                DanceFlow Revenue Review
+                DanceFlow P&L Review
               </h1>
               <p className="mt-3 text-sm leading-7 text-white/85 md:text-base">
-                Review subscription collections, estimated recurring revenue, event platform fees, refunds, and processing cost signals for the DanceFlow SaaS business.
+                Review subscription collections, event platform fees, refunds, processing costs, operating expenses, owner draws, and net income signals for the DanceFlow SaaS business.
               </p>
             </div>
 
@@ -644,10 +767,37 @@ export default async function PlatformAccountingPage({
           tone="violet"
         />
         <StatCard
-          label="Contribution Signal"
+          label="Net Income Signal"
+          value={formatMoney(netPlatformIncome)}
+          helper={`${formatMoney(contributionBeforeOperatingExpenses)} contribution - ${formatMoney(operatingExpenses)} operating expenses`}
+          tone={netPlatformIncome >= 0 ? "emerald" : "rose"}
+        />
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="Operating Expenses"
+          value={formatMoney(operatingExpenses)}
+          helper={`${operatingExpenseRows.length} expense item${operatingExpenseRows.length === 1 ? "" : "s"} excluding owner draws and excluded rows`}
+          tone="rose"
+        />
+        <StatCard
+          label="Owner Draws"
+          value={formatMoney(ownerDraws)}
+          helper="Tracked separately from operating expenses"
+          tone="sky"
+        />
+        <StatCard
+          label="Processing Fees"
+          value={formatMoney(stripeProcessingFees)}
+          helper="Recorded Stripe processing fees from event payments"
+          tone="amber"
+        />
+        <StatCard
+          label="Contribution Before Opex"
           value={formatMoney(contributionBeforeOperatingExpenses)}
-          helper={`${formatMoney(totalPlatformRevenue)} revenue - ${formatMoney(stripeProcessingFees)} recorded Stripe processing fees`}
-          tone={contributionBeforeOperatingExpenses >= 0 ? "amber" : "rose"}
+          helper="Platform revenue less recorded processing fees"
+          tone={contributionBeforeOperatingExpenses >= 0 ? "violet" : "rose"}
         />
       </section>
 
@@ -659,7 +809,7 @@ export default async function PlatformAccountingPage({
                 Monthly Close View
               </p>
               <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-                Revenue by Month
+                Monthly P&L Summary
               </h2>
             </div>
             <p className="text-sm text-slate-500">{range.label}</p>
@@ -675,7 +825,9 @@ export default async function PlatformAccountingPage({
                     <th className="px-4 py-3">Platform Fees</th>
                     <th className="px-4 py-3">Refunds</th>
                     <th className="px-4 py-3">Processing Fees</th>
-                    <th className="px-4 py-3">Revenue</th>
+                    <th className="px-4 py-3">Operating Expenses</th>
+                    <th className="px-4 py-3">Owner Draws</th>
+                    <th className="px-4 py-3">Net Income</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
@@ -686,8 +838,10 @@ export default async function PlatformAccountingPage({
                       <td className="px-4 py-3 text-slate-600">{formatMoney(row.platformFees)}</td>
                       <td className="px-4 py-3 text-slate-600">{formatMoney(row.refunds)}</td>
                       <td className="px-4 py-3 text-slate-600">{formatMoney(row.processingFees)}</td>
+                      <td className="px-4 py-3 text-slate-600">{formatMoney(row.operatingExpenses)}</td>
+                      <td className="px-4 py-3 text-slate-600">{formatMoney(row.ownerDraws)}</td>
                       <td className="px-4 py-3 font-semibold text-slate-950">
-                        {formatMoney(row.subscriptionCollections + row.platformFees)}
+                        {formatMoney(row.subscriptionCollections + row.platformFees - row.processingFees - row.operatingExpenses)}
                       </td>
                     </tr>
                   ))}
@@ -702,25 +856,44 @@ export default async function PlatformAccountingPage({
         </section>
 
         <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Profitability Caveat
-          </p>
-          <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
-            What This V1 Can and Cannot Prove
-          </h2>
-          <div className="mt-5 space-y-3 text-sm leading-6 text-slate-600">
-            <p>
-              This page can review platform revenue from existing billing, invoice, and event payment records.
-            </p>
-            <p>
-              It can show recorded Stripe processing fees when webhook fee sync has populated those fields.
-            </p>
-            <p>
-              It does not yet track DanceFlow operating expenses such as software, contractors, payroll, taxes, marketing, or owner draws.
-            </p>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Expense Mix
+              </p>
+              <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                Operating Expenses by Category
+              </h2>
+            </div>
+            <Link href="/platform/expenses" className="text-sm font-semibold text-[#BE185D]">
+              Expense ledger
+            </Link>
           </div>
-          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-            A true platform P&L will need a dedicated platform expense ledger. That future slice will require SQL in both dev and production.
+
+          <div className="mt-5 space-y-3">
+            {expenseByCategory.length ? (
+              expenseByCategory.slice(0, 8).map((row) => (
+                <div key={row.key} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="font-semibold text-slate-950">{row.label}</p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {row.count} item{row.count === 1 ? "" : "s"}
+                      </p>
+                    </div>
+                    <p className="text-lg font-semibold text-slate-950">{formatMoney(row.total)}</p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-500">
+                No operating expenses are available for this range.
+              </div>
+            )}
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-800">
+            Owner draws are tracked separately and do not reduce operating profit.
           </div>
         </section>
       </div>
@@ -824,6 +997,64 @@ export default async function PlatformAccountingPage({
           ) : (
             <div className="bg-slate-50 p-5 text-sm text-slate-500">
               No workspace revenue is available for this range.
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Expense Detail
+            </p>
+            <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+              Recent Platform Expenses
+            </h2>
+          </div>
+          <Link href="/platform/expenses" className="text-sm font-semibold text-[#BE185D]">
+            Manage expenses
+          </Link>
+        </div>
+
+        <div className="mt-5 overflow-hidden rounded-2xl border border-slate-200">
+          {latestExpenses.length ? (
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Vendor</th>
+                  <th className="px-4 py-3">Category</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Amount</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {latestExpenses.map((expense) => (
+                  <tr key={expense.id}>
+                    <td className="px-4 py-3 text-slate-600">{formatDate(expense.expense_date)}</td>
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-slate-900">{expense.vendor_name}</p>
+                      {expense.description ? (
+                        <p className="mt-1 text-xs text-slate-500">{expense.description}</p>
+                      ) : null}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{categoryLabel(expense.category)}</td>
+                    <td className="px-4 py-3">
+                      <span className={`rounded-full px-3 py-1 text-xs font-semibold ${statusBadgeClass(expense.status)}`}>
+                        {formatLabel(normalize(expense.status) || "draft")}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 font-semibold text-slate-950">
+                      {formatMoney(toMoney(expense.amount), expense.currency ?? "USD")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <div className="bg-slate-50 p-5 text-sm text-slate-500">
+              No platform expenses are available for this range.
             </div>
           )}
         </div>
