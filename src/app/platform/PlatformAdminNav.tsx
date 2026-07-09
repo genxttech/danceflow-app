@@ -54,6 +54,27 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
     );
   }
 
+
+  if (!normalizedItems.some((item) => item.href === "/platform/ops-review")) {
+    const successIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/success",
+    );
+    const healthIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/studio-health",
+    );
+    const insertAt =
+      successIndex >= 0
+        ? successIndex + 1
+        : healthIndex >= 0
+          ? healthIndex + 1
+          : normalizedItems.length;
+
+    normalizedItems.splice(insertAt, 0, {
+      href: "/platform/ops-review",
+      label: "Ops Review",
+    });
+  }
+
   if (!normalizedItems.some((item) => item.href === "/platform/accounting")) {
     const successIndex = normalizedItems.findIndex(
       (item) => item.href === "/platform/success",
