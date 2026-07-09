@@ -47,6 +47,20 @@ type StudioStripeRow = {
   stripe_connect_onboarding_complete: boolean | null;
 };
 
+type GoogleCalendarConnectionRow = {
+  id: string;
+  status: string | null;
+  google_account_email: string | null;
+  calendar_id: string | null;
+  calendar_summary: string | null;
+  sync_lessons: boolean | null;
+  sync_classes: boolean | null;
+  sync_events: boolean | null;
+  last_sync_at: string | null;
+  last_sync_status: string | null;
+  last_sync_error: string | null;
+};
+
 type IntegrationStatus = "connected" | "attention" | "available" | "locked" | "coming_soon";
 
 function formatDate(value: string | null | undefined) {
@@ -173,7 +187,11 @@ export default async function StudioIntegrationHubPage() {
   const supabase = await createClient();
   const waveAvailable = await studioHasFeature("wave_accounting");
 
-  const [{ data: studio, error: studioError }, { data: waveConnection, error: waveError }] = await Promise.all([
+  const [
+    { data: studio, error: studioError },
+    { data: waveConnection, error: waveError },
+    { data: googleConnection, error: googleError },
+  ] = await Promise.all([
     supabase
       .from("studios")
       .select(
@@ -186,10 +204,16 @@ export default async function StudioIntegrationHubPage() {
       .select("id, status, wave_business_id, wave_business_name, posting_enabled, posting_mode, scopes, updated_at")
       .eq("studio_id", context.studioId)
       .maybeSingle<WaveConnectionRow>(),
+    supabase
+      .from("studio_google_calendar_connections")
+      .select("id, status, google_account_email, calendar_id, calendar_summary, sync_lessons, sync_classes, sync_events, last_sync_at, last_sync_status, last_sync_error")
+      .eq("studio_id", context.studioId)
+      .maybeSingle<GoogleCalendarConnectionRow>(),
   ]);
 
   if (studioError) throw new Error(`Failed to load Stripe status: ${studioError.message}`);
   if (waveError) throw new Error(`Failed to load Wave status: ${waveError.message}`);
+  if (googleError) throw new Error(`Failed to load Google Calendar status: ${googleError.message}`);
 
   const { data: recentWaveRuns, error: runsError } = waveConnection?.id
     ? await supabase
@@ -227,8 +251,17 @@ export default async function StudioIntegrationHubPage() {
     ["failed", "attention_required", "posting_failed", "posting_uncertain"].includes(String(run.status ?? "")),
   ).length;
 
-  const connectedCount = [stripeReady, waveStatus === "connected"].filter(Boolean).length;
-  const attentionCount = [stripeStatus, waveStatus].filter((status) => status === "attention").length;
+  const googleConnected = googleConnection?.status === "connected";
+  const googleStatus: IntegrationStatus = googleConnected
+    ? googleConnection.last_sync_status === "failed" || googleConnection.last_sync_error
+      ? "attention"
+      : "connected"
+    : googleConnection?.status === "needs_reauth"
+      ? "attention"
+      : "available";
+
+  const connectedCount = [stripeReady, waveStatus === "connected", googleStatus === "connected"].filter(Boolean).length;
+  const attentionCount = [stripeStatus, waveStatus, googleStatus].filter((status) => status === "attention").length;
 
   return (
     <main className="space-y-8">
@@ -250,7 +283,7 @@ export default async function StudioIntegrationHubPage() {
         <div className="grid border-t border-white/15 bg-white/10 sm:grid-cols-3">
           <div className="p-5"><p className="text-xs uppercase tracking-[0.18em] text-fuchsia-100">Connected</p><p className="mt-2 text-2xl font-bold">{connectedCount}</p></div>
           <div className="border-t border-white/15 p-5 sm:border-l sm:border-t-0"><p className="text-xs uppercase tracking-[0.18em] text-fuchsia-100">Needs Attention</p><p className="mt-2 text-2xl font-bold">{attentionCount}</p></div>
-          <div className="border-t border-white/15 p-5 sm:border-l sm:border-t-0"><p className="text-xs uppercase tracking-[0.18em] text-fuchsia-100">Coming Soon</p><p className="mt-2 text-2xl font-bold">4</p></div>
+          <div className="border-t border-white/15 p-5 sm:border-l sm:border-t-0"><p className="text-xs uppercase tracking-[0.18em] text-fuchsia-100">Coming Soon</p><p className="mt-2 text-2xl font-bold">3</p></div>
         </div>
       </section>
 
@@ -330,7 +363,13 @@ export default async function StudioIntegrationHubPage() {
                   <p className="mt-1">Open Wave to review posting or reconciliation details.</p>
                 </Link>
               ) : null}
-              {stripeReady && !waveNeedsReauth && failedWaveRuns === 0 ? (
+              {googleStatus === "attention" ? (
+                <Link href="/app/settings/integrations/google-calendar" className="block rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 hover:bg-amber-100">
+                  <p className="font-semibold">Google Calendar needs attention.</p>
+                  <p className="mt-1">Review authorization or the latest sync error.</p>
+                </Link>
+              ) : null}
+              {stripeReady && !waveNeedsReauth && failedWaveRuns === 0 && googleStatus !== "attention" ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
                   <p className="font-semibold">Core integrations look healthy.</p>
                   <p className="mt-1">No immediate integration action is needed.</p>
@@ -342,10 +381,21 @@ export default async function StudioIntegrationHubPage() {
       </div>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <IntegrationCard eyebrow="Calendar" title="Google Calendar" description="Sync lessons, classes, instructors, rooms, and reminders with Google Calendar." status="coming_soon" icon={CalendarDays} muted>
-          <Signal label="Status" value="Planned" />
-          <Signal label="Direction" value="Calendar productivity lane" />
-          <Signal label="Setup" value="Coming soon" />
+        <IntegrationCard
+          eyebrow="Calendar"
+          title="Google Calendar"
+          description="One-way outbound sync from DanceFlow lessons, classes, and studio events to a selected Google Calendar. DanceFlow remains the source of truth."
+          status={googleStatus}
+          icon={CalendarDays}
+          action={
+            <ActionLink href="/app/settings/integrations/google-calendar">
+              {googleConnected ? "Manage Google Calendar" : "Connect Google Calendar"}
+            </ActionLink>
+          }
+        >
+          <Signal label="Account" value={googleConnection?.google_account_email ?? "Not connected"} />
+          <Signal label="Calendar" value={googleConnection?.calendar_summary ?? googleConnection?.calendar_id ?? "Not selected"} />
+          <Signal label="Last Sync" value={googleConnection?.last_sync_at ? `${formatDate(googleConnection.last_sync_at)} · ${String(googleConnection.last_sync_status ?? "not synced").replaceAll("_", " ")}` : "No sync yet"} />
         </IntegrationCard>
         <IntegrationCard eyebrow="Accounting" title="QuickBooks Online" description="Future accounting option for studios that prefer QuickBooks over Wave." status="coming_soon" icon={BadgeCheck} muted>
           <Signal label="Status" value="Planned" />
