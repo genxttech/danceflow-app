@@ -391,17 +391,17 @@ export default async function SettingsPage() {
         </Link>
 
         <Link
-          href={waveAvailable ? "/app/settings/integrations/wave" : "/app/settings/billing?feature=wave_accounting"}
+          href="/app/settings/integrations"
           className="rounded-lg border border-t-4 border-t-sky-500 bg-white p-5 shadow-sm transition hover:border-sky-300"
         >
-          <p className="text-sm font-medium text-slate-500">Accounting Integration</p>
+          <p className="text-sm font-medium text-slate-500">Integrations</p>
           <h2 className="mt-2 text-xl font-semibold text-slate-900">
-            Wave accounting
+            Integration hub
           </h2>
           <p className="mt-2 text-sm text-slate-600">
             {waveAvailable
-              ? "Connect a Wave business, map accounts, and review read-only posting previews."
-              : "Available on the Pro plan."}
+              ? "Manage Wave, Stripe, and upcoming calendar, accounting, and automation connections."
+              : "Manage Stripe now and review upcoming integrations. Wave is available on the Pro plan."}
           </p>
         </Link>
       </div>
