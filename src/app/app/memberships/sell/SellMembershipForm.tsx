@@ -82,11 +82,13 @@ export default function SellMembershipForm({
   plans,
   benefitsByPlanId,
   existingMembershipsByClientId,
+  returnTo = "/app/memberships/sell",
 }: {
   clients: ClientOption[];
   plans: MembershipPlanOption[];
   benefitsByPlanId: Record<string, MembershipBenefitOption[]>;
   existingMembershipsByClientId: Record<string, ExistingMembership>;
+  returnTo?: string;
 }) {
   const today = new Date().toISOString().slice(0, 10);
   const [clientSearch, setClientSearch] = useState("");
@@ -111,7 +113,6 @@ export default function SellMembershipForm({
   const existingMembership = selectedClient ? existingMembershipsByClientId[selectedClient.id] ?? null : null;
   const totalInitialDue = Number(selectedPlan?.price ?? 0) + Number(selectedPlan?.signup_fee ?? 0);
   const ready = Boolean(selectedClient && selectedPlan && startsOn && !existingMembership);
-  const returnTo = "/app/memberships/sell";
 
   const filteredClients = useMemo(() => {
     const search = clientSearch.trim().toLowerCase();

@@ -13,10 +13,10 @@ export default async function ConfirmMembershipSalePage({
   const params = await searchParams;
   const query = new URLSearchParams();
 
+  query.set("type", "membership");
   if (params.clientId) query.set("client", params.clientId);
   if (params.membershipPlanId) query.set("plan", params.membershipPlanId);
-
   query.set("error", "membership_confirm_removed_use_single_page_sale");
 
-  redirect(`/app/memberships/sell?${query.toString()}`);
+  redirect(`/app/sales/new?${query.toString()}`);
 }

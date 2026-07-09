@@ -544,7 +544,7 @@ export async function startMembershipPaymentMethodSetupAction(
     const stripe = getStripe();
     const appUrl = getAppUrl();
 
-    const successUrl = `${appUrl}/app/memberships/sell?success=membership_payment_method_saved`;
+    const successUrl = `${appUrl}${addQueryParam(returnTo, "success", "membership_payment_method_saved")}`;
     const cancelUrl = `${appUrl}${returnTo}`;
 
     const session = await stripe.checkout.sessions.create({

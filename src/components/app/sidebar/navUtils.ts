@@ -91,8 +91,8 @@ function normalizeNavLabel(item: NavItem) {
     return "Package Templates";
   }
 
-  if (item.href === "/app/packages/sell") {
-    return "Sell a Package";
+  if (item.href === "/app/sales/new" || item.href === "/app/packages/sell") {
+    return "Sell to Client";
   }
 
   if (item.href === "/app/memberships") {
@@ -100,7 +100,7 @@ function normalizeNavLabel(item: NavItem) {
   }
 
   if (item.href === "/app/memberships/sell") {
-    return "Sell a Membership";
+    return "Sell to Client";
   }
 
   if (item.href === "/app/events/sell-tickets") {
@@ -1091,19 +1091,11 @@ function injectDirectTaskLinks(sections: NavSectionType[]): NavSectionType[] {
     });
   }
 
-  if (hasHref("/app/packages") && !hasHref("/app/packages/sell")) {
+  if ((hasHref("/app/packages") || hasHref("/app/memberships")) && !hasHref("/app/sales/new")) {
     additions.push({
-      label: "Sell a Package",
-      href: "/app/packages/sell",
-      icon: "packages",
-    });
-  }
-
-  if (hasHref("/app/memberships") && !hasHref("/app/memberships/sell")) {
-    additions.push({
-      label: "Sell a Membership",
-      href: "/app/memberships/sell",
-      icon: "memberships",
+      label: "Sell to Client",
+      href: "/app/sales/new",
+      icon: "payments",
     });
   }
 
@@ -1307,8 +1299,7 @@ function optimizeNavigationForTasks(sections: NavSectionType[], options: Normali
       "/app/clients/new",
       "/app/attendance",
       "/app/check-in",
-      "/app/packages/sell",
-      "/app/memberships/sell",
+      "/app/sales/new",
       ...(options.hasOrganizerSuite
         ? [
             "/app/events/sell-tickets",

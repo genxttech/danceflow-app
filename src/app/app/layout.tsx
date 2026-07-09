@@ -652,14 +652,9 @@ function buildStudioSections(params: {
                 icon: "payments" as const,
               },
               {
-                label: "Sell Package",
-                href: "/app/packages/sell",
-                icon: "packages" as const,
-              },
-              {
-                label: "Sell Membership",
-                href: "/app/memberships/sell",
-                icon: "memberships" as const,
+                label: "Sell to Client",
+                href: "/app/sales/new",
+                icon: "payments" as const,
               },
               {
                 label: "Client Balances",
