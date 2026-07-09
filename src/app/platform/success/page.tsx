@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { createPlatformSuccessFollowUpAction, completePlatformSuccessFollowUpAction } from "./actions";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { createClient } from "@/lib/supabase/server";
 
@@ -80,6 +81,19 @@ type SuccessRow = {
   reason: string;
   nextAction: string;
   urgency: "high" | "medium" | "low";
+};
+
+type SuccessFollowUpRow = {
+  id: string;
+  studio_id: string;
+  category: string;
+  status: string;
+  priority: string;
+  outcome: string | null;
+  note: string | null;
+  next_follow_up_at: string | null;
+  completed_at: string | null;
+  created_at: string;
 };
 
 const FOCUS_FILTERS = [
@@ -202,6 +216,72 @@ function urgencyClass(urgency: SuccessRow["urgency"]) {
   if (urgency === "high") return "bg-rose-600 text-white";
   if (urgency === "medium") return "bg-amber-500 text-white";
   return "bg-slate-200 text-slate-700";
+}
+
+function nextFollowUpLabel(value: string | null) {
+  if (!value) return "No date set";
+  const days = daysBetweenNow(value);
+  if (days === null) return formatDate(value);
+  if (days < 0) return `Overdue by ${Math.abs(days)} day${Math.abs(days) === 1 ? "" : "s"}`;
+  if (days === 0) return "Due today";
+  return `Due in ${days} day${days === 1 ? "" : "s"}`;
+}
+
+function FollowUpMiniCard({ followUp }: { followUp: SuccessFollowUpRow | undefined }) {
+  if (!followUp) {
+    return (
+      <div className="rounded-xl border border-dashed border-slate-300 bg-white p-3 text-xs text-slate-500">
+        No open follow-up logged yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="font-semibold">{formatLabel(followUp.category)}</span>
+        <span>{nextFollowUpLabel(followUp.next_follow_up_at)}</span>
+      </div>
+      {followUp.note ? <p className="mt-2 leading-5">{followUp.note}</p> : null}
+    </div>
+  );
+}
+
+function QuickFollowUpForm({ studioId, defaultCategory, returnTo }: { studioId: string; defaultCategory: string; returnTo: string }) {
+  return (
+    <form action={createPlatformSuccessFollowUpAction} className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
+      <input type="hidden" name="studioId" value={studioId} />
+      <input type="hidden" name="returnTo" value={returnTo} />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <select
+          name="category"
+          defaultValue={defaultCategory}
+          className="min-h-10 rounded-xl border border-slate-200 px-3 text-xs text-slate-900 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+        >
+          <option value="onboarding_nudge">Onboarding nudge</option>
+          <option value="billing_follow_up">Billing follow-up</option>
+          <option value="trial_conversion">Trial conversion</option>
+          <option value="technical_support">Technical support</option>
+          <option value="retention_save">Retention save</option>
+          <option value="upgrade_opportunity">Upgrade opportunity</option>
+        </select>
+        <input
+          name="nextFollowUpAt"
+          type="date"
+          className="min-h-10 rounded-xl border border-slate-200 px-3 text-xs text-slate-900 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+        />
+      </div>
+      <textarea
+        name="note"
+        rows={2}
+        placeholder="Log the outreach or next step"
+        className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-900 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+      />
+      <button className="mt-2 rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800">
+        Save follow-up
+      </button>
+    </form>
+  );
 }
 
 function buildSuccessRow(params: {
@@ -376,6 +456,7 @@ export default async function PlatformSuccessPage({ searchParams }: { searchPara
     { data: clients, error: clientsError },
     { data: appointments, error: appointmentsError },
     { data: invoices, error: invoicesError },
+    { data: followUps, error: followUpsError },
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -397,6 +478,11 @@ export default async function PlatformSuccessPage({ searchParams }: { searchPara
     supabase.from("clients").select("id, studio_id"),
     supabase.from("appointments").select("id, studio_id"),
     supabase.from("studio_invoices").select("id, studio_id, amount_paid, status"),
+    supabase
+      .from("platform_success_followups")
+      .select("id, studio_id, category, status, priority, outcome, note, next_follow_up_at, completed_at, created_at")
+      .order("created_at", { ascending: false })
+      .limit(500),
   ]);
 
   if (studiosError) throw new Error(`Failed to load studios: ${studiosError.message}`);
@@ -405,6 +491,7 @@ export default async function PlatformSuccessPage({ searchParams }: { searchPara
   if (clientsError) throw new Error(`Failed to load clients: ${clientsError.message}`);
   if (appointmentsError) throw new Error(`Failed to load appointments: ${appointmentsError.message}`);
   if (invoicesError) throw new Error(`Failed to load invoices: ${invoicesError.message}`);
+  if (followUpsError) throw new Error(`Failed to load success follow-ups: ${followUpsError.message}`);
 
   const typedStudios = (studios ?? []) as StudioRow[];
   const typedSubscriptions = (subscriptions ?? []) as SubscriptionRow[];
@@ -412,12 +499,19 @@ export default async function PlatformSuccessPage({ searchParams }: { searchPara
   const typedClients = (clients ?? []) as ClientRow[];
   const typedAppointments = (appointments ?? []) as AppointmentRow[];
   const typedInvoices = (invoices ?? []) as InvoiceRow[];
+  const typedFollowUps = (followUps ?? []) as SuccessFollowUpRow[];
 
   const subscriptionByStudioId = new Map(typedSubscriptions.map((subscription) => [subscription.studio_id, subscription]));
   const clientCounts = countByStudio(typedClients);
   const appointmentCounts = countByStudio(typedAppointments);
   const eventCounts = new Map<string, { total: number; publicPublished: number }>();
   const invoiceStats = new Map<string, { paidCount: number; collections: number }>();
+  const latestOpenFollowUpByStudioId = new Map<string, SuccessFollowUpRow>();
+  for (const followUp of typedFollowUps) {
+    if (normalize(followUp.status) === "open" && !latestOpenFollowUpByStudioId.has(followUp.studio_id)) {
+      latestOpenFollowUpByStudioId.set(followUp.studio_id, followUp);
+    }
+  }
 
   for (const event of typedEvents) {
     if (!event.studio_id) continue;
@@ -474,6 +568,12 @@ export default async function PlatformSuccessPage({ searchParams }: { searchPara
   const inactiveRows = successRows.filter((row) => row.focus === "inactive");
   const needsAttentionRows = successRows.filter((row) => row.focus !== "healthy");
   const highPriorityRows = needsAttentionRows.slice().sort((a, b) => a.score - b.score).slice(0, 5);
+  const openFollowUps = typedFollowUps.filter((followUp) => normalize(followUp.status) === "open");
+  const overdueFollowUps = openFollowUps.filter((followUp) => {
+    const days = daysBetweenNow(followUp.next_follow_up_at);
+    return days !== null && days < 0;
+  });
+  const successReturnTo = `/platform/success${focusFilter !== "all" ? `?focus=${encodeURIComponent(focusFilter)}` : ""}`;
 
   const ariaSignal = billingRiskRows.length
     ? {
@@ -517,8 +617,9 @@ export default async function PlatformSuccessPage({ searchParams }: { searchPara
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <StatCard label="Needs Attention" value={String(needsAttentionRows.length)} helper="Studios outside healthy status" tone={needsAttentionRows.length ? "amber" : "emerald"} />
+        <StatCard label="Open Follow-ups" value={String(openFollowUps.length)} helper={`${overdueFollowUps.length} overdue`} tone={overdueFollowUps.length ? "rose" : "violet"} />
         <StatCard label="Conversion" value={String(conversionRows.length)} helper="Activated trials ready for paid follow-up" tone="violet" />
         <StatCard label="Trial Risk" value={String(trialRiskRows.length)} helper="Trials ending soon or expired" tone="amber" />
         <StatCard label="Billing Risk" value={String(billingRiskRows.length)} helper="Past due, unpaid, incomplete, or canceled" tone={billingRiskRows.length ? "rose" : "emerald"} />
@@ -554,6 +655,10 @@ export default async function PlatformSuccessPage({ searchParams }: { searchPara
                       </div>
                       <p className="mt-2 text-sm text-slate-600">{row.reason}</p>
                       <p className="mt-2 text-sm font-medium text-slate-800">Next: {row.nextAction}</p>
+                      <div className="mt-3">
+                        <FollowUpMiniCard followUp={latestOpenFollowUpByStudioId.get(row.studio.id)} />
+                        <QuickFollowUpForm studioId={row.studio.id} defaultCategory={row.focus === "billing-risk" ? "billing_follow_up" : row.focus === "conversion" || row.focus === "trial-risk" ? "trial_conversion" : "onboarding_nudge"} returnTo={successReturnTo} />
+                      </div>
                     </div>
                     <div className="flex shrink-0 flex-wrap gap-2">
                       <Link href={`/platform/studios/${row.studio.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
@@ -579,7 +684,7 @@ export default async function PlatformSuccessPage({ searchParams }: { searchPara
           <h2 className="mt-2 text-xl font-semibold tracking-tight text-violet-950">{ariaSignal.title}</h2>
           <p className="mt-3 text-sm leading-6 text-violet-900">{ariaSignal.detail}</p>
           <div className="mt-5 rounded-2xl border border-violet-200 bg-white/70 p-4 text-sm leading-6 text-violet-900">
-            Future ARIA workflow: generate the outreach draft, queue it for platform approval, log the outcome, and schedule the next follow-up.
+            Future ARIA workflow: generate the outreach draft, queue it for platform approval, log the outcome, and schedule the next follow-up. V1 now gives you the manual tracking layer ARIA can later operate from.
           </div>
         </div>
       </section>
@@ -621,7 +726,7 @@ export default async function PlatformSuccessPage({ searchParams }: { searchPara
                 <th className="px-4 py-3">Billing</th>
                 <th className="px-4 py-3">Activity</th>
                 <th className="px-4 py-3">Activation</th>
-                <th className="px-4 py-3">Next Step</th>
+                <th className="px-4 py-3">Next Step / Follow-up</th>
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
@@ -660,6 +765,9 @@ export default async function PlatformSuccessPage({ searchParams }: { searchPara
                   </td>
                   <td className="max-w-md px-4 py-4 align-top text-slate-600">
                     <p>{row.nextAction}</p>
+                    <div className="mt-3">
+                      <FollowUpMiniCard followUp={latestOpenFollowUpByStudioId.get(row.studio.id)} />
+                    </div>
                   </td>
                   <td className="px-4 py-4 align-top">
                     <div className="flex flex-col gap-2">
@@ -669,9 +777,20 @@ export default async function PlatformSuccessPage({ searchParams }: { searchPara
                       <Link href="/platform/billing" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-xs font-semibold text-slate-700 hover:bg-slate-50">
                         Billing
                       </Link>
-                      <Link href="/platform/support-notes" className="rounded-xl bg-slate-950 px-3 py-2 text-center text-xs font-semibold text-white hover:bg-slate-800">
-                        Add Note Later
-                      </Link>
+                      {latestOpenFollowUpByStudioId.get(row.studio.id) ? (
+                        <form action={completePlatformSuccessFollowUpAction}>
+                          <input type="hidden" name="followUpId" value={latestOpenFollowUpByStudioId.get(row.studio.id)?.id} />
+                          <input type="hidden" name="returnTo" value={successReturnTo} />
+                          <button className="w-full rounded-xl bg-emerald-700 px-3 py-2 text-center text-xs font-semibold text-white hover:bg-emerald-800">
+                            Mark Done
+                          </button>
+                        </form>
+                      ) : (
+                        <Link href="/platform/support-notes" className="rounded-xl bg-slate-950 px-3 py-2 text-center text-xs font-semibold text-white hover:bg-slate-800">
+                          Support Notes
+                        </Link>
+                      )}
+                      <QuickFollowUpForm studioId={row.studio.id} defaultCategory={row.focus === "billing-risk" ? "billing_follow_up" : row.focus === "conversion" || row.focus === "trial-risk" ? "trial_conversion" : "onboarding_nudge"} returnTo={successReturnTo} />
                     </div>
                   </td>
                 </tr>
