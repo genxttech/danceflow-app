@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
+  deleteGoogleCalendarEvent,
   getValidGoogleCalendarAccessToken,
   upsertGoogleCalendarEvent,
   type GoogleCalendarEventPayload,
@@ -60,49 +61,68 @@ type ConnectionSyncResult = {
   studioId: string;
   status: "success" | "partial" | "failed" | "skipped";
   synced: number;
+  deleted: number;
   failed: number;
   message?: string;
 };
 
 function one<T>(value: T | T[] | null): T | null {
-  return Array.isArray(value) ? value[0] ?? null : value;
+  return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
 function normalize(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
 }
 
-function formatName(first: string | null | undefined, last: string | null | undefined) {
+function formatName(
+  first: string | null | undefined,
+  last: string | null | undefined,
+) {
   return [first, last].filter(Boolean).join(" ").trim();
 }
 
 function appointmentKind(value: string | null | undefined) {
   const normalized = normalize(value);
-  if (["private_lesson", "lesson", "intro_lesson", "coaching"].includes(normalized)) {
+  if (
+    ["private_lesson", "lesson", "intro_lesson", "coaching"].includes(
+      normalized,
+    )
+  ) {
     return "lesson";
   }
   if (["group_class", "class", "workshop"].includes(normalized)) return "class";
   return "lesson";
 }
 
-function shouldSyncAppointment(row: AppointmentSyncRow, connection: GoogleCalendarConnectionRow) {
-  if (["cancelled", "canceled", "no_show"].includes(normalize(row.status))) return false;
+function shouldSyncAppointment(
+  row: AppointmentSyncRow,
+  connection: GoogleCalendarConnectionRow,
+) {
+  if (["cancelled", "canceled", "no_show"].includes(normalize(row.status)))
+    return false;
   const kind = appointmentKind(row.appointment_type);
   if (kind === "lesson") return Boolean(connection.sync_lessons);
   if (kind === "class") return Boolean(connection.sync_classes);
   return false;
 }
 
-function appointmentPayload(row: AppointmentSyncRow): GoogleCalendarEventPayload {
+function appointmentPayload(
+  row: AppointmentSyncRow,
+): GoogleCalendarEventPayload {
   const client = one(row.clients);
   const instructor = one(row.instructors);
   const room = one(row.rooms);
   const clientName = formatName(client?.first_name, client?.last_name);
-  const instructorName = formatName(instructor?.first_name, instructor?.last_name);
+  const instructorName = formatName(
+    instructor?.first_name,
+    instructor?.last_name,
+  );
   const kind = appointmentKind(row.appointment_type);
   const title =
     row.title?.trim() ||
-    [clientName, kind === "class" ? "Class" : "Lesson"].filter(Boolean).join(" · ") ||
+    [clientName, kind === "class" ? "Class" : "Lesson"]
+      .filter(Boolean)
+      .join(" · ") ||
     "DanceFlow appointment";
   const location = row.location_name ?? room?.name ?? undefined;
 
@@ -113,7 +133,9 @@ function appointmentPayload(row: AppointmentSyncRow): GoogleCalendarEventPayload
       clientName ? `Client: ${clientName}` : null,
       instructorName ? `Instructor: ${instructorName}` : null,
       room?.name ? `Room: ${room.name}` : null,
-      row.appointment_type ? `Type: ${row.appointment_type.replaceAll("_", " ")}` : null,
+      row.appointment_type
+        ? `Type: ${row.appointment_type.replaceAll("_", " ")}`
+        : null,
     ]
       .filter(Boolean)
       .join("\n"),
@@ -130,8 +152,12 @@ function appointmentPayload(row: AppointmentSyncRow): GoogleCalendarEventPayload
 }
 
 function eventPayload(row: EventSyncRow): GoogleCalendarEventPayload {
-  const location = [row.venue_name, row.city, row.state].filter(Boolean).join(", ") || undefined;
-  const startDateTime = row.start_time ? `${row.start_date}T${row.start_time}` : null;
+  const location =
+    [row.venue_name, row.city, row.state].filter(Boolean).join(", ") ||
+    undefined;
+  const startDateTime = row.start_time
+    ? `${row.start_date}T${row.start_time}`
+    : null;
   const endDate = row.end_date ?? row.start_date;
   const endDateTime = row.end_time ? `${endDate}T${row.end_time}` : null;
 
@@ -145,7 +171,9 @@ function eventPayload(row: EventSyncRow): GoogleCalendarEventPayload {
       .filter(Boolean)
       .join("\n"),
     location,
-    start: startDateTime ? { dateTime: startDateTime } : { date: row.start_date },
+    start: startDateTime
+      ? { dateTime: startDateTime }
+      : { date: row.start_date },
     end: endDateTime ? { dateTime: endDateTime } : { date: endDate },
     extendedProperties: {
       private: {
@@ -156,7 +184,9 @@ function eventPayload(row: EventSyncRow): GoogleCalendarEventPayload {
   };
 }
 
-async function syncConnection(connection: GoogleCalendarConnectionRow): Promise<ConnectionSyncResult> {
+async function syncConnection(
+  connection: GoogleCalendarConnectionRow,
+): Promise<ConnectionSyncResult> {
   const admin = createAdminClient();
 
   if (!connection.calendar_id) {
@@ -165,6 +195,7 @@ async function syncConnection(connection: GoogleCalendarConnectionRow): Promise<
       studioId: connection.studio_id,
       status: "skipped",
       synced: 0,
+      deleted: 0,
       failed: 0,
       message: "No calendar selected.",
     };
@@ -197,7 +228,9 @@ async function syncConnection(connection: GoogleCalendarConnectionRow): Promise<
         .order("starts_at", { ascending: true }),
       admin
         .from("events")
-        .select("id, name, event_type, status, start_date, end_date, start_time, end_time, venue_name, city, state")
+        .select(
+          "id, name, event_type, status, start_date, end_date, start_time, end_time, venue_name, city, state",
+        )
         .eq("studio_id", studioId)
         .gte("start_date", today)
         .lte("start_date", endDate)
@@ -209,16 +242,63 @@ async function syncConnection(connection: GoogleCalendarConnectionRow): Promise<
         .eq("connection_id", connectionId),
     ]);
 
-    if (appointmentsError) throw new Error(`Failed to load appointments: ${appointmentsError.message}`);
-    if (eventsError) throw new Error(`Failed to load events: ${eventsError.message}`);
-    if (itemsError) throw new Error(`Failed to load existing sync items: ${itemsError.message}`);
+    if (appointmentsError)
+      throw new Error(
+        `Failed to load appointments: ${appointmentsError.message}`,
+      );
+    if (eventsError)
+      throw new Error(`Failed to load events: ${eventsError.message}`);
+    if (itemsError)
+      throw new Error(
+        `Failed to load existing sync items: ${itemsError.message}`,
+      );
 
+    const typedExistingItems = (existingItems ?? []) as SyncItemRow[];
     const existingBySource = new Map<string, SyncItemRow>();
-    for (const item of (existingItems ?? []) as SyncItemRow[]) {
+    for (const item of typedExistingItems) {
       existingBySource.set(`${item.source_type}:${item.source_id}`, item);
     }
 
+    const existingAppointmentIds = typedExistingItems
+      .filter((item) => item.source_type === "appointment")
+      .map((item) => item.source_id);
+    const existingEventIds = typedExistingItems
+      .filter((item) => item.source_type === "event")
+      .map((item) => item.source_id);
+
+    const [{ data: existingAppointments }, { data: existingEvents }] =
+      await Promise.all([
+        existingAppointmentIds.length
+          ? admin
+              .from("appointments")
+              .select(
+                "id, title, appointment_type, status, starts_at, ends_at, location_name, clients:clients!appointments_client_id_fkey ( first_name, last_name ), instructors ( first_name, last_name ), rooms ( name )",
+              )
+              .in("id", existingAppointmentIds)
+          : Promise.resolve({ data: [] }),
+        existingEventIds.length
+          ? admin
+              .from("events")
+              .select(
+                "id, name, event_type, status, start_date, end_date, start_time, end_time, venue_name, city, state",
+              )
+              .in("id", existingEventIds)
+          : Promise.resolve({ data: [] }),
+      ]);
+
+    const appointmentById = new Map(
+      ((existingAppointments ?? []) as AppointmentSyncRow[]).map((row) => [
+        row.id,
+        row,
+      ]),
+    );
+    const eventById = new Map(
+      ((existingEvents ?? []) as EventSyncRow[]).map((row) => [row.id, row]),
+    );
+    const eligibleKeys = new Set<string>();
+
     let synced = 0;
+    let deleted = 0;
     let failed = 0;
     const failures: string[] = [];
 
@@ -228,6 +308,7 @@ async function syncConnection(connection: GoogleCalendarConnectionRow): Promise<
       payload: GoogleCalendarEventPayload,
     ) {
       const key = `${sourceType}:${sourceId}`;
+      eligibleKeys.add(key);
       const existing = existingBySource.get(key);
 
       try {
@@ -252,21 +333,34 @@ async function syncConnection(connection: GoogleCalendarConnectionRow): Promise<
         };
 
         const { error } = existing?.id
-          ? await admin.from("studio_google_calendar_sync_items").update(upsertPayload).eq("id", existing.id)
-          : await admin.from("studio_google_calendar_sync_items").insert(upsertPayload);
+          ? await admin
+              .from("studio_google_calendar_sync_items")
+              .update(upsertPayload)
+              .eq("id", existing.id)
+          : await admin
+              .from("studio_google_calendar_sync_items")
+              .insert(upsertPayload);
 
         if (error) throw new Error(error.message);
         synced += 1;
       } catch (error) {
         failed += 1;
-        failures.push(error instanceof Error ? error.message : "Unknown Google Calendar sync error");
+        failures.push(
+          error instanceof Error
+            ? error.message
+            : "Unknown Google Calendar sync error",
+        );
       }
     }
 
-    for (const appointment of ((appointments ?? []) as AppointmentSyncRow[]).filter((row) =>
-      shouldSyncAppointment(row, connection),
-    )) {
-      await syncOne("appointment", appointment.id, appointmentPayload(appointment));
+    for (const appointment of (
+      (appointments ?? []) as AppointmentSyncRow[]
+    ).filter((row) => shouldSyncAppointment(row, connection))) {
+      await syncOne(
+        "appointment",
+        appointment.id,
+        appointmentPayload(appointment),
+      );
     }
 
     if (connection.sync_events) {
@@ -275,7 +369,77 @@ async function syncConnection(connection: GoogleCalendarConnectionRow): Promise<
       }
     }
 
-    const status = failed > 0 ? (synced > 0 ? "partial" : "failed") : "success";
+    async function deleteSyncedItem(item: SyncItemRow, reason: string) {
+      if (!item.google_event_id) return;
+
+      try {
+        await deleteGoogleCalendarEvent({
+          accessToken,
+          calendarId,
+          eventId: item.google_event_id,
+        });
+
+        const { error } = await admin
+          .from("studio_google_calendar_sync_items")
+          .update({
+            last_synced_at: new Date().toISOString(),
+            last_sync_status: "deleted",
+            last_sync_error: reason,
+          })
+          .eq("id", item.id);
+
+        if (error) throw new Error(error.message);
+        deleted += 1;
+      } catch (error) {
+        failed += 1;
+        failures.push(
+          error instanceof Error
+            ? error.message
+            : "Unknown Google Calendar cleanup error",
+        );
+      }
+    }
+
+    for (const item of typedExistingItems) {
+      const key = `${item.source_type}:${item.source_id}`;
+      if (eligibleKeys.has(key)) continue;
+      if (!item.google_event_id) continue;
+
+      if (item.source_type === "appointment") {
+        const appointment = appointmentById.get(item.source_id);
+        if (!appointment) {
+          await deleteSyncedItem(
+            item,
+            "DanceFlow appointment no longer exists.",
+          );
+          continue;
+        }
+
+        const startsAt = new Date(appointment.starts_at).getTime();
+        if (startsAt < now.getTime() || startsAt > rangeEnd.getTime()) continue;
+        await deleteSyncedItem(
+          item,
+          "DanceFlow appointment is cancelled or no longer eligible for sync.",
+        );
+      }
+
+      if (item.source_type === "event") {
+        const event = eventById.get(item.source_id);
+        if (!event) {
+          await deleteSyncedItem(item, "DanceFlow event no longer exists.");
+          continue;
+        }
+
+        if (event.start_date < today || event.start_date > endDate) continue;
+        await deleteSyncedItem(
+          item,
+          "DanceFlow event is no longer eligible for sync.",
+        );
+      }
+    }
+
+    const status =
+      failed > 0 ? (synced + deleted > 0 ? "partial" : "failed") : "success";
     const { error: updateError } = await admin
       .from("studio_google_calendar_connections")
       .update({
@@ -286,18 +450,23 @@ async function syncConnection(connection: GoogleCalendarConnectionRow): Promise<
       })
       .eq("id", connectionId);
 
-    if (updateError) throw new Error(`Failed to save sync result: ${updateError.message}`);
+    if (updateError)
+      throw new Error(`Failed to save sync result: ${updateError.message}`);
 
     return {
       connectionId,
       studioId,
       status,
       synced,
+      deleted,
       failed,
       message: failures[0] ?? undefined,
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown Google Calendar sync error";
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Unknown Google Calendar sync error";
 
     await admin
       .from("studio_google_calendar_connections")
@@ -314,6 +483,7 @@ async function syncConnection(connection: GoogleCalendarConnectionRow): Promise<
       studioId,
       status: "failed",
       synced: 0,
+      deleted: 0,
       failed: 1,
       message,
     };
@@ -324,7 +494,9 @@ export async function GET() {
   const admin = createAdminClient();
   const { data: connections, error } = await admin
     .from("studio_google_calendar_connections")
-    .select("id, studio_id, calendar_id, sync_lessons, sync_classes, sync_events")
+    .select(
+      "id, studio_id, calendar_id, sync_lessons, sync_classes, sync_events",
+    )
     .eq("status", "connected")
     .not("calendar_id", "is", null)
     .or("sync_lessons.eq.true,sync_classes.eq.true,sync_events.eq.true")
@@ -333,19 +505,24 @@ export async function GET() {
 
   if (error) {
     return NextResponse.json(
-      { ok: false, error: `Failed to load Google Calendar connections: ${error.message}` },
+      {
+        ok: false,
+        error: `Failed to load Google Calendar connections: ${error.message}`,
+      },
       { status: 500 },
     );
   }
 
   const results: ConnectionSyncResult[] = [];
-  for (const connection of (connections ?? []) as GoogleCalendarConnectionRow[]) {
+  for (const connection of (connections ??
+    []) as GoogleCalendarConnectionRow[]) {
     results.push(await syncConnection(connection));
   }
 
   const totals = results.reduce(
     (acc, result) => {
       acc.synced += result.synced;
+      acc.deleted += result.deleted;
       acc.failed += result.failed;
       if (result.status === "success") acc.success += 1;
       if (result.status === "partial") acc.partial += 1;
@@ -353,7 +530,15 @@ export async function GET() {
       if (result.status === "skipped") acc.skipped += 1;
       return acc;
     },
-    { synced: 0, failed: 0, success: 0, partial: 0, failedConnections: 0, skipped: 0 },
+    {
+      synced: 0,
+      deleted: 0,
+      failed: 0,
+      success: 0,
+      partial: 0,
+      failedConnections: 0,
+      skipped: 0,
+    },
   );
 
   return NextResponse.json({

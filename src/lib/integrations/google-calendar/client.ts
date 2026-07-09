@@ -214,3 +214,40 @@ export async function upsertGoogleCalendarEvent(args: {
     },
   );
 }
+
+export async function deleteGoogleCalendarEvent(args: {
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+}) {
+  const encodedCalendarId = encodeURIComponent(args.calendarId);
+  const encodedEventId = encodeURIComponent(args.eventId);
+
+  const response = await fetch(
+    `${GOOGLE_CALENDAR_BASE_URL}/calendars/${encodedCalendarId}/events/${encodedEventId}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${args.accessToken}`,
+      },
+    },
+  );
+
+  if (response.status === 404 || response.status === 410) {
+    return { deleted: true, missing: true };
+  }
+
+  if (!response.ok) {
+    const text = await response.text();
+    let message = "Google Calendar event deletion failed.";
+    try {
+      const payload = text ? JSON.parse(text) : null;
+      message = payload?.error?.message ?? payload?.error_description ?? message;
+    } catch {
+      if (text) message = text;
+    }
+    throw new Error(message);
+  }
+
+  return { deleted: true, missing: false };
+}
