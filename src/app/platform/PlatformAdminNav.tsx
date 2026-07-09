@@ -37,7 +37,7 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
     });
   }
 
-  if (!normalizedItems.some((item) => item.href === "/platform/accounting")) {
+  if (!normalizedItems.some((item) => item.href === "/platform/success")) {
     const healthIndex = normalizedItems.findIndex(
       (item) => item.href === "/platform/studio-health",
     );
@@ -46,6 +46,32 @@ export default function PlatformAdminNav({ items }: { items: NavItem[] }) {
     );
     normalizedItems.splice(
       healthIndex >= 0 ? healthIndex + 1 : analyticsIndex >= 0 ? analyticsIndex + 1 : 2,
+      0,
+      {
+        href: "/platform/success",
+        label: "Success",
+      },
+    );
+  }
+
+  if (!normalizedItems.some((item) => item.href === "/platform/accounting")) {
+    const successIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/success",
+    );
+    const healthIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/studio-health",
+    );
+    const analyticsIndex = normalizedItems.findIndex(
+      (item) => item.href === "/platform/analytics",
+    );
+    normalizedItems.splice(
+      successIndex >= 0
+        ? successIndex + 1
+        : healthIndex >= 0
+          ? healthIndex + 1
+          : analyticsIndex >= 0
+            ? analyticsIndex + 1
+            : 2,
       0,
       {
         href: "/platform/accounting",
