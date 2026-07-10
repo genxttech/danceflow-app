@@ -316,6 +316,7 @@ export default async function ExpensesPage() {
               <input
                 type="text"
                 name="vendor_name"
+                maxLength={160}
                 placeholder="Example: Confidance Studio"
                 required
                 className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/20"
@@ -403,6 +404,7 @@ export default async function ExpensesPage() {
               <textarea
                 name="notes"
                 rows={3}
+                maxLength={2500}
                 placeholder="Example: Floor rental for private lesson"
                 className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm outline-none focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary)]/20"
               />

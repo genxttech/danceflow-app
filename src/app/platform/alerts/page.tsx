@@ -3,6 +3,11 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { createPlatformAdminAction } from "@/app/platform/actions";
+import {
+  cleanTextValue,
+  normalizeOptionalUuid,
+  rawFormString,
+} from "@/lib/validation/forms";
 
 type StudioRow = {
   id: string;
@@ -176,11 +181,13 @@ export default async function PlatformAlertsPage() {
 
     await requirePlatformAdmin();
 
-    const errorId = String(formData.get("errorId") ?? "").trim();
+    const errorIdResult = normalizeOptionalUuid(rawFormString(formData, "errorId"), "Error");
 
-    if (!errorId) {
+    if (!errorIdResult.ok || !errorIdResult.value) {
       redirect("/platform/alerts");
     }
+
+    const errorId = errorIdResult.value;
 
     const supabase = await createClient();
 
@@ -202,12 +209,19 @@ export default async function PlatformAlertsPage() {
 
     await requirePlatformAdmin();
 
-    const errorId = String(formData.get("errorId") ?? "").trim();
-    const resolutionNotes = String(formData.get("resolutionNotes") ?? "").trim();
+    const errorIdResult = normalizeOptionalUuid(rawFormString(formData, "errorId"), "Package deduction error");
+    const resolutionNotesResult = cleanTextValue(rawFormString(formData, "resolutionNotes"), {
+      fieldLabel: "Resolution notes",
+      maxLength: 2000,
+      allowNewlines: true,
+    });
 
-    if (!errorId) {
+    if (!errorIdResult.ok || !errorIdResult.value || !resolutionNotesResult.ok) {
       redirect("/platform/alerts");
     }
+
+    const errorId = errorIdResult.value;
+    const resolutionNotes = resolutionNotesResult.value;
 
     const supabase = await createClient();
 
@@ -613,6 +627,7 @@ export default async function PlatformAlertsPage() {
                       id={`platform-error-note-${errorLog.id}`}
                       name="note"
                       rows={2}
+                      maxLength={2500}
                       placeholder="Example: Confirmed this was caused by a dev test. No production user impact."
                       className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-[var(--brand-primary)] focus:ring-2 focus:ring-[var(--brand-primary-soft)]"
                     />
@@ -705,6 +720,7 @@ export default async function PlatformAlertsPage() {
                     id={`resolutionNotes-${errorLog.id}`}
                     name="resolutionNotes"
                     rows={3}
+                    maxLength={2000}
                     placeholder="Example: Applied the correct package credit and confirmed the appointment attendance."
                     className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-orange-300 focus:ring-2 focus:ring-orange-100"
                   />
@@ -773,8 +789,3 @@ export default async function PlatformAlertsPage() {
     </div>
   );
 }
-
-
-
-
-

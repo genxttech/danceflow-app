@@ -6,16 +6,56 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import {
+  cleanTextValue,
+  getValidationError,
+  getValidatedValue,
+  normalizeOptionalUuid,
+  rawFormString,
+  safeLocalRedirectPath,
+} from "@/lib/validation/forms";
 
 const PLATFORM_STUDIO_COOKIE = "platform_selected_studio_id";
+
+function cleanActionText(formData: FormData, key: string, fieldLabel: string, maxLength: number, allowNewlines = false) {
+  const result = cleanTextValue(rawFormString(formData, key), {
+    fieldLabel,
+    maxLength,
+    allowNewlines,
+  });
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
+}
+
+function requireUuidFromForm(formData: FormData, key: string, fieldLabel: string, returnTo = "/platform") {
+  const result = normalizeOptionalUuid(rawFormString(formData, key), fieldLabel);
+  if (!result.ok || !result.value) redirect(returnTo);
+  return result.value;
+}
+
+function optionalSafeUrl(value: string) {
+  const cleaned = cleanTextValue(value, { fieldLabel: "URL", maxLength: 2048 });
+  if (!cleaned.ok || !cleaned.value) return null;
+
+  const candidate = /^[a-z][a-z0-9+.-]*:/i.test(cleaned.value)
+    ? cleaned.value
+    : `https://${cleaned.value}`;
+
+  try {
+    const parsed = new URL(candidate);
+    if (!["http:", "https:"].includes(parsed.protocol) || parsed.username || parsed.password) {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
 
 export async function enterStudioContextAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const studioId = String(formData.get("studioId") ?? "").trim();
-  if (!studioId) {
-    redirect("/platform/studios");
-  }
+  const studioId = requireUuidFromForm(formData, "studioId", "Studio", "/platform/studios");
 
   const supabase = await createClient();
   const { data: studio, error } = await supabase
@@ -91,14 +131,31 @@ function nullableDateTime(value: FormDataEntryValue | null) {
 export async function createPlatformBroadcastAlertAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const title = String(formData.get("title") ?? "").trim();
-  const message = String(formData.get("message") ?? "").trim();
-  const readMoreUrl = String(formData.get("readMoreUrl") ?? "").trim();
-  const readMoreLabel = String(formData.get("readMoreLabel") ?? "").trim();
+  const titleResult = cleanTextValue(rawFormString(formData, "title"), {
+    fieldLabel: "Alert title",
+    maxLength: 140,
+    required: true,
+  });
+  const messageResult = cleanTextValue(rawFormString(formData, "message"), {
+    fieldLabel: "Alert message",
+    maxLength: 1200,
+    allowNewlines: true,
+    required: true,
+  });
+  const readMoreLabelResult = cleanTextValue(rawFormString(formData, "readMoreLabel"), {
+    fieldLabel: "Read more label",
+    maxLength: 80,
+  });
 
-  if (!title || !message) {
+  const validationError = getValidationError([titleResult, messageResult, readMoreLabelResult]);
+  if (validationError) {
     redirect("/platform?broadcast_error=missing_required");
   }
+
+  const title = getValidatedValue(titleResult);
+  const message = getValidatedValue(messageResult);
+  const readMoreUrl = optionalSafeUrl(rawFormString(formData, "readMoreUrl"));
+  const readMoreLabel = getValidatedValue(readMoreLabelResult);
 
   const supabase = await createClient();
   const {
@@ -114,7 +171,7 @@ export async function createPlatformBroadcastAlertAction(formData: FormData) {
     dismissible: formData.get("dismissible") === "on",
     starts_at: nullableDateTime(formData.get("startsAt")),
     ends_at: nullableDateTime(formData.get("endsAt")),
-    read_more_url: readMoreUrl || null,
+    read_more_url: readMoreUrl,
     read_more_label: readMoreLabel || "Read more",
     created_by: user?.id ?? null,
   });
@@ -129,12 +186,8 @@ export async function createPlatformBroadcastAlertAction(formData: FormData) {
 export async function setPlatformBroadcastAlertActiveAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const alertId = String(formData.get("alertId") ?? "").trim();
-  const active = String(formData.get("active") ?? "false") === "true";
-
-  if (!alertId) {
-    redirect("/platform");
-  }
+  const alertId = requireUuidFromForm(formData, "alertId", "Alert");
+  const active = rawFormString(formData, "active") === "true";
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -150,8 +203,9 @@ export async function setPlatformBroadcastAlertActiveAction(formData: FormData) 
 }
 
 export async function dismissPlatformBroadcastAlertAction(formData: FormData) {
-  const alertId = String(formData.get("alertId") ?? "").trim();
-  if (!alertId) return;
+  const alertIdResult = normalizeOptionalUuid(rawFormString(formData, "alertId"), "Alert");
+  if (!alertIdResult.ok || !alertIdResult.value) return;
+  const alertId = alertIdResult.value;
 
   const supabase = await createClient();
   const {
@@ -176,9 +230,7 @@ export async function dismissPlatformBroadcastAlertAction(formData: FormData) {
 
 
 function safeReturnPath(value: FormDataEntryValue | null, fallback = "/platform") {
-  const raw = String(value ?? "").trim();
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return fallback;
-  return raw;
+  return safeLocalRedirectPath(typeof value === "string" ? value : "", fallback);
 }
 
 function normalizeAdminActionType(value: FormDataEntryValue | null) {
@@ -220,14 +272,10 @@ export async function createPlatformAdminAction(formData: FormData) {
   await requirePlatformAdmin();
 
   const targetType = normalizeAdminTargetType(formData.get("targetType"));
-  const targetId = String(formData.get("targetId") ?? "").trim();
   const actionType = normalizeAdminActionType(formData.get("actionType"));
-  const note = String(formData.get("note") ?? "").trim();
+  const note = cleanActionText(formData, "note", "Admin note", 2500, true);
   const returnTo = safeReturnPath(formData.get("returnTo"));
-
-  if (!targetId) {
-    redirect(returnTo);
-  }
+  const targetId = requireUuidFromForm(formData, "targetId", "Target", returnTo);
 
   const supabase = await createClient();
   const {
@@ -252,14 +300,12 @@ export async function createPlatformAdminAction(formData: FormData) {
 export async function setStudioWorkspaceActiveAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const studioId = String(formData.get("studioId") ?? "").trim();
-  const active = String(formData.get("active") ?? "").trim() === "true";
-  const note = String(formData.get("note") ?? "").trim();
+  const active = rawFormString(formData, "active") === "true";
+  const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
+  const studioId = studioIdResult.ok ? studioIdResult.value : null;
   const returnTo = safeReturnPath(formData.get("returnTo"), studioId ? `/platform/studios/${studioId}` : "/platform/studios");
-
-  if (!studioId) {
-    redirect(returnTo);
-  }
+  if (!studioId) redirect(returnTo);
+  const note = cleanActionText(formData, "note", "Admin note", 2500, true);
 
   const supabase = await createClient();
   const {
@@ -304,13 +350,9 @@ function credentialReviewRedirect(status: string) {
 export async function approveInstructorCredentialAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const credentialId = String(formData.get("credentialId") ?? "").trim();
-  const currentStatus = String(formData.get("currentStatus") ?? "submitted").trim();
-  const reviewNote = String(formData.get("reviewNote") ?? "").trim();
-
-  if (!credentialId) {
-    credentialReviewRedirect(currentStatus);
-  }
+  const currentStatus = cleanActionText(formData, "currentStatus", "Current status", 40) || "submitted";
+  const credentialId = requireUuidFromForm(formData, "credentialId", "Credential", `/platform/credentials?status=${encodeURIComponent(currentStatus)}`);
+  const reviewNote = cleanActionText(formData, "reviewNote", "Review note", 1200, true);
 
   const supabase = await createClient();
   const {
@@ -339,13 +381,9 @@ export async function approveInstructorCredentialAction(formData: FormData) {
 export async function rejectInstructorCredentialAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const credentialId = String(formData.get("credentialId") ?? "").trim();
-  const currentStatus = String(formData.get("currentStatus") ?? "submitted").trim();
-  const reviewNote = String(formData.get("reviewNote") ?? "").trim();
-
-  if (!credentialId) {
-    credentialReviewRedirect(currentStatus);
-  }
+  const currentStatus = cleanActionText(formData, "currentStatus", "Current status", 40) || "submitted";
+  const credentialId = requireUuidFromForm(formData, "credentialId", "Credential", `/platform/credentials?status=${encodeURIComponent(currentStatus)}`);
+  const reviewNote = cleanActionText(formData, "reviewNote", "Review note", 1200, true);
 
   const supabase = await createClient();
 
@@ -371,12 +409,8 @@ export async function rejectInstructorCredentialAction(formData: FormData) {
 export async function resetInstructorCredentialAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const credentialId = String(formData.get("credentialId") ?? "").trim();
-  const currentStatus = String(formData.get("currentStatus") ?? "submitted").trim();
-
-  if (!credentialId) {
-    credentialReviewRedirect(currentStatus);
-  }
+  const currentStatus = cleanActionText(formData, "currentStatus", "Current status", 40) || "submitted";
+  const credentialId = requireUuidFromForm(formData, "credentialId", "Credential", `/platform/credentials?status=${encodeURIComponent(currentStatus)}`);
 
   const supabase = await createClient();
 
@@ -403,7 +437,8 @@ export async function resetInstructorCredentialAction(formData: FormData) {
 export async function repairStudioPortalLinksAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const studioId = String(formData.get("studioId") ?? "").trim();
+  const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Studio");
+  const studioId = studioIdResult.ok ? studioIdResult.value : null;
   const returnTo = safeReturnPath(
     formData.get("returnTo"),
     studioId ? `/platform/studios/${studioId}` : "/platform/studios"
@@ -553,11 +588,12 @@ function normalizeMobilePushCategory(value: FormDataEntryValue | null) {
 export async function sendPlatformTestMobilePushAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const userId = String(formData.get("userId") ?? "").trim();
+  const userIdResult = normalizeOptionalUuid(rawFormString(formData, "userId"), "User");
+  const userId = userIdResult.ok ? userIdResult.value : null;
   const title =
-    String(formData.get("title") ?? "").trim() || "DanceFlow test notification";
+    cleanActionText(formData, "title", "Notification title", 120) || "DanceFlow test notification";
   const body =
-    String(formData.get("body") ?? "").trim() ||
+    cleanActionText(formData, "body", "Notification body", 500, true) ||
     "Your DanceFlow mobile push setup is working.";
   const category = normalizeMobilePushCategory(formData.get("category"));
 

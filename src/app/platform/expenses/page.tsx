@@ -418,6 +418,7 @@ export default async function PlatformExpensesPage({
               Vendor
               <input
                 name="vendorName"
+                maxLength={160}
                 required
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 placeholder="Vendor or payee"
@@ -428,6 +429,7 @@ export default async function PlatformExpensesPage({
               Description
               <input
                 name="description"
+                maxLength={300}
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 placeholder="Short description"
               />
@@ -470,6 +472,7 @@ export default async function PlatformExpensesPage({
                 Payment Method
                 <input
                   name="paymentMethod"
+                  maxLength={80}
                   className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                   placeholder="Card, ACH, cash..."
                 />
@@ -479,6 +482,7 @@ export default async function PlatformExpensesPage({
                 Currency
                 <input
                   name="currency"
+                  maxLength={3}
                   defaultValue="USD"
                   className="rounded-xl border border-slate-200 px-3 py-2 text-sm uppercase"
                 />
@@ -526,6 +530,7 @@ export default async function PlatformExpensesPage({
               <textarea
                 name="notes"
                 rows={3}
+                maxLength={2500}
                 className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
                 placeholder="Internal accounting notes"
               />
@@ -636,6 +641,7 @@ export default async function PlatformExpensesPage({
 
             <input
               name="q"
+              maxLength={120}
               defaultValue={query}
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
               placeholder="Search"

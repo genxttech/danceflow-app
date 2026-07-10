@@ -312,6 +312,7 @@ export default async function PlatformSalesPage({ searchParams }: { searchParams
               <input
                 required
                 name="companyName"
+                maxLength={140}
                 className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100"
                 placeholder="Studio name"
               />
@@ -320,11 +321,15 @@ export default async function PlatformSalesPage({ searchParams }: { searchParams
             <div className="grid gap-4 md:grid-cols-2">
               <label className="grid gap-2 text-sm font-medium text-slate-700">
                 Contact Name
-                <input name="contactName" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100" />
+                <input name="contactName" maxLength={120} autoComplete="name" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100" />
               </label>
               <label className="grid gap-2 text-sm font-medium text-slate-700">
                 Contact Email
-                <input type="email" name="contactEmail" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100" />
+                <input type="email" name="contactEmail" maxLength={254} autoComplete="email" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100" />
+              </label>
+              <label className="grid gap-2 text-sm font-medium text-slate-700 md:col-span-2">
+                Contact Phone
+                <input name="contactPhone" type="tel" inputMode="tel" autoComplete="tel" maxLength={30} pattern="[+0-9().\s-]{7,30}" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100" />
               </label>
             </div>
 
@@ -347,14 +352,14 @@ export default async function PlatformSalesPage({ searchParams }: { searchParams
               </label>
               <label className="grid gap-2 text-sm font-medium text-slate-700">
                 Value
-                <input name="estimatedValue" inputMode="decimal" placeholder="0" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100" />
+                <input name="estimatedValue" inputMode="decimal" maxLength={12} placeholder="0" className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100" />
               </label>
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               <label className="grid gap-2 text-sm font-medium text-slate-700">
                 Plan Interest
-                <input name="planInterest" placeholder="Starter, Growth, Pro..." className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100" />
+                <input name="planInterest" maxLength={120} placeholder="Starter, Growth, Pro..." className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100" />
               </label>
               <label className="grid gap-2 text-sm font-medium text-slate-700">
                 Next Follow-up
@@ -374,7 +379,7 @@ export default async function PlatformSalesPage({ searchParams }: { searchParams
 
             <label className="grid gap-2 text-sm font-medium text-slate-700">
               Notes
-              <textarea name="notes" rows={4} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100" />
+              <textarea name="notes" rows={4} maxLength={2500} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm text-slate-950 outline-none transition focus:border-pink-300 focus:ring-4 focus:ring-pink-100" />
             </label>
 
             <button

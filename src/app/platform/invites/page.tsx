@@ -212,6 +212,8 @@ export default async function PlatformInvitesPage({
               </span>
               <input
                 name="recipientName"
+                maxLength={120}
+                autoComplete="name"
                 className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
                 placeholder="Satu Ketellapper"
               />
@@ -224,6 +226,8 @@ export default async function PlatformInvitesPage({
               <input
                 name="email"
                 type="email"
+                maxLength={254}
+                autoComplete="email"
                 required
                 className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
                 placeholder="name@example.com"
@@ -271,6 +275,7 @@ export default async function PlatformInvitesPage({
               <textarea
                 name="notes"
                 rows={4}
+                maxLength={1200}
                 className="mt-2 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
                 defaultValue="DanceFlow Ambassador Pro Pilot"
               />

@@ -5,13 +5,23 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { createClient } from "@/lib/supabase/server";
+import {
+  cleanTextValue,
+  getValidationError,
+  getValidatedValue,
+  normalizeOptionalUuid,
+  normalizeRequiredEmail,
+  normalizeRequiredEnum,
+  rawFormString,
+} from "@/lib/validation/forms";
 
-function normalizeEmail(value: FormDataEntryValue | null) {
-  return String(value ?? "").trim().toLowerCase();
-}
+const INVITE_DURATION_MONTHS = ["6", "12", "18", "24"] as const;
+const INVITE_EXPIRATION_DAYS = ["7", "14", "30", "60"] as const;
 
-function normalizeText(value: FormDataEntryValue | null) {
-  return String(value ?? "").trim();
+function validatedInviteText(value: string | null | undefined, fieldLabel: string, maxLength: number) {
+  const result = cleanTextValue(value, { fieldLabel, maxLength });
+  if (!result.ok) throw new Error(result.error);
+  return result.value;
 }
 
 function hashInviteToken(token: string) {
@@ -161,23 +171,44 @@ export async function createAmbassadorInviteAction(formData: FormData) {
   const adminUser = await requirePlatformAdmin();
   const supabase = await createClient();
 
-  const recipientName = normalizeText(formData.get("recipientName"));
-  const email = normalizeEmail(formData.get("email"));
-  const durationMonths = Number(formData.get("durationMonths") ?? 12);
-  const expiresInDays = Number(formData.get("expiresInDays") ?? 30);
-  const notes = normalizeText(formData.get("notes"));
+  const emailResult = normalizeRequiredEmail(rawFormString(formData, "email"), "Ambassador email");
+  const durationResult = normalizeRequiredEnum(
+    rawFormString(formData, "durationMonths") || "12",
+    INVITE_DURATION_MONTHS,
+    "Comp duration"
+  );
+  const expiresResult = normalizeRequiredEnum(
+    rawFormString(formData, "expiresInDays") || "30",
+    INVITE_EXPIRATION_DAYS,
+    "Invite expiration"
+  );
+  const recipientNameResult = cleanTextValue(rawFormString(formData, "recipientName"), {
+    fieldLabel: "Ambassador name",
+    maxLength: 120,
+  });
+  const notesResult = cleanTextValue(rawFormString(formData, "notes"), {
+    fieldLabel: "Internal notes",
+    maxLength: 1200,
+    allowNewlines: true,
+  });
 
-  if (!email || !email.includes("@")) {
+  const validationError = getValidationError([
+    emailResult,
+    durationResult,
+    expiresResult,
+    recipientNameResult,
+    notesResult,
+  ]);
+
+  if (validationError) {
     redirect("/platform/invites?error=valid_email_required");
   }
 
-  const safeDurationMonths = Number.isFinite(durationMonths)
-    ? Math.max(1, Math.min(36, Math.trunc(durationMonths)))
-    : 12;
-
-  const safeExpiresInDays = Number.isFinite(expiresInDays)
-    ? Math.max(1, Math.min(90, Math.trunc(expiresInDays)))
-    : 30;
+  const email = getValidatedValue(emailResult);
+  const recipientName = getValidatedValue(recipientNameResult);
+  const notes = getValidatedValue(notesResult);
+  const safeDurationMonths = Number(getValidatedValue(durationResult));
+  const safeExpiresInDays = Number(getValidatedValue(expiresResult));
 
   const token = crypto.randomBytes(32).toString("base64url");
   const tokenHash = hashInviteToken(token);
@@ -247,11 +278,13 @@ export async function resendAmbassadorInviteAction(formData: FormData) {
   const adminUser = await requirePlatformAdmin();
   const supabase = await createClient();
 
-  const inviteId = normalizeText(formData.get("inviteId"));
+  const inviteIdResult = normalizeOptionalUuid(rawFormString(formData, "inviteId"), "Invite");
 
-  if (!inviteId) {
+  if (!inviteIdResult.ok || !inviteIdResult.value) {
     redirect("/platform/invites?error=missing_invite");
   }
+
+  const inviteId = inviteIdResult.value;
 
   const { data: invite, error: inviteError } = await supabase
     .from("platform_invites")
@@ -360,11 +393,13 @@ export async function deactivateAmbassadorInviteAction(formData: FormData) {
   await requirePlatformAdmin();
   const supabase = await createClient();
 
-  const inviteId = normalizeText(formData.get("inviteId"));
+  const inviteIdResult = normalizeOptionalUuid(rawFormString(formData, "inviteId"), "Invite");
 
-  if (!inviteId) {
+  if (!inviteIdResult.ok || !inviteIdResult.value) {
     redirect("/platform/invites?error=missing_invite");
   }
+
+  const inviteId = inviteIdResult.value;
 
   const { error } = await supabase
     .from("platform_invites")

@@ -3,8 +3,17 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import {
+  cleanTextValue,
+  getValidationError,
+  getValidatedValue,
+  normalizeOptionalDate,
+  normalizeOptionalUuid,
+  normalizeRequiredEnum,
+  rawFormString,
+} from "@/lib/validation/forms";
 
-const allowedCategories = new Set([
+const allowedCategories = [
   "floor_fee",
   "rent",
   "instructor_pay",
@@ -19,9 +28,9 @@ const allowedCategories = new Set([
   "insurance",
   "professional_services",
   "other",
-]);
+] as const;
 
-const allowedPaymentMethods = new Set([
+const allowedPaymentMethods = [
   "cash",
   "check",
   "card",
@@ -30,16 +39,7 @@ const allowedPaymentMethods = new Set([
   "ach",
   "stripe",
   "other",
-]);
-
-function cleanText(value: FormDataEntryValue | null) {
-  return String(value ?? "").trim();
-}
-
-function cleanOptionalText(value: FormDataEntryValue | null) {
-  const cleaned = cleanText(value);
-  return cleaned.length > 0 ? cleaned : null;
-}
+] as const;
 
 function canManageExpenses(role: string | null | undefined, isPlatformAdmin: boolean) {
   if (isPlatformAdmin) return true;
@@ -51,6 +51,14 @@ function canManageExpenses(role: string | null | undefined, isPlatformAdmin: boo
     role === "organizer_admin" ||
     role === "independent_instructor"
   );
+}
+
+function parseAmount(value: string | null | undefined) {
+  const raw = String(value ?? "").replace(/,/g, "").trim();
+  if (!/^\d{1,9}(\.\d{1,2})?$/.test(raw)) return null;
+  const amount = Number(raw);
+  if (!Number.isFinite(amount) || amount < 0 || amount > 999999999) return null;
+  return Math.round(amount * 100) / 100;
 }
 
 export async function createExpenseAction(formData: FormData) {
@@ -74,44 +82,63 @@ export async function createExpenseAction(formData: FormData) {
     throw new Error("You do not have permission to add expenses.");
   }
 
-  const expenseDate = cleanText(formData.get("expense_date"));
-  const vendorName = cleanText(formData.get("vendor_name"));
-  const rawCategory = cleanText(formData.get("category")) || "other";
-  const rawAmount = cleanText(formData.get("amount"));
-  const rawPaymentMethod = cleanText(formData.get("payment_method")) || "other";
-  const notes = cleanOptionalText(formData.get("notes"));
-  const relatedEventId = cleanOptionalText(formData.get("related_event_id"));
+  const expenseDateResult = normalizeOptionalDate(rawFormString(formData, "expense_date"), "Expense date");
+  const vendorNameResult = cleanTextValue(rawFormString(formData, "vendor_name"), {
+    fieldLabel: "Vendor or studio name",
+    maxLength: 160,
+    required: true,
+  });
+  const categoryResult = normalizeRequiredEnum(
+    rawFormString(formData, "category") || "other",
+    allowedCategories,
+    "Category"
+  );
+  const paymentMethodResult = normalizeRequiredEnum(
+    rawFormString(formData, "payment_method") || "other",
+    allowedPaymentMethods,
+    "Payment method"
+  );
+  const relatedEventIdResult = normalizeOptionalUuid(rawFormString(formData, "related_event_id"), "Related event");
+  const notesResult = cleanTextValue(rawFormString(formData, "notes"), {
+    fieldLabel: "Notes",
+    maxLength: 2500,
+    allowNewlines: true,
+  });
+  const amount = parseAmount(rawFormString(formData, "amount"));
 
-  const category = allowedCategories.has(rawCategory) ? rawCategory : "other";
-  const paymentMethod = allowedPaymentMethods.has(rawPaymentMethod)
-    ? rawPaymentMethod
-    : "other";
+  const validationError = getValidationError([
+    expenseDateResult,
+    vendorNameResult,
+    categoryResult,
+    paymentMethodResult,
+    relatedEventIdResult,
+    notesResult,
+  ]);
 
-  const amount = Number(rawAmount);
+  if (validationError) {
+    throw new Error(validationError);
+  }
 
+  const expenseDate = getValidatedValue(expenseDateResult);
   if (!expenseDate) {
     throw new Error("Expense date is required.");
   }
 
-  if (!vendorName) {
-    throw new Error("Vendor or studio name is required.");
-  }
-
-  if (!Number.isFinite(amount) || amount < 0) {
-    throw new Error("Amount must be a valid number.");
+  if (amount === null) {
+    throw new Error("Amount must be a valid non-negative number with up to 2 decimals.");
   }
 
   const { error } = await supabase.from("expenses").insert({
     studio_id: context.studioId,
     recorded_by: user.id,
     expense_date: expenseDate,
-    vendor_name: vendorName,
-    category,
+    vendor_name: getValidatedValue(vendorNameResult),
+    category: getValidatedValue(categoryResult),
     amount,
     currency: "USD",
-    payment_method: paymentMethod,
-    related_event_id: relatedEventId,
-    notes,
+    payment_method: getValidatedValue(paymentMethodResult),
+    related_event_id: getValidatedValue(relatedEventIdResult),
+    notes: getValidatedValue(notesResult) || null,
   });
 
   if (error) {
@@ -143,16 +170,16 @@ export async function deleteExpenseAction(formData: FormData) {
     throw new Error("You do not have permission to delete expenses.");
   }
 
-  const expenseId = cleanText(formData.get("expense_id"));
+  const expenseIdResult = normalizeOptionalUuid(rawFormString(formData, "expense_id"), "Expense");
 
-  if (!expenseId) {
+  if (!expenseIdResult.ok || !expenseIdResult.value) {
     throw new Error("Expense ID is required.");
   }
 
   const { error } = await supabase
     .from("expenses")
     .delete()
-    .eq("id", expenseId)
+    .eq("id", expenseIdResult.value)
     .eq("studio_id", context.studioId);
 
   if (error) {

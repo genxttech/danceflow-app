@@ -4,17 +4,29 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { createClient } from "@/lib/supabase/server";
+import {
+  cleanTextValue,
+  getValidationError,
+  getValidatedValue,
+  normalizeOptionalDate,
+  normalizeOptionalEmail,
+  normalizeOptionalPhone,
+  normalizeOptionalUuid,
+  normalizeRequiredEnum,
+  rawFormString,
+  safeLocalRedirectPath,
+} from "@/lib/validation/forms";
 
-const SALES_STAGES = new Set([
+const SALES_STAGES = [
   "new_lead",
   "demo_scheduled",
   "trial_started",
   "onboarding",
   "won",
   "lost",
-]);
+] as const;
 
-const SALES_SOURCES = new Set([
+const SALES_SOURCES = [
   "manual",
   "referral",
   "website",
@@ -23,48 +35,113 @@ const SALES_SOURCES = new Set([
   "event",
   "partner",
   "other",
-]);
+] as const;
 
-function safeReturnPath(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/platform/sales";
-  return raw;
+function returnWithError(returnTo: string, key: string, value: string): never {
+  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}${key}=${encodeURIComponent(value)}`);
 }
 
-function nullableText(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  return raw || null;
-}
-
-function nullableDate(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  if (!raw) return null;
-
-  const parsed = new Date(`${raw}T12:00:00.000Z`);
-  if (Number.isNaN(parsed.getTime())) return null;
-
-  return raw;
-}
-
-function normalizeSetValue(value: FormDataEntryValue | null, allowed: Set<string>, fallback: string) {
-  const normalized = String(value ?? "").trim().toLowerCase();
-  return allowed.has(normalized) ? normalized : fallback;
-}
-
-function parseMoney(value: FormDataEntryValue | null) {
-  const amount = Number(String(value ?? "").replace(/,/g, "").trim());
-  if (!Number.isFinite(amount) || amount < 0) return 0;
+function parseMoney(value: string | null | undefined) {
+  const raw = String(value ?? "").replace(/,/g, "").trim();
+  if (!raw) return 0;
+  if (!/^\d{1,9}(\.\d{1,2})?$/.test(raw)) {
+    throw new Error("Estimated value must be a valid non-negative amount.");
+  }
+  const amount = Number(raw);
+  if (!Number.isFinite(amount) || amount < 0 || amount > 999999999) {
+    throw new Error("Estimated value must be a valid non-negative amount.");
+  }
   return Math.round(amount * 100) / 100;
+}
+
+function validatedSalesPayload(formData: FormData) {
+  const companyNameResult = cleanTextValue(rawFormString(formData, "companyName"), {
+    fieldLabel: "Company / studio name",
+    maxLength: 140,
+    required: true,
+  });
+  const studioIdResult = normalizeOptionalUuid(rawFormString(formData, "studioId"), "Linked studio");
+  const contactNameResult = cleanTextValue(rawFormString(formData, "contactName"), {
+    fieldLabel: "Contact name",
+    maxLength: 120,
+  });
+  const contactEmailResult = normalizeOptionalEmail(rawFormString(formData, "contactEmail"), "Contact email");
+  const contactPhoneResult = normalizeOptionalPhone(rawFormString(formData, "contactPhone"), "Contact phone");
+  const sourceResult = normalizeRequiredEnum(
+    rawFormString(formData, "source") || "manual",
+    SALES_SOURCES,
+    "Source"
+  );
+  const stageResult = normalizeRequiredEnum(
+    rawFormString(formData, "stage") || "new_lead",
+    SALES_STAGES,
+    "Stage"
+  );
+  const planInterestResult = cleanTextValue(rawFormString(formData, "planInterest"), {
+    fieldLabel: "Plan interest",
+    maxLength: 120,
+  });
+  const trialStartedAtResult = normalizeOptionalDate(rawFormString(formData, "trialStartedAt"), "Trial start date");
+  const trialEndsAtResult = normalizeOptionalDate(rawFormString(formData, "trialEndsAt"), "Trial end date");
+  const nextFollowUpAtResult = normalizeOptionalDate(rawFormString(formData, "nextFollowUpAt"), "Next follow-up date");
+  const lostReasonResult = cleanTextValue(rawFormString(formData, "lostReason"), {
+    fieldLabel: "Lost reason",
+    maxLength: 500,
+  });
+  const notesResult = cleanTextValue(rawFormString(formData, "notes"), {
+    fieldLabel: "Notes",
+    maxLength: 2500,
+    allowNewlines: true,
+  });
+
+  const validationError = getValidationError([
+    companyNameResult,
+    studioIdResult,
+    contactNameResult,
+    contactEmailResult,
+    contactPhoneResult,
+    sourceResult,
+    stageResult,
+    planInterestResult,
+    trialStartedAtResult,
+    trialEndsAtResult,
+    nextFollowUpAtResult,
+    lostReasonResult,
+    notesResult,
+  ]);
+
+  if (validationError) {
+    throw new Error(validationError);
+  }
+
+  return {
+    studio_id: getValidatedValue(studioIdResult),
+    company_name: getValidatedValue(companyNameResult),
+    contact_name: getValidatedValue(contactNameResult) || null,
+    contact_email: getValidatedValue(contactEmailResult),
+    contact_phone: getValidatedValue(contactPhoneResult),
+    source: getValidatedValue(sourceResult),
+    stage: getValidatedValue(stageResult),
+    plan_interest: getValidatedValue(planInterestResult) || null,
+    estimated_value: parseMoney(rawFormString(formData, "estimatedValue")),
+    trial_started_at: getValidatedValue(trialStartedAtResult),
+    trial_ends_at: getValidatedValue(trialEndsAtResult),
+    next_follow_up_at: getValidatedValue(nextFollowUpAtResult),
+    lost_reason: getValidatedValue(lostReasonResult) || null,
+    notes: getValidatedValue(notesResult) || null,
+  };
 }
 
 export async function createPlatformSalesOpportunityAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const returnTo = safeReturnPath(formData.get("returnTo"));
-  const companyName = String(formData.get("companyName") ?? "").trim();
+  const returnTo = safeLocalRedirectPath(rawFormString(formData, "returnTo"), "/platform/sales");
 
-  if (!companyName) {
-    redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}sales_error=missing_company`);
+  let payload: ReturnType<typeof validatedSalesPayload>;
+  try {
+    payload = validatedSalesPayload(formData);
+  } catch (error) {
+    returnWithError(returnTo, "sales_error", error instanceof Error ? error.message : "invalid_input");
   }
 
   const supabase = await createClient();
@@ -73,20 +150,7 @@ export async function createPlatformSalesOpportunityAction(formData: FormData) {
   } = await supabase.auth.getUser();
 
   const { error } = await supabase.from("platform_sales_opportunities").insert({
-    studio_id: nullableText(formData.get("studioId")),
-    company_name: companyName,
-    contact_name: nullableText(formData.get("contactName")),
-    contact_email: nullableText(formData.get("contactEmail")),
-    contact_phone: nullableText(formData.get("contactPhone")),
-    source: normalizeSetValue(formData.get("source"), SALES_SOURCES, "manual"),
-    stage: normalizeSetValue(formData.get("stage"), SALES_STAGES, "new_lead"),
-    plan_interest: nullableText(formData.get("planInterest")),
-    estimated_value: parseMoney(formData.get("estimatedValue")),
-    trial_started_at: nullableDate(formData.get("trialStartedAt")),
-    trial_ends_at: nullableDate(formData.get("trialEndsAt")),
-    next_follow_up_at: nullableDate(formData.get("nextFollowUpAt")),
-    lost_reason: nullableText(formData.get("lostReason")),
-    notes: nullableText(formData.get("notes")),
+    ...payload,
     created_by: user?.id ?? null,
     updated_by: user?.id ?? null,
   });
@@ -103,10 +167,17 @@ export async function createPlatformSalesOpportunityAction(formData: FormData) {
 export async function updatePlatformSalesOpportunityAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const returnTo = safeReturnPath(formData.get("returnTo"));
-  const opportunityId = String(formData.get("opportunityId") ?? "").trim();
+  const returnTo = safeLocalRedirectPath(rawFormString(formData, "returnTo"), "/platform/sales");
+  const opportunityIdResult = normalizeOptionalUuid(rawFormString(formData, "opportunityId"), "Opportunity");
 
-  if (!opportunityId) redirect(returnTo);
+  if (!opportunityIdResult.ok || !opportunityIdResult.value) redirect(returnTo);
+
+  let payload: ReturnType<typeof validatedSalesPayload>;
+  try {
+    payload = validatedSalesPayload(formData);
+  } catch (error) {
+    returnWithError(returnTo, "sales_error", error instanceof Error ? error.message : "invalid_input");
+  }
 
   const supabase = await createClient();
   const {
@@ -116,24 +187,11 @@ export async function updatePlatformSalesOpportunityAction(formData: FormData) {
   const { error } = await supabase
     .from("platform_sales_opportunities")
     .update({
-      studio_id: nullableText(formData.get("studioId")),
-      company_name: String(formData.get("companyName") ?? "").trim(),
-      contact_name: nullableText(formData.get("contactName")),
-      contact_email: nullableText(formData.get("contactEmail")),
-      contact_phone: nullableText(formData.get("contactPhone")),
-      source: normalizeSetValue(formData.get("source"), SALES_SOURCES, "manual"),
-      stage: normalizeSetValue(formData.get("stage"), SALES_STAGES, "new_lead"),
-      plan_interest: nullableText(formData.get("planInterest")),
-      estimated_value: parseMoney(formData.get("estimatedValue")),
-      trial_started_at: nullableDate(formData.get("trialStartedAt")),
-      trial_ends_at: nullableDate(formData.get("trialEndsAt")),
-      next_follow_up_at: nullableDate(formData.get("nextFollowUpAt")),
-      lost_reason: nullableText(formData.get("lostReason")),
-      notes: nullableText(formData.get("notes")),
+      ...payload,
       updated_by: user?.id ?? null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", opportunityId);
+    .eq("id", opportunityIdResult.value);
 
   if (error) {
     throw new Error(`Failed to update sales opportunity: ${error.message}`);
@@ -147,11 +205,11 @@ export async function updatePlatformSalesOpportunityAction(formData: FormData) {
 export async function updatePlatformSalesStageAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const opportunityId = String(formData.get("opportunityId") ?? "").trim();
-  const returnTo = safeReturnPath(formData.get("returnTo"));
-  const stage = normalizeSetValue(formData.get("stage"), SALES_STAGES, "new_lead");
+  const returnTo = safeLocalRedirectPath(rawFormString(formData, "returnTo"), "/platform/sales");
+  const opportunityIdResult = normalizeOptionalUuid(rawFormString(formData, "opportunityId"), "Opportunity");
+  const stageResult = normalizeRequiredEnum(rawFormString(formData, "stage") || "new_lead", SALES_STAGES, "Stage");
 
-  if (!opportunityId) redirect(returnTo);
+  if (!opportunityIdResult.ok || !opportunityIdResult.value || !stageResult.ok) redirect(returnTo);
 
   const supabase = await createClient();
   const {
@@ -161,11 +219,11 @@ export async function updatePlatformSalesStageAction(formData: FormData) {
   const { error } = await supabase
     .from("platform_sales_opportunities")
     .update({
-      stage,
+      stage: stageResult.value,
       updated_by: user?.id ?? null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", opportunityId);
+    .eq("id", opportunityIdResult.value);
 
   if (error) {
     throw new Error(`Failed to update sales stage: ${error.message}`);
