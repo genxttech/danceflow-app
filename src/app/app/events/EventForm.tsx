@@ -156,17 +156,20 @@ const PUBLISHING_MODE_OPTIONS: {
   {
     value: "internal",
     label: "Internal only",
-    helper: "Keeps this event out of public pages and Public Discovery. Use this for internal classes, planning, or private offerings.",
+    helper:
+      "Keeps this event out of public pages and Public Discovery. Use this for internal classes, planning, or private offerings.",
   },
   {
     value: "direct_link",
     label: "Live by direct link",
-    helper: "Creates a public event page that can be shared by URL, but keeps it out of the public dance directory.",
+    helper:
+      "Creates a public event page that can be shared by URL, but keeps it out of the public dance directory.",
   },
   {
     value: "public_directory",
     label: "Public Discovery",
-    helper: "Publishes the event publicly and makes it eligible for DanceFlow Public Discovery.",
+    helper:
+      "Publishes the event publicly and makes it eligible for DanceFlow Public Discovery.",
   },
 ];
 
@@ -468,7 +471,12 @@ function getPublishingMode(params: {
     return "internal";
   }
 
-  if (params.visibility === "unlisted" || params.visibility === "public" || params.status === "published" || params.status === "open") {
+  if (
+    params.visibility === "unlisted" ||
+    params.visibility === "public" ||
+    params.status === "published" ||
+    params.status === "open"
+  ) {
     return "direct_link";
   }
 
@@ -668,7 +676,9 @@ export default function EventForm({
     initialValues?.capacity != null ? String(initialValues.capacity) : "",
   );
   const [registrationRequired, setRegistrationRequired] = useState(
-    eventCommerceEnabled ? (initialValues?.registrationRequired ?? true) : false,
+    eventCommerceEnabled
+      ? (initialValues?.registrationRequired ?? true)
+      : false,
   );
   const [accountRequiredForRegistration, setAccountRequiredForRegistration] =
     useState(
@@ -1083,14 +1093,15 @@ export default function EventForm({
         name="guestCoachCount"
         value={eventCommerceEnabled ? guestCoaches.length : 0}
       />
-      {eventCommerceEnabled && guestCoaches.map((coach, coachIndex) => (
-        <input
-          key={`guest-coach-${coachIndex}-block-count`}
-          type="hidden"
-          name={`guestCoach_${coachIndex}_blockCount`}
-          value={coach.blocks.length}
-        />
-      ))}
+      {eventCommerceEnabled &&
+        guestCoaches.map((coach, coachIndex) => (
+          <input
+            key={`guest-coach-${coachIndex}-block-count`}
+            type="hidden"
+            name={`guestCoach_${coachIndex}_blockCount`}
+            value={coach.blocks.length}
+          />
+        ))}
 
       {selectedStyleKeys.map((styleKey) => (
         <input key={styleKey} type="hidden" name="styleKeys" value={styleKey} />
@@ -1111,7 +1122,8 @@ export default function EventForm({
 
           <div className="grid grid-cols-1 gap-3 lg:min-w-[280px]">
             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-900">
-              Tip: complete the required fields first, then return to public details, schedule items, and guest coach options.
+              Tip: complete the required fields first, then return to public
+              details, schedule items, and guest coach options.
             </div>
 
             <Link
@@ -1345,7 +1357,9 @@ export default function EventForm({
                           name="publishingMode"
                           value={option.value}
                           checked={selected}
-                          onChange={() => handlePublishingModeChange(option.value)}
+                          onChange={() =>
+                            handlePublishingModeChange(option.value)
+                          }
                           className="sr-only"
                         />
                         <span className="block text-sm font-semibold text-slate-950">
@@ -2335,230 +2349,355 @@ export default function EventForm({
               </div>
 
               {eventCommerceEnabled ? (
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <h4 className="text-base font-semibold text-slate-950">
-                      Guest Coach Private Lessons
-                    </h4>
-                    <p className="mt-1 text-sm leading-6 text-slate-600">
-                      Optional. Add guest coaches and availability blocks. Slots are
-                      generated from each block when the event is saved.
-                    </p>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <h4 className="text-base font-semibold text-slate-950">
+                        Guest Coach Private Lessons
+                      </h4>
+                      <p className="mt-1 text-sm leading-6 text-slate-600">
+                        Optional. Add guest coaches and availability blocks.
+                        Slots are generated from each block when the event is
+                        saved.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addGuestCoach}
+                      className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100"
+                    >
+                      Add Guest Coach
+                    </button>
                   </div>
-                  <button
-                    type="button"
-                    onClick={addGuestCoach}
-                    className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-slate-900 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100"
-                  >
-                    Add Guest Coach
-                  </button>
-                </div>
 
-                {guestCoaches.length === 0 ? (
-                  <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
-                    No guest coach lesson slots added.
-                  </p>
-                ) : (
-                  <div className="mt-5 space-y-5">
-                    {guestCoaches.map((coach, coachIndex) => (
-                      <div key={`guest-coach-${coachIndex}`} className="rounded-2xl border border-slate-200 bg-white p-4">
-                        <input type="hidden" name={`guestCoach_${coachIndex}_id`} value={coach.id ?? ""} />
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                              Guest Coach {coachIndex + 1}
-                            </p>
-                            <h5 className="mt-1 text-base font-semibold text-slate-950">
-                              {coach.name || "New Guest Coach"}
-                            </h5>
-                            {mode === "edit" && coach.scheduleToken ? (
-                              <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-sm text-indigo-950">
-                                <p className="font-semibold">Private coach schedule link</p>
-                                <p className="mt-1 text-xs leading-5 text-indigo-800">
-                                  Send this read-only link to the coach so they can see booked lessons for this event.
-                                </p>
-                                <Link
-                                  href={`/coach-schedule/${coach.scheduleToken}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="mt-2 inline-flex rounded-lg bg-white px-3 py-2 text-xs font-semibold text-indigo-800 shadow-sm ring-1 ring-indigo-100 hover:bg-indigo-100"
-                                >
-                                  Open coach schedule
-                                </Link>
-                              </div>
-                            ) : null}
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeGuestCoach(coachIndex)}
-                            className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
-                          >
-                            Remove Coach
-                          </button>
-                        </div>
-
-                        <div className="mt-4 grid gap-4 md:grid-cols-2">
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">Coach Name</label>
-                            <input
-                              name={`guestCoach_${coachIndex}_name`}
-                              value={coach.name}
-                              onChange={(e) => updateGuestCoach(coachIndex, "name", e.target.value)}
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                              placeholder="Guest coach name"
-                            />
-                          </div>
-                          <div>
-                            <label className="mb-1.5 block text-sm font-medium">Photo URL, optional</label>
-                            <input
-                              name={`guestCoach_${coachIndex}_photoUrl`}
-                              value={coach.photoUrl}
-                              onChange={(e) => updateGuestCoach(coachIndex, "photoUrl", e.target.value)}
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                              placeholder="https://..."
-                            />
-                          </div>
-                          <div className="md:col-span-2">
-                            <label className="mb-1.5 block text-sm font-medium">Coach Bio, optional</label>
-                            <textarea
-                              name={`guestCoach_${coachIndex}_bio`}
-                              value={coach.bio}
-                              onChange={(e) => updateGuestCoach(coachIndex, "bio", e.target.value)}
-                              rows={3}
-                              className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                            />
-                          </div>
-                          <label className="flex items-center gap-3 rounded-xl border bg-slate-50 p-3 text-sm">
-                            <input
-                              type="checkbox"
-                              name={`guestCoach_${coachIndex}_active`}
-                              checked={coach.active}
-                              onChange={(e) => updateGuestCoach(coachIndex, "active", e.target.checked)}
-                            />
-                            Active / visible
-                          </label>
-                        </div>
-
-                        <div className="mt-5 space-y-4">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  {guestCoaches.length === 0 ? (
+                    <p className="mt-4 rounded-xl border border-dashed border-slate-300 bg-white p-4 text-sm text-slate-500">
+                      No guest coach lesson slots added.
+                    </p>
+                  ) : (
+                    <div className="mt-5 space-y-5">
+                      {guestCoaches.map((coach, coachIndex) => (
+                        <div
+                          key={`guest-coach-${coachIndex}`}
+                          className="rounded-2xl border border-slate-200 bg-white p-4"
+                        >
+                          <input
+                            type="hidden"
+                            name={`guestCoach_${coachIndex}_id`}
+                            value={coach.id ?? ""}
+                          />
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                             <div>
-                              <p className="text-sm font-semibold text-slate-900">Availability Blocks</p>
-                              <p className="text-xs text-slate-500">Each block creates fixed purchasable lesson slots.</p>
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                Guest Coach {coachIndex + 1}
+                              </p>
+                              <h5 className="mt-1 text-base font-semibold text-slate-950">
+                                {coach.name || "New Guest Coach"}
+                              </h5>
+                              {mode === "edit" && coach.scheduleToken ? (
+                                <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 p-3 text-sm text-indigo-950">
+                                  <p className="font-semibold">
+                                    Private coach schedule link
+                                  </p>
+                                  <p className="mt-1 text-xs leading-5 text-indigo-800">
+                                    Send this read-only link to the coach so
+                                    they can see booked lessons for this event.
+                                  </p>
+                                  <Link
+                                    href={`/coach-schedule/${coach.scheduleToken}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="mt-2 inline-flex rounded-lg bg-white px-3 py-2 text-xs font-semibold text-indigo-800 shadow-sm ring-1 ring-indigo-100 hover:bg-indigo-100"
+                                  >
+                                    Open coach schedule
+                                  </Link>
+                                </div>
+                              ) : null}
                             </div>
                             <button
                               type="button"
-                              onClick={() => addGuestCoachBlock(coachIndex)}
-                              className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                              onClick={() => removeGuestCoach(coachIndex)}
+                              className="rounded-xl border border-red-200 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
                             >
-                              Add Block
+                              Remove Coach
                             </button>
                           </div>
 
-                          {coach.blocks.map((block, blockIndex) => (
-                            <div key={`guest-coach-${coachIndex}-block-${blockIndex}`} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                              <div className="flex items-center justify-between gap-3">
-                                <p className="text-sm font-semibold text-slate-900">Block {blockIndex + 1}</p>
-                                <button
-                                  type="button"
-                                  onClick={() => removeGuestCoachBlock(coachIndex, blockIndex)}
-                                  className="text-sm font-medium text-red-600 hover:text-red-700"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-
-                              <div className="mt-4 grid gap-4 md:grid-cols-3">
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">Date</label>
-                                  <input
-                                    type="date"
-                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_lessonDate`}
-                                    value={block.lessonDate}
-                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "lessonDate", e.target.value)}
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">Start Time</label>
-                                  <input
-                                    type="time"
-                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_startTime`}
-                                    value={block.startTime}
-                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "startTime", e.target.value)}
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">End Time</label>
-                                  <input
-                                    type="time"
-                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_endTime`}
-                                    value={block.endTime}
-                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "endTime", e.target.value)}
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">Lesson Length</label>
-                                  <input
-                                    type="number"
-                                    min="5"
-                                    step="5"
-                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_durationMinutes`}
-                                    value={block.durationMinutes}
-                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "durationMinutes", e.target.value)}
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">Buffer Minutes</label>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="5"
-                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_bufferMinutes`}
-                                    value={block.bufferMinutes}
-                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "bufferMinutes", e.target.value)}
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                  />
-                                </div>
-                                <div>
-                                  <label className="mb-1.5 block text-sm font-medium">Price</label>
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="0.01"
-                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_price`}
-                                    value={block.price}
-                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "price", e.target.value)}
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                    placeholder="150.00"
-                                  />
-                                </div>
-                                <div className="md:col-span-3">
-                                  <label className="mb-1.5 block text-sm font-medium">Room / Location Label, optional</label>
-                                  <input
-                                    name={`guestCoach_${coachIndex}_block_${blockIndex}_locationLabel`}
-                                    value={block.locationLabel}
-                                    onChange={(e) => updateGuestCoachBlock(coachIndex, blockIndex, "locationLabel", e.target.value)}
-                                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                                    placeholder="Main Ballroom, Studio B, etc."
-                                  />
-                                </div>
-                              </div>
+                          <div className="mt-4 grid gap-4 md:grid-cols-2">
+                            <div>
+                              <label className="mb-1.5 block text-sm font-medium">
+                                Coach Name
+                              </label>
+                              <input
+                                name={`guestCoach_${coachIndex}_name`}
+                                value={coach.name}
+                                onChange={(e) =>
+                                  updateGuestCoach(
+                                    coachIndex,
+                                    "name",
+                                    e.target.value,
+                                  )
+                                }
+                                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                placeholder="Guest coach name"
+                              />
                             </div>
-                          ))}
+                            <div>
+                              <label className="mb-1.5 block text-sm font-medium">
+                                Photo URL, optional
+                              </label>
+                              <input
+                                name={`guestCoach_${coachIndex}_photoUrl`}
+                                value={coach.photoUrl}
+                                onChange={(e) =>
+                                  updateGuestCoach(
+                                    coachIndex,
+                                    "photoUrl",
+                                    e.target.value,
+                                  )
+                                }
+                                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                placeholder="https://..."
+                              />
+                            </div>
+                            <div className="md:col-span-2">
+                              <label className="mb-1.5 block text-sm font-medium">
+                                Coach Bio, optional
+                              </label>
+                              <textarea
+                                name={`guestCoach_${coachIndex}_bio`}
+                                value={coach.bio}
+                                onChange={(e) =>
+                                  updateGuestCoach(
+                                    coachIndex,
+                                    "bio",
+                                    e.target.value,
+                                  )
+                                }
+                                rows={3}
+                                className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                              />
+                            </div>
+                            <label className="flex items-center gap-3 rounded-xl border bg-slate-50 p-3 text-sm">
+                              <input
+                                type="checkbox"
+                                name={`guestCoach_${coachIndex}_active`}
+                                checked={coach.active}
+                                onChange={(e) =>
+                                  updateGuestCoach(
+                                    coachIndex,
+                                    "active",
+                                    e.target.checked,
+                                  )
+                                }
+                              />
+                              Active / visible
+                            </label>
+                          </div>
+
+                          <div className="mt-5 space-y-4">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-900">
+                                  Availability Blocks
+                                </p>
+                                <p className="text-xs text-slate-500">
+                                  Each block creates fixed purchasable lesson
+                                  slots.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => addGuestCoachBlock(coachIndex)}
+                                className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                              >
+                                Add Block
+                              </button>
+                            </div>
+
+                            {coach.blocks.map((block, blockIndex) => (
+                              <div
+                                key={`guest-coach-${coachIndex}-block-${blockIndex}`}
+                                className="rounded-xl border border-slate-200 bg-slate-50 p-4"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-sm font-semibold text-slate-900">
+                                    Block {blockIndex + 1}
+                                  </p>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      removeGuestCoachBlock(
+                                        coachIndex,
+                                        blockIndex,
+                                      )
+                                    }
+                                    className="text-sm font-medium text-red-600 hover:text-red-700"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+
+                                <div className="mt-4 grid gap-4 md:grid-cols-3">
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Date
+                                    </label>
+                                    <input
+                                      type="date"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_lessonDate`}
+                                      value={block.lessonDate}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "lessonDate",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Start Time
+                                    </label>
+                                    <input
+                                      type="time"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_startTime`}
+                                      value={block.startTime}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "startTime",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      End Time
+                                    </label>
+                                    <input
+                                      type="time"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_endTime`}
+                                      value={block.endTime}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "endTime",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Lesson Length
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="5"
+                                      step="5"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_durationMinutes`}
+                                      value={block.durationMinutes}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "durationMinutes",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Buffer Minutes
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="5"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_bufferMinutes`}
+                                      value={block.bufferMinutes}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "bufferMinutes",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Price
+                                    </label>
+                                    <input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_price`}
+                                      value={block.price}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "price",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                      placeholder="150.00"
+                                    />
+                                  </div>
+                                  <div className="md:col-span-3">
+                                    <label className="mb-1.5 block text-sm font-medium">
+                                      Room / Location Label, optional
+                                    </label>
+                                    <input
+                                      name={`guestCoach_${coachIndex}_block_${blockIndex}_locationLabel`}
+                                      value={block.locationLabel}
+                                      onChange={(e) =>
+                                        updateGuestCoachBlock(
+                                          coachIndex,
+                                          blockIndex,
+                                          "locationLabel",
+                                          e.target.value,
+                                        )
+                                      }
+                                      className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                                      placeholder="Main Ballroom, Studio B, etc."
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="rounded-2xl border border-dashed border-purple-200 bg-purple-50 p-4 text-sm leading-6 text-purple-900">
-                  <p className="font-semibold">Organizer Suite unlocks guest coach lesson sales.</p>
-                  <p className="mt-1">Basic event listings can publish event details to discovery. Ticket sales, QR check-in, settlement, and guest coach lesson slots require Organizer Suite.</p>
+                  <p className="font-semibold">
+                    Organizer Suite unlocks guest coach lesson sales.
+                  </p>
+                  <p className="mt-1">
+                    Basic event listings can publish event details to discovery.
+                    Ticket sales, QR check-in, settlement, and guest coach
+                    lesson slots require Organizer Suite.
+                  </p>
                 </div>
               )}
 
@@ -2710,7 +2849,9 @@ export default function EventForm({
                 danceStyles={selectedDanceStyleLabels}
                 startDate={fallbackStartDate}
                 startTime={fallbackStartTime}
-                venueName={primaryLocation.venueName || initialValues?.venueName || ""}
+                venueName={
+                  primaryLocation.venueName || initialValues?.venueName || ""
+                }
                 city={primaryLocation.city || initialValues?.city || ""}
                 state={primaryLocation.state || initialValues?.state || ""}
                 beginnerFriendly={beginnerFriendly}
@@ -2914,155 +3055,159 @@ export default function EventForm({
             </div>
           </section>
 
-          {!eventCommerceEnabled ? (
+          {eventCommerceEnabled ? (
+            <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-slate-900 md:text-xl">
+                    Registration & Access
+                  </h3>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Turn registration on, set capacity, and choose when
+                    enrollment opens. These controls are available because
+                    Organizer Suite is active for this workspace.
+                  </p>
+                </div>
+                <span className="w-fit rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                  Organizer Suite active
+                </span>
+              </div>
+
+              <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <input
+                    type="checkbox"
+                    name="registrationRequired"
+                    checked={registrationRequired}
+                    onChange={(e) => setRegistrationRequired(e.target.checked)}
+                    className="mt-1"
+                  />
+                  <div>
+                    <p className="font-medium text-slate-900">
+                      Registration required
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Use DanceFlow registration, rosters, ticketing, and
+                      attendance for this event.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <input
+                    type="checkbox"
+                    name="accountRequiredForRegistration"
+                    checked={accountRequiredForRegistration}
+                    onChange={(e) =>
+                      setAccountRequiredForRegistration(e.target.checked)
+                    }
+                    className="mt-1"
+                  />
+                  <div>
+                    <p className="font-medium text-slate-900">
+                      Account required
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Require a signed-in dancer account before registration.
+                    </p>
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <input
+                    type="checkbox"
+                    checked={waitlistEnabled}
+                    onChange={(e) => setWaitlistEnabled(e.target.checked)}
+                    className="mt-1"
+                  />
+                  <div>
+                    <p className="font-medium text-slate-900">
+                      Enable waitlist
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Let people join a waitlist when capacity is full.
+                    </p>
+                    {!hasCapacity ? (
+                      <p className="mt-2 text-xs text-slate-500">
+                        Add capacity so DanceFlow knows when to start the
+                        waitlist.
+                      </p>
+                    ) : null}
+                  </div>
+                </label>
+
+                <label className="flex items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                  <input
+                    type="checkbox"
+                    name="featured"
+                    defaultChecked={initialValues?.featured ?? false}
+                    className="mt-1"
+                  />
+                  <div>
+                    <p className="font-medium text-slate-900">Featured event</p>
+                    <p className="mt-1 text-sm text-slate-600">
+                      Mark this event for higher-priority promotion later.
+                    </p>
+                  </div>
+                </label>
+              </div>
+
+              <div className="mt-5 grid gap-4 md:grid-cols-2">
+                <div>
+                  <label
+                    htmlFor="registrationOpensAt"
+                    className="mb-1.5 block text-sm font-medium"
+                  >
+                    Registration Opens
+                  </label>
+                  <input
+                    id="registrationOpensAt"
+                    name="registrationOpensAt"
+                    type="datetime-local"
+                    defaultValue={
+                      initialValues?.registrationOpensAt ??
+                      getLocalDateTimeInputValue()
+                    }
+                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label
+                    htmlFor="registrationClosesAt"
+                    className="mb-1.5 block text-sm font-medium"
+                  >
+                    Registration Closes
+                  </label>
+                  <input
+                    id="registrationClosesAt"
+                    name="registrationClosesAt"
+                    type="datetime-local"
+                    defaultValue={initialValues?.registrationClosesAt ?? ""}
+                    className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
+                  />
+                </div>
+              </div>
+            </section>
+          ) : (
             <section className="rounded-3xl border border-purple-200 bg-purple-50 p-4 shadow-sm md:p-6">
               <h3 className="text-lg font-semibold text-purple-950 md:text-xl">
                 Basic Event Listing
               </h3>
               <p className="mt-2 max-w-3xl text-sm leading-7 text-purple-900">
-                This event can be published to DanceFlow Discovery with event details, location, image, and description. Organizer Suite is required for DanceFlow registrations, ticketing, QR check-in, waitlists, guest coach lesson sales, settlement, and event ARIA operations.
+                This event can still be published with public details, location,
+                image, and description. Start Organizer Suite when you want
+                DanceFlow registrations, ticketing, QR check-in, waitlists,
+                guest coach lesson sales, settlement, and event ARIA operations.
               </p>
+              <Link
+                href="/app/settings/billing?reason=feature_required&feature=ticketing&requiredPlan=organizer&account=organizer"
+                className="mt-4 inline-flex rounded-xl bg-purple-900 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-800"
+              >
+                Start Organizer Suite
+              </Link>
             </section>
-          ) : null}
-
-          <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm md:p-6">
-            <h3 className="text-lg font-semibold text-slate-900 md:text-xl">
-              Registration & Access
-            </h3>
-            <p className="mt-2 text-sm text-slate-600">
-              Control enrollment behavior, waitlist access, and registration
-              timing.
-            </p>
-
-            <div className="mt-4 space-y-3">
-              <label className="flex items-start gap-3 rounded-xl border bg-slate-50 p-4">
-                <input
-                  type="checkbox"
-                  name="featured"
-                  defaultChecked={initialValues?.featured ?? false}
-                  disabled={!eventCommerceEnabled}
-                  className="mt-1"
-                />
-                <div>
-                  <p className="font-medium text-slate-900">Featured event</p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Featured events can be promoted higher in public listings
-                    later.
-                  </p>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-3 rounded-xl border bg-slate-50 p-4">
-                <input
-                  type="checkbox"
-                  name="registrationRequired"
-                  checked={registrationRequired}
-                  onChange={(e) => setRegistrationRequired(e.target.checked)}
-                  disabled={!eventCommerceEnabled}
-                  className="mt-1"
-                />
-                <div>
-                  <p className="font-medium text-slate-900">
-                    Registration required
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Turn this on for offerings that should manage enrollment,
-                    roster, and attendance through event registration.
-                  </p>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-3 rounded-xl border bg-slate-50 p-4">
-                <input
-                  type="checkbox"
-                  name="accountRequiredForRegistration"
-                  checked={accountRequiredForRegistration}
-                  onChange={(e) =>
-                    setAccountRequiredForRegistration(e.target.checked)
-                  }
-                  disabled={!eventCommerceEnabled}
-                  className="mt-1"
-                />
-                <div>
-                  <p className="font-medium text-slate-900">
-                    Account required for registration
-                  </p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    Require a signed-in account before someone can register or
-                    enroll.
-                  </p>
-                </div>
-              </label>
-
-              <label className="flex items-start gap-3 rounded-xl border bg-slate-50 p-4">
-                <input
-                  type="checkbox"
-                  checked={waitlistEnabled}
-                  onChange={(e) => setWaitlistEnabled(e.target.checked)}
-                  disabled={!eventCommerceEnabled}
-                  className="mt-1"
-                />
-                <div>
-                  <p className="font-medium text-slate-900">Enable waitlist</p>
-                  <p className="mt-1 text-sm text-slate-600">
-                    When capacity is full, new registrants can join the waitlist
-                    instead of being blocked.
-                  </p>
-                  {!hasCapacity ? (
-                    <p className="mt-2 text-xs text-slate-500">
-                      Add event, ticket, location, or session capacity so the
-                      system knows when to move new registrants to the waitlist.
-                    </p>
-                  ) : null}
-                </div>
-              </label>
-            </div>
-
-            <div className="mt-4 grid gap-4">
-              <div>
-                <label
-                  htmlFor="registrationOpensAt"
-                  className="mb-1.5 block text-sm font-medium"
-                >
-                  Registration Opens At
-                </label>
-                <input
-                  id="registrationOpensAt"
-                  name="registrationOpensAt"
-                  type="datetime-local"
-                  defaultValue={
-                    eventCommerceEnabled
-                      ? (initialValues?.registrationOpensAt ??
-                          getLocalDateTimeInputValue())
-                      : ""
-                  }
-                  disabled={!eventCommerceEnabled}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                />
-              </div>
-
-              <div>
-                <label
-                  htmlFor="registrationClosesAt"
-                  className="mb-1.5 block text-sm font-medium"
-                >
-                  Registration Closes At
-                </label>
-                <input
-                  id="registrationClosesAt"
-                  name="registrationClosesAt"
-                  type="datetime-local"
-                  defaultValue={
-                    eventCommerceEnabled
-                      ? (initialValues?.registrationClosesAt ?? "")
-                      : ""
-                  }
-                  disabled={!eventCommerceEnabled}
-                  className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
-                />
-              </div>
-            </div>
-          </section>
+          )}
 
           {isGroupClass ? (
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
@@ -3129,4 +3274,3 @@ export default function EventForm({
     </form>
   );
 }
-

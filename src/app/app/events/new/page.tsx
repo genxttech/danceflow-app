@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import EventForm from "../EventForm";
-import { planHasBasicEventListings, planHasOrganizerSuite } from "@/lib/billing/plans";
+import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 
 type OrganizerOption = {
   id: string;
@@ -15,24 +15,16 @@ type WorkspaceRow = {
   id: string;
   name: string | null;
   public_name: string | null;
-  billing_plan: string | null;
-  subscription_status: string | null;
-};
-
-type SubscriptionRow = {
-  status: string | null;
-  subscription_plan_id: string | null;
-};
-
-type SubscriptionPlanRow = {
-  code: string | null;
 };
 
 function isOrganizerWorkspaceRole(role: string | null | undefined) {
   return role === "organizer_owner" || role === "organizer_admin";
 }
 
-function canManageEvents(role: string | null | undefined, isPlatformAdminRole: boolean) {
+function canManageEvents(
+  role: string | null | undefined,
+  isPlatformAdminRole: boolean,
+) {
   if (isPlatformAdminRole) return true;
 
   return (
@@ -43,62 +35,12 @@ function canManageEvents(role: string | null | undefined, isPlatformAdminRole: b
   );
 }
 
-function canManageOrganizers(role: string | null | undefined, isPlatformAdminRole: boolean) {
+function canManageOrganizers(
+  role: string | null | undefined,
+  isPlatformAdminRole: boolean,
+) {
   if (isPlatformAdminRole) return true;
   return role === "organizer_owner" || role === "organizer_admin";
-}
-
-function isActiveOrTrialing(status: string | null | undefined) {
-  const normalized = (status ?? "").trim().toLowerCase();
-  return normalized === "active" || normalized === "trialing";
-}
-
-function getEffectiveBillingPlan(
-  workspace: WorkspaceRow | null | undefined,
-  subscriptionPlan: SubscriptionPlanRow | null | undefined
-) {
-  return (
-    subscriptionPlan?.code?.trim().toLowerCase() ||
-    workspace?.billing_plan?.trim().toLowerCase() ||
-    ""
-  );
-}
-
-function getEffectiveSubscriptionStatus(
-  workspace: WorkspaceRow | null | undefined,
-  subscription: SubscriptionRow | null | undefined
-) {
-  return (
-    subscription?.status?.trim().toLowerCase() ||
-    workspace?.subscription_status?.trim().toLowerCase() ||
-    ""
-  );
-}
-
-function canUseStudioHostedEvents(params: {
-  workspace: WorkspaceRow | null | undefined;
-  subscription: SubscriptionRow | null | undefined;
-  subscriptionPlan: SubscriptionPlanRow | null | undefined;
-}) {
-  const planCode = getEffectiveBillingPlan(params.workspace, params.subscriptionPlan);
-  const status = getEffectiveSubscriptionStatus(params.workspace, params.subscription);
-
-  return isActiveOrTrialing(status) && planHasBasicEventListings(planCode);
-}
-
-function canUseOrganizerSuite(params: {
-  workspace: WorkspaceRow | null | undefined;
-  subscription: SubscriptionRow | null | undefined;
-  subscriptionPlan: SubscriptionPlanRow | null | undefined;
-  organizerWorkspace: boolean;
-  isPlatformAdminRole: boolean;
-}) {
-  if (params.isPlatformAdminRole || params.organizerWorkspace) return true;
-
-  const planCode = getEffectiveBillingPlan(params.workspace, params.subscriptionPlan);
-  const status = getEffectiveSubscriptionStatus(params.workspace, params.subscription);
-
-  return isActiveOrTrialing(status) && planHasOrganizerSuite(planCode);
 }
 
 export default async function NewEventPage() {
@@ -122,11 +64,11 @@ export default async function NewEventPage() {
   const [
     { data: workspace, error: workspaceError },
     { data: organizers, error: organizersError },
-    { data: subscriptionRows, error: subscriptionsError },
+    capabilities,
   ] = await Promise.all([
     supabase
       .from("studios")
-      .select("id, name, public_name, billing_plan, subscription_status")
+      .select("id, name, public_name")
       .eq("id", studioId)
       .maybeSingle<WorkspaceRow>(),
 
@@ -137,12 +79,7 @@ export default async function NewEventPage() {
       .eq("active", true)
       .order("name", { ascending: true }),
 
-    supabase
-      .from("studio_subscriptions")
-      .select("status, subscription_plan_id")
-      .eq("studio_id", studioId)
-      .order("created_at", { ascending: false })
-      .limit(1),
+    getCurrentWorkspaceCapabilitiesForUser(),
   ]);
 
   if (workspaceError) {
@@ -153,45 +90,19 @@ export default async function NewEventPage() {
     throw new Error(`Failed to load organizers: ${organizersError.message}`);
   }
 
-  if (subscriptionsError) {
-    throw new Error(`Failed to load subscription: ${subscriptionsError.message}`);
-  }
-
-  const latestSubscription = ((subscriptionRows ?? []) as SubscriptionRow[])[0] ?? null;
-  let subscriptionPlan: SubscriptionPlanRow | null = null;
-
-  if (latestSubscription?.subscription_plan_id) {
-    const { data: plan, error: planError } = await supabase
-      .from("subscription_plans")
-      .select("code")
-      .eq("id", latestSubscription.subscription_plan_id)
-      .maybeSingle<SubscriptionPlanRow>();
-
-    if (planError) {
-      throw new Error(`Failed to load subscription plan: ${planError.message}`);
-    }
-
-    subscriptionPlan = plan;
-  }
-
   const organizerWorkspace = isOrganizerWorkspaceRole(context.studioRole);
   const studioHostedEvents =
-    !organizerWorkspace &&
-    canUseStudioHostedEvents({
-      workspace,
-      subscription: latestSubscription,
-      subscriptionPlan,
-    });
-  const eventCommerceEnabled = canUseOrganizerSuite({
-    workspace,
-    subscription: latestSubscription,
-    subscriptionPlan,
-    organizerWorkspace,
-    isPlatformAdminRole: context.isPlatformAdmin,
-  });
+    !organizerWorkspace && Boolean(capabilities?.canCreateBasicEventListings);
+  const eventCommerceEnabled = Boolean(
+    context.isPlatformAdmin ||
+    organizerWorkspace ||
+    capabilities?.hasOrganizerSuite ||
+    capabilities?.canUseEventCommerce ||
+    capabilities?.canUseEventOperations,
+  );
   const canCreateOrganizer = canManageOrganizers(
     context.studioRole,
-    context.isPlatformAdmin
+    context.isPlatformAdmin,
   );
 
   const typedOrganizers = (organizers ?? []) as OrganizerOption[];
@@ -204,7 +115,9 @@ export default async function NewEventPage() {
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
-                {organizerWorkspace ? "DanceFlow Organizer Workspace" : "DanceFlow Events"}
+                {organizerWorkspace
+                  ? "DanceFlow Organizer Workspace"
+                  : "DanceFlow Events"}
               </p>
               <h1 className="mt-3 text-3xl font-semibold tracking-tight md:text-4xl">
                 New Event
@@ -213,7 +126,7 @@ export default async function NewEventPage() {
                 {organizerWorkspace
                   ? "Create an organizer-linked event for public discovery, registrations, and event operations."
                   : studioHostedEvents
-                    ? "Create a basic public event listing. Your studio name will be used as the event host; ticketing, QR check-in, and settlement require Organizer Suite."
+                    ? "Create a basic public event listing. Your studio name will be used as the event host; ticketing, QR check-in, and settlement are available when Organizer Suite is active."
                     : "Create an organizer-linked event and optionally publish it into the public dance directory."}
               </p>
             </div>
@@ -236,8 +149,9 @@ export default async function NewEventPage() {
                 One organizer profile is expected for this workspace
               </h2>
               <p className="mt-2 text-sm leading-7 text-sky-900">
-                Organizer accounts should create events under their single organizer
-                profile so public listings and registrations stay tied to the correct brand.
+                Organizer accounts should create events under their single
+                organizer profile so public listings and registrations stay tied
+                to the correct brand.
               </p>
             </div>
           </div>
@@ -248,8 +162,10 @@ export default async function NewEventPage() {
                 This will be a studio-hosted event
               </h2>
               <p className="mt-2 text-sm leading-7 text-emerald-900">
-Active studio plans can publish basic public event listings without creating a separate organizer.
-                Your studio name will be used as the public event host. Ticketing, QR check-in, settlements, and organizer ARIA require Organizer Suite.
+                Active studio plans can publish basic public event listings
+                without creating a separate organizer. Your studio name will be
+                used as the public event host. Ticketing, QR check-in,
+                settlements, and organizer ARIA require Organizer Suite.
               </p>
             </div>
           </div>
@@ -287,25 +203,28 @@ Active studio plans can publish basic public event listings without creating a s
                 This event will be created under {singleOrganizer.name}
               </h2>
               <p className="mt-2 text-sm leading-7 text-emerald-900">
-                The form should use this organizer by default for this organizer workspace.
+                The form should use this organizer by default for this organizer
+                workspace.
               </p>
             </div>
           ) : null}
 
           <EventForm
-              mode="create"
-              organizers={typedOrganizers}
-              organizerWorkspace={organizerWorkspace}
-              eventCommerceEnabled={eventCommerceEnabled}
-              initialValues={{
-                organizerId:
-                  organizerWorkspace && singleOrganizer ? singleOrganizer.id : undefined,
-                visibility: "public",
-                publicDirectoryEnabled: false,
-                beginnerFriendly: false,
-                waitlistEnabled: false,
-              }}
-            />
+            mode="create"
+            organizers={typedOrganizers}
+            organizerWorkspace={organizerWorkspace}
+            eventCommerceEnabled={eventCommerceEnabled}
+            initialValues={{
+              organizerId:
+                organizerWorkspace && singleOrganizer
+                  ? singleOrganizer.id
+                  : undefined,
+              visibility: "public",
+              publicDirectoryEnabled: false,
+              beginnerFriendly: false,
+              waitlistEnabled: false,
+            }}
+          />
         </div>
       )}
     </div>

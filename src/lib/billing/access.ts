@@ -17,9 +17,7 @@ import type { AppRole } from "@/lib/auth/permissions";
 type StudioSubscriptionAccessRow = {
   status: string;
   subscription_plans:
-    | { code: string; name: string }
-    | { code: string; name: string }[]
-    | null;
+    { code: string; name: string } | { code: string; name: string }[] | null;
 };
 
 type StudioBillingAccessRow = {
@@ -31,11 +29,7 @@ type StudioBillingAccessRow = {
 };
 
 export type WorkspacePlanCode =
-  | "starter"
-  | "growth"
-  | "pro"
-  | "organizer"
-  | null;
+  "starter" | "growth" | "pro" | "organizer" | null;
 
 export type WorkspaceCapabilities = {
   studioId: string | null;
@@ -61,9 +55,7 @@ export type WorkspaceCapabilities = {
 
 function getPlan(
   value:
-    | { code: string; name: string }
-    | { code: string; name: string }[]
-    | null
+    { code: string; name: string } | { code: string; name: string }[] | null,
 ) {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -77,7 +69,6 @@ function buildBillingUpgradeUrl(feature: BillingFeature) {
 
   return `/app/settings/billing?${search.toString()}`;
 }
-
 
 function buildOrganizerBillingUpgradeUrl(feature: BillingFeature) {
   const search = new URLSearchParams({
@@ -100,7 +91,9 @@ function isOrganizerRole(value: string | null | undefined) {
   );
 }
 
-async function studioHasActiveOrganizerSuiteAddOn(studioId: string | null | undefined) {
+async function studioHasActiveOrganizerSuiteAddOn(
+  studioId: string | null | undefined,
+) {
   if (!studioId) return false;
 
   const supabase = await createClient();
@@ -291,7 +284,9 @@ export async function requireEventWorkspaceFeature(args: {
       studioId: event.studio_id,
       organizerId: event.organizer_id,
       studioRole: context.studioRole ?? null,
-      organizerRole: isOrganizerRole(context.studioRole) ? context.studioRole : null,
+      organizerRole: isOrganizerRole(context.studioRole)
+        ? context.studioRole
+        : null,
       isPlatformAdmin: false,
       accountType: "studio",
     };
@@ -300,7 +295,9 @@ export async function requireEventWorkspaceFeature(args: {
   redirect("/app/events");
 }
 
-function normalizePlanCode(value: string | null | undefined): WorkspacePlanCode {
+function normalizePlanCode(
+  value: string | null | undefined,
+): WorkspacePlanCode {
   const normalized = (value ?? "").trim().toLowerCase();
 
   if (
@@ -315,7 +312,10 @@ function normalizePlanCode(value: string | null | undefined): WorkspacePlanCode 
   return null;
 }
 
-function buildCapabilities(planCode: WorkspacePlanCode, status: string | null): WorkspaceCapabilities {
+function buildCapabilities(
+  planCode: WorkspacePlanCode,
+  status: string | null,
+): WorkspaceCapabilities {
   const active = status === "active" || status === "trialing";
 
   if (!active) {
@@ -491,7 +491,7 @@ export async function getCurrentStudioPlanForUser() {
         billing_override_enabled,
         billing_override_reason,
         billing_override_expires_at
-      `
+      `,
       )
       .eq("id", studioId)
       .maybeSingle(),
@@ -505,7 +505,7 @@ export async function getCurrentStudioPlanForUser() {
           code,
           name
         )
-      `
+      `,
       )
       .eq("studio_id", studioId)
       .maybeSingle(),
@@ -519,7 +519,7 @@ export async function getCurrentStudioPlanForUser() {
 
   const overrideActive = Boolean(
     typedStudio?.billing_override_enabled &&
-      (!overrideExpiresAt || overrideExpiresAt.getTime() >= Date.now())
+    (!overrideExpiresAt || overrideExpiresAt.getTime() >= Date.now()),
   );
 
   if (overrideActive) {
@@ -535,7 +535,9 @@ export async function getCurrentStudioPlanForUser() {
   }
 
   if (subscriptionError || !subscription) {
-    const fallbackPlanCode = normalizePlanCode(typedStudio?.billing_plan ?? null);
+    const fallbackPlanCode = normalizePlanCode(
+      typedStudio?.billing_plan ?? null,
+    );
     const fallbackStatus = typedStudio?.subscription_status ?? "inactive";
 
     return {
@@ -552,7 +554,9 @@ export async function getCurrentStudioPlanForUser() {
   return {
     studioId,
     status: typedSubscription.status,
-    planCode: normalizePlanCode(plan?.code ?? typedStudio?.billing_plan ?? null),
+    planCode: normalizePlanCode(
+      plan?.code ?? typedStudio?.billing_plan ?? null,
+    ),
     planName: plan?.name ?? null,
   };
 }
@@ -564,7 +568,10 @@ export async function getCurrentWorkspaceCapabilitiesForUser(): Promise<Workspac
     return null;
   }
 
-  const capabilities = buildCapabilities(subscription.planCode, subscription.status);
+  const capabilities = buildCapabilities(
+    subscription.planCode,
+    subscription.status,
+  );
   const hasOrganizerSuiteAddOn =
     capabilities.isActive &&
     !capabilities.hasOrganizerSuite &&
@@ -595,6 +602,8 @@ function isOrganizerSuiteFeature(feature: BillingFeature) {
     feature === "waitlist" ||
     feature === "marketing_event_audiences" ||
     feature === "event_waivers" ||
+    feature === "organizer_contacts" ||
+    feature === "organizer_campaigns" ||
     feature === "guest_coach_slots"
   );
 }
@@ -625,7 +634,6 @@ export async function requireStudioFeature(feature: BillingFeature) {
     redirect(buildBillingUpgradeUrl(feature));
   }
 }
-
 
 export async function studioCanCreateBasicEventListings() {
   return studioHasFeature("public_events");
@@ -676,7 +684,9 @@ export async function studioCanUseEventOperations() {
 export function canPlanUseRole(planCode: WorkspacePlanCode, role: AppRole) {
   switch (role) {
     case "studio_owner":
-      return planCode === "starter" || planCode === "growth" || planCode === "pro";
+      return (
+        planCode === "starter" || planCode === "growth" || planCode === "pro"
+      );
 
     case "studio_admin":
       return planCode === "growth" || planCode === "pro";
@@ -685,10 +695,14 @@ export function canPlanUseRole(planCode: WorkspacePlanCode, role: AppRole) {
       return planCode === "growth" || planCode === "pro";
 
     case "instructor":
-      return planCode === "starter" || planCode === "growth" || planCode === "pro";
+      return (
+        planCode === "starter" || planCode === "growth" || planCode === "pro"
+      );
 
     case "independent_instructor":
-      return planCode === "starter" || planCode === "growth" || planCode === "pro";
+      return (
+        planCode === "starter" || planCode === "growth" || planCode === "pro"
+      );
 
     case "organizer_owner":
       return planCode === "organizer";
@@ -765,7 +779,10 @@ export function canAssignRoleUnderPlan(args: {
   return true;
 }
 
-export function requiresOwnerGrantedExportOverride(role: AppRole, permission: string) {
+export function requiresOwnerGrantedExportOverride(
+  role: AppRole,
+  permission: string,
+) {
   if (role === "platform_admin") return false;
   if (role === "studio_owner" || role === "organizer_owner") return false;
 

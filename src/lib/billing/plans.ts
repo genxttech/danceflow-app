@@ -43,7 +43,7 @@ export type BillingPlan = {
 
 export const FOUNDER_STUDIO_SPOTS = 25;
 export const STUDIO_TRIAL_DAYS = 30;
-export const ORGANIZER_TRIAL_DAYS = 14;
+export const ORGANIZER_TRIAL_DAYS = 30;
 
 export const BILLING_PLANS: BillingPlan[] = [
   {
@@ -57,7 +57,12 @@ export const BILLING_PLANS: BillingPlan[] = [
     trialDays: STUDIO_TRIAL_DAYS,
     founderOfferNote:
       "Founder pricing is available for the first 25 studios and lasts for 12 months after your free trial.",
-    features: ["crm_basic", "schedule_basic", "public_events", "basic_reporting"],
+    features: [
+      "crm_basic",
+      "schedule_basic",
+      "public_events",
+      "basic_reporting",
+    ],
     highlights: [
       "Client CRM and lead records",
       "Lesson scheduling and studio calendar",
@@ -237,7 +242,6 @@ export const ORGANIZER_PLAN_FEATURES: Record<
     "guest_coach_slots",
   ],
 };
-
 
 export const BASIC_EVENT_LISTING_FEATURES: BillingFeature[] = ["public_events"];
 

@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import EventForm from "../../EventForm";
+import { getCurrentWorkspaceCapabilitiesForUser } from "@/lib/billing/access";
 
 type Params = Promise<{
   id: string;
@@ -170,6 +171,7 @@ export default async function EditEventPage({ params }: { params: Params }) {
     { data: eventLocations, error: eventLocationsError },
     { data: eventScheduleItems, error: eventScheduleItemsError },
     { data: guestCoaches, error: guestCoachesError },
+    capabilities,
   ] = await Promise.all([
     supabase
       .from("studios")
@@ -313,6 +315,8 @@ export default async function EditEventPage({ params }: { params: Params }) {
       .eq("studio_id", studioId)
       .eq("active", true)
       .order("created_at", { ascending: true }),
+
+    getCurrentWorkspaceCapabilitiesForUser(),
   ]);
 
   if (workspaceError) {
@@ -384,6 +388,13 @@ export default async function EditEventPage({ params }: { params: Params }) {
   });
 
   const organizerWorkspace = isOrganizerWorkspaceName(workspace?.name);
+  const eventCommerceEnabled = Boolean(
+    context.isPlatformAdmin ||
+    organizerWorkspace ||
+    capabilities?.hasOrganizerSuite ||
+    capabilities?.canUseEventCommerce ||
+    capabilities?.canUseEventOperations,
+  );
   const typedEvent = event as EventRow;
   const typedOrganizers = (organizers ?? []) as OrganizerOption[];
   const typedTags = (tags ?? []) as EventTagRow[];
@@ -515,6 +526,7 @@ export default async function EditEventPage({ params }: { params: Params }) {
         organizers={typedOrganizers}
         mode="edit"
         organizerWorkspace={organizerWorkspace}
+        eventCommerceEnabled={eventCommerceEnabled}
         initialValues={{
           id: typedEvent.id,
           organizerId:
@@ -571,4 +583,3 @@ export default async function EditEventPage({ params }: { params: Params }) {
     </div>
   );
 }
-
