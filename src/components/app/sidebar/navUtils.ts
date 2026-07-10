@@ -43,6 +43,8 @@ export function isActivePath(pathname: string, href: string) {
   }
 
   const exactOnlyRoutes = new Set([
+    "/app",
+    "/app/aria",
     "/app/clients/new",
     "/app/events/new",
     "/app/events/sell-tickets",
@@ -65,6 +67,10 @@ export function isActivePath(pathname: string, href: string) {
 
 function normalizeNavLabel(item: NavItem) {
   const lower = item.label.trim().toLowerCase();
+
+  if (item.href === "/app/aria/operations" || lower === "aria operations") {
+    return "ARIA Operations";
+  }
 
   if (item.href === "/app/aria" || lower === "aria") {
     return "Consult with ARIA";
@@ -834,6 +840,62 @@ function injectAriaLink(sections: NavSectionType[]): NavSectionType[] {
   ];
 }
 
+function injectAriaOperationsLink(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const hasAria = flatItems.some((item) => item.href === "/app/aria");
+  const hasAriaOperations = flatItems.some(
+    (item) => item.href === "/app/aria/operations",
+  );
+
+  if (!hasAria || hasAriaOperations) {
+    return sections;
+  }
+
+  const ariaOperationsItem: NavItem = {
+    label: "ARIA Operations",
+    href: "/app/aria/operations",
+    icon: "aria",
+  };
+
+  const ariaSectionIndex = sections.findIndex((section) =>
+    section.items.some((item) => item.href === "/app/aria"),
+  );
+
+  if (ariaSectionIndex < 0) {
+    return [
+      ...sections,
+      {
+        title: "Insights",
+        items: [ariaOperationsItem],
+      },
+    ];
+  }
+
+  return sections.map((section, index) => {
+    if (index !== ariaSectionIndex) {
+      return section;
+    }
+
+    const ariaIndex = section.items.findIndex((item) => item.href === "/app/aria");
+
+    if (ariaIndex < 0) {
+      return {
+        ...section,
+        items: [...section.items, ariaOperationsItem],
+      };
+    }
+
+    return {
+      ...section,
+      items: [
+        ...section.items.slice(0, ariaIndex + 1),
+        ariaOperationsItem,
+        ...section.items.slice(ariaIndex + 1),
+      ],
+    };
+  });
+}
+
 function injectAutomationsLink(sections: NavSectionType[]): NavSectionType[] {
   const flatItems = sections.flatMap((section) => section.items);
 
@@ -1347,6 +1409,7 @@ function optimizeNavigationForTasks(sections: NavSectionType[], options: Normali
       "/app/analytics/dance-goals",
       "/app/reports",
       "/app/aria",
+      "/app/aria/operations",
     ]),
     makeSection("Studio Tools", available, used, [
       "/app/documents",
@@ -1438,7 +1501,8 @@ export function normalizeSections(input: unknown, options: NormalizeSectionsOpti
 
   const withoutDiscoveryDuplicates = removeRedundantDiscoveryLinks(normalized);
   const withAriaLink = injectAriaLink(withoutDiscoveryDuplicates);
-  const withEventWorkflowLinks = injectEventWorkflowLinks(withAriaLink, options);
+  const withAriaOperationsLink = injectAriaOperationsLink(withAriaLink);
+  const withEventWorkflowLinks = injectEventWorkflowLinks(withAriaOperationsLink, options);
   const withOrganizerContactsLink = injectOrganizerContactsLink(
     withEventWorkflowLinks,
     options,

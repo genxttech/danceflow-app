@@ -692,12 +692,20 @@ export default async function AriaOpportunityHubPage() {
                   which ones are worth repeating.
                 </p>
               </div>
-              <Link
-                href="/app/events"
-                className="inline-flex items-center justify-center rounded-2xl bg-[#6B21A8] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#581C87]"
-              >
-                Open Organizer Dashboard
-              </Link>
+              <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+                <Link
+                  href="/app/aria/operations"
+                  className="inline-flex items-center justify-center rounded-2xl bg-[#6B21A8] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#581C87]"
+                >
+                  Open Operations Center
+                </Link>
+                <Link
+                  href="/app/events"
+                  className="inline-flex items-center justify-center rounded-2xl border border-[#C084FC] bg-white/80 px-4 py-3 text-sm font-semibold text-[#6B21A8] shadow-sm hover:bg-white"
+                >
+                  Organizer Dashboard
+                </Link>
+              </div>
             </div>
           </div>
         </section>
@@ -1540,12 +1548,20 @@ export default async function AriaOpportunityHubPage() {
                 </div>
               </div>
             </div>
-            <Link
-              href="/app/automations"
-              className="inline-flex items-center justify-center rounded-2xl bg-[#6B21A8] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#581C87]"
-            >
-              Open Automations
-            </Link>
+            <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+              <Link
+                href="/app/aria/operations"
+                className="inline-flex items-center justify-center rounded-2xl bg-[#6B21A8] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#581C87]"
+              >
+                Open Operations Center
+              </Link>
+              <Link
+                href="/app/automations"
+                className="inline-flex items-center justify-center rounded-2xl border border-[#C084FC] bg-white/80 px-4 py-3 text-sm font-semibold text-[#6B21A8] shadow-sm hover:bg-white"
+              >
+                Automation Settings
+              </Link>
+            </div>
           </div>
         </div>
       </section>
