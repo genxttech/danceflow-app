@@ -408,6 +408,7 @@ export default function RegistrationForm({
                           name={`ticketQuantityDisplay-${ticket.id}`}
                           type="number"
                           min={0}
+                          step={1}
                           max={maxQuantity}
                           value={selectedQuantity}
                           disabled={!ticket.meta.selectable || !allowSubmission}
@@ -480,6 +481,8 @@ export default function RegistrationForm({
               <input
                 name="documentSignatureName"
                 required
+                maxLength={120}
+                autoComplete="name"
                 disabled={!allowSubmission}
                 className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 disabled:bg-slate-100"
                 placeholder="Full legal name"
@@ -521,6 +524,8 @@ export default function RegistrationForm({
               id="attendeeFirstName"
               name="attendeeFirstName"
               required
+              maxLength={80}
+              autoComplete="given-name"
               disabled={!allowSubmission}
               className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
             />
@@ -534,6 +539,8 @@ export default function RegistrationForm({
               id="attendeeLastName"
               name="attendeeLastName"
               required
+              maxLength={80}
+              autoComplete="family-name"
               disabled={!allowSubmission}
               className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
             />
@@ -548,6 +555,8 @@ export default function RegistrationForm({
               name="attendeeEmail"
               type="email"
               required
+              maxLength={254}
+              autoComplete="email"
               defaultValue={currentUserEmail}
               disabled={!allowSubmission}
               className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
@@ -561,6 +570,11 @@ export default function RegistrationForm({
             <input
               id="attendeePhone"
               name="attendeePhone"
+              type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              maxLength={30}
+              pattern="^[+\d\s().-]{7,30}$"
               disabled={!allowSubmission}
               className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
             />
@@ -586,6 +600,8 @@ export default function RegistrationForm({
                 <input
                   name="additionalAttendeeNames"
                   required
+                  maxLength={120}
+                  autoComplete="name"
                   disabled={!allowSubmission}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
                   placeholder="Full name"
@@ -604,6 +620,7 @@ export default function RegistrationForm({
           id="notes"
           name="notes"
           rows={3}
+          maxLength={2000}
           disabled={!allowSubmission}
           className="w-full rounded-xl border border-slate-300 px-3 py-2 disabled:bg-slate-100"
           placeholder="Optional notes"

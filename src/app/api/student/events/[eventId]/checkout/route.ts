@@ -3,6 +3,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
+import {
+  cleanTextValue,
+  getValidatedValue,
+  getValidationError,
+  normalizeOptionalPhone,
+  normalizeOptionalUuid,
+  normalizeTextList,
+} from "@/lib/validation/forms";
 
 type Params = {
   params: Promise<{ eventId: string }>;
@@ -118,6 +126,52 @@ function getSupabaseAdmin(): SupabaseClient {
 
 function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
+}
+
+function getJsonText(value: unknown, fieldLabel: string, maxLength = 255, required = false) {
+  return cleanTextValue(typeof value === "string" ? value : "", {
+    fieldLabel,
+    maxLength,
+    required,
+    allowNewlines: false,
+  });
+}
+
+function getJsonTextarea(value: unknown, fieldLabel: string, maxLength = 2000) {
+  return cleanTextValue(typeof value === "string" ? value : "", {
+    fieldLabel,
+    maxLength,
+    allowNewlines: true,
+  });
+}
+
+function getJsonStringArray(value: unknown, fieldLabel: string, maxItemLength = 120, maxItems = 100) {
+  const values = Array.isArray(value) ? value.map((item) => (typeof item === "string" ? item : "")) : [];
+  return normalizeTextList(values, { fieldLabel, maxItemLength, maxItems });
+}
+
+function normalizeTicketSelections(value: unknown) {
+  if (!Array.isArray(value)) return { ok: true as const, value: [] as TicketSelectionInput[] };
+  if (value.length > 50) return { ok: false as const, error: "Too many ticket selections." };
+
+  const selections: TicketSelectionInput[] = [];
+
+  for (const item of value) {
+    const record = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+    const ticketTypeIdResult = normalizeOptionalUuid(
+      typeof record.ticketTypeId === "string" ? record.ticketTypeId : "",
+      "Ticket type"
+    );
+    if (!ticketTypeIdResult.ok) return ticketTypeIdResult;
+    if (!ticketTypeIdResult.value) continue;
+
+    const quantity = Math.max(0, Math.min(50, Number(record.quantity ?? 0) || 0));
+    if (quantity > 0) {
+      selections.push({ ticketTypeId: ticketTypeIdResult.value, quantity });
+    }
+  }
+
+  return { ok: true as const, value: selections };
 }
 
 function pickOne<T>(value: T | T[] | null | undefined) {
@@ -364,28 +418,77 @@ async function userFromRequest(supabase: SupabaseClient, request: NextRequest) {
 
 export async function POST(request: NextRequest, { params }: Params) {
   const { eventId } = await params;
+  const eventIdResult = normalizeOptionalUuid(eventId, "Event");
+  if (!eventIdResult.ok || !eventIdResult.value) {
+    return jsonError("This event is not available.", 404);
+  }
+
   const supabase = getSupabaseAdmin();
   const stripe = getStripe();
   const user = await userFromRequest(supabase, request);
-  const body = (await request.json()) as CheckoutBody;
+  const body = (await request.json().catch(() => null)) as CheckoutBody | null;
+
+  if (!body || typeof body !== "object") {
+    return jsonError("Invalid checkout request.");
+  }
 
   if (!user?.email) {
     return jsonError("Sign in before registering for events.", 401);
   }
 
-  const selections = (body.ticketSelections ?? [])
-    .map((selection) => ({
-      ticketTypeId: String(selection.ticketTypeId ?? "").trim(),
-      quantity: Math.max(0, Number(selection.quantity ?? 0) || 0),
-    }))
-    .filter((selection) => selection.ticketTypeId && selection.quantity > 0);
+  const selectionsResult = normalizeTicketSelections(body.ticketSelections);
+  const buyerFirstNameResult = getJsonText(body.buyerFirstName, "First name", 80);
+  const buyerLastNameResult = getJsonText(body.buyerLastName, "Last name", 80);
+  const buyerPhoneResult = normalizeOptionalPhone(
+    typeof body.buyerPhone === "string" ? body.buyerPhone : "",
+    "Phone"
+  );
+  const notesResult = getJsonTextarea(body.notes, "Notes", 2000);
+  const additionalAttendeeNamesResult = getJsonStringArray(
+    body.additionalAttendeeNames,
+    "Additional attendee names",
+    120,
+    100
+  );
+  const documentRequirementIdsResult = normalizeTextList(
+    Array.isArray(body.documentRequirementIds)
+      ? body.documentRequirementIds.map((item) => (typeof item === "string" ? item : ""))
+      : [],
+    { fieldLabel: "Document requirements", maxItemLength: 36, maxItems: 25 }
+  );
+  const documentSignatureNameResult = getJsonText(
+    body.documentSignatureName,
+    "Signature name",
+    120
+  );
+
+  const validationError = getValidationError([
+    selectionsResult,
+    buyerFirstNameResult,
+    buyerLastNameResult,
+    buyerPhoneResult,
+    notesResult,
+    additionalAttendeeNamesResult,
+    documentRequirementIdsResult,
+    documentSignatureNameResult,
+  ]);
+
+  if (validationError) {
+    return jsonError(validationError);
+  }
+
+  const selections = getValidatedValue(selectionsResult);
 
   if (!selections.length) {
     return jsonError("Select at least one ticket.");
   }
 
-  const buyerFirstName = String(body.buyerFirstName ?? "").trim();
-  const buyerLastName = String(body.buyerLastName ?? "").trim();
+  const buyerFirstName = getValidatedValue(buyerFirstNameResult);
+  const buyerLastName = getValidatedValue(buyerLastNameResult);
+  const buyerPhone = getValidatedValue(buyerPhoneResult);
+  const buyerNotes = getValidatedValue(notesResult);
+  const submittedDocumentRequirementIds = getValidatedValue(documentRequirementIdsResult);
+  const documentSignatureName = getValidatedValue(documentSignatureNameResult);
   const buyerName = [buyerFirstName, buyerLastName].filter(Boolean).join(" ").trim();
 
   if (!buyerName) {
@@ -421,7 +524,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       )
     `
     )
-    .eq("id", eventId)
+    .eq("id", eventIdResult.value)
     .maybeSingle<CartEventRow>();
 
   const studio = pickOne(event?.studios);
@@ -466,10 +569,10 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   const requiredDocumentRows = (requiredDocuments ?? []) as EventDocumentRequirementRow[];
   if (requiredDocumentRows.length > 0) {
-    const submittedIds = new Set(body.documentRequirementIds ?? []);
+    const submittedIds = new Set(submittedDocumentRequirementIds);
     const allSubmitted = requiredDocumentRows.every((document) => submittedIds.has(document.id));
 
-    if (!allSubmitted || !body.documentConsentAccepted || String(body.documentSignatureName ?? "").trim().length < 2) {
+    if (!allSubmitted || !body.documentConsentAccepted || documentSignatureName.length < 2) {
       return jsonError("Review and sign the required event documents before checkout.");
     }
   }
@@ -501,7 +604,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     );
   }
 
-  const additionalAttendeeNames = (body.additionalAttendeeNames ?? []).map((name) => name.trim()).filter(Boolean);
+  const additionalAttendeeNames = getValidatedValue(additionalAttendeeNamesResult);
   let additionalAttendeeCursor = 0;
   let totalAmount = 0;
   let currency = "USD";
@@ -534,8 +637,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       organizer_id: event.organizer_id,
       buyer_name: buyerName,
       buyer_email: buyerEmail,
-      buyer_phone: body.buyerPhone || null,
-      buyer_notes: body.notes || null,
+      buyer_phone: buyerPhone,
+      buyer_notes: buyerNotes || null,
       subtotal_amount: 0,
       total_amount: 0,
       currency,
@@ -598,7 +701,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           attendee_first_name: buyerFirstName || splitFullName(buyerName).firstName,
           attendee_last_name: buyerLastName || splitFullName(buyerName).lastName,
           attendee_email: buyerEmail,
-          attendee_phone: body.buyerPhone || null,
+          attendee_phone: buyerPhone,
           quantity,
           unit_price: unitPrice,
           total_price: ticketTotal,
@@ -607,7 +710,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           payment_status: "pending",
           registration_source: "public_event_page",
           source: "public_event_page",
-          notes: body.notes || null,
+          notes: buyerNotes || null,
         })
         .select("id")
         .single();
@@ -647,7 +750,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           first_name: parsed.firstName || "Guest",
           last_name: parsed.lastName || `${index + 1}`,
           email: index === 0 ? buyerEmail : null,
-          phone: index === 0 ? body.buyerPhone || null : null,
+          phone: index === 0 ? buyerPhone : null,
           attendee_role: "attendee",
           sort_order: index + 1,
         };
@@ -697,12 +800,12 @@ export async function POST(request: NextRequest, { params }: Params) {
             event_id: event.id,
             event_registration_id: registration.id,
             signer_user_id: user.id,
-            signer_name: body.documentSignatureName,
+            signer_name: documentSignatureName,
             signer_email: buyerEmail,
             signed_at: signedAt,
             signed_body: template.body,
             signature_method: "typed",
-            signature_text: body.documentSignatureName,
+            signature_text: documentSignatureName,
             consent_text: consentText,
             ip_address: signerIpAddress,
             user_agent: signerUserAgent,

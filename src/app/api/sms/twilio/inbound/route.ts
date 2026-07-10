@@ -1,6 +1,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { normalizeSmsPhone } from "@/lib/sms/compliance";
+import { cleanTextValue } from "@/lib/validation/forms";
 
 function getServiceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -16,8 +17,17 @@ function getServiceSupabase() {
   });
 }
 
+function escapeXml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 function twiml(message: string) {
-  return new Response(`<Response><Message>${message}</Message></Response>`, {
+  return new Response(`<Response><Message>${escapeXml(message)}</Message></Response>`, {
     status: 200,
     headers: {
       "Content-Type": "text/xml",
@@ -53,8 +63,22 @@ export async function POST(request: Request) {
   const formData = await request.formData();
   const from = normalizeSmsPhone(String(formData.get("From") ?? ""));
   const to = normalizeSmsPhone(String(formData.get("To") ?? ""));
-  const body = String(formData.get("Body") ?? "");
-  const messageSid = String(formData.get("MessageSid") ?? "");
+  const bodyResult = cleanTextValue(String(formData.get("Body") ?? ""), {
+    fieldLabel: "Message",
+    maxLength: 1600,
+    allowNewlines: true,
+  });
+  const sidResult = cleanTextValue(String(formData.get("MessageSid") ?? ""), {
+    fieldLabel: "MessageSid",
+    maxLength: 80,
+  });
+
+  if (!bodyResult.ok || !sidResult.ok) {
+    return twiml("We could not process that message. Please contact the studio directly.");
+  }
+
+  const body = bodyResult.value;
+  const messageSid = sidResult.value;
 
   if (!from) {
     return twiml("We could not recognize your phone number. Please contact the studio directly.");

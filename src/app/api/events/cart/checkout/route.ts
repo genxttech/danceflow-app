@@ -5,6 +5,17 @@ import {
 } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
 import { getStripe } from "@/lib/payments/stripe";
+import {
+  cleanFormText,
+  getValidatedValue,
+  getValidationError,
+  normalizeOptionalPhone,
+  normalizeRequiredEmail,
+  normalizeRequiredSlug,
+  normalizeOptionalUuid,
+  normalizeTextList,
+  rawFormString,
+} from "@/lib/validation/forms";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -24,17 +35,46 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function getStringList(formData: FormData, key: string) {
-  return formData
-    .getAll(key)
-    .map((value) => (typeof value === "string" ? value.trim() : ""))
-    .filter(Boolean);
-}
-
-function getInt(formData: FormData, key: string, fallback = 0) {
+function getBoundedInt(formData: FormData, key: string, fallback = 0, max = 50) {
   const raw = getString(formData, key);
   const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(0, parsed));
+}
+
+function getSafeTextList(formData: FormData, key: string, fieldLabel: string, maxItemLength = 120, maxItems = 100) {
+  const rawValues = formData
+    .getAll(key)
+    .map((value) => (typeof value === "string" ? value : ""));
+
+  return normalizeTextList(rawValues, {
+    fieldLabel,
+    maxItemLength,
+    maxItems,
+  });
+}
+
+function getSafeUuidList(formData: FormData, key: string, fieldLabel: string, maxItems = 100) {
+  const rawValues = formData
+    .getAll(key)
+    .map((value) => (typeof value === "string" ? value : ""));
+
+  const cleaned = normalizeTextList(rawValues, {
+    fieldLabel,
+    maxItemLength: 36,
+    maxItems,
+  });
+
+  if (!cleaned.ok) return cleaned;
+
+  for (const value of cleaned.value) {
+    const uuid = normalizeOptionalUuid(value, fieldLabel);
+    if (!uuid.ok || !uuid.value) {
+      return { ok: false as const, error: `${fieldLabel} contains an invalid selection.` };
+    }
+  }
+
+  return cleaned;
 }
 
 function splitFullName(fullName: string) {
@@ -299,49 +339,121 @@ export async function POST(request: NextRequest) {
   const stripe = getStripe();
   const formData = await request.formData();
 
-  const eventSlug = getString(formData, "eventSlug");
-  const buyerFirstName =
-    getString(formData, "attendeeFirstName") ||
-    getString(formData, "buyerFirstName");
-  const buyerLastName =
-    getString(formData, "attendeeLastName") ||
-    getString(formData, "buyerLastName");
-  const buyerName =
-    getString(formData, "buyerName") ||
-    [buyerFirstName, buyerLastName].filter(Boolean).join(" ");
-  const buyerEmail = (
-    getString(formData, "attendeeEmail") || getString(formData, "buyerEmail")
-  ).toLowerCase();
-  const buyerPhone =
-    getString(formData, "attendeePhone") || getString(formData, "buyerPhone");
-  const buyerNotes =
-    getString(formData, "notes") || getString(formData, "buyerNotes");
+  const eventSlugResult = normalizeRequiredSlug(rawFormString(formData, "eventSlug"), "Event");
+  const buyerFirstNameResult = cleanFormText(formData, "attendeeFirstName", {
+    fieldLabel: "First name",
+    maxLength: 80,
+  });
+  const fallbackBuyerFirstNameResult = cleanFormText(formData, "buyerFirstName", {
+    fieldLabel: "First name",
+    maxLength: 80,
+  });
+  const buyerLastNameResult = cleanFormText(formData, "attendeeLastName", {
+    fieldLabel: "Last name",
+    maxLength: 80,
+  });
+  const fallbackBuyerLastNameResult = cleanFormText(formData, "buyerLastName", {
+    fieldLabel: "Last name",
+    maxLength: 80,
+  });
+  const buyerNameResult = cleanFormText(formData, "buyerName", {
+    fieldLabel: "Buyer name",
+    maxLength: 160,
+  });
+  const buyerEmailResult = normalizeRequiredEmail(
+    rawFormString(formData, "attendeeEmail") || rawFormString(formData, "buyerEmail"),
+    "Email"
+  );
+  const buyerPhoneResult = normalizeOptionalPhone(
+    rawFormString(formData, "attendeePhone") || rawFormString(formData, "buyerPhone"),
+    "Phone"
+  );
+  const buyerNotesResult = cleanFormText(formData, "notes", {
+    fieldLabel: "Notes",
+    maxLength: 2000,
+    allowNewlines: true,
+  });
+  const fallbackBuyerNotesResult = cleanFormText(formData, "buyerNotes", {
+    fieldLabel: "Notes",
+    maxLength: 2000,
+    allowNewlines: true,
+  });
+  const legacyTicketTypeIdResult = normalizeOptionalUuid(rawFormString(formData, "ticketTypeId"), "Ticket type");
+  const ticketTypeIdsResult = getSafeUuidList(formData, "ticketTypeIds", "Ticket types", 50);
+  const ticketQuantitiesResult = getSafeTextList(formData, "ticketQuantities", "Ticket quantities", 6, 50);
+  const additionalAttendeeNamesResult = getSafeTextList(
+    formData,
+    "additionalAttendeeNames",
+    "Additional attendee names",
+    120,
+    100
+  );
+  const submittedDocumentRequirementIdsResult = getSafeUuidList(
+    formData,
+    "documentRequirementIds",
+    "Document requirements",
+    25
+  );
+  const documentSignatureNameResult = cleanFormText(formData, "documentSignatureName", {
+    fieldLabel: "Signature name",
+    maxLength: 120,
+  });
+  const slotIdsResult = getSafeUuidList(formData, "slotIds", "Coach slots", 50);
+  const slotIdResult = getSafeUuidList(formData, "slotId", "Coach slots", 50);
 
-  const legacyTicketTypeId = getString(formData, "ticketTypeId");
-  const legacyQuantity = getInt(
+  const validationError = getValidationError([
+    eventSlugResult,
+    buyerFirstNameResult,
+    fallbackBuyerFirstNameResult,
+    buyerLastNameResult,
+    fallbackBuyerLastNameResult,
+    buyerNameResult,
+    buyerEmailResult,
+    buyerPhoneResult,
+    buyerNotesResult,
+    fallbackBuyerNotesResult,
+    legacyTicketTypeIdResult,
+    ticketTypeIdsResult,
+    ticketQuantitiesResult,
+    additionalAttendeeNamesResult,
+    submittedDocumentRequirementIdsResult,
+    documentSignatureNameResult,
+    slotIdsResult,
+    slotIdResult,
+  ]);
+
+  const eventSlug = eventSlugResult.ok ? eventSlugResult.value : "";
+
+  if (validationError) {
+    return NextResponse.redirect(
+      absoluteEventUrl(request, eventSlug, `?error=${encodeURIComponent("invalid_input")}`),
+    );
+  }
+
+  const buyerFirstName = getValidatedValue(buyerFirstNameResult) || getValidatedValue(fallbackBuyerFirstNameResult);
+  const buyerLastName = getValidatedValue(buyerLastNameResult) || getValidatedValue(fallbackBuyerLastNameResult);
+  const explicitBuyerName = getValidatedValue(buyerNameResult);
+  const buyerName = explicitBuyerName || [buyerFirstName, buyerLastName].filter(Boolean).join(" ");
+  const buyerEmail = getValidatedValue(buyerEmailResult);
+  const buyerPhone = getValidatedValue(buyerPhoneResult);
+  const buyerNotes = getValidatedValue(buyerNotesResult) || getValidatedValue(fallbackBuyerNotesResult);
+
+  const legacyTicketTypeId = getValidatedValue(legacyTicketTypeIdResult) ?? "";
+  const legacyQuantity = getBoundedInt(
     formData,
     "quantity",
     legacyTicketTypeId ? 1 : 0,
+    50
   );
-  const ticketTypeIds = getStringList(formData, "ticketTypeIds");
-  const ticketQuantities = getStringList(formData, "ticketQuantities");
-  const additionalAttendeeNames = getStringList(
-    formData,
-    "additionalAttendeeNames",
-  );
-  const submittedDocumentRequirementIds = getStringList(
-    formData,
-    "documentRequirementIds",
-  );
-  const documentSignatureName = getString(formData, "documentSignatureName");
+  const ticketTypeIds = getValidatedValue(ticketTypeIdsResult);
+  const ticketQuantities = getValidatedValue(ticketQuantitiesResult);
+  const additionalAttendeeNames = getValidatedValue(additionalAttendeeNamesResult);
+  const submittedDocumentRequirementIds = getValidatedValue(submittedDocumentRequirementIdsResult);
+  const documentSignatureName = getValidatedValue(documentSignatureNameResult);
   const documentConsentAccepted =
     getString(formData, "documentConsentAccepted") === "on";
   const slotIds = Array.from(
-    new Set(
-      getStringList(formData, "slotIds").concat(
-        getStringList(formData, "slotId"),
-      ),
-    ),
+    new Set(getValidatedValue(slotIdsResult).concat(getValidatedValue(slotIdResult))),
   );
 
   if (!eventSlug) {
@@ -361,7 +473,7 @@ export async function POST(request: NextRequest) {
       ticketTypeId,
       quantity: Math.max(
         0,
-        Number.parseInt(ticketQuantities[index] ?? "0", 10) || 0,
+        Math.min(50, Number.parseInt(ticketQuantities[index] ?? "0", 10) || 0),
       ),
     }))
     .filter((selection) => selection.ticketTypeId && selection.quantity > 0);

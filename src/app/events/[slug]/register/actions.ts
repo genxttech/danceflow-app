@@ -12,6 +12,17 @@ import {
   buildEventWaitlistSmsTemplate,
 } from "@/lib/notifications/templates";
 import { sendEventRegistrationPush } from "@/lib/notifications/eventPush";
+import {
+  cleanFormText,
+  getValidatedValue,
+  getValidationError,
+  normalizeOptionalPhone,
+  normalizeRequiredEmail,
+  normalizeRequiredSlug,
+  normalizeOptionalUuid,
+  normalizeTextList,
+  rawFormString,
+} from "@/lib/validation/forms";
 
 type StudioSubscriptionPlanRow = {
   status: string | null;
@@ -84,17 +95,23 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function getInt(formData: FormData, key: string, fallback = 1) {
+function getBoundedInt(formData: FormData, key: string, fallback = 1, max = 50) {
   const raw = getString(formData, key);
   const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(0, parsed));
 }
 
-function getStringList(formData: FormData, key: string) {
-  return formData
+function getSafeTextList(formData: FormData, key: string, fieldLabel: string, maxItemLength = 120, maxItems = 50) {
+  const rawValues = formData
     .getAll(key)
-    .map((value) => (typeof value === "string" ? value.trim() : ""))
-    .filter(Boolean);
+    .map((value) => (typeof value === "string" ? value : ""));
+
+  return normalizeTextList(rawValues, {
+    fieldLabel,
+    maxItemLength,
+    maxItems,
+  });
 }
 
 function splitFullName(fullName: string) {
@@ -725,29 +742,60 @@ export async function createEventRegistrationAction(
   _prevState: ActionState = initialState,
   formData: FormData
 ): Promise<ActionState> {
-  const eventSlug = getString(formData, "eventSlug");
-  const ticketTypeId = getString(formData, "ticketTypeId");
-  const attendeeFirstName = getString(formData, "attendeeFirstName");
-  const attendeeLastName = getString(formData, "attendeeLastName");
-  const attendeeEmail = getString(formData, "attendeeEmail");
-  const attendeePhone = getString(formData, "attendeePhone");
-  const notes = getString(formData, "notes");
-  const quantity = getInt(formData, "quantity", 1);
-  const additionalAttendeeNames = getStringList(formData, "additionalAttendeeNames");
+  const eventSlugResult = normalizeRequiredSlug(rawFormString(formData, "eventSlug"), "Event");
+  const ticketTypeIdResult = normalizeOptionalUuid(rawFormString(formData, "ticketTypeId"), "Ticket type");
+  const attendeeFirstNameResult = cleanFormText(formData, "attendeeFirstName", {
+    fieldLabel: "First name",
+    maxLength: 80,
+    required: true,
+  });
+  const attendeeLastNameResult = cleanFormText(formData, "attendeeLastName", {
+    fieldLabel: "Last name",
+    maxLength: 80,
+    required: true,
+  });
+  const attendeeEmailResult = normalizeRequiredEmail(rawFormString(formData, "attendeeEmail"));
+  const attendeePhoneResult = normalizeOptionalPhone(rawFormString(formData, "attendeePhone"));
+  const notesResult = cleanFormText(formData, "notes", {
+    fieldLabel: "Notes",
+    maxLength: 2000,
+    allowNewlines: true,
+  });
+  const additionalAttendeeNamesResult = getSafeTextList(
+    formData,
+    "additionalAttendeeNames",
+    "Additional attendee names",
+    120,
+    100
+  );
 
-  if (!eventSlug) {
-    return { error: "Missing event slug.", success: "" };
+  const validationError = getValidationError([
+    eventSlugResult,
+    ticketTypeIdResult,
+    attendeeFirstNameResult,
+    attendeeLastNameResult,
+    attendeeEmailResult,
+    attendeePhoneResult,
+    notesResult,
+    additionalAttendeeNamesResult,
+  ]);
+
+  if (validationError) {
+    return { error: validationError, success: "" };
   }
+
+  const eventSlug = getValidatedValue(eventSlugResult);
+  const ticketTypeId = getValidatedValue(ticketTypeIdResult);
+  const attendeeFirstName = getValidatedValue(attendeeFirstNameResult);
+  const attendeeLastName = getValidatedValue(attendeeLastNameResult);
+  const attendeeEmail = getValidatedValue(attendeeEmailResult);
+  const attendeePhone = getValidatedValue(attendeePhoneResult);
+  const notes = getValidatedValue(notesResult);
+  const additionalAttendeeNames = getValidatedValue(additionalAttendeeNamesResult);
+  const quantity = getBoundedInt(formData, "quantity", 1, 50);
 
   if (!ticketTypeId) {
     return { error: "Select a ticket type.", success: "" };
-  }
-
-  if (!attendeeFirstName || !attendeeLastName || !attendeeEmail) {
-    return {
-      error: "First name, last name, and email are required.",
-      success: "",
-    };
   }
 
   try {
@@ -1136,10 +1184,18 @@ export async function createEventRegistrationAction(
 }
 
 export async function retryEventRegistrationCheckoutAction(formData: FormData) {
-  const eventSlug = getString(formData, "eventSlug");
-  const registrationId = getString(formData, "registrationId");
+  const eventSlugResult = normalizeRequiredSlug(rawFormString(formData, "eventSlug"), "Event");
+  const registrationIdResult = normalizeOptionalUuid(rawFormString(formData, "registrationId"), "Registration");
+  const validationError = getValidationError([eventSlugResult, registrationIdResult]);
 
-  if (!eventSlug || !registrationId) {
+  if (validationError) {
+    redirect("/events");
+  }
+
+  const eventSlug = getValidatedValue(eventSlugResult);
+  const registrationId = getValidatedValue(registrationIdResult);
+
+  if (!registrationId) {
     redirect("/events");
   }
 

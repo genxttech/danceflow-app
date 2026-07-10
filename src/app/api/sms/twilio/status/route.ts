@@ -1,6 +1,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { mapTwilioStatusToSmsLogStatus } from "@/lib/sms/twilio";
+import { cleanTextValue } from "@/lib/validation/forms";
 
 function getServiceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -26,14 +27,36 @@ export async function POST(request: Request) {
   }
 
   const formData = await request.formData();
-  const messageSid = String(formData.get("MessageSid") ?? "");
-  const messageStatus = String(formData.get("MessageStatus") ?? "");
-  const errorCode = formData.get("ErrorCode");
-  const errorMessage = formData.get("ErrorMessage");
+  const messageSidResult = cleanTextValue(String(formData.get("MessageSid") ?? ""), {
+    fieldLabel: "MessageSid",
+    maxLength: 80,
+    required: true,
+  });
+  const messageStatusResult = cleanTextValue(String(formData.get("MessageStatus") ?? ""), {
+    fieldLabel: "MessageStatus",
+    maxLength: 40,
+  });
+  const errorCodeResult = cleanTextValue(String(formData.get("ErrorCode") ?? ""), {
+    fieldLabel: "ErrorCode",
+    maxLength: 40,
+  });
+  const errorMessageResult = cleanTextValue(String(formData.get("ErrorMessage") ?? ""), {
+    fieldLabel: "ErrorMessage",
+    maxLength: 500,
+  });
 
-  if (!messageSid) {
-    return NextResponse.json({ ok: false, error: "Missing MessageSid" }, { status: 400 });
+  if (!messageSidResult.ok) {
+    return NextResponse.json({ ok: false, error: messageSidResult.error }, { status: 400 });
   }
+
+  if (!messageStatusResult.ok || !errorCodeResult.ok || !errorMessageResult.ok) {
+    return NextResponse.json({ ok: false, error: "Invalid status payload." }, { status: 400 });
+  }
+
+  const messageSid = messageSidResult.value;
+  const messageStatus = messageStatusResult.value;
+  const errorCode = errorCodeResult.value;
+  const errorMessage = errorMessageResult.value;
 
   const supabase = getServiceSupabase();
 
@@ -46,8 +69,8 @@ export async function POST(request: Request) {
 
   const updatePayload: Record<string, string | null> = {
     status: mappedStatus,
-    provider_error_code: errorCode ? String(errorCode) : null,
-    provider_error_message: errorMessage ? String(errorMessage) : null,
+    provider_error_code: errorCode || null,
+    provider_error_message: errorMessage || null,
     updated_at: timestamp,
   };
 

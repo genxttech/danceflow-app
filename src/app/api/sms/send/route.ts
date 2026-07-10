@@ -8,6 +8,7 @@ import {
   normalizeSmsPhone,
 } from "@/lib/sms/compliance";
 import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
+import { cleanTextValue, normalizeOptionalUuid } from "@/lib/validation/forms";
 
 function canSendClientSms(role: string | null | undefined) {
   return ["studio_owner", "studio_admin", "front_desk"].includes(
@@ -34,26 +35,33 @@ export async function POST(request: Request) {
       | { clientId?: string; body?: string }
       | null;
 
-    const clientId = String(payload?.clientId ?? "").trim();
-    const requestedBody = String(payload?.body ?? "").trim();
+    const clientIdResult = normalizeOptionalUuid(
+      typeof payload?.clientId === "string" ? payload.clientId : "",
+      "Client"
+    );
+    const bodyResult = cleanTextValue(
+      typeof payload?.body === "string" ? payload.body : "",
+      {
+        fieldLabel: "Text message",
+        maxLength: 1200,
+        required: true,
+        allowNewlines: true,
+      }
+    );
 
-    if (!clientId) {
+    if (!clientIdResult.ok || !clientIdResult.value) {
       return NextResponse.json({ ok: false, error: "Client not found." }, { status: 400 });
     }
 
-    if (!requestedBody) {
+    if (!bodyResult.ok) {
       return NextResponse.json(
-        { ok: false, error: "Enter a message before sending a text." },
+        { ok: false, error: bodyResult.error },
         { status: 400 },
       );
     }
 
-    if (requestedBody.length > 1200) {
-      return NextResponse.json(
-        { ok: false, error: "Text messages must be 1,200 characters or less." },
-        { status: 400 },
-      );
-    }
+    const clientId = clientIdResult.value;
+    const requestedBody = bodyResult.value;
 
     const { data: studio, error: studioError } = await supabase
       .from("studios")
