@@ -60,11 +60,40 @@ const danceStyleGroups = [
   },
 ];
 
-function numberParam(value: string | undefined) {
-  if (!value) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+
+const RADIUS_OPTIONS = [25, 50, 100] as const;
+const ALL_DANCE_STYLES = danceStyleGroups.flatMap((group) => [group.label, ...group.styles]);
+
+function cleanSearchParam(value: string | undefined, maxLength = 100) {
+  return (value ?? "")
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, maxLength);
 }
+
+function normalizeSelect(value: string | undefined, allowedValues: readonly string[]) {
+  const normalized = cleanSearchParam(value).toLowerCase();
+  return allowedValues.includes(normalized) ? normalized : "";
+}
+
+function normalizeStyle(value: string | undefined) {
+  const cleaned = cleanSearchParam(value, 80);
+  return ALL_DANCE_STYLES.includes(cleaned) ? cleaned : "";
+}
+
+function normalizeRadius(value: string | undefined) {
+  const parsed = Number(value ?? "50");
+  return RADIUS_OPTIONS.includes(parsed as (typeof RADIUS_OPTIONS)[number]) ? parsed : 50;
+}
+
+function normalizeCoordinate(value: string | undefined, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min || parsed > max) return null;
+  return Math.round(parsed * 1_000_000) / 1_000_000;
+}
+
+
 
 export default async function NowHiringDiscoveryPage({
   searchParams,
@@ -72,15 +101,24 @@ export default async function NowHiringDiscoveryPage({
   searchParams: SearchParams;
 }) {
   const query = await searchParams;
+  const searchText = cleanSearchParam(query.q, 120);
+  const selectedRoleType = normalizeSelect(query.roleType, roleOptions);
+  const selectedEmploymentType = normalizeSelect(query.employmentType, employmentOptions);
+  const selectedLocationType = normalizeSelect(query.locationType, locationOptions);
+  const selectedStyle = normalizeStyle(query.style);
+  const selectedRadius = normalizeRadius(query.radius);
+  const latitude = normalizeCoordinate(query.lat, -90, 90);
+  const longitude = normalizeCoordinate(query.lng, -180, 180);
+
   const postings = await getPublishedStudioJobPostings({
-    employmentType: query.employmentType,
-    latitude: numberParam(query.lat),
-    locationType: query.locationType,
-    longitude: numberParam(query.lng),
-    query: query.q,
-    radiusMiles: numberParam(query.radius) ?? 50,
-    roleType: query.roleType,
-    style: query.style,
+    employmentType: selectedEmploymentType || undefined,
+    latitude,
+    locationType: selectedLocationType || undefined,
+    longitude,
+    query: searchText || undefined,
+    radiusMiles: selectedRadius,
+    roleType: selectedRoleType || undefined,
+    style: selectedStyle || undefined,
   });
 
   return (
@@ -115,13 +153,13 @@ export default async function NowHiringDiscoveryPage({
           <div className="grid gap-3 md:grid-cols-3">
             <input
               name="q"
-              defaultValue={query.q ?? ""}
+              defaultValue={searchText}
               placeholder="Search jobs, studios, cities, or styles"
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm md:col-span-3"
             />
             <select
               name="roleType"
-              defaultValue={query.roleType ?? ""}
+              defaultValue={selectedRoleType}
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
             >
               <option value="">Any role</option>
@@ -133,7 +171,7 @@ export default async function NowHiringDiscoveryPage({
             </select>
             <select
               name="employmentType"
-              defaultValue={query.employmentType ?? ""}
+              defaultValue={selectedEmploymentType}
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
             >
               <option value="">Any employment</option>
@@ -145,7 +183,7 @@ export default async function NowHiringDiscoveryPage({
             </select>
             <select
               name="locationType"
-              defaultValue={query.locationType ?? ""}
+              defaultValue={selectedLocationType}
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
             >
               <option value="">Any location type</option>
@@ -157,7 +195,7 @@ export default async function NowHiringDiscoveryPage({
             </select>
             <select
               name="style"
-              defaultValue={query.style ?? ""}
+              defaultValue={selectedStyle}
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm md:col-span-2"
             >
               <option value="">Any dance style</option>
@@ -174,7 +212,7 @@ export default async function NowHiringDiscoveryPage({
             </select>
             <select
               name="radius"
-              defaultValue={query.radius ?? "50"}
+              defaultValue={String(selectedRadius)}
               className="rounded-xl border border-slate-200 px-3 py-2 text-sm"
             >
               <option value="25">25 miles</option>

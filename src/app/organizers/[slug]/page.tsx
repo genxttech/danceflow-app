@@ -6,6 +6,28 @@ type Params = Promise<{
   slug: string;
 }>;
 
+
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
+
+function normalizeSlug(value: string | undefined) {
+  const slug = (value ?? "")
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .slice(0, 80);
+  return SLUG_PATTERN.test(slug) ? slug : "";
+}
+
+function safeExternalUrl(value: string | null) {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+
 type OrganizerRow = {
   id: string;
   name: string;
@@ -70,7 +92,12 @@ export default async function PublicOrganizerProfilePage({
 }: {
   params: Params;
 }) {
-  const { slug } = await params;
+  const rawParams = await params;
+  const slug = normalizeSlug(rawParams.slug);
+
+  if (!slug) {
+    notFound();
+  }
   const supabase = await createClient();
 
   const { data: organizer, error: organizerError } = await supabase
@@ -98,6 +125,7 @@ export default async function PublicOrganizerProfilePage({
   }
 
   const typedOrganizer = organizer as OrganizerRow;
+  const organizerWebsiteUrl = safeExternalUrl(typedOrganizer.website_url);
 
   const { data: events, error: eventsError } = await supabase
     .from("events")
@@ -209,9 +237,9 @@ export default async function PublicOrganizerProfilePage({
                 </p>
               </div>
 
-              {typedOrganizer.website_url ? (
+              {organizerWebsiteUrl ? (
                 <a
-                  href={typedOrganizer.website_url}
+                  href={organizerWebsiteUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="block rounded-xl border bg-white px-4 py-2 text-center hover:bg-slate-50"
@@ -389,9 +417,9 @@ export default async function PublicOrganizerProfilePage({
                 Browse All Events
               </Link>
 
-              {typedOrganizer.website_url ? (
+              {organizerWebsiteUrl ? (
                 <a
-                  href={typedOrganizer.website_url}
+                  href={organizerWebsiteUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="rounded-xl border px-4 py-3 hover:bg-slate-50"

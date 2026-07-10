@@ -6,6 +6,35 @@ import {
 } from "@/lib/booking/selfServiceQueries";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const LESSON_TYPES = ["private_lesson", "group_class", "coaching", "floor_rental"] as const;
+
+function cleanInput(value: string | null | undefined, maxLength = 120) {
+  return (value ?? "")
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, maxLength);
+}
+
+function normalizeSlug(value: string | null | undefined) {
+  const slug = cleanInput(value, 80);
+  return SLUG_PATTERN.test(slug) ? slug : "";
+}
+
+function normalizeOptionalUuid(value: string | null | undefined) {
+  const id = cleanInput(value, 36);
+  return id && UUID_PATTERN.test(id) ? id : null;
+}
+
+function normalizeLessonType(value: string | null | undefined) {
+  const type = cleanInput(value, 80);
+  return LESSON_TYPES.includes(type as (typeof LESSON_TYPES)[number]) ? type : "private_lesson";
+}
+
+
 export async function GET(request: Request) {
   const user = await getStudentApiUser(request);
 
@@ -14,7 +43,7 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const studioSlug = url.searchParams.get("studioSlug")?.trim();
+  const studioSlug = normalizeSlug(url.searchParams.get("studioSlug"));
 
   if (!studioSlug) {
     return NextResponse.json({ error: "studioSlug is required." }, { status: 400 });
@@ -25,11 +54,11 @@ export async function GET(request: Request) {
       supabase: createAdminClient() as unknown as SupabaseQueryClient,
       studioSlug,
       portalUserId: user.id,
-      lessonType: url.searchParams.get("lessonType")?.trim() || "private_lesson",
-      instructorId: url.searchParams.get("instructorId")?.trim() || null,
-      roomId: url.searchParams.get("roomId")?.trim() || null,
+      lessonType: normalizeLessonType(url.searchParams.get("lessonType")),
+      instructorId: normalizeOptionalUuid(url.searchParams.get("instructorId")),
+      roomId: normalizeOptionalUuid(url.searchParams.get("roomId")),
       action:
-        url.searchParams.get("action") === "reschedule"
+        cleanInput(url.searchParams.get("action"), 20) === "reschedule"
           ? "reschedule"
           : "book",
     });

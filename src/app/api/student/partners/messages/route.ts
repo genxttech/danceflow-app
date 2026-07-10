@@ -9,6 +9,27 @@ type PartnerMessageBody = {
   threadId?: string;
 };
 
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+
+function cleanInput(value: unknown, maxLength = 2000) {
+  return typeof value === "string"
+    ? value
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\r/g, "\n")
+        .replace(/\n{4,}/g, "\n\n\n")
+        .trim()
+        .slice(0, maxLength)
+    : "";
+}
+
+function normalizeOptionalUuid(value: unknown) {
+  const id = cleanInput(value, 36);
+  return id && UUID_PATTERN.test(id) ? id : "";
+}
+
+
 type PartnerProfileRow = {
   id: string;
   display_name: string | null;
@@ -27,8 +48,8 @@ function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-function cleanBody(value: string | undefined) {
-  return (value ?? "").trim().slice(0, 2000);
+function cleanBody(value: unknown) {
+  return cleanInput(value, 2000);
 }
 
 function previewMessage(value: string) {
@@ -74,6 +95,8 @@ export async function POST(request: NextRequest) {
 
   const payload = (await request.json().catch(() => null)) as PartnerMessageBody | null;
   const body = cleanBody(payload?.body);
+  const partnerProfileId = normalizeOptionalUuid(payload?.partnerProfileId);
+  const threadIdFromPayload = normalizeOptionalUuid(payload?.threadId);
 
   if (!body) {
     return jsonError("Add a message first.");
@@ -82,11 +105,11 @@ export async function POST(request: NextRequest) {
   const supabase = createAdminClient();
   const now = new Date().toISOString();
 
-  if (payload?.partnerProfileId) {
+  if (partnerProfileId) {
     const { data: partnerProfile, error: profileError } = await supabase
       .from("dancer_partner_profiles")
       .select("id, display_name, user_id")
-      .eq("id", payload.partnerProfileId)
+      .eq("id", partnerProfileId)
       .single<PartnerProfileRow>();
 
     if (profileError || !partnerProfile) {
@@ -179,14 +202,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ messageId: messageRow.id, threadId });
   }
 
-  if (!payload?.threadId) {
+  if (!threadIdFromPayload) {
     return jsonError("A partner profile or conversation thread is required.");
   }
 
   const { data: thread, error: threadError } = await supabase
     .from("partner_conversation_threads")
     .select("id, partner_profile_id, partner_user_id, requester_user_id, status")
-    .eq("id", payload.threadId)
+    .eq("id", threadIdFromPayload)
     .single<PartnerThreadRow>();
 
   if (threadError || !thread) {

@@ -5,6 +5,23 @@ import { createAdminClient } from "@/lib/supabase/admin";
 type StudioRow = { id: string; slug: string; name: string | null; public_name: string | null };
 type ClientRow = { id: string };
 
+
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
+
+function cleanInput(value: string | null | undefined, maxLength = 120) {
+  return (value ?? "")
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, maxLength);
+}
+
+function normalizeSlug(value: string | null | undefined) {
+  const slug = cleanInput(value, 80);
+  return SLUG_PATTERN.test(slug) ? slug : "";
+}
+
+
 export async function GET(request: Request) {
   const user = await getStudentApiUser(request);
 
@@ -13,7 +30,7 @@ export async function GET(request: Request) {
   }
 
   const url = new URL(request.url);
-  const studioSlug = url.searchParams.get("studioSlug")?.trim();
+  const studioSlug = normalizeSlug(url.searchParams.get("studioSlug"));
 
   if (!studioSlug) {
     return NextResponse.json({ error: "studioSlug is required." }, { status: 400 });

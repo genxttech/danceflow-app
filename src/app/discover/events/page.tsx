@@ -116,6 +116,44 @@ const STYLE_OPTIONS = [
 
 const RADIUS_OPTIONS = [10, 25, 50, 100];
 
+
+const SEARCH_TEXT_MAX_LENGTH = 80;
+const STATE_PATTERN = /^[a-z]{0,2}$/;
+const ZIP_PATTERN = /^[a-z0-9 -]{0,12}$/;
+
+function cleanSearchParam(value: string | undefined, maxLength = SEARCH_TEXT_MAX_LENGTH) {
+  return (value ?? "")
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, maxLength);
+}
+
+function normalizeOptionParam<T extends string>(
+  value: string | undefined,
+  allowedValues: readonly T[],
+) {
+  const normalized = cleanSearchParam(value).toLowerCase() as T;
+  return allowedValues.includes(normalized) ? normalized : "";
+}
+
+function normalizeLocationMode(value: string | undefined) {
+  return value === "current" ? "current" : "manual";
+}
+
+function normalizeRadiusParam(value: string | undefined) {
+  const parsed = Number(value ?? "25");
+  return RADIUS_OPTIONS.includes(parsed) ? parsed : 25;
+}
+
+function normalizeCoordinate(value: string | undefined, min: number, max: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < min || parsed > max) return null;
+  return Math.round(parsed * 1_000_000) / 1_000_000;
+}
+
+
+
 function hostStudioName(studio: StudioRow | undefined) {
   if (!studio) return "Studio";
   return studio.public_name?.trim() || studio.name;
@@ -409,10 +447,6 @@ function normalizeZip(value: string | null) {
   return (value ?? "").trim().toLowerCase();
 }
 
-function toNumber(value: string | undefined) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
 
 function haversineMiles(
   lat1: number,
@@ -441,17 +475,23 @@ export default async function DiscoverEventsPage({
 }) {
   const query = await searchParams;
 
-  const q = (query.q ?? "").trim().toLowerCase();
-  const city = (query.city ?? "").trim().toLowerCase();
-  const state = (query.state ?? "").trim().toLowerCase();
-  const zip = (query.zip ?? "").trim().toLowerCase();
-  const style = (query.style ?? "").trim().toLowerCase();
+  const qRaw = cleanSearchParam(query.q, 120);
+  const cityRaw = cleanSearchParam(query.city, 80);
+  const stateRaw = cleanSearchParam(query.state, 2);
+  const zipRaw = cleanSearchParam(query.zip, 12);
+  const q = qRaw.toLowerCase();
+  const city = cityRaw.toLowerCase();
+  const state = STATE_PATTERN.test(stateRaw.toLowerCase()) ? stateRaw.toLowerCase() : "";
+  const zip = ZIP_PATTERN.test(zipRaw.toLowerCase()) ? zipRaw.toLowerCase() : "";
+  const style = normalizeOptionParam(
+    query.style,
+    STYLE_OPTIONS.map((option) => option.key),
+  );
   const beginner = query.beginner === "1";
-  const parsedRadius = Number(query.radius ?? "25");
-  const radius = RADIUS_OPTIONS.includes(parsedRadius) ? parsedRadius : 25;
-  const locationMode = query.locationMode === "current" ? "current" : "manual";
-  const searchLatitude = toNumber(query.latitude);
-  const searchLongitude = toNumber(query.longitude);
+  const radius = normalizeRadiusParam(query.radius);
+  const locationMode = normalizeLocationMode(query.locationMode);
+  const searchLatitude = normalizeCoordinate(query.latitude, -90, 90);
+  const searchLongitude = normalizeCoordinate(query.longitude, -180, 180);
 
   const supabase = await createClient();
 
@@ -1011,13 +1051,13 @@ export default async function DiscoverEventsPage({
                 id="search-latitude"
                 type="hidden"
                 name="latitude"
-                defaultValue={query.latitude ?? ""}
+                defaultValue={searchLatitude !== null ? String(searchLatitude) : ""}
               />
               <input
                 id="search-longitude"
                 type="hidden"
                 name="longitude"
-                defaultValue={query.longitude ?? ""}
+                defaultValue={searchLongitude !== null ? String(searchLongitude) : ""}
               />
 
               <div className="grid gap-4 xl:grid-cols-[2fr_1fr_1fr_1fr_1fr_auto]">
@@ -1031,7 +1071,7 @@ export default async function DiscoverEventsPage({
                   <input
                     id="q"
                     name="q"
-                    defaultValue={query.q ?? ""}
+                    defaultValue={qRaw}
                     placeholder="Event name, host, or dance style"
                     className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
                   />
@@ -1047,7 +1087,7 @@ export default async function DiscoverEventsPage({
                   <input
                     id="city"
                     name="city"
-                    defaultValue={query.city ?? ""}
+                    defaultValue={cityRaw}
                     className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
                   />
                 </div>
@@ -1062,7 +1102,7 @@ export default async function DiscoverEventsPage({
                   <input
                     id="state"
                     name="state"
-                    defaultValue={query.state ?? ""}
+                    defaultValue={stateRaw}
                     className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
                   />
                 </div>
@@ -1077,7 +1117,7 @@ export default async function DiscoverEventsPage({
                   <input
                     id="zip"
                     name="zip"
-                    defaultValue={query.zip ?? ""}
+                    defaultValue={zipRaw}
                     className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
                   />
                 </div>
@@ -1092,7 +1132,7 @@ export default async function DiscoverEventsPage({
                   <select
                     id="style"
                     name="style"
-                    defaultValue={query.style ?? ""}
+                    defaultValue={style}
                     className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5"
                   >
                     <option value="">All styles</option>
