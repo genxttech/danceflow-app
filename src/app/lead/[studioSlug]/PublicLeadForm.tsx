@@ -116,6 +116,8 @@ export default function PublicLeadForm({
               id="firstName"
               name="firstName"
               required
+              maxLength={80}
+              autoComplete="given-name"
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
             />
           </div>
@@ -131,6 +133,8 @@ export default function PublicLeadForm({
               id="lastName"
               name="lastName"
               required
+              maxLength={80}
+              autoComplete="family-name"
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
             />
           </div>
@@ -148,6 +152,8 @@ export default function PublicLeadForm({
               id="email"
               name="email"
               type="email"
+              autoComplete="email"
+              maxLength={254}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
             />
           </div>
@@ -163,6 +169,10 @@ export default function PublicLeadForm({
               id="phone"
               name="phone"
               type="tel"
+              inputMode="tel"
+              autoComplete="tel"
+              maxLength={30}
+              pattern="^[+0-9().\s-]{0,30}$"
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
             />
           </div>
@@ -181,6 +191,7 @@ export default function PublicLeadForm({
               name="danceInterests"
               required={introBookingEnabled}
               placeholder="Wedding dance, salsa, ballroom..."
+              maxLength={250}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
             />
           </div>
@@ -237,6 +248,7 @@ export default function PublicLeadForm({
               id="referralSource"
               name="referralSource"
               placeholder="Google, Instagram, friend..."
+              maxLength={120}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
             />
           </div>
@@ -260,6 +272,7 @@ export default function PublicLeadForm({
                 ? "Tell us your goals, preferred days/times, and whether this is for social dancing, a wedding, competition, or something else."
                 : "Tell us about your goals, timeline, event, or questions."
             }
+            maxLength={2000}
             className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-slate-400 focus:ring-2 focus:ring-slate-200"
           />
         </div>

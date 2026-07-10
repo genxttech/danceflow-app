@@ -2,15 +2,21 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import {
+  cleanFormText,
+  normalizeOptionalEmail,
+  normalizeOptionalEnum,
+  normalizeOptionalPhone,
+  normalizeRequiredSlug,
+  rawFormString,
+  safeLocalRedirectPath,
+  getValidationError,
+  getValidatedValue,
+} from "@/lib/validation/forms";
 
 export type PublicLeadFormState = {
   error: string;
 };
-
-function getString(formData: FormData, key: string) {
-  const value = formData.get(key);
-  return typeof value === "string" ? value.trim() : "";
-}
 
 function intentLabel(value: string) {
   return value === "intro_lesson"
@@ -22,26 +28,85 @@ export async function submitPublicLeadAction(
   _prevState: PublicLeadFormState,
   formData: FormData
 ): Promise<PublicLeadFormState> {
-  const studioSlug = getString(formData, "studioSlug");
-  const successRedirect = getString(formData, "successRedirect");
-  const inquiryIntent = getString(formData, "inquiryIntent") || "general_inquiry";
-  const firstName = getString(formData, "firstName");
-  const lastName = getString(formData, "lastName");
-  const email = getString(formData, "email").toLowerCase();
-  const phone = getString(formData, "phone");
-  const danceInterests = getString(formData, "danceInterests");
-  const skillLevel = getString(formData, "skillLevel");
-  const referralSource = getString(formData, "referralSource");
-  const preferredContactMethod = getString(formData, "preferredContactMethod");
-  const notes = getString(formData, "notes");
+  const studioSlugResult = normalizeRequiredSlug(
+    rawFormString(formData, "studioSlug"),
+    "Studio"
+  );
+  const inquiryIntentResult = normalizeOptionalEnum(
+    rawFormString(formData, "inquiryIntent") || "general_inquiry",
+    ["general_inquiry", "intro_lesson"] as const,
+    "Inquiry type"
+  );
+  const firstNameResult = cleanFormText(formData, "firstName", {
+    fieldLabel: "First name",
+    maxLength: 80,
+    required: true,
+  });
+  const lastNameResult = cleanFormText(formData, "lastName", {
+    fieldLabel: "Last name",
+    maxLength: 80,
+    required: true,
+  });
+  const emailResult = normalizeOptionalEmail(rawFormString(formData, "email"));
+  const phoneResult = normalizeOptionalPhone(rawFormString(formData, "phone"));
+  const danceInterestsResult = cleanFormText(formData, "danceInterests", {
+    fieldLabel: "Dance interests",
+    maxLength: 250,
+  });
+  const skillLevelResult = normalizeOptionalEnum(
+    rawFormString(formData, "skillLevel"),
+    ["beginner", "returning", "intermediate", "advanced"] as const,
+    "Skill level"
+  );
+  const referralSourceResult = cleanFormText(formData, "referralSource", {
+    fieldLabel: "Referral source",
+    maxLength: 120,
+  });
+  const preferredContactMethodResult = normalizeOptionalEnum(
+    rawFormString(formData, "preferredContactMethod"),
+    ["phone", "text", "email"] as const,
+    "Preferred contact method"
+  );
+  const notesResult = cleanFormText(formData, "notes", {
+    fieldLabel: "Notes",
+    maxLength: 2000,
+    allowNewlines: true,
+  });
 
-  if (!studioSlug) {
-    return { error: "Missing studio." };
+  const validationResults = [
+    studioSlugResult,
+    inquiryIntentResult,
+    firstNameResult,
+    lastNameResult,
+    emailResult,
+    phoneResult,
+    danceInterestsResult,
+    skillLevelResult,
+    referralSourceResult,
+    preferredContactMethodResult,
+    notesResult,
+  ];
+
+  const validationError = getValidationError(validationResults);
+  if (validationError) {
+    return { error: validationError };
   }
 
-  if (!firstName || !lastName) {
-    return { error: "First name and last name are required." };
-  }
+  const studioSlug = getValidatedValue(studioSlugResult);
+  const successRedirect = safeLocalRedirectPath(
+    rawFormString(formData, "successRedirect"),
+    `/lead/${encodeURIComponent(studioSlug)}?success=1`
+  );
+  const inquiryIntent = getValidatedValue(inquiryIntentResult) || "general_inquiry";
+  const firstName = getValidatedValue(firstNameResult);
+  const lastName = getValidatedValue(lastNameResult);
+  const email = getValidatedValue(emailResult);
+  const phone = getValidatedValue(phoneResult);
+  const danceInterests = getValidatedValue(danceInterestsResult);
+  const skillLevel = getValidatedValue(skillLevelResult);
+  const referralSource = getValidatedValue(referralSourceResult);
+  const preferredContactMethod = getValidatedValue(preferredContactMethodResult);
+  const notes = getValidatedValue(notesResult);
 
   if (!email && !phone) {
     return { error: "Please provide at least an email or phone number." };
@@ -108,10 +173,10 @@ export async function submitPublicLeadAction(
       studio_id: studio.id,
       first_name: firstName,
       last_name: lastName,
-      email: email || null,
-      phone: phone || null,
+      email,
+      phone,
       status: "lead",
-      skill_level: skillLevel || null,
+      skill_level: skillLevel,
       dance_interests: danceInterests || null,
       referral_source: referralSource || sourceLabel,
       notes: combinedNotes || null,
@@ -126,8 +191,5 @@ export async function submitPublicLeadAction(
     };
   }
 
-  redirect(
-    successRedirect ||
-      `/lead/${encodeURIComponent(studioSlug)}?success=1`
-  );
+  redirect(successRedirect);
 }

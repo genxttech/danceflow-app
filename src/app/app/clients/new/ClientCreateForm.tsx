@@ -195,6 +195,8 @@ export default function ClientCreateForm({
             id="firstName"
             name="firstName"
             required
+            maxLength={80}
+            autoComplete="given-name"
             className="w-full rounded-xl border border-slate-300 px-3 py-2"
           />
         </div>
@@ -207,6 +209,8 @@ export default function ClientCreateForm({
             id="lastName"
             name="lastName"
             required
+            maxLength={80}
+            autoComplete="family-name"
             className="w-full rounded-xl border border-slate-300 px-3 py-2"
           />
         </div>
@@ -219,6 +223,8 @@ export default function ClientCreateForm({
             id="email"
             name="email"
             type="email"
+            autoComplete="email"
+            maxLength={254}
             className="w-full rounded-xl border border-slate-300 px-3 py-2"
           />
         </div>
@@ -230,6 +236,11 @@ export default function ClientCreateForm({
           <input
             id="phone"
             name="phone"
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            maxLength={30}
+            pattern="^[+0-9().\s-]{0,30}$"
             className="w-full rounded-xl border border-slate-300 px-3 py-2"
           />
         </div>
@@ -344,6 +355,8 @@ export default function ClientCreateForm({
                   id="partnerFirstName"
                   name="partnerFirstName"
                   required={includePartner}
+                  maxLength={80}
+                  autoComplete="given-name"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 />
               </div>
@@ -356,6 +369,8 @@ export default function ClientCreateForm({
                   id="partnerLastName"
                   name="partnerLastName"
                   required={includePartner}
+                  maxLength={80}
+                  autoComplete="family-name"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 />
               </div>
@@ -368,6 +383,8 @@ export default function ClientCreateForm({
                   id="partnerEmail"
                   name="partnerEmail"
                   type="email"
+                  autoComplete="email"
+                  maxLength={254}
                   className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 />
               </div>
@@ -379,6 +396,11 @@ export default function ClientCreateForm({
                 <input
                   id="partnerPhone"
                   name="partnerPhone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  maxLength={30}
+                  pattern="^[+0-9().\s-]{0,30}$"
                   className="w-full rounded-xl border border-slate-300 px-3 py-2"
                 />
               </div>
@@ -467,6 +489,7 @@ export default function ClientCreateForm({
           id="notes"
           name="notes"
           rows={5}
+          maxLength={3000}
           className="w-full rounded-xl border border-slate-300 px-3 py-2"
         />
       </div>

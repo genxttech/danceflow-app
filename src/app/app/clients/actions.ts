@@ -11,6 +11,17 @@ import {
   isAllowedOptionValue,
   normalizeOptionValue,
 } from "@/lib/forms/options";
+import {
+  cleanFormText,
+  getValidationError,
+  getValidatedValue,
+  normalizeOptionalDate,
+  normalizeOptionalEmail,
+  normalizeOptionalPhone,
+  normalizeOptionalUuid,
+  normalizeTextList,
+  rawFormString,
+} from "@/lib/validation/forms";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -24,6 +35,20 @@ function getStringList(formData: FormData, key: string) {
     .filter(Boolean);
 }
 
+function normalizeClientTextList(
+  formData: FormData,
+  key: string,
+  fieldLabel: string,
+  allowedValues: readonly string[]
+) {
+  return normalizeTextList(getStringList(formData, key), {
+    fieldLabel,
+    maxItems: 40,
+    maxItemLength: 120,
+    allowedValues,
+  });
+}
+
 function appendQueryParam(url: string, key: string, value: string) {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
@@ -32,6 +57,59 @@ function appendQueryParam(url: string, key: string, value: string) {
 const CLIENT_PHOTO_BUCKET = "client-photos";
 const MAX_CLIENT_PHOTO_BYTES = 5 * 1024 * 1024;
 const ALLOWED_CLIENT_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const CLIENT_DANCE_STYLE_VALUES = [
+  "American Smooth",
+  "American Smooth - Waltz",
+  "American Smooth - Tango",
+  "American Smooth - Foxtrot",
+  "American Smooth - Viennese Waltz",
+  "American Rhythm",
+  "American Rhythm - Cha Cha",
+  "American Rhythm - Rumba",
+  "American Rhythm - East Coast Swing",
+  "American Rhythm - Bolero",
+  "American Rhythm - Mambo",
+  "International Ballroom",
+  "International Ballroom - Waltz",
+  "International Ballroom - Tango",
+  "International Ballroom - Viennese Waltz",
+  "International Ballroom - Foxtrot",
+  "International Ballroom - Quickstep",
+  "International Latin",
+  "International Latin - Cha Cha",
+  "International Latin - Samba",
+  "International Latin - Rumba",
+  "International Latin - Paso Doble",
+  "International Latin - Jive",
+  "Country",
+  "Country - Two Step",
+  "Country - West Coast Swing",
+  "Country - Nightclub Two Step",
+  "Country - Waltz",
+  "Country - Polka",
+  "Social / Club",
+  "Social / Club - Salsa",
+  "Social / Club - Bachata",
+  "Social / Club - Merengue",
+  "Social / Club - Hustle",
+  "Social / Club - Argentine Tango"
+] as const;
+
+const CLIENT_DANCE_GOAL_VALUES = [
+  "Social dancing",
+  "Practice partner",
+  "Wedding dance",
+  "Date night",
+  "Showcase",
+  "Competition",
+  "Confidence",
+  "Fitness",
+  "New hobby",
+  "Meet people",
+  "Improve technique",
+  "Prepare for an event"
+] as const;
+
 
 function getOptionalImageFile(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -176,8 +254,8 @@ function validateClientDropdowns(params: {
 function normalizeClientPayload(params: {
   firstName: string;
   lastName: string;
-  email: string;
-  phone: string;
+  email: string | null;
+  phone: string | null;
   birthday: string;
   addressLine1: string;
   addressLine2: string;
@@ -261,44 +339,148 @@ export async function createClientAction(
   try {
     const { supabase, studioId } = await getCurrentUserStudioContext();
 
-    const firstName = getString(formData, "firstName");
-    const lastName = getString(formData, "lastName");
-    const email = getString(formData, "email").toLowerCase();
-    const phone = getString(formData, "phone");
-    const birthday = getString(formData, "birthday");
-    const addressLine1 = getString(formData, "addressLine1");
-    const addressLine2 = getString(formData, "addressLine2");
-    const city = getString(formData, "city");
-    const state = getString(formData, "state");
-    const postalCode = getString(formData, "postalCode");
-    const country = getString(formData, "country");
-    const danceStyles = getStringList(formData, "danceStyles");
-    const danceGoals = getStringList(formData, "danceGoals");
+    const firstNameResult = cleanFormText(formData, "firstName", {
+      fieldLabel: "First name",
+      maxLength: 80,
+      required: true,
+    });
+    const lastNameResult = cleanFormText(formData, "lastName", {
+      fieldLabel: "Last name",
+      maxLength: 80,
+      required: true,
+    });
+    const emailResult = normalizeOptionalEmail(rawFormString(formData, "email"));
+    const phoneResult = normalizeOptionalPhone(rawFormString(formData, "phone"));
+    const birthdayResult = normalizeOptionalDate(rawFormString(formData, "birthday"), "Birthday");
+    const addressLine1Result = cleanFormText(formData, "addressLine1", {
+      fieldLabel: "Address line 1",
+      maxLength: 160,
+    });
+    const addressLine2Result = cleanFormText(formData, "addressLine2", {
+      fieldLabel: "Address line 2",
+      maxLength: 160,
+    });
+    const cityResult = cleanFormText(formData, "city", {
+      fieldLabel: "City",
+      maxLength: 80,
+    });
+    const stateResult = cleanFormText(formData, "state", {
+      fieldLabel: "State",
+      maxLength: 80,
+    });
+    const postalCodeResult = cleanFormText(formData, "postalCode", {
+      fieldLabel: "ZIP / postal code",
+      maxLength: 20,
+    });
+    const countryResult = cleanFormText(formData, "country", {
+      fieldLabel: "Country",
+      maxLength: 80,
+    });
+    const danceStylesResult = normalizeClientTextList(
+      formData,
+      "danceStyles",
+      "Dance styles",
+      CLIENT_DANCE_STYLE_VALUES
+    );
+    const danceGoalsResult = normalizeClientTextList(
+      formData,
+      "danceGoals",
+      "Dance goals",
+      CLIENT_DANCE_GOAL_VALUES
+    );
+    const notesResult = cleanFormText(formData, "notes", {
+      fieldLabel: "Notes",
+      maxLength: 3000,
+      allowNewlines: true,
+    });
+    const partnerFirstNameResult = cleanFormText(formData, "partnerFirstName", {
+      fieldLabel: "Partner first name",
+      maxLength: 80,
+    });
+    const partnerLastNameResult = cleanFormText(formData, "partnerLastName", {
+      fieldLabel: "Partner last name",
+      maxLength: 80,
+    });
+    const partnerEmailResult = normalizeOptionalEmail(
+      rawFormString(formData, "partnerEmail"),
+      "Partner email"
+    );
+    const partnerPhoneResult = normalizeOptionalPhone(
+      rawFormString(formData, "partnerPhone"),
+      "Partner phone"
+    );
+    const partnerDanceStylesResult = normalizeClientTextList(
+      formData,
+      "partnerDanceStyles",
+      "Partner dance styles",
+      CLIENT_DANCE_STYLE_VALUES
+    );
+    const partnerDanceGoalsResult = normalizeClientTextList(
+      formData,
+      "partnerDanceGoals",
+      "Partner dance goals",
+      CLIENT_DANCE_GOAL_VALUES
+    );
+    const linkedInstructorIdResult = normalizeOptionalUuid(
+      rawFormString(formData, "linkedInstructorId"),
+      "Linked instructor"
+    );
+
+    const validationError = getValidationError([
+      firstNameResult,
+      lastNameResult,
+      emailResult,
+      phoneResult,
+      birthdayResult,
+      addressLine1Result,
+      addressLine2Result,
+      cityResult,
+      stateResult,
+      postalCodeResult,
+      countryResult,
+      danceStylesResult,
+      danceGoalsResult,
+      notesResult,
+      partnerFirstNameResult,
+      partnerLastNameResult,
+      partnerEmailResult,
+      partnerPhoneResult,
+      partnerDanceStylesResult,
+      partnerDanceGoalsResult,
+      linkedInstructorIdResult,
+    ]);
+    if (validationError) {
+      return { error: validationError };
+    }
+
+    const firstName = getValidatedValue(firstNameResult);
+    const lastName = getValidatedValue(lastNameResult);
+    const email = getValidatedValue(emailResult);
+    const phone = getValidatedValue(phoneResult);
+    const birthday = getValidatedValue(birthdayResult) ?? "";
+    const addressLine1 = getValidatedValue(addressLine1Result);
+    const addressLine2 = getValidatedValue(addressLine2Result);
+    const city = getValidatedValue(cityResult);
+    const state = getValidatedValue(stateResult);
+    const postalCode = getValidatedValue(postalCodeResult);
+    const country = getValidatedValue(countryResult);
+    const danceStyles = getValidatedValue(danceStylesResult);
+    const danceGoals = getValidatedValue(danceGoalsResult);
     const skillLevel = getString(formData, "skillLevel");
-    const notes = getString(formData, "notes");
+    const notes = getValidatedValue(notesResult);
     const referralSource = getString(formData, "referralSource");
     const status = getString(formData, "status") || "lead";
-    const linkedInstructorIdRaw = getString(formData, "linkedInstructorId");
+    const linkedInstructorId = getValidatedValue(linkedInstructorIdResult);
     const isIndependentInstructor =
       formData.get("isIndependentInstructor") === "on";
     const clientPhoto = getOptionalImageFile(formData, "clientPhoto");
     const createPartner = formData.get("createPartner") === "on";
-    const partnerFirstName = getString(formData, "partnerFirstName");
-    const partnerLastName = getString(formData, "partnerLastName");
-    const partnerEmail = getString(formData, "partnerEmail").toLowerCase();
-    const partnerPhone = getString(formData, "partnerPhone");
-    const partnerDanceStyles = getStringList(formData, "partnerDanceStyles");
-    const partnerDanceGoals = getStringList(formData, "partnerDanceGoals");
-
-    const linkedInstructorId = linkedInstructorIdRaw || null;
-
-    if (!firstName || !lastName) {
-      return { error: "First name and last name are required." };
-    }
-
-    if (birthday && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
-      return { error: "Birthday must be a valid date." };
-    }
+    const partnerFirstName = getValidatedValue(partnerFirstNameResult);
+    const partnerLastName = getValidatedValue(partnerLastNameResult);
+    const partnerEmail = getValidatedValue(partnerEmailResult);
+    const partnerPhone = getValidatedValue(partnerPhoneResult);
+    const partnerDanceStyles = getValidatedValue(partnerDanceStylesResult);
+    const partnerDanceGoals = getValidatedValue(partnerDanceGoalsResult);
 
     if (createPartner && (!partnerFirstName || !partnerLastName)) {
       return {
@@ -479,45 +661,122 @@ export async function updateClientAction(
   try {
     const { supabase, studioId } = await getCurrentUserStudioContext();
 
-    const clientId = getString(formData, "clientId");
-    const firstName = getString(formData, "firstName");
-    const lastName = getString(formData, "lastName");
-    const email = getString(formData, "email").toLowerCase();
-    const phone = getString(formData, "phone");
-    const birthday = getString(formData, "birthday");
-    const addressLine1 = getString(formData, "addressLine1");
-    const addressLine2 = getString(formData, "addressLine2");
-    const city = getString(formData, "city");
-    const state = getString(formData, "state");
-    const postalCode = getString(formData, "postalCode");
-    const country = getString(formData, "country");
-    const danceInterests = getString(formData, "danceInterests");
-    const danceStyles = getStringList(formData, "danceStyles");
-    const danceGoals = getStringList(formData, "danceGoals");
-    const skillLevel = getString(formData, "skillLevel");
-    const notes = getString(formData, "notes");
-    const referralSource = getString(formData, "referralSource");
-    const status = getString(formData, "status") || "lead";
-    const linkedInstructorIdRaw = getString(formData, "linkedInstructorId");
-    const isIndependentInstructor =
-      formData.get("isIndependentInstructor") === "on";
-    const clientPhoto = getOptionalImageFile(formData, "clientPhoto");
+    const clientIdResult = normalizeOptionalUuid(rawFormString(formData, "clientId"), "Client");
+    const firstNameResult = cleanFormText(formData, "firstName", {
+      fieldLabel: "First name",
+      maxLength: 80,
+      required: true,
+    });
+    const lastNameResult = cleanFormText(formData, "lastName", {
+      fieldLabel: "Last name",
+      maxLength: 80,
+      required: true,
+    });
+    const emailResult = normalizeOptionalEmail(rawFormString(formData, "email"));
+    const phoneResult = normalizeOptionalPhone(rawFormString(formData, "phone"));
+    const birthdayResult = normalizeOptionalDate(rawFormString(formData, "birthday"), "Birthday");
+    const addressLine1Result = cleanFormText(formData, "addressLine1", {
+      fieldLabel: "Address line 1",
+      maxLength: 160,
+    });
+    const addressLine2Result = cleanFormText(formData, "addressLine2", {
+      fieldLabel: "Address line 2",
+      maxLength: 160,
+    });
+    const cityResult = cleanFormText(formData, "city", {
+      fieldLabel: "City",
+      maxLength: 80,
+    });
+    const stateResult = cleanFormText(formData, "state", {
+      fieldLabel: "State",
+      maxLength: 80,
+    });
+    const postalCodeResult = cleanFormText(formData, "postalCode", {
+      fieldLabel: "ZIP / postal code",
+      maxLength: 20,
+    });
+    const countryResult = cleanFormText(formData, "country", {
+      fieldLabel: "Country",
+      maxLength: 80,
+    });
+    const danceInterestsResult = cleanFormText(formData, "danceInterests", {
+      fieldLabel: "Dance interests",
+      maxLength: 500,
+    });
+    const danceStylesResult = normalizeClientTextList(
+      formData,
+      "danceStyles",
+      "Dance styles",
+      CLIENT_DANCE_STYLE_VALUES
+    );
+    const danceGoalsResult = normalizeClientTextList(
+      formData,
+      "danceGoals",
+      "Dance goals",
+      CLIENT_DANCE_GOAL_VALUES
+    );
+    const notesResult = cleanFormText(formData, "notes", {
+      fieldLabel: "Notes",
+      maxLength: 3000,
+      allowNewlines: true,
+    });
+    const linkedInstructorIdResult = normalizeOptionalUuid(
+      rawFormString(formData, "linkedInstructorId"),
+      "Linked instructor"
+    );
 
-    const linkedInstructorId = linkedInstructorIdRaw || null;
+    const validationError = getValidationError([
+      clientIdResult,
+      firstNameResult,
+      lastNameResult,
+      emailResult,
+      phoneResult,
+      birthdayResult,
+      addressLine1Result,
+      addressLine2Result,
+      cityResult,
+      stateResult,
+      postalCodeResult,
+      countryResult,
+      danceInterestsResult,
+      danceStylesResult,
+      danceGoalsResult,
+      notesResult,
+      linkedInstructorIdResult,
+    ]);
+    if (validationError) {
+      return { error: validationError };
+    }
 
+    const clientId = getValidatedValue(clientIdResult);
     if (!clientId) {
       return { error: "Missing client id." };
     }
 
     clientIdForRedirect = clientId;
 
-    if (!firstName || !lastName) {
-      return { error: "First name and last name are required." };
-    }
-
-    if (birthday && !/^\d{4}-\d{2}-\d{2}$/.test(birthday)) {
-      return { error: "Birthday must be a valid date." };
-    }
+    const firstName = getValidatedValue(firstNameResult);
+    const lastName = getValidatedValue(lastNameResult);
+    const email = getValidatedValue(emailResult);
+    const phone = getValidatedValue(phoneResult);
+    const birthday = getValidatedValue(birthdayResult) ?? "";
+    const addressLine1 = getValidatedValue(addressLine1Result);
+    const addressLine2 = getValidatedValue(addressLine2Result);
+    const city = getValidatedValue(cityResult);
+    const state = getValidatedValue(stateResult);
+    const postalCode = getValidatedValue(postalCodeResult);
+    const country = getValidatedValue(countryResult);
+    const danceInterests = getValidatedValue(danceInterestsResult);
+    const danceStyles = getValidatedValue(danceStylesResult);
+    const danceGoals = getValidatedValue(danceGoalsResult);
+    const skillLevel = getString(formData, "skillLevel");
+    const notes = getValidatedValue(notesResult);
+    const referralSource = getString(formData, "referralSource");
+    const status = getString(formData, "status") || "lead";
+    const linkedInstructorId = getValidatedValue(linkedInstructorIdResult);
+    const isIndependentInstructor =
+      formData.get("isIndependentInstructor") === "on";
+    const clientPhoto = getOptionalImageFile(formData, "clientPhoto");
 
     const dropdownError = validateClientDropdowns({
       status,

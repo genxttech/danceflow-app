@@ -306,6 +306,8 @@ export default function EditClientForm({
                 name="firstName"
                 defaultValue={client.first_name}
                 required
+                maxLength={80}
+                autoComplete="given-name"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2"
               />
             </div>
@@ -322,6 +324,8 @@ export default function EditClientForm({
                 name="lastName"
                 defaultValue={client.last_name}
                 required
+                maxLength={80}
+                autoComplete="family-name"
                 className="w-full rounded-xl border border-slate-300 px-3 py-2"
               />
             </div>
@@ -340,6 +344,8 @@ export default function EditClientForm({
                 name="email"
                 type="email"
                 defaultValue={client.email ?? ""}
+                autoComplete="email"
+                maxLength={254}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2"
               />
             </div>
@@ -354,6 +360,11 @@ export default function EditClientForm({
               <input
                 id="phone"
                 name="phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={30}
+                pattern="^[+0-9().\s-]{0,30}$"
                 defaultValue={client.phone ?? ""}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2"
               />
@@ -400,6 +411,7 @@ export default function EditClientForm({
                 name="country"
                 defaultValue={client.country ?? ""}
                 placeholder="United States"
+                maxLength={80}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2"
               />
             </div>
@@ -417,6 +429,7 @@ export default function EditClientForm({
               name="addressLine1"
               defaultValue={client.address_line1 ?? ""}
               placeholder="Street address"
+              maxLength={160}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
             />
           </div>
@@ -433,6 +446,7 @@ export default function EditClientForm({
               name="addressLine2"
               defaultValue={client.address_line2 ?? ""}
               placeholder="Apartment, suite, unit, building"
+              maxLength={160}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
             />
           </div>
@@ -449,6 +463,7 @@ export default function EditClientForm({
                 id="city"
                 name="city"
                 defaultValue={client.city ?? ""}
+                maxLength={80}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2"
               />
             </div>
@@ -464,6 +479,7 @@ export default function EditClientForm({
                 id="state"
                 name="state"
                 defaultValue={client.state ?? ""}
+                maxLength={80}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2"
               />
             </div>
@@ -479,6 +495,7 @@ export default function EditClientForm({
                 id="postalCode"
                 name="postalCode"
                 defaultValue={client.postal_code ?? ""}
+                maxLength={20}
                 className="w-full rounded-xl border border-slate-300 px-3 py-2"
               />
             </div>
@@ -610,6 +627,7 @@ export default function EditClientForm({
               name="notes"
               rows={5}
               defaultValue={client.notes ?? ""}
+              maxLength={3000}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
             />
           </div>

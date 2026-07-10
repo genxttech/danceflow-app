@@ -8,6 +8,16 @@ import {
   type SelfServiceBlackout,
 } from "@/lib/booking/selfServiceAvailability";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  cleanFormText,
+  normalizeOptionalPhone,
+  normalizeRequiredEmail,
+  normalizeRequiredSlug,
+  normalizeOptionalUuid,
+  rawFormString,
+  getValidationError,
+  getValidatedValue,
+} from "@/lib/validation/forms";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -470,33 +480,84 @@ export async function createPublicIntroBookingAction(
   formData: FormData
 ) {
   try {
-    const studioSlug = getString(formData, "studioSlug");
-    const slotStart = getString(formData, "slotStart");
-    const slotEnd = getString(formData, "slotEnd");
-    const instructorId = getString(formData, "instructorId");
-    const roomId = getString(formData, "roomId") || null;
-    const firstName = getString(formData, "firstName");
-    const lastName = getString(formData, "lastName");
-    const email = getString(formData, "email").toLowerCase();
-    const phone = getString(formData, "phone");
-    const danceInterests = getString(formData, "danceInterests");
-    const notes = getString(formData, "notes");
+    const studioSlugResult = normalizeRequiredSlug(
+      rawFormString(formData, "studioSlug"),
+      "Studio"
+    );
+    const slotStartResult = cleanFormText(formData, "slotStart", {
+      fieldLabel: "Selected start time",
+      maxLength: 40,
+      required: true,
+    });
+    const slotEndResult = cleanFormText(formData, "slotEnd", {
+      fieldLabel: "Selected end time",
+      maxLength: 40,
+      required: true,
+    });
+    const instructorIdResult = normalizeOptionalUuid(
+      rawFormString(formData, "instructorId"),
+      "Instructor"
+    );
+    const roomIdResult = normalizeOptionalUuid(
+      rawFormString(formData, "roomId"),
+      "Room"
+    );
+    const firstNameResult = cleanFormText(formData, "firstName", {
+      fieldLabel: "First name",
+      maxLength: 80,
+      required: true,
+    });
+    const lastNameResult = cleanFormText(formData, "lastName", {
+      fieldLabel: "Last name",
+      maxLength: 80,
+      required: true,
+    });
+    const emailResult = normalizeRequiredEmail(rawFormString(formData, "email"));
+    const phoneResult = normalizeOptionalPhone(rawFormString(formData, "phone"));
+    const danceInterestsResult = cleanFormText(formData, "danceInterests", {
+      fieldLabel: "Dance interests",
+      maxLength: 250,
+    });
+    const notesResult = cleanFormText(formData, "notes", {
+      fieldLabel: "Notes",
+      maxLength: 2000,
+      allowNewlines: true,
+    });
 
-    if (!studioSlug) {
-      return { error: "Missing studio slug." };
+    const validationResults = [
+      studioSlugResult,
+      slotStartResult,
+      slotEndResult,
+      instructorIdResult,
+      roomIdResult,
+      firstNameResult,
+      lastNameResult,
+      emailResult,
+      phoneResult,
+      danceInterestsResult,
+      notesResult,
+    ];
+
+    const validationError = getValidationError(validationResults);
+    if (validationError) {
+      return { error: validationError };
     }
 
-    if (!slotStart) {
-      return { error: "Please choose an intro lesson time." };
-    }
-
-    if (!slotEnd || !instructorId) {
+    const instructorId = getValidatedValue(instructorIdResult);
+    if (!instructorId) {
       return { error: "Please choose an instructor and intro lesson time." };
     }
 
-    if (!firstName || !lastName || !email) {
-      return { error: "First name, last name, and email are required." };
-    }
+    const studioSlug = getValidatedValue(studioSlugResult);
+    const slotStart = getValidatedValue(slotStartResult);
+    const slotEnd = getValidatedValue(slotEndResult);
+    const roomId = getValidatedValue(roomIdResult);
+    const firstName = getValidatedValue(firstNameResult);
+    const lastName = getValidatedValue(lastNameResult);
+    const email = getValidatedValue(emailResult);
+    const phone = getValidatedValue(phoneResult);
+    const danceInterests = getValidatedValue(danceInterestsResult);
+    const notes = getValidatedValue(notesResult);
 
     const { supabase, studio, settings } = await getStudioAndSettings(studioSlug);
     const studioTimeZone = getStudioTimeZone(settings.timezone);
@@ -544,7 +605,7 @@ export async function createPublicIntroBookingAction(
           first_name: firstName,
           last_name: lastName,
           email,
-          phone: phone || null,
+          phone,
           status: "lead",
           dance_interests: danceInterests || null,
           notes: notes || null,
@@ -677,7 +738,7 @@ export async function createPublicIntroBookingAction(
       bookingRequestId: bookingRequest.id,
       customerName,
       customerEmail: email,
-      customerPhone: phone || null,
+      customerPhone: phone,
       requestedStartsAt: chosenSlot.start,
       studioTimeZone,
       danceInterests: danceInterests || null,

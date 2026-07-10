@@ -61,6 +61,7 @@ export default function BookingRequestForm({
               name="firstName"
               required
               autoComplete="given-name"
+              maxLength={80}
               className={inputClass}
             />
           </div>
@@ -74,6 +75,7 @@ export default function BookingRequestForm({
               name="lastName"
               required
               autoComplete="family-name"
+              maxLength={80}
               className={inputClass}
             />
           </div>
@@ -88,6 +90,7 @@ export default function BookingRequestForm({
               type="email"
               required
               autoComplete="email"
+              maxLength={254}
               className={inputClass}
             />
           </div>
@@ -100,7 +103,10 @@ export default function BookingRequestForm({
               id="phone"
               name="phone"
               type="tel"
+              inputMode="tel"
               autoComplete="tel"
+              maxLength={30}
+              pattern="^[+0-9().\s-]{0,30}$"
               className={inputClass}
             />
           </div>
@@ -114,6 +120,7 @@ export default function BookingRequestForm({
             id="danceInterests"
             name="danceInterests"
             placeholder="Two-step, ballroom, country swing..."
+            maxLength={250}
             className={inputClass}
           />
         </div>
@@ -127,6 +134,7 @@ export default function BookingRequestForm({
             name="notes"
             rows={4}
             placeholder="Anything you'd like the studio to know before your intro lesson?"
+            maxLength={2000}
             className={inputClass}
           />
         </div>
