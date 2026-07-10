@@ -3,20 +3,51 @@
 import { redirect } from "next/navigation";
 import { requireClientEditAccess } from "@/lib/auth/serverRoleGuard";
 
-function getString(formData: FormData, key: string) {
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const PAYMENT_METHODS = new Set(["card", "cash", "check", "ach", "venmo", "zelle", "other"]);
+const PAYMENT_STATUSES = new Set(["pending", "paid", "processed", "complete", "completed", "failed", "refunded"]);
+const PAYMENT_ACTIONS = new Set(["manual", "charge_now", "send_to_portal", "terminal"]);
+const ENTRY_MODES = new Set(["standard", "sell_package_and_pay", "existing_package_payment"]);
+const SERVICE_TYPES = new Set(["general", "floor_rental", "event_registration", "other"]);
+
+function cleanText(value: string, maxLength = 1000) {
+  return value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function getString(formData: FormData, key: string, maxLength = 1000) {
   const value = formData.get(key);
-  return typeof value === "string" ? value.trim() : "";
+  return typeof value === "string" ? cleanText(value, maxLength) : "";
+}
+
+function isUuid(value: string) {
+  return UUID_PATTERN.test(value);
+}
+
+function safeReturnPath(value: string, fallback: string) {
+  const cleaned = cleanText(value, 400);
+  if (!cleaned || !cleaned.startsWith("/") || cleaned.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(cleaned)) {
+    return fallback;
+  }
+  return cleaned;
+}
+
+function isDateOnly(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function getReturnTo(formData: FormData, fallback: string, success: string) {
-  const returnTo = getString(formData, "returnTo");
-  if (!returnTo) return `${fallback}?success=${success}`;
+  const returnTo = safeReturnPath(getString(formData, "returnTo", 400), fallback);
   return `${returnTo}${returnTo.includes("?") ? "&" : "?"}success=${success}`;
 }
 
 function getCancelledReturnTo(formData: FormData, fallback: string) {
-  const returnTo = getString(formData, "returnTo");
-  if (!returnTo) return `${fallback}?error=payment_cancelled`;
+  const returnTo = safeReturnPath(getString(formData, "returnTo", 400), fallback);
   return `${returnTo}${returnTo.includes("?") ? "&" : "?"}error=payment_cancelled`;
 }
 
@@ -28,8 +59,11 @@ function formatCurrency(value: number | null) {
 }
 
 function getNumber(value: string) {
-  const parsed = Number(value);
-  return Number.isNaN(parsed) ? null : parsed;
+  const normalized = value.replace(/[$,\s]/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100000) return null;
+  return Math.round(parsed * 100) / 100;
 }
 
 function getDateValueFromIso(value: string) {
@@ -40,6 +74,10 @@ function getPaymentDateIso(formData: FormData) {
   const rawPaymentDate = getString(formData, "paymentDate");
 
   if (!rawPaymentDate) {
+    return new Date().toISOString();
+  }
+
+  if (!isDateOnly(rawPaymentDate)) {
     return new Date().toISOString();
   }
 
@@ -77,9 +115,7 @@ function applyDiscount(baseAmount: number, discountPercent: number | null, disco
 }
 
 function normalizePaymentAction(value: string) {
-  if (value === "charge_now") return "charge_now";
-  if (value === "send_to_portal") return "send_to_portal";
-  if (value === "terminal") return "terminal";
+  if (PAYMENT_ACTIONS.has(value)) return value;
   return "manual";
 }
 
@@ -101,8 +137,10 @@ export async function createPaymentAction(
   try {
     const { supabase, studioId, user } = await requireClientEditAccess();
 
-    const entryMode = getString(formData, "entryMode");
-    const serviceType = getString(formData, "serviceType");
+    const requestedEntryMode = getString(formData, "entryMode", 80) || "standard";
+    const entryMode = ENTRY_MODES.has(requestedEntryMode) ? requestedEntryMode : "standard";
+    const requestedServiceType = getString(formData, "serviceType", 80) || "general";
+    const serviceType = SERVICE_TYPES.has(requestedServiceType) ? requestedServiceType : "general";
     const paymentAction = normalizePaymentAction(getString(formData, "paymentAction"));
     const clientId = getString(formData, "clientId");
     const clientPackageId = getString(formData, "clientPackageId");
@@ -111,12 +149,13 @@ export async function createPaymentAction(
     const amountRaw = getString(formData, "amount");
     const paymentMethod =
       paymentAction === "manual"
-        ? getString(formData, "paymentMethod")
+        ? getString(formData, "paymentMethod", 40)
         : paymentAction === "terminal"
           ? "card"
           : "card";
-    const status = paymentAction === "manual" ? getString(formData, "status") || "paid" : "pending";
-    const notes = getString(formData, "notes");
+    const requestedStatus = paymentAction === "manual" ? getString(formData, "status", 40) || "paid" : "pending";
+    const status = PAYMENT_STATUSES.has(requestedStatus) ? requestedStatus : "paid";
+    const notes = getString(formData, "notes", 1200);
     const accountCreditToApplyRaw = getString(formData, "accountCreditToApply");
     const accountCreditToApply = getNumber(accountCreditToApplyRaw || "0") ?? 0;
     const selectedPaymentDateIso = getPaymentDateIso(formData);
@@ -133,6 +172,18 @@ export async function createPaymentAction(
 
     if (!clientId) {
       return { error: "Client is required." };
+    }
+
+    if (!isUuid(clientId)) {
+      return { error: "Invalid client selection." };
+    }
+
+    if ((clientPackageId && !isUuid(clientPackageId)) || (packageTemplateId && !isUuid(packageTemplateId))) {
+      return { error: "Invalid package selection." };
+    }
+
+    if (paymentAction === "manual" && !PAYMENT_METHODS.has(paymentMethod)) {
+      return { error: "Payment method is invalid." };
     }
 
     let resolvedClientPackageId: string | null = clientPackageId || null;

@@ -451,7 +451,9 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
             <input
               id="quickAmount"
               type="number"
+              inputMode="decimal"
               min="0.01"
+              max="100000"
               step="0.01"
               value={customAmount}
               onChange={(event) => setCustomAmount(event.target.value)}
@@ -468,6 +470,8 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
             <input
               id="guestName"
               value={guestName}
+              maxLength={120}
+              autoComplete="off"
               onChange={(event) => setGuestName(event.target.value)}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
               placeholder="Walk-in name"
@@ -482,6 +486,7 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
             <input
               id="quickNotes"
               value={notes}
+              maxLength={500}
               onChange={(event) => setNotes(event.target.value)}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
               placeholder="Example: Saturday social"
@@ -496,6 +501,8 @@ export default function QuickChargeClient({ readers }: { readers: ReaderOption[]
             <input
               id="externalReference"
               value={externalReference}
+              maxLength={180}
+              autoComplete="off"
               onChange={(event) => setExternalReference(event.target.value)}
               className="w-full rounded-xl border border-slate-300 px-3 py-2"
               placeholder="Stripe receipt/ref"

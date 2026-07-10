@@ -165,6 +165,8 @@ export default function SellMembershipForm({
                 value={clientSearch}
                 onChange={(event) => setClientSearch(event.target.value)}
                 placeholder="Name, email, or phone"
+                maxLength={120}
+                autoComplete="off"
                 className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition focus:border-[var(--brand-primary)]"
               />
             </div>
@@ -223,6 +225,8 @@ export default function SellMembershipForm({
                 value={planSearch}
                 onChange={(event) => setPlanSearch(event.target.value)}
                 placeholder="Plan name or description"
+                maxLength={120}
+                autoComplete="off"
                 className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition focus:border-[var(--brand-primary)]"
               />
             </div>

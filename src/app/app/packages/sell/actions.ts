@@ -3,9 +3,31 @@
 import { redirect } from "next/navigation";
 import { requirePackageSellAccess } from "@/lib/auth/serverRoleGuard";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const PAYMENT_METHODS = new Set(["card", "cash", "check", "ach", "venmo", "zelle", "other"]);
+const PAYMENT_ACTIONS = new Set(["manual", "terminal"]);
+
+function cleanText(value: string, maxLength = 500) {
+  return value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function isUuid(value: string) {
+  return UUID_PATTERN.test(value);
+}
+
+function isDateOnly(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
-  return typeof value === "string" ? value.trim() : "";
+  return typeof value === "string" ? cleanText(value) : "";
 }
 
 function addDaysToDate(startDate: Date, days: number) {
@@ -33,7 +55,12 @@ function parseCurrencyToDollars(rawValue: string) {
     return null;
   }
 
-  return cents / 100;
+  const dollars = cents / 100;
+  if (dollars > 100000) {
+    return null;
+  }
+
+  return dollars;
 }
 
 function roundCurrency(value: number) {
@@ -68,13 +95,23 @@ export async function sellPackageToClientAction(
     const clientId = getString(formData, "clientId");
     const packageTemplateId = getString(formData, "packageTemplateId");
     const purchaseDateRaw = getString(formData, "purchaseDate");
-    const paymentAction = getString(formData, "paymentAction");
+    const requestedPaymentAction = getString(formData, "paymentAction") || "manual";
+    const paymentAction = PAYMENT_ACTIONS.has(requestedPaymentAction) ? requestedPaymentAction : "manual";
     const useTerminal = paymentAction === "terminal";
-    const paymentMethod = useTerminal ? "card" : getString(formData, "paymentMethod");
+    const requestedPaymentMethod = useTerminal ? "card" : getString(formData, "paymentMethod");
+    const paymentMethod = PAYMENT_METHODS.has(requestedPaymentMethod) ? requestedPaymentMethod : "";
     const amountPaidRaw =
       getString(formData, "paymentAmount") || getString(formData, "amountPaid");
     const accountCreditRaw = getString(formData, "accountCreditToApply");
-    const notes = getString(formData, "notes");
+    const notes = cleanText(getString(formData, "notes"), 1000);
+
+    if ((clientId && !isUuid(clientId)) || (packageTemplateId && !isUuid(packageTemplateId))) {
+      return { error: "Invalid client or package selection." };
+    }
+
+    if (purchaseDateRaw && !isDateOnly(purchaseDateRaw)) {
+      return { error: "Purchase date is invalid." };
+    }
 
     if (
       !clientId ||

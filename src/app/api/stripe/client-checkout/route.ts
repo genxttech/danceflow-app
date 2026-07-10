@@ -2,16 +2,33 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/payments/stripe";
 
-function getString(value: unknown) {
-  return typeof value === "string" ? value : null;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+
+function getString(value: unknown, maxLength = 400) {
+  return typeof value === "string"
+    ? value
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "")
+        .replace(/[\u200B-\u200D\uFEFF]/g, "")
+        .trim()
+        .slice(0, maxLength)
+    : null;
+}
+
+function safeLocalPath(value: string | null, fallback: string) {
+  const target = value || fallback;
+  if (!target.startsWith("/") || target.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(target)) {
+    return fallback;
+  }
+  return target;
 }
 
 function absoluteUrl(request: NextRequest, value: string | null, fallback: string) {
-  const target = value || fallback;
-  if (target.startsWith("http://") || target.startsWith("https://")) {
-    return target;
-  }
-  return new URL(target.startsWith("/") ? target : `/${target}`, request.nextUrl.origin).toString();
+  return new URL(safeLocalPath(value, fallback), request.nextUrl.origin).toString();
+}
+
+function safeCurrency(value: unknown) {
+  const currency = String(value || "usd").trim().toLowerCase();
+  return /^[a-z]{3}$/.test(currency) ? currency : "usd";
 }
 
 function paymentLabel(paymentType: string | null, fallback: string | null) {
@@ -26,12 +43,12 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const stripe = getStripe();
 
-  const paymentId = request.nextUrl.searchParams.get("paymentId");
-  const returnTo = request.nextUrl.searchParams.get("returnTo");
-  const cancelTo = request.nextUrl.searchParams.get("cancelTo");
+  const paymentId = getString(request.nextUrl.searchParams.get("paymentId"), 36);
+  const returnTo = getString(request.nextUrl.searchParams.get("returnTo"), 400);
+  const cancelTo = getString(request.nextUrl.searchParams.get("cancelTo"), 400);
 
-  if (!paymentId) {
-    return NextResponse.json({ error: "Missing paymentId." }, { status: 400 });
+  if (!paymentId || !UUID_PATTERN.test(paymentId)) {
+    return NextResponse.json({ error: "Missing or invalid paymentId." }, { status: 400 });
   }
 
   const {
@@ -113,7 +130,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Payment amount must be greater than zero." }, { status: 400 });
   }
 
-  const currency = String(payment.currency || "usd").toLowerCase();
+  const currency = safeCurrency(payment.currency);
   const amountInCents = Math.round(amount * 100);
   const packageRow = Array.isArray(payment.client_packages) ? payment.client_packages[0] : payment.client_packages;
   const membershipRow = Array.isArray(payment.client_memberships) ? payment.client_memberships[0] : payment.client_memberships;

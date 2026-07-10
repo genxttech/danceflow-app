@@ -163,6 +163,8 @@ export default function SellPackageForm({
                 value={clientSearch}
                 onChange={(event) => setClientSearch(event.target.value)}
                 placeholder="Name or email"
+                maxLength={120}
+                autoComplete="off"
                 className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition focus:border-[var(--brand-primary)]"
               />
             </div>
@@ -224,6 +226,8 @@ export default function SellPackageForm({
                 value={packageSearch}
                 onChange={(event) => setPackageSearch(event.target.value)}
                 placeholder="Package name or included item"
+                maxLength={120}
+                autoComplete="off"
                 className="w-full rounded-xl border border-slate-300 bg-white py-2.5 pl-10 pr-3 text-sm text-slate-900 outline-none transition focus:border-[var(--brand-primary)]"
               />
             </div>
@@ -314,6 +318,7 @@ export default function SellPackageForm({
             <input
               name="accountCreditToApply"
               type="number"
+              inputMode="decimal"
               min="0"
               max={Math.min(availableAccountCredit, packagePrice || availableAccountCredit)}
               step="0.01"
@@ -342,7 +347,9 @@ export default function SellPackageForm({
             <input
               name="paymentAmount"
               type="number"
+              inputMode="decimal"
               min="0"
+              max="100000"
               step="0.01"
               required
               value={paymentAmount}
@@ -382,6 +389,7 @@ export default function SellPackageForm({
           <textarea
             name="notes"
             rows={3}
+            maxLength={1000}
             placeholder="Optional sale note"
             className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[var(--brand-primary)]"
           />

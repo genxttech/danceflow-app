@@ -12,6 +12,20 @@ type CreateState = {
   error: string;
 };
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const BILLING_INTERVALS = new Set(["monthly", "quarterly", "yearly"]);
+const PLAN_VISIBILITIES = new Set(["public", "private", "hidden"]);
+const BENEFIT_TYPES = new Set([
+  "included_private_lessons",
+  "included_group_classes",
+  "discount_percent",
+  "discount_amount",
+  "floor_rental_discount_percent",
+  "floor_rental_discount_amount",
+  "other",
+]);
+const USAGE_PERIODS = new Set(["billing_cycle", "month", "quarter", "year", "lifetime"]);
+
 type BenefitInput = {
   benefitType?: string;
   quantity?: string;
@@ -21,15 +35,44 @@ type BenefitInput = {
   appliesTo?: string;
 };
 
-function getString(formData: FormData, key: string) {
+function cleanText(value: string, maxLength = 800) {
+  return value
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function getString(formData: FormData, key: string, maxLength = 800) {
   const value = formData.get(key);
-  return typeof value === "string" ? value.trim() : "";
+  return typeof value === "string" ? cleanText(value, maxLength) : "";
+}
+
+function isUuid(value: string) {
+  return UUID_PATTERN.test(value);
+}
+
+function safeReturnTo(value: string, fallback: string) {
+  const cleaned = cleanText(value, 400);
+  if (!cleaned || !cleaned.startsWith("/") || cleaned.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(cleaned)) {
+    return fallback;
+  }
+  return cleaned;
+}
+
+function isDateOnly(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 function getNumberOrNull(value: string) {
   if (!value) return null;
-  const parsed = Number(value);
-  return Number.isNaN(parsed) ? null : parsed;
+  const normalized = value.replace(/[$,\s]/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100000) return null;
+  return Math.round(parsed * 100) / 100;
 }
 
 function parseBenefits(raw: string): BenefitInput[] {
@@ -37,7 +80,20 @@ function parseBenefits(raw: string): BenefitInput[] {
 
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.slice(0, 30).map((benefit) => {
+      const row = benefit as BenefitInput;
+      const benefitType = cleanText(String(row.benefitType ?? ""), 80);
+      const usagePeriod = cleanText(String(row.usagePeriod ?? "billing_cycle"), 80);
+      return {
+        benefitType: BENEFIT_TYPES.has(benefitType) ? benefitType : "",
+        quantity: cleanText(String(row.quantity ?? ""), 20),
+        discountPercent: cleanText(String(row.discountPercent ?? ""), 20),
+        discountAmount: cleanText(String(row.discountAmount ?? ""), 20),
+        usagePeriod: USAGE_PERIODS.has(usagePeriod) ? usagePeriod : "billing_cycle",
+        appliesTo: cleanText(String(row.appliesTo ?? ""), 120),
+      };
+    });
   } catch {
     return [];
   }
@@ -168,12 +224,14 @@ export async function createMembershipPlanAction(
     const studioId = context.studioId;
     const userId = context.userId;
 
-    const name = getString(formData, "name");
-    const description = getString(formData, "description");
-    const billingInterval = getString(formData, "billingInterval") || "monthly";
-    const priceRaw = getString(formData, "price");
+    const name = getString(formData, "name", 120);
+    const description = getString(formData, "description", 1000);
+    const requestedBillingInterval = getString(formData, "billingInterval", 40) || "monthly";
+    const billingInterval = BILLING_INTERVALS.has(requestedBillingInterval) ? requestedBillingInterval : "monthly";
+    const priceRaw = getString(formData, "price", 40);
     const signupFeeRaw = getString(formData, "signupFee");
-    const visibility = getString(formData, "visibility") || "public";
+    const requestedVisibility = getString(formData, "visibility", 40) || "public";
+    const visibility = PLAN_VISIBILITIES.has(requestedVisibility) ? requestedVisibility : "public";
     const sortOrderRaw = getString(formData, "sortOrder");
     const active = formData.get("active") === "on";
     const autoRenewDefault = formData.get("autoRenewDefault") === "on";
@@ -183,8 +241,8 @@ export async function createMembershipPlanAction(
       return { error: "Membership plan name is required." };
     }
 
-    const price = Number(priceRaw);
-    if (Number.isNaN(price) || price < 0) {
+    const price = getNumberOrNull(priceRaw);
+    if (price === null) {
       return { error: "Price must be a valid number." };
     }
 
@@ -262,12 +320,14 @@ export async function updateMembershipPlanAction(
     const studioId = context.studioId;
 
     const id = getString(formData, "id");
-    const name = getString(formData, "name");
-    const description = getString(formData, "description");
-    const billingInterval = getString(formData, "billingInterval") || "monthly";
-    const priceRaw = getString(formData, "price");
+    const name = getString(formData, "name", 120);
+    const description = getString(formData, "description", 1000);
+    const requestedBillingInterval = getString(formData, "billingInterval", 40) || "monthly";
+    const billingInterval = BILLING_INTERVALS.has(requestedBillingInterval) ? requestedBillingInterval : "monthly";
+    const priceRaw = getString(formData, "price", 40);
     const signupFeeRaw = getString(formData, "signupFee");
-    const visibility = getString(formData, "visibility") || "public";
+    const requestedVisibility = getString(formData, "visibility", 40) || "public";
+    const visibility = PLAN_VISIBILITIES.has(requestedVisibility) ? requestedVisibility : "public";
     const sortOrderRaw = getString(formData, "sortOrder");
     const active = formData.get("active") === "on";
     const autoRenewDefault = formData.get("autoRenewDefault") === "on";
@@ -281,8 +341,8 @@ export async function updateMembershipPlanAction(
       return { error: "Membership plan name is required." };
     }
 
-    const price = Number(priceRaw);
-    if (Number.isNaN(price) || price < 0) {
+    const price = getNumberOrNull(priceRaw);
+    if (price === null) {
       return { error: "Price must be a valid number." };
     }
 
@@ -393,7 +453,7 @@ export async function updateMembershipPlanAction(
 }
 
 export async function assignMembershipToClientAction(formData: FormData) {
-  const returnTo = getString(formData, "returnTo") || "/app/memberships/sell";
+  const returnTo = safeReturnTo(getString(formData, "returnTo"), "/app/memberships/sell");
 
   try {
     const supabase = await createClient();
@@ -410,12 +470,24 @@ export async function assignMembershipToClientAction(formData: FormData) {
       redirect(addQueryParam(returnTo, "error", "missing_client"));
     }
 
+    if (!isUuid(clientId)) {
+      redirect(addQueryParam(returnTo, "error", "invalid_client"));
+    }
+
     if (!membershipPlanId) {
       redirect(addQueryParam(returnTo, "error", "missing_plan"));
     }
 
+    if (!isUuid(membershipPlanId)) {
+      redirect(addQueryParam(returnTo, "error", "invalid_plan"));
+    }
+
     if (!startsOn) {
       redirect(addQueryParam(returnTo, "error", "missing_start"));
+    }
+
+    if (!isDateOnly(startsOn)) {
+      redirect(addQueryParam(returnTo, "error", "invalid_start"));
     }
 
     const [
@@ -509,7 +581,7 @@ export async function assignMembershipToClientAction(formData: FormData) {
 export async function startMembershipPaymentMethodSetupAction(
   formData: FormData,
 ) {
-  const returnTo = getString(formData, "returnTo") || "/app/memberships/sell";
+  const returnTo = safeReturnTo(getString(formData, "returnTo"), "/app/memberships/sell");
 
   try {
     const supabase = await createClient();
@@ -519,6 +591,10 @@ export async function startMembershipPaymentMethodSetupAction(
     const clientId = getString(formData, "clientId");
     if (!clientId) {
       redirect(addQueryParam(returnTo, "error", "missing_client"));
+    }
+
+    if (!isUuid(clientId)) {
+      redirect(addQueryParam(returnTo, "error", "invalid_client"));
     }
 
     const { data: client, error: clientError } = await supabase
@@ -576,7 +652,7 @@ export async function startMembershipPaymentMethodSetupAction(
 }
 
 export async function sellMembershipAction(formData: FormData) {
-  const returnTo = getString(formData, "returnTo") || "/app/memberships/sell";
+  const returnTo = safeReturnTo(getString(formData, "returnTo"), "/app/memberships/sell");
 
   try {
     const supabase = await createClient();
@@ -593,12 +669,24 @@ export async function sellMembershipAction(formData: FormData) {
       redirect(addQueryParam(returnTo, "error", "missing_client"));
     }
 
+    if (!isUuid(clientId)) {
+      redirect(addQueryParam(returnTo, "error", "invalid_client"));
+    }
+
     if (!membershipPlanId) {
       redirect(addQueryParam(returnTo, "error", "missing_plan"));
     }
 
+    if (!isUuid(membershipPlanId)) {
+      redirect(addQueryParam(returnTo, "error", "invalid_plan"));
+    }
+
     if (!startsOn) {
       redirect(addQueryParam(returnTo, "error", "missing_start"));
+    }
+
+    if (!isDateOnly(startsOn)) {
+      redirect(addQueryParam(returnTo, "error", "invalid_start"));
     }
 
     const [
@@ -769,7 +857,7 @@ export async function sellMembershipAction(formData: FormData) {
 }
 
 export async function startTerminalMembershipEnrollmentAction(formData: FormData) {
-  const returnTo = getString(formData, "returnTo") || "/app/memberships/sell";
+  const returnTo = safeReturnTo(getString(formData, "returnTo"), "/app/memberships/sell");
 
   try {
     const supabase = await createClient();
@@ -920,8 +1008,7 @@ export async function startTerminalMembershipEnrollmentAction(formData: FormData
 export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
   const clientMembershipId = getString(formData, "clientMembershipId");
   const clientId = getString(formData, "clientId");
-  const returnTo =
-    getString(formData, "returnTo") || getClientReturnUrl(clientId);
+  const returnTo = safeReturnTo(getString(formData, "returnTo"), getClientReturnUrl(clientId));
 
   try {
     const supabase = await createClient();
@@ -929,6 +1016,10 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
     const studioId = context.studioId;
 
     if (!clientMembershipId) {
+      redirect(addQueryParam(returnTo, "error", "membership_not_found"));
+    }
+
+    if (!isUuid(clientMembershipId)) {
       redirect(addQueryParam(returnTo, "error", "membership_not_found"));
     }
 
@@ -1043,8 +1134,7 @@ export async function cancelMembershipAtPeriodEndAction(formData: FormData) {
 export async function reactivateMembershipAutoRenewAction(formData: FormData) {
   const clientMembershipId = getString(formData, "clientMembershipId");
   const clientId = getString(formData, "clientId");
-  const returnTo =
-    getString(formData, "returnTo") || getClientReturnUrl(clientId);
+  const returnTo = safeReturnTo(getString(formData, "returnTo"), getClientReturnUrl(clientId));
 
   try {
     const supabase = await createClient();
@@ -1052,6 +1142,10 @@ export async function reactivateMembershipAutoRenewAction(formData: FormData) {
     const studioId = context.studioId;
 
     if (!clientMembershipId) {
+      redirect(addQueryParam(returnTo, "error", "membership_not_found"));
+    }
+
+    if (!isUuid(clientMembershipId)) {
       redirect(addQueryParam(returnTo, "error", "membership_not_found"));
     }
 
@@ -1164,8 +1258,7 @@ export async function collectReplacementPaymentMethodAction(
   formData: FormData,
 ) {
   const clientId = getString(formData, "clientId");
-  const returnTo =
-    getString(formData, "returnTo") || getClientReturnUrl(clientId);
+  const returnTo = safeReturnTo(getString(formData, "returnTo"), getClientReturnUrl(clientId));
 
   try {
     const supabase = await createClient();
@@ -1174,6 +1267,10 @@ export async function collectReplacementPaymentMethodAction(
 
     if (!clientId) {
       redirect(addQueryParam(returnTo, "error", "missing_client"));
+    }
+
+    if (!isUuid(clientId)) {
+      redirect(addQueryParam(returnTo, "error", "invalid_client"));
     }
 
     const { data: client, error: clientError } = await supabase
@@ -1240,8 +1337,7 @@ export async function retryDelinquentMembershipBillingAction(
 ) {
   const clientMembershipId = getString(formData, "clientMembershipId");
   const clientId = getString(formData, "clientId");
-  const returnTo =
-    getString(formData, "returnTo") || getClientReturnUrl(clientId);
+  const returnTo = safeReturnTo(getString(formData, "returnTo"), getClientReturnUrl(clientId));
 
   try {
     const supabase = await createClient();
@@ -1249,6 +1345,10 @@ export async function retryDelinquentMembershipBillingAction(
     const studioId = context.studioId;
 
     if (!clientMembershipId) {
+      redirect(addQueryParam(returnTo, "error", "membership_not_found"));
+    }
+
+    if (!isUuid(clientMembershipId)) {
       redirect(addQueryParam(returnTo, "error", "membership_not_found"));
     }
 
@@ -1379,10 +1479,10 @@ export async function archiveMembershipPlanAction(formData: FormData) {
   const studioId = context.studioId;
 
   const membershipPlanId = getString(formData, "membershipPlanId");
-  const returnTo = getString(formData, "returnTo") || "/app/memberships";
+  const returnTo = safeReturnTo(getString(formData, "returnTo"), "/app/memberships");
 
-  if (!membershipPlanId) {
-    throw new Error("Missing membership plan ID.");
+  if (!membershipPlanId || !isUuid(membershipPlanId)) {
+    throw new Error("Missing or invalid membership plan ID.");
   }
 
   const { error } = await supabase
@@ -1407,10 +1507,10 @@ export async function reactivateMembershipPlanAction(formData: FormData) {
   const studioId = context.studioId;
 
   const membershipPlanId = getString(formData, "membershipPlanId");
-  const returnTo = getString(formData, "returnTo") || "/app/memberships";
+  const returnTo = safeReturnTo(getString(formData, "returnTo"), "/app/memberships");
 
-  if (!membershipPlanId) {
-    throw new Error("Missing membership plan ID.");
+  if (!membershipPlanId || !isUuid(membershipPlanId)) {
+    throw new Error("Missing or invalid membership plan ID.");
   }
 
   const { error } = await supabase
@@ -1436,8 +1536,8 @@ export async function deleteMembershipPlanAction(formData: FormData) {
 
   const membershipPlanId = getString(formData, "membershipPlanId");
 
-  if (!membershipPlanId) {
-    throw new Error("Missing membership plan ID.");
+  if (!membershipPlanId || !isUuid(membershipPlanId)) {
+    throw new Error("Missing or invalid membership plan ID.");
   }
 
   const { data: usedMemberships, error: usedMembershipsError } = await supabase

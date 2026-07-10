@@ -4,6 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+
 const CATEGORY_LABELS: Record<string, string> = {
   group_class: "Group Class",
   social_party: "Social Party",
@@ -14,8 +16,18 @@ const CATEGORY_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-function clean(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
+function clean(value: unknown, maxLength = 500) {
+  return typeof value === "string"
+    ? value
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "")
+        .replace(/[\u200B-\u200D\uFEFF]/g, "")
+        .trim()
+        .slice(0, maxLength)
+    : "";
+}
+
+function isUuid(value: string) {
+  return UUID_PATTERN.test(value);
 }
 
 function canCollectTerminal(role: string | null | undefined, isPlatformAdmin: boolean) {
@@ -28,8 +40,10 @@ function jsonError(message: string, status = 400) {
 }
 
 function parseAmount(value: unknown) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return null;
+  const raw = String(value ?? "").trim();
+  if (!/^\d+(\.\d{1,2})?$/.test(raw)) return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 100000) return null;
   return Math.round(parsed * 100) / 100;
 }
 
@@ -66,12 +80,16 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await getRequestJson(request);
-    const category = clean(body.category) || "other";
+    const category = clean(body.category, 80) || "other";
     const categoryLabel = CATEGORY_LABELS[category] ?? CATEGORY_LABELS.other;
     const amount = parseAmount(body.amount);
-    const guestName = clean(body.guestName).slice(0, 120) || null;
-    const notes = clean(body.notes).slice(0, 500) || null;
-    const requestedReaderId = clean(body.readerId);
+    const guestName = clean(body.guestName, 120) || null;
+    const notes = clean(body.notes, 500) || null;
+    const requestedReaderId = clean(body.readerId, 36);
+
+    if (requestedReaderId && !isUuid(requestedReaderId)) {
+      return jsonError("Select a valid Stripe reader.");
+    }
 
     if (!Object.keys(CATEGORY_LABELS).includes(category)) {
       return jsonError("Choose a valid quick charge category.");
