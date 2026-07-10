@@ -1,7 +1,7 @@
 export const metadata = {
   title: "Privacy Policy | DanceFlow",
   description:
-    "Privacy Policy for DanceFlow, including website, platform, and SMS messaging disclosures.",
+    "Privacy Policy for DanceFlow, including website, platform, SMS messaging, and Google Calendar integration disclosures.",
 };
 
 function Section({
@@ -20,7 +20,7 @@ function Section({
 }
 
 export default function PrivacyPolicyPage() {
-  const effectiveDate = "April 17, 2026";
+  const effectiveDate = "July 9, 2026";
 
   return (
     <main className="min-h-screen bg-slate-50">
@@ -171,7 +171,50 @@ export default function PrivacyPolicyPage() {
             </p>
           </Section>
 
-          <Section title="5. How We Share Information">
+
+          <Section title="5. Google Calendar Data Use">
+            <p>
+              DanceFlow only accesses Google Calendar after a studio owner or
+              authorized studio user connects Google Calendar from the DanceFlow
+              integration settings.
+            </p>
+            <p>
+              DanceFlow uses Google Calendar access to list available calendars,
+              allow the user to select a destination calendar, and create, update,
+              or delete DanceFlow-generated calendar events.
+            </p>
+            <p>
+              DanceFlow may sync DanceFlow schedule items such as private lessons,
+              group classes, and studio events to the selected Google Calendar
+              according to the studio’s enabled sync settings.
+            </p>
+            <p>
+              DanceFlow does not sell Google user data. DanceFlow does not use
+              Google Calendar data for advertising, resale, profiling, or unrelated
+              analytics.
+            </p>
+            <p>
+              DanceFlow does not transfer Google Calendar data except as necessary
+              to provide the calendar sync feature, comply with law, protect the
+              security of the service, or operate the service with trusted
+              infrastructure providers.
+            </p>
+            <p>
+              DanceFlow stores Google OAuth tokens encrypted and uses them only to
+              maintain the calendar sync requested by the connected studio.
+            </p>
+            <p>
+              Users can disconnect Google Calendar at any time from DanceFlow
+              Settings → Integrations → Google Calendar.
+            </p>
+            <p className="font-medium text-slate-900">
+              DanceFlow’s use and transfer of information received from Google APIs
+              will adhere to the Google API Services User Data Policy, including
+              the Limited Use requirements.
+            </p>
+          </Section>
+
+          <Section title="6. How We Share Information">
             <p>We may share information in the following limited circumstances:</p>
             <ul className="list-disc space-y-2 pl-6">
               <li>
@@ -198,7 +241,7 @@ export default function PrivacyPolicyPage() {
             </p>
           </Section>
 
-          <Section title="6. Cookies and Analytics">
+          <Section title="7. Cookies and Analytics">
             <p>
               We may use cookies, local storage, pixels, and similar technologies to
               remember preferences, keep users signed in, understand usage patterns,
@@ -211,7 +254,7 @@ export default function PrivacyPolicyPage() {
             </p>
           </Section>
 
-          <Section title="7. Data Retention">
+          <Section title="8. Data Retention">
             <p>
               We retain information for as long as reasonably necessary to provide
               services, maintain records, comply with legal obligations, resolve
@@ -224,7 +267,7 @@ export default function PrivacyPolicyPage() {
             </p>
           </Section>
 
-          <Section title="8. Data Security">
+          <Section title="9. Data Security">
             <p>
               We use reasonable administrative, technical, and organizational
               safeguards designed to protect personal information. However, no method
@@ -233,7 +276,7 @@ export default function PrivacyPolicyPage() {
             </p>
           </Section>
 
-          <Section title="9. Your Choices and Rights">
+          <Section title="10. Your Choices and Rights">
             <p>
               Depending on your location, you may have the right to access, correct,
               delete, or request portability of certain personal information, or to
@@ -246,7 +289,7 @@ export default function PrivacyPolicyPage() {
             </p>
           </Section>
 
-          <Section title="10. Children’s Privacy">
+          <Section title="11. Children’s Privacy">
             <p>
               The platform is not directed to children under 13, and we do not
               knowingly collect personal information directly from children under 13
@@ -256,7 +299,7 @@ export default function PrivacyPolicyPage() {
             </p>
           </Section>
 
-          <Section title="11. Third-Party Services and Links">
+          <Section title="12. Third-Party Services and Links">
             <p>
               The platform may integrate with or link to third-party services,
               including payment providers, messaging providers, authentication
@@ -265,7 +308,7 @@ export default function PrivacyPolicyPage() {
             </p>
           </Section>
 
-          <Section title="12. Changes to This Privacy Policy">
+          <Section title="13. Changes to This Privacy Policy">
             <p>
               We may update this Privacy Policy from time to time. When we do, we may
               revise the effective date above and post the updated version on this
@@ -274,7 +317,7 @@ export default function PrivacyPolicyPage() {
             </p>
           </Section>
 
-          <Section title="13. Contact Us">
+          <Section title="14. Contact Us">
             <p>
               If you have questions about this Privacy Policy or our privacy
               practices, contact us at:

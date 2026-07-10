@@ -6,10 +6,10 @@ import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 
 export const metadata: Metadata = {
   title: "Privacy Policy | DanceFlow",
-  description: "How DanceFlow handles personal information, studio data, student data, payments, and data requests.",
+  description: "How DanceFlow handles personal information, studio data, student data, payments, Google Calendar integration data, and data requests.",
 };
 
-const updated = "May 15, 2026";
+const updated = "July 9, 2026";
 
 export default function Page() {
   return (
@@ -47,6 +47,18 @@ export default function Page() {
               <h2 className="text-xl font-semibold text-slate-950">Service providers</h2>
               <p className="mt-3 text-sm leading-7 text-slate-600">DanceFlow may use vendors such as hosting, database, email, payment, analytics, monitoring, and support providers to operate the service. These providers should only receive information needed to perform their services.</p>
             </section>
+
+            <section>
+              <h2 className="text-xl font-semibold text-slate-950">Google Calendar data use</h2>
+              <p className="mt-3 text-sm leading-7 text-slate-600">DanceFlow only accesses Google Calendar after a studio owner or authorized studio user connects Google Calendar from the DanceFlow integration settings.</p>
+              <p className="mt-3 text-sm leading-7 text-slate-600">DanceFlow uses Google Calendar access to list available calendars, allow the user to select a destination calendar, and create, update, or delete DanceFlow-generated calendar events.</p>
+              <p className="mt-3 text-sm leading-7 text-slate-600">DanceFlow may sync DanceFlow schedule items such as private lessons, group classes, and studio events to the selected Google Calendar according to the studio’s enabled sync settings.</p>
+              <p className="mt-3 text-sm leading-7 text-slate-600">DanceFlow does not sell Google user data, does not use Google Calendar data for advertising, and does not transfer Google Calendar data except as necessary to provide the calendar sync feature, comply with law, protect the security of the service, or operate the service with trusted infrastructure providers.</p>
+              <p className="mt-3 text-sm leading-7 text-slate-600">DanceFlow stores Google OAuth tokens encrypted and uses them only to maintain the calendar sync requested by the connected studio.</p>
+              <p className="mt-3 text-sm leading-7 text-slate-600">Users can disconnect Google Calendar at any time from DanceFlow Settings → Integrations → Google Calendar.</p>
+              <p className="mt-3 text-sm leading-7 text-slate-600">DanceFlow’s use and transfer of information received from Google APIs will adhere to the Google API Services User Data Policy, including the Limited Use requirements.</p>
+            </section>
+
             <section>
               <h2 className="text-xl font-semibold text-slate-950">Minor/student data</h2>
               <p className="mt-3 text-sm leading-7 text-slate-600">Dance studios may serve minors. Minor profiles should be managed by a parent, guardian, studio, or authorized adult. Children under 13 should not create unmanaged DanceFlow accounts.</p>
