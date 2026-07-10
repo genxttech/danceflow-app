@@ -1309,7 +1309,10 @@ export async function checkInEventTicketCodeAction(formData: FormData) {
 export async function checkInEventRegistrationAction(formData: FormData) {
   const eventId = getString(formData, "eventId");
   const registrationId = getString(formData, "registrationId");
-  const eventRegistrationAttendeeId = getString(formData, "eventRegistrationAttendeeId");
+  const eventRegistrationAttendeeId = getString(
+    formData,
+    "eventRegistrationAttendeeId",
+  );
   const eventSessionId = getString(formData, "eventSessionId");
   const returnTo = getString(formData, "returnTo");
 
@@ -1383,93 +1386,147 @@ export async function checkInEventRegistrationAction(formData: FormData) {
       }
 
       if (!nextUrl.includes("error=session_not_found")) {
-        const existingAttendance =
-          isGroupClass && eventRegistrationAttendeeId
-            ? await getAttendanceForRegistration({
-                supabase,
-                studioId,
-                registrationId,
-                eventSessionId,
-                eventRegistrationAttendeeId,
-              })
-            : await getAttendanceForRegistration({
-                supabase,
-                studioId,
-                registrationId,
-                eventSessionId: isGroupClass ? eventSessionId : null,
-              });
-        const attendeeTicketState = await getAttendeeTicketCheckInState({
+        const attendees = await getRegistrationAttendeesForCheckIn({
           supabase,
           eventId,
           registrationId,
         });
-        const alreadyCheckedIn = isGroupClass
-          ? Boolean(eventRegistrationAttendeeId) &&
-            (existingAttendance?.status === "checked_in" ||
-              existingAttendance?.status === "attended")
-          : attendeeTicketState.hasTickets
-            ? attendeeTicketState.allCheckedIn
-            : existingAttendance?.status === "checked_in" ||
-              existingAttendance?.status === "attended" ||
-              registration.checked_in_at ||
-              registration.status === "checked_in";
 
-        if (alreadyCheckedIn) {
+        const targetAttendees = eventRegistrationAttendeeId
+          ? attendees.filter(
+              (attendee) => attendee.id === eventRegistrationAttendeeId,
+            )
+          : attendees;
+
+        if (eventRegistrationAttendeeId && targetAttendees.length === 0) {
           nextUrl = resolveReturnUrl({
             eventId,
             returnTo,
-            fallbackSuffix: "warning=already_checked_in",
+            fallbackSuffix: "error=attendee_not_found",
           });
         } else {
-          const now = new Date().toISOString();
-          const serviceSupabase = createServiceRoleClient();
-          const writeSupabase: any = serviceSupabase ?? supabase;
+          const existingAttendance =
+            isGroupClass && eventRegistrationAttendeeId
+              ? await getAttendanceForRegistration({
+                  supabase,
+                  studioId,
+                  registrationId,
+                  eventSessionId,
+                  eventRegistrationAttendeeId,
+                })
+              : await getAttendanceForRegistration({
+                  supabase,
+                  studioId,
+                  registrationId,
+                  eventSessionId: isGroupClass ? eventSessionId : null,
+                });
 
-          if (!isGroupClass) {
-            const { error: registrationUpdateError } = await writeSupabase
-              .from("event_registrations")
-              .update({
-                checked_in_at: now,
-              })
-              .eq("id", registrationId)
-              .eq("event_id", eventId);
+          const attendeeTicketState = await getAttendeeTicketCheckInState({
+            supabase,
+            eventId,
+            registrationId,
+          });
 
-            if (registrationUpdateError) {
-              throw new Error(registrationUpdateError.message);
-            }
+          const alreadyCheckedIn = isGroupClass
+            ? Boolean(eventRegistrationAttendeeId) &&
+              (existingAttendance?.status === "checked_in" ||
+                existingAttendance?.status === "attended")
+            : targetAttendees.length > 0
+              ? targetAttendees.every((attendee) =>
+                  Boolean(attendee.checked_in_at),
+                )
+              : attendeeTicketState.hasTickets
+                ? attendeeTicketState.allCheckedIn
+                : existingAttendance?.status === "checked_in" ||
+                  existingAttendance?.status === "attended" ||
+                  registration.checked_in_at ||
+                  registration.status === "checked_in";
 
-            const { error: attendeeUpdateError } = await writeSupabase
-              .from("event_registration_attendees")
-              .update({
-                checked_in_at: now,
-                checked_in_by: userId,
-                updated_at: now,
-              })
-              .eq("registration_id", registrationId)
-              .eq("event_id", eventId);
-
-            if (attendeeUpdateError) {
-              throw new Error(attendeeUpdateError.message);
-            }
-          }
-
-          if (isGroupClass) {
-            const attendees = await getRegistrationAttendeesForCheckIn({
-              supabase,
+          if (alreadyCheckedIn) {
+            nextUrl = resolveReturnUrl({
               eventId,
-              registrationId,
+              returnTo,
+              fallbackSuffix: "warning=already_checked_in",
             });
-            const targetAttendees = eventRegistrationAttendeeId
-              ? attendees.filter((attendee) => attendee.id === eventRegistrationAttendeeId)
-              : attendees;
+          } else {
+            const now = new Date().toISOString();
+            const serviceSupabase = createServiceRoleClient();
+            const writeSupabase: any = serviceSupabase ?? supabase;
 
-            if (targetAttendees.length === 0) {
-              throw new Error("No attendee rows found for this registration.");
-            }
+            if (!isGroupClass) {
+              if (targetAttendees.length > 0) {
+                const targetAttendeeIds = targetAttendees.map(
+                  (attendee) => attendee.id,
+                );
 
-            await Promise.all(
-              targetAttendees.map((attendee) =>
-                upsertAttendanceStatus({
+                const { error: attendeeUpdateError } = await writeSupabase
+                  .from("event_registration_attendees")
+                  .update({
+                    checked_in_at: now,
+                    checked_in_by: userId,
+                    updated_at: now,
+                  })
+                  .in("id", targetAttendeeIds)
+                  .eq("registration_id", registrationId)
+                  .eq("event_id", eventId);
+
+                if (attendeeUpdateError) {
+                  throw new Error(attendeeUpdateError.message);
+                }
+
+                const allTicketsWillBeCheckedIn = attendees.every(
+                  (attendee) =>
+                    Boolean(attendee.checked_in_at) ||
+                    targetAttendeeIds.includes(attendee.id),
+                );
+
+                if (allTicketsWillBeCheckedIn) {
+                  const { error: registrationUpdateError } = await writeSupabase
+                    .from("event_registrations")
+                    .update({
+                      checked_in_at: now,
+                    })
+                    .eq("id", registrationId)
+                    .eq("event_id", eventId);
+
+                  if (registrationUpdateError) {
+                    throw new Error(registrationUpdateError.message);
+                  }
+                }
+
+                await Promise.all(
+                  targetAttendeeIds.map((attendeeId) =>
+                    upsertAttendanceStatus({
+                      supabase,
+                      studioId,
+                      registration: {
+                        ...registration,
+                        checked_in_at: allTicketsWillBeCheckedIn
+                          ? now
+                          : registration.checked_in_at,
+                      },
+                      status: "checked_in",
+                      checkedInAt: now,
+                      markedAttendedAt: null,
+                      eventSessionId: null,
+                      eventRegistrationAttendeeId: attendeeId,
+                    }),
+                  ),
+                );
+              } else {
+                const { error: registrationUpdateError } = await writeSupabase
+                  .from("event_registrations")
+                  .update({
+                    checked_in_at: now,
+                  })
+                  .eq("id", registrationId)
+                  .eq("event_id", eventId);
+
+                if (registrationUpdateError) {
+                  throw new Error(registrationUpdateError.message);
+                }
+
+                await upsertAttendanceStatus({
                   supabase,
                   studioId,
                   registration: {
@@ -1479,32 +1536,42 @@ export async function checkInEventRegistrationAction(formData: FormData) {
                   status: "checked_in",
                   checkedInAt: now,
                   markedAttendedAt: null,
-                  eventSessionId,
-                  eventRegistrationAttendeeId: attendee.id,
-                }),
-              ),
-            );
-          } else {
-            await upsertAttendanceStatus({
-              supabase,
-              studioId,
-              registration: {
-                ...registration,
-                checked_in_at: now,
-              },
-              status: "checked_in",
-              checkedInAt: now,
-              markedAttendedAt: null,
-              eventSessionId: null,
-              eventRegistrationAttendeeId: null,
+                  eventSessionId: null,
+                  eventRegistrationAttendeeId: null,
+                });
+              }
+            }
+
+            if (isGroupClass) {
+              if (targetAttendees.length === 0) {
+                throw new Error("No attendee rows found for this registration.");
+              }
+
+              await Promise.all(
+                targetAttendees.map((attendee) =>
+                  upsertAttendanceStatus({
+                    supabase,
+                    studioId,
+                    registration: {
+                      ...registration,
+                      checked_in_at: now,
+                    },
+                    status: "checked_in",
+                    checkedInAt: now,
+                    markedAttendedAt: null,
+                    eventSessionId,
+                    eventRegistrationAttendeeId: attendee.id,
+                  }),
+                ),
+              );
+            }
+
+            nextUrl = resolveReturnUrl({
+              eventId,
+              returnTo,
+              fallbackSuffix: "success=checked_in",
             });
           }
-
-          nextUrl = resolveReturnUrl({
-            eventId,
-            returnTo,
-            fallbackSuffix: "success=checked_in",
-          });
         }
       }
     }

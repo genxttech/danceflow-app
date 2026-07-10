@@ -1511,7 +1511,10 @@ export default async function EventCheckInPage({
                     </div>
 
                     {attendeeRows.length > 1 ? (
-                      <details className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                      <details
+                        open={checkedInAttendeeCount < attendeeRows.length}
+                        className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-3"
+                      >
                         <summary className="cursor-pointer text-sm font-medium text-slate-700">
                           {attendeeRows.length} attendees on this registration
                         </summary>
@@ -1564,9 +1567,10 @@ export default async function EventCheckInPage({
                                         : "Not checked in"}
                                   </span>
                                 </div>
-                                {isGroupClass &&
-                                selectedSessionId &&
-                                !attendeeSessionCheckedInAt ? (
+                                {((isGroupClass &&
+                                  selectedSessionId &&
+                                  !attendeeSessionCheckedInAt) ||
+                                  (!isGroupClass && !attendee.checked_in_at)) ? (
                                   <form
                                     action={checkInEventRegistrationAction}
                                     className="mt-3"
@@ -1586,11 +1590,13 @@ export default async function EventCheckInPage({
                                       name="eventRegistrationAttendeeId"
                                       value={attendee.id}
                                     />
-                                    <input
-                                      type="hidden"
-                                      name="eventSessionId"
-                                      value={selectedSessionId}
-                                    />
+                                    {isGroupClass && selectedSessionId ? (
+                                      <input
+                                        type="hidden"
+                                        name="eventSessionId"
+                                        value={selectedSessionId}
+                                      />
+                                    ) : null}
                                     <input
                                       type="hidden"
                                       name="returnTo"
