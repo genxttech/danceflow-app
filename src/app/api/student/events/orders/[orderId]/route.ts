@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
+import { getStudentApiUser, normalizeStudentApiUuid, sameStudentEmail } from "@/lib/auth/studentApiAuth";
 
 type Params = {
   params: Promise<{ orderId: string }>;
@@ -96,23 +97,16 @@ function attendeeName(
   return fullName || `Ticket ${attendee.sort_order ?? ""}`.trim();
 }
 
-async function userFromRequest(supabase: SupabaseClient, request: NextRequest) {
-  const authorization = request.headers.get("authorization") ?? "";
-  const token = authorization.toLowerCase().startsWith("bearer ")
-    ? authorization.slice(7).trim()
-    : "";
-
-  if (!token) return null;
-
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error) return null;
-  return data.user ?? null;
-}
-
 export async function GET(request: NextRequest, { params }: Params) {
   const { orderId } = await params;
+  const normalizedOrderId = normalizeStudentApiUuid(orderId);
+
+  if (!normalizedOrderId) {
+    return jsonError("Event order was not found.", 404);
+  }
+
   const supabase = getSupabaseAdmin();
-  const user = await userFromRequest(supabase, request);
+  const user = await getStudentApiUser(request);
 
   if (!user?.email) {
     return jsonError("Sign in to view this event order.", 401);
@@ -135,7 +129,7 @@ export async function GET(request: NextRequest, { params }: Params) {
         "events:event_id ( id, name, slug, start_date, start_time, venue_name, city, state )",
       ].join(", ")
     )
-    .eq("id", orderId)
+    .eq("id", normalizedOrderId)
     .maybeSingle();
 
   if (orderError) {
@@ -145,7 +139,7 @@ export async function GET(request: NextRequest, { params }: Params) {
   const orderRow = order as unknown as EventOrderRow | null;
   const buyerEmail = orderRow?.buyer_email?.trim().toLowerCase();
 
-  if (!orderRow || buyerEmail !== user.email.trim().toLowerCase()) {
+  if (!orderRow || !sameStudentEmail(user, buyerEmail)) {
     return jsonError("Event order was not found.", 404);
   }
 

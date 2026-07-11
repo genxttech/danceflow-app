@@ -44,6 +44,68 @@ type SettingsRow = {
   portal_bookable_lesson_types: string[] | null;
   portal_bookable_instructor_ids: string[] | null;
 };
+
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const ACTION_TYPES = ["book", "reschedule", "cancel"] as const;
+const LESSON_TYPES = ["private_lesson", "group_class", "coaching", "floor_rental"] as const;
+
+function cleanInput(value: unknown, maxLength = 120) {
+  return typeof value === "string"
+    ? value
+        .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .slice(0, maxLength)
+    : "";
+}
+
+function normalizeSlug(value: unknown) {
+  const slug = cleanInput(value, 80);
+  return SLUG_PATTERN.test(slug) ? slug : "";
+}
+
+function normalizeOptionalUuid(value: unknown) {
+  const id = cleanInput(value, 36);
+  return id && UUID_PATTERN.test(id) ? id : null;
+}
+
+function normalizeActionType(value: unknown): BookingActionPayload["actionType"] {
+  const action = cleanInput(value, 20);
+  return ACTION_TYPES.includes(action as (typeof ACTION_TYPES)[number])
+    ? (action as BookingActionPayload["actionType"])
+    : "book";
+}
+
+function normalizeLessonType(value: unknown) {
+  const type = cleanInput(value, 80);
+  return LESSON_TYPES.includes(type as (typeof LESSON_TYPES)[number])
+    ? type
+    : "private_lesson";
+}
+
+function normalizeIsoDateTime(value: unknown) {
+  const raw = cleanInput(value, 40);
+  if (!raw) return "";
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+}
+
+function normalizePayload(payload: BookingActionPayload): BookingActionPayload {
+  return {
+    studioSlug: normalizeSlug(payload.studioSlug),
+    actionType: normalizeActionType(payload.actionType),
+    appointmentId: normalizeOptionalUuid(payload.appointmentId) ?? undefined,
+    lessonType: normalizeLessonType(payload.lessonType),
+    startsAt: normalizeIsoDateTime(payload.startsAt) || undefined,
+    endsAt: normalizeIsoDateTime(payload.endsAt) || undefined,
+    instructorId: normalizeOptionalUuid(payload.instructorId),
+    roomId: normalizeOptionalUuid(payload.roomId),
+    reason: cleanInput(payload.reason, 500) || null,
+  };
+}
+
+
 type AppointmentRow = {
   id: string;
   studio_id: string;
@@ -282,12 +344,12 @@ export async function POST(request: Request) {
   let payload: BookingActionPayload;
 
   try {
-    payload = (await request.json()) as BookingActionPayload;
+    payload = normalizePayload((await request.json()) as BookingActionPayload);
   } catch {
     return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });
   }
 
-  if (!payload.studioSlug?.trim()) {
+  if (!payload.studioSlug) {
     return NextResponse.json({ error: "studioSlug is required." }, { status: 400 });
   }
 

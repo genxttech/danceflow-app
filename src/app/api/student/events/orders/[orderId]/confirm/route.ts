@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
+import { getStudentApiUser, normalizeStudentApiUuid, sameStudentEmail } from "@/lib/auth/studentApiAuth";
 
 type Params = {
   params: Promise<{ orderId: string }>;
@@ -47,24 +48,17 @@ function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-async function userFromRequest(supabase: SupabaseClient, request: NextRequest) {
-  const authorization = request.headers.get("authorization") ?? "";
-  const token = authorization.toLowerCase().startsWith("bearer ")
-    ? authorization.slice(7).trim()
-    : "";
-
-  if (!token) return null;
-
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error) return null;
-  return data.user ?? null;
-}
-
 export async function POST(request: NextRequest, { params }: Params) {
   const { orderId } = await params;
+  const normalizedOrderId = normalizeStudentApiUuid(orderId);
+
+  if (!normalizedOrderId) {
+    return jsonError("Event order was not found.", 404);
+  }
+
   const supabase = getSupabaseAdmin();
   const stripe = getStripe();
-  const user = await userFromRequest(supabase, request);
+  const user = await getStudentApiUser(request);
 
   if (!user?.email) {
     return jsonError("Sign in to confirm this event order.", 401);
@@ -73,7 +67,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const { data: order, error: orderError } = await supabase
     .from("event_orders")
     .select("id, buyer_email, currency, event_id, payment_status, status, stripe_payment_intent_id, total_amount")
-    .eq("id", orderId)
+    .eq("id", normalizedOrderId)
     .maybeSingle();
 
   if (orderError) {
@@ -83,7 +77,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   const orderRow = order as unknown as EventOrderRow | null;
   const buyerEmail = orderRow?.buyer_email?.trim().toLowerCase();
 
-  if (!orderRow || buyerEmail !== user.email.trim().toLowerCase()) {
+  if (!orderRow || !sameStudentEmail(user, buyerEmail)) {
     return jsonError("Event order was not found.", 404);
   }
 
@@ -105,9 +99,19 @@ export async function POST(request: NextRequest, { params }: Params) {
     return jsonError("Stripe payment metadata does not match this event order.", 409);
   }
 
+  if (paymentIntent.metadata?.buyer_email && !sameStudentEmail(user, paymentIntent.metadata.buyer_email)) {
+    return jsonError("Stripe payment metadata does not match this event order.", 409);
+  }
+
+  const expectedAmount = Number(orderRow.total_amount ?? 0);
+  const receivedAmount = Number(paymentIntent.amount_received || paymentIntent.amount || 0) / 100;
+  if (expectedAmount > 0 && Math.abs(receivedAmount - expectedAmount) > 0.01) {
+    return jsonError("Stripe payment amount does not match this event order.", 409);
+  }
+
   const paidAt = new Date().toISOString();
   const currency = (paymentIntent.currency || orderRow.currency || "usd").toUpperCase();
-  const amountTotal = Number(paymentIntent.amount_received || paymentIntent.amount || 0) / 100;
+  const amountTotal = receivedAmount;
 
   const { error: orderUpdateError } = await supabase
     .from("event_orders")

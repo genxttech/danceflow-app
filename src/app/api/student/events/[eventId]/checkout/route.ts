@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
+import { getStudentApiUser, normalizeStudentApiUuid } from "@/lib/auth/studentApiAuth";
 import {
   cleanTextValue,
   getValidatedValue,
@@ -403,29 +404,16 @@ async function assertTicketCapacityAvailable(params: {
   }
 }
 
-async function userFromRequest(supabase: SupabaseClient, request: NextRequest) {
-  const authorization = request.headers.get("authorization") ?? "";
-  const token = authorization.toLowerCase().startsWith("bearer ")
-    ? authorization.slice(7).trim()
-    : "";
-
-  if (!token) return null;
-
-  const { data, error } = await supabase.auth.getUser(token);
-  if (error) return null;
-  return data.user ?? null;
-}
-
 export async function POST(request: NextRequest, { params }: Params) {
   const { eventId } = await params;
-  const eventIdResult = normalizeOptionalUuid(eventId, "Event");
-  if (!eventIdResult.ok || !eventIdResult.value) {
+  const normalizedEventId = normalizeStudentApiUuid(eventId);
+  if (!normalizedEventId) {
     return jsonError("This event is not available.", 404);
   }
 
   const supabase = getSupabaseAdmin();
   const stripe = getStripe();
-  const user = await userFromRequest(supabase, request);
+  const user = await getStudentApiUser(request);
   const body = (await request.json().catch(() => null)) as CheckoutBody | null;
 
   if (!body || typeof body !== "object") {
@@ -524,7 +512,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       )
     `
     )
-    .eq("id", eventIdResult.value)
+    .eq("id", normalizedEventId)
     .maybeSingle<CartEventRow>();
 
   const studio = pickOne(event?.studios);
@@ -609,6 +597,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   let totalAmount = 0;
   let currency = "USD";
   const holdUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const orderHoldToken = randomUUID();
   const registrationIds: string[] = [];
   const orderItems: Record<string, unknown>[] = [];
 
@@ -648,7 +637,7 @@ export async function POST(request: NextRequest, { params }: Params) {
       metadata: {
         source: "student_app_event_tickets_v1",
         user_id: user.id,
-        hold_token: randomUUID(),
+        hold_token: orderHoldToken,
       },
     })
     .select("id")
@@ -947,7 +936,7 @@ export async function POST(request: NextRequest, { params }: Params) {
     const checkoutSuccessUrl = stripeSuccessUrl.startsWith("danceflow://")
       ? stripeSuccessUrl
       : successUrl;
-    const releaseUrl = `${baseUrl}/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(event.slug)}`;
+    const releaseUrl = `${baseUrl}/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(event.slug)}&holdToken=${encodeURIComponent(orderHoldToken)}`;
 
     if (body.paymentMode === "payment_sheet") {
       const paymentIntent = await stripe.paymentIntents.create({
@@ -1031,6 +1020,7 @@ export async function POST(request: NextRequest, { params }: Params) {
           order_id: order.id,
           registration_id: registrationIds[0] ?? "",
           registration_ids: registrationIds.join(","),
+          buyer_email: buyerEmail,
           connected_account_id: connectedAccountId,
           mobile_return_url: checkoutSuccessUrl,
         },
