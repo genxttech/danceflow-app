@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { getCronAuthFailure } from "@/lib/security/cron";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   deleteGoogleCalendarEvent,
@@ -490,7 +491,10 @@ async function syncConnection(
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const authFailure = getCronAuthFailure(request);
+  if (authFailure) return authFailure;
+
   const admin = createAdminClient();
   const { data: connections, error } = await admin
     .from("studio_google_calendar_connections")
@@ -549,6 +553,6 @@ export async function GET() {
   });
 }
 
-export async function POST() {
-  return GET();
+export async function POST(request: NextRequest) {
+  return GET(request);
 }

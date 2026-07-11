@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getCronAuthFailure } from "@/lib/security/cron";
 
 type DigestType = "morning" | "end_of_day";
 type DigestPreferenceRow = {
@@ -43,17 +44,6 @@ const ACTIVE_ACTION_STATUSES = [
   "queued",
   "snoozed",
 ] as const;
-
-function isAuthorizedCronRequest(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret) {
-    return true;
-  }
-
-  const authHeader = request.headers.get("authorization") ?? "";
-  return authHeader === `Bearer ${cronSecret}`;
-}
 
 function currentDateKey(now: Date) {
   return now.toISOString().slice(0, 10);
@@ -354,9 +344,8 @@ async function processDigestRun(params: {
 }
 
 async function handleDigestRequest(request: NextRequest) {
-  if (!isAuthorizedCronRequest(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authFailure = getCronAuthFailure(request);
+  if (authFailure) return authFailure;
 
   const url = new URL(request.url);
   const forceParam = url.searchParams.get("force");

@@ -1,26 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
-
-function getCronSecretFromRequest(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const bearer = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice("Bearer ".length)
-    : null;
-
-  return bearer || request.headers.get("x-cron-secret");
-}
-
-function requireCronAuth(request: NextRequest) {
-  const provided = getCronSecretFromRequest(request);
-  const expected = process.env.CRON_SECRET;
-
-  if (!expected || !provided || provided !== expected) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  return null;
-}
+import { getCronAuthFailure } from "@/lib/security/cron";
 
 type DeliveryRow = {
   id: string;
@@ -108,10 +89,8 @@ async function sendEmail(params: {
 }
 
 async function processPendingNotificationDeliveries(request: NextRequest) {
-  const authFailure = requireCronAuth(request);
-  if (authFailure) {
-    return authFailure;
-  }
+  const authFailure = getCronAuthFailure(request);
+  if (authFailure) return authFailure;
 
   const supabase = createAdminClient();
   const nowIso = new Date().toISOString();

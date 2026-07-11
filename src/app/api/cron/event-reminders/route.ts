@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getCronAuthFailure } from "@/lib/security/cron";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { queueOutboundDelivery } from "@/lib/notifications/outbound";
 import {
@@ -223,23 +224,9 @@ async function queueUpcomingEventReminders() {
   };
 }
 
-function isAuthorized(request: Request) {
-  const authHeader = request.headers.get("authorization");
-  const bearer = authHeader?.replace(/^Bearer\s+/i, "").trim();
-
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (!cronSecret) {
-    return true;
-  }
-
-  return bearer === cronSecret;
-}
-
 export async function GET(request: Request) {
-  if (!isAuthorized(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authFailure = getCronAuthFailure(request);
+  if (authFailure) return authFailure;
 
   try {
     const result = await queueUpcomingEventReminders();

@@ -2,6 +2,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { mapTwilioStatusToSmsLogStatus } from "@/lib/sms/twilio";
 import { cleanTextValue } from "@/lib/validation/forms";
+import { hasValidSecret } from "@/lib/security/cron";
 
 function getServiceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -22,7 +23,7 @@ export async function POST(request: Request) {
   const expectedSecret = process.env.TWILIO_STATUS_CALLBACK_SECRET ?? "";
   const providedSecret = url.searchParams.get("secret") ?? "";
 
-  if (!expectedSecret || providedSecret !== expectedSecret) {
+  if (!hasValidSecret(providedSecret, expectedSecret)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 

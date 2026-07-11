@@ -1,17 +1,9 @@
 import { dispatchQueuedOutboundDeliveries } from "@/lib/notifications/dispatch";
-
-function isAuthorized(request: Request) {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return true;
-
-  const authHeader = request.headers.get("authorization");
-  return authHeader === `Bearer ${expected}`;
-}
+import { getCronAuthFailure } from "@/lib/security/cron";
 
 export async function POST(request: Request) {
-  if (!isAuthorized(request)) {
-    return new Response("Unauthorized", { status: 401 });
-  }
+  const authFailure = getCronAuthFailure(request);
+  if (authFailure) return authFailure;
 
   try {
     const result = await dispatchQueuedOutboundDeliveries(50);

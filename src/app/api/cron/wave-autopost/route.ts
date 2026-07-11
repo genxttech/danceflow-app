@@ -1,18 +1,14 @@
 import { NextResponse } from "next/server";
 import { runWaveAutoPost } from "@/lib/integrations/wave/autopost";
+import { getCronAuthFailure } from "@/lib/security/cron";
 
 export const dynamic = "force-dynamic";
 
-function authorized(request: Request) {
-  const secret = process.env.CRON_SECRET ?? process.env.WAVE_AUTOPOST_CRON_SECRET;
-  if (!secret) return false;
-  return request.headers.get("authorization") === `Bearer ${secret}`;
-}
-
 export async function GET(request: Request) {
-  if (!authorized(request)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authFailure = getCronAuthFailure(request, {
+    secrets: [process.env.CRON_SECRET, process.env.WAVE_AUTOPOST_CRON_SECRET],
+  });
+  if (authFailure) return authFailure;
 
   const url = new URL(request.url);
   const maxRuns = Number(url.searchParams.get("maxRuns") ?? "10");

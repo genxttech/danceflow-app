@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
+import { getCronAuthFailure } from "@/lib/security/cron";
 
 export const dynamic = "force-dynamic";
 
@@ -245,12 +246,8 @@ async function fetchSmsMessageLogs(supabase: SupabaseClient) {
 }
 
 export async function GET(request: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  const requestSecret = request.headers.get("authorization")?.replace("Bearer ", "");
-
-  if (!cronSecret || requestSecret !== cronSecret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const authFailure = getCronAuthFailure(request);
+  if (authFailure) return authFailure;
 
   const resendApiKey = process.env.RESEND_API_KEY;
   const digestTo = process.env.PLATFORM_ADMIN_DIGEST_EMAIL;
