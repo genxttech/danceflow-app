@@ -19,16 +19,23 @@ function clean(value: unknown) {
 }
 
 function getFormValue(formData: unknown, name: string) {
-  return (formData as unknown as { get(key: string): FormDataEntryValue | null }).get(name);
+  return (
+    formData as unknown as { get(key: string): FormDataEntryValue | null }
+  ).get(name);
 }
 
 function terminalPaymentUrl(paymentId: string, params: Record<string, string>) {
   const url = new URL(`/app/payments/terminal/${paymentId}`, getBaseUrl());
-  Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+  Object.entries(params).forEach(([key, value]) =>
+    url.searchParams.set(key, value),
+  );
   return url;
 }
 
-function canCollectTerminal(role: string | null | undefined, isPlatformAdmin: boolean) {
+function canCollectTerminal(
+  role: string | null | undefined,
+  isPlatformAdmin: boolean,
+) {
   if (isPlatformAdmin) return true;
   return [
     "studio_owner",
@@ -62,11 +69,15 @@ export async function POST(request: NextRequest) {
   const sessionId = clean(getFormValue(formData, "sessionId"));
 
   if (!paymentId) {
-    return NextResponse.redirect(new URL("/app/payments?error=terminal_missing_payment", getBaseUrl()));
+    return NextResponse.redirect(
+      new URL("/app/payments?error=terminal_missing_payment", getBaseUrl()),
+    );
   }
 
   if (!sessionId) {
-    return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_session_required" }));
+    return NextResponse.redirect(
+      terminalPaymentUrl(paymentId, { error: "terminal_session_required" }),
+    );
   }
 
   try {
@@ -85,29 +96,37 @@ export async function POST(request: NextRequest) {
 
     const context = await getCurrentStudioContext();
     if (!context?.studioId) {
-      return NextResponse.redirect(new URL("/app/payments?error=no_studio_context", getBaseUrl()));
+      return NextResponse.redirect(
+        new URL("/app/payments?error=no_studio_context", getBaseUrl()),
+      );
     }
 
     if (!canCollectTerminal(context.studioRole, context.isPlatformAdmin)) {
-      return NextResponse.redirect(new URL("/app/payments?error=terminal_access_denied", getBaseUrl()));
+      return NextResponse.redirect(
+        new URL("/app/payments?error=terminal_access_denied", getBaseUrl()),
+      );
     }
 
     const { data: session, error: sessionError } = await supabase
       .from("terminal_payment_sessions")
-      .select("id, studio_id, payment_id, stripe_account_id, stripe_payment_intent_id, status")
+      .select(
+        "id, studio_id, payment_id, stripe_account_id, stripe_payment_intent_id, status, amount_cents, currency",
+      )
       .eq("id", sessionId)
       .eq("payment_id", paymentId)
       .eq("studio_id", context.studioId)
       .single();
 
     if (sessionError || !session?.stripe_payment_intent_id) {
-      return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_session_not_found" }));
+      return NextResponse.redirect(
+        terminalPaymentUrl(paymentId, { error: "terminal_session_not_found" }),
+      );
     }
 
     const paymentIntent = await stripe.paymentIntents.retrieve(
       session.stripe_payment_intent_id,
       { expand: ["latest_charge.balance_transaction"] },
-      { stripeAccount: session.stripe_account_id }
+      { stripeAccount: session.stripe_account_id },
     );
 
     const nowIso = new Date().toISOString();
@@ -125,6 +144,34 @@ export async function POST(request: NextRequest) {
       .eq("id", session.id);
 
     if (status === "succeeded") {
+      const expectedAmountCents = Number(session.amount_cents ?? 0);
+      const receivedAmountCents = Number(
+        paymentIntent.amount_received ?? paymentIntent.amount ?? 0,
+      );
+      const expectedCurrency = String(session.currency ?? "usd").toLowerCase();
+      const receivedCurrency = String(
+        paymentIntent.currency ?? "usd",
+      ).toLowerCase();
+
+      if (
+        expectedAmountCents !== receivedAmountCents ||
+        expectedCurrency !== receivedCurrency
+      ) {
+        await supabase
+          .from("terminal_payment_sessions")
+          .update({
+            status: "failed",
+            error_message:
+              "Stripe amount or currency did not match the terminal payment session.",
+            updated_at: nowIso,
+          })
+          .eq("id", session.id);
+
+        return NextResponse.redirect(
+          terminalPaymentUrl(paymentId, { error: "terminal_amount_mismatch" }),
+        );
+      }
+
       await fulfillTerminalPayment({
         supabase,
         studioId: context.studioId,
@@ -138,7 +185,11 @@ export async function POST(request: NextRequest) {
         paymentIntentId: paymentIntent.id,
       });
 
-      return NextResponse.redirect(terminalPaymentUrl(paymentId, { success: "terminal_payment_succeeded" }));
+      return NextResponse.redirect(
+        terminalPaymentUrl(paymentId, {
+          success: "terminal_payment_succeeded",
+        }),
+      );
     }
 
     if (["canceled", "requires_payment_method"].includes(status)) {
@@ -149,7 +200,11 @@ export async function POST(request: NextRequest) {
       });
 
       if (localPaymentStatus === "paid") {
-        return NextResponse.redirect(terminalPaymentUrl(paymentId, { success: "terminal_payment_already_recorded" }));
+        return NextResponse.redirect(
+          terminalPaymentUrl(paymentId, {
+            success: "terminal_payment_already_recorded",
+          }),
+        );
       }
 
       await supabase
@@ -159,12 +214,20 @@ export async function POST(request: NextRequest) {
         .eq("studio_id", context.studioId)
         .neq("status", "paid");
 
-      return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_payment_failed" }));
+      return NextResponse.redirect(
+        terminalPaymentUrl(paymentId, { error: "terminal_payment_failed" }),
+      );
     }
 
-    return NextResponse.redirect(terminalPaymentUrl(paymentId, { success: "terminal_payment_refreshed" }));
+    return NextResponse.redirect(
+      terminalPaymentUrl(paymentId, { success: "terminal_payment_refreshed" }),
+    );
   } catch (error) {
     console.error("Terminal payment refresh failed", error);
-    return NextResponse.redirect(terminalPaymentUrl(paymentId, { error: "terminal_payment_refresh_failed" }));
+    return NextResponse.redirect(
+      terminalPaymentUrl(paymentId, {
+        error: "terminal_payment_refresh_failed",
+      }),
+    );
   }
 }

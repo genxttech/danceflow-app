@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/payments/stripe";
-import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
+import {
+  checkRateLimit,
+  getIpFromRequest,
+  rateLimitKey,
+  rateLimitedJson,
+} from "@/lib/security/rate-limit";
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 
 function getString(value: unknown, maxLength = 400) {
   return typeof value === "string"
@@ -17,18 +23,31 @@ function getString(value: unknown, maxLength = 400) {
 
 function safeLocalPath(value: string | null, fallback: string) {
   const target = value || fallback;
-  if (!target.startsWith("/") || target.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(target)) {
+  if (
+    !target.startsWith("/") ||
+    target.startsWith("//") ||
+    /^[a-z][a-z0-9+.-]*:/i.test(target)
+  ) {
     return fallback;
   }
   return target;
 }
 
-function absoluteUrl(request: NextRequest, value: string | null, fallback: string) {
-  return new URL(safeLocalPath(value, fallback), request.nextUrl.origin).toString();
+function absoluteUrl(
+  request: NextRequest,
+  value: string | null,
+  fallback: string,
+) {
+  return new URL(
+    safeLocalPath(value, fallback),
+    request.nextUrl.origin,
+  ).toString();
 }
 
 function safeCurrency(value: unknown) {
-  const currency = String(value || "usd").trim().toLowerCase();
+  const currency = String(value || "usd")
+    .trim()
+    .toLowerCase();
   return /^[a-z]{3}$/.test(currency) ? currency : "usd";
 }
 
@@ -53,12 +72,18 @@ export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const stripe = getStripe();
 
-  const paymentId = getString(request.nextUrl.searchParams.get("paymentId"), 36);
+  const paymentId = getString(
+    request.nextUrl.searchParams.get("paymentId"),
+    36,
+  );
   const returnTo = getString(request.nextUrl.searchParams.get("returnTo"), 400);
   const cancelTo = getString(request.nextUrl.searchParams.get("cancelTo"), 400);
 
   if (!paymentId || !UUID_PATTERN.test(paymentId)) {
-    return NextResponse.json({ error: "Missing or invalid paymentId." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Missing or invalid paymentId." },
+      { status: 400 },
+    );
   }
 
   const {
@@ -66,12 +91,18 @@ export async function GET(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.redirect(new URL(`/login?next=${encodeURIComponent(request.nextUrl.pathname + request.nextUrl.search)}`, request.nextUrl.origin));
+    return NextResponse.redirect(
+      new URL(
+        `/login?next=${encodeURIComponent(request.nextUrl.pathname + request.nextUrl.search)}`,
+        request.nextUrl.origin,
+      ),
+    );
   }
 
   const { data: payment, error: paymentError } = await supabase
     .from("payments")
-    .select(`
+    .select(
+      `
       id,
       studio_id,
       client_id,
@@ -99,7 +130,8 @@ export async function GET(request: NextRequest) {
         id,
         name_snapshot
       )
-    `)
+    `,
+    )
     .eq("id", paymentId)
     .maybeSingle();
 
@@ -108,11 +140,18 @@ export async function GET(request: NextRequest) {
   }
 
   if (!payment) {
-    return NextResponse.json({ error: "Payment request not found." }, { status: 404 });
+    return NextResponse.json(
+      { error: "Payment request not found." },
+      { status: 404 },
+    );
   }
 
   if (payment.status !== "pending") {
-    const destination = absoluteUrl(request, returnTo, "/app/payments?success=already_processed");
+    const destination = absoluteUrl(
+      request,
+      returnTo,
+      "/app/payments?success=already_processed",
+    );
     return NextResponse.redirect(destination);
   }
 
@@ -128,29 +167,49 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: roleError.message }, { status: 500 });
   }
 
-  const clientRow = Array.isArray(payment.clients) ? payment.clients[0] : payment.clients;
+  const clientRow = Array.isArray(payment.clients)
+    ? payment.clients[0]
+    : payment.clients;
   const isPortalClient = clientRow?.portal_user_id === user.id;
 
   if (!role && !isPortalClient) {
-    return NextResponse.json({ error: "You do not have access to this payment request." }, { status: 403 });
+    return NextResponse.json(
+      { error: "You do not have access to this payment request." },
+      { status: 403 },
+    );
   }
 
   const amount = Number(payment.amount ?? 0);
   if (!Number.isFinite(amount) || amount <= 0) {
-    return NextResponse.json({ error: "Payment amount must be greater than zero." }, { status: 400 });
+    return NextResponse.json(
+      { error: "Payment amount must be greater than zero." },
+      { status: 400 },
+    );
   }
 
   const currency = safeCurrency(payment.currency);
   const amountInCents = Math.round(amount * 100);
-  const packageRow = Array.isArray(payment.client_packages) ? payment.client_packages[0] : payment.client_packages;
-  const membershipRow = Array.isArray(payment.client_memberships) ? payment.client_memberships[0] : payment.client_memberships;
+  const packageRow = Array.isArray(payment.client_packages)
+    ? payment.client_packages[0]
+    : payment.client_packages;
+  const membershipRow = Array.isArray(payment.client_memberships)
+    ? payment.client_memberships[0]
+    : payment.client_memberships;
   const lineItemName = paymentLabel(
     payment.payment_type,
-    packageRow?.name_snapshot || membershipRow?.name_snapshot || null
+    packageRow?.name_snapshot || membershipRow?.name_snapshot || null,
   );
 
-  const successUrl = absoluteUrl(request, returnTo, "/app/payments?success=payment_logged");
-  const cancelUrl = absoluteUrl(request, cancelTo, returnTo || "/app/payments?error=payment_cancelled");
+  const successUrl = absoluteUrl(
+    request,
+    returnTo,
+    "/app/payments?success=payment_logged",
+  );
+  const cancelUrl = absoluteUrl(
+    request,
+    cancelTo,
+    returnTo || "/app/payments?error=payment_cancelled",
+  );
 
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
@@ -181,20 +240,32 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  const { error: updateError } = await supabase
+  const { data: updatedPayment, error: updateError } = await supabase
     .from("payments")
     .update({
       stripe_checkout_session_id: session.id,
       external_reference: session.id,
     })
-    .eq("id", payment.id);
+    .eq("id", payment.id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
+  if (!updatedPayment) {
+    return NextResponse.redirect(
+      absoluteUrl(request, returnTo, "/app/payments?success=already_processed"),
+    );
+  }
+
   if (!session.url) {
-    return NextResponse.json({ error: "Stripe did not return a Checkout URL." }, { status: 500 });
+    return NextResponse.json(
+      { error: "Stripe did not return a Checkout URL." },
+      { status: 500 },
+    );
   }
 
   return NextResponse.redirect(session.url);

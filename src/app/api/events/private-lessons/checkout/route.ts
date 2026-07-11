@@ -1,10 +1,16 @@
+import { randomUUID } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import {
   createClient as createSupabaseClient,
   SupabaseClient,
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
-import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
+import {
+  checkRateLimit,
+  getIpFromRequest,
+  rateLimitKey,
+  rateLimitedJson,
+} from "@/lib/security/rate-limit";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -277,6 +283,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const holdToken = randomUUID();
+  const holdUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+
   const { data: heldSlot, error: holdError } = await supabase
     .from("event_private_lesson_slots")
     .update({
@@ -286,6 +295,8 @@ export async function POST(request: NextRequest) {
       buyer_email: buyerEmail,
       buyer_phone: buyerPhone || null,
       buyer_notes: buyerNotes || null,
+      held_until: holdUntil,
+      hold_token: holdToken,
       updated_at: new Date().toISOString(),
     })
     .eq("id", slot.id)
@@ -323,6 +334,7 @@ export async function POST(request: NextRequest) {
   );
   cancelUrl.searchParams.set("slotId", slot.id);
   cancelUrl.searchParams.set("eventSlug", eventSlug);
+  cancelUrl.searchParams.set("holdToken", holdToken);
 
   try {
     const session = await stripe.checkout.sessions.create(
@@ -379,7 +391,8 @@ export async function POST(request: NextRequest) {
         stripe_checkout_session_id: session.id,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", slot.id);
+      .eq("id", slot.id)
+      .eq("hold_token", holdToken);
 
     if (sessionUpdateError) {
       throw new Error(sessionUpdateError.message);
@@ -397,10 +410,13 @@ export async function POST(request: NextRequest) {
         status: "available",
         payment_status: "unpaid",
         stripe_checkout_session_id: null,
+        held_until: null,
+        hold_token: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", slot.id)
-      .eq("status", "held");
+      .eq("status", "held")
+      .eq("hold_token", holdToken);
 
     const message =
       error instanceof Error ? error.message : "Unknown checkout error";

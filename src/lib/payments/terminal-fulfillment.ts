@@ -40,6 +40,14 @@ function makeTicketToken() {
   return randomUUID().replaceAll("-", "");
 }
 
+function dollarsToCents(value: number | string | null | undefined) {
+  return Math.round(Number(value ?? 0) * 100);
+}
+
+function normalizeCurrency(value: string | null | undefined) {
+  return (value || "usd").trim().toLowerCase();
+}
+
 async function ensureTerminalEventRegistrationFulfillment(params: {
   supabase: SupabaseClient;
   studioId: string;
@@ -48,7 +56,9 @@ async function ensureTerminalEventRegistrationFulfillment(params: {
   const { supabase, studioId, registration } = params;
 
   if (!registration.ticket_type_id) {
-    throw new Error("Terminal payment event registration fulfillment failed: registration is missing a ticket type.");
+    throw new Error(
+      "Terminal payment event registration fulfillment failed: registration is missing a ticket type.",
+    );
   }
 
   const now = new Date().toISOString();
@@ -228,7 +238,9 @@ export async function fulfillTerminalPayment({
 }: FulfillTerminalPaymentParams) {
   const { data: payment, error: paymentLookupError } = await supabase
     .from("payments")
-    .select("id, studio_id, amount, currency, client_package_id, payment_type, external_reference")
+    .select(
+      "id, studio_id, amount, currency, status, client_package_id, payment_type, external_reference",
+    )
     .eq("id", paymentId)
     .eq("studio_id", studioId)
     .single();
@@ -236,6 +248,40 @@ export async function fulfillTerminalPayment({
   if (paymentLookupError || !payment) {
     throw new Error(
       `Terminal payment fulfillment failed: ${paymentLookupError?.message ?? "payment not found"}`,
+    );
+  }
+
+  const { data: session, error: sessionLookupError } = await supabase
+    .from("terminal_payment_sessions")
+    .select(
+      "id, studio_id, payment_id, amount_cents, currency, stripe_payment_intent_id",
+    )
+    .eq("id", sessionId)
+    .eq("studio_id", studioId)
+    .eq("payment_id", paymentId)
+    .eq("stripe_payment_intent_id", paymentIntentId)
+    .maybeSingle();
+
+  if (sessionLookupError || !session) {
+    throw new Error(
+      `Terminal payment fulfillment failed: ${sessionLookupError?.message ?? "terminal session not found"}`,
+    );
+  }
+
+  const expectedAmountCents = dollarsToCents(payment.amount);
+  const sessionAmountCents = Number(session.amount_cents ?? 0);
+
+  if (expectedAmountCents !== sessionAmountCents) {
+    throw new Error(
+      "Terminal payment fulfillment failed: payment amount does not match terminal session.",
+    );
+  }
+
+  if (
+    normalizeCurrency(payment.currency) !== normalizeCurrency(session.currency)
+  ) {
+    throw new Error(
+      "Terminal payment fulfillment failed: payment currency does not match terminal session.",
     );
   }
 

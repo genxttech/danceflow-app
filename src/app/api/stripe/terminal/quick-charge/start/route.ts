@@ -4,7 +4,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 
 const CATEGORY_LABELS: Record<string, string> = {
   group_class: "Group Class",
@@ -30,7 +31,10 @@ function isUuid(value: string) {
   return UUID_PATTERN.test(value);
 }
 
-function canCollectTerminal(role: string | null | undefined, isPlatformAdmin: boolean) {
+function canCollectTerminal(
+  role: string | null | undefined,
+  isPlatformAdmin: boolean,
+) {
   if (isPlatformAdmin) return true;
   return ["studio_owner", "studio_admin", "front_desk"].includes(role ?? "");
 }
@@ -76,7 +80,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (!canCollectTerminal(context.studioRole, context.isPlatformAdmin)) {
-      return jsonError("You do not have permission to collect in-person payments.", 403);
+      return jsonError(
+        "You do not have permission to collect in-person payments.",
+        403,
+      );
     }
 
     const body = await getRequestJson(request);
@@ -121,13 +128,15 @@ export async function POST(request: NextRequest) {
     ) {
       return jsonError(
         "Stripe is not ready for in-person card payments yet. Finish Stripe onboarding before using Quick Charge.",
-        409
+        409,
       );
     }
 
     let readerQuery = supabase
       .from("stripe_terminal_readers")
-      .select("id, terminal_location_id, stripe_reader_id, stripe_location_id, label, status, active")
+      .select(
+        "id, terminal_location_id, stripe_reader_id, stripe_location_id, label, status, active",
+      )
       .eq("studio_id", studio.id)
       .eq("active", true);
 
@@ -143,10 +152,14 @@ export async function POST(request: NextRequest) {
       return jsonError(`Reader lookup failed: ${readerError.message}`);
     }
 
-    const reader = (readers ?? []).find((row) => row.status === "online") ?? (readers ?? [])[0] ?? null;
+    const reader =
+      (readers ?? []).find((row) => row.status === "online") ?? null;
 
     if (!reader?.stripe_reader_id) {
-      return jsonError("No active Stripe reader is available. Register or refresh a reader in Settings > Billing.");
+      return jsonError(
+        "No online Stripe reader is available. Refresh or reconnect the reader before starting Quick Charge.",
+        409,
+      );
     }
 
     const amountCents = Math.round(amount * 100);
@@ -178,7 +191,9 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (paymentInsertError || !payment) {
-      return jsonError(`Payment record could not be created: ${paymentInsertError?.message ?? "Unknown error"}`);
+      return jsonError(
+        `Payment record could not be created: ${paymentInsertError?.message ?? "Unknown error"}`,
+      );
     }
 
     const paymentIntent = await stripe.paymentIntents.create(
@@ -195,7 +210,7 @@ export async function POST(request: NextRequest) {
           guestName: guestName ?? "",
         },
       },
-      { stripeAccount: connectedAccountId }
+      { stripeAccount: connectedAccountId },
     );
 
     const { data: session, error: sessionError } = await supabase
@@ -224,9 +239,17 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (sessionError || !session) {
-      await stripe.paymentIntents.cancel(paymentIntent.id, {}, { stripeAccount: connectedAccountId }).catch(() => null);
-      await supabase.from("payments").update({ status: "failed" }).eq("id", payment.id).eq("studio_id", studio.id);
-      return jsonError(`Terminal session could not be created: ${sessionError?.message ?? "Unknown error"}`);
+      await stripe.paymentIntents
+        .cancel(paymentIntent.id, {}, { stripeAccount: connectedAccountId })
+        .catch(() => null);
+      await supabase
+        .from("payments")
+        .update({ status: "failed" })
+        .eq("id", payment.id)
+        .eq("studio_id", studio.id);
+      return jsonError(
+        `Terminal session could not be created: ${sessionError?.message ?? "Unknown error"}`,
+      );
     }
 
     await supabase
@@ -244,7 +267,7 @@ export async function POST(request: NextRequest) {
       await stripe.terminal.readers.processPaymentIntent(
         reader.stripe_reader_id,
         { payment_intent: paymentIntent.id },
-        { stripeAccount: connectedAccountId }
+        { stripeAccount: connectedAccountId },
       );
     } catch (processError) {
       const message =
@@ -296,6 +319,11 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Quick charge start failed", error);
-    return jsonError(error instanceof Error ? error.message : "Quick charge could not be started.", 500);
+    return jsonError(
+      error instanceof Error
+        ? error.message
+        : "Quick charge could not be started.",
+      500,
+    );
   }
 }

@@ -35,9 +35,91 @@ function getNumber(value: unknown): number | null {
   return typeof value === "number" ? value : null;
 }
 
+function normalizeCurrency(value: string | null | undefined) {
+  return (value || "usd").trim().toLowerCase();
+}
+
+function amountsMatch(
+  expected: number | null | undefined,
+  received: number | null | undefined,
+) {
+  return Math.abs(Number(expected ?? 0) - Number(received ?? 0)) <= 0.01;
+}
+
+async function assertEventRegistrationPaymentMatches(params: {
+  supabase: SupabaseClient;
+  registrationId: string;
+  amountTotal: number;
+  currency: string;
+}) {
+  const { data: registration, error } = await params.supabase
+    .from("event_registrations")
+    .select("id, total_price, total_amount, currency, payment_status")
+    .eq("id", params.registrationId)
+    .maybeSingle();
+
+  if (error || !registration) {
+    throw new Error(
+      `Event registration payment validation failed: ${error?.message ?? "registration not found"}`,
+    );
+  }
+
+  const expectedAmount = Number(
+    registration.total_amount ?? registration.total_price ?? 0,
+  );
+  if (!amountsMatch(expectedAmount, params.amountTotal)) {
+    throw new Error(
+      `Event registration amount mismatch. Expected ${expectedAmount}, received ${params.amountTotal}.`,
+    );
+  }
+
+  if (
+    normalizeCurrency(registration.currency) !==
+    normalizeCurrency(params.currency)
+  ) {
+    throw new Error("Event registration currency mismatch.");
+  }
+
+  return registration;
+}
+
+async function assertEventOrderPaymentMatches(params: {
+  supabase: SupabaseClient;
+  orderId: string;
+  amountTotal: number;
+  currency: string;
+}) {
+  const { data: order, error } = await params.supabase
+    .from("event_orders")
+    .select("id, total_amount, currency, payment_status")
+    .eq("id", params.orderId)
+    .maybeSingle();
+
+  if (error || !order) {
+    throw new Error(
+      `Event order payment validation failed: ${error?.message ?? "order not found"}`,
+    );
+  }
+
+  const expectedAmount = Number(order.total_amount ?? 0);
+  if (!amountsMatch(expectedAmount, params.amountTotal)) {
+    throw new Error(
+      `Event order amount mismatch. Expected ${expectedAmount}, received ${params.amountTotal}.`,
+    );
+  }
+
+  if (
+    normalizeCurrency(order.currency) !== normalizeCurrency(params.currency)
+  ) {
+    throw new Error("Event order currency mismatch.");
+  }
+
+  return order;
+}
+
 async function handleTerminalPaymentIntentSucceeded(
   supabase: SupabaseClient,
-  paymentIntent: Stripe.PaymentIntent
+  paymentIntent: Stripe.PaymentIntent,
 ) {
   if (getString(paymentIntent.metadata?.source) !== "danceflow_terminal") {
     return false;
@@ -68,9 +150,12 @@ async function handleTerminalPaymentIntentSucceeded(
 
   if (
     Number(session.amount_cents) !== Number(paymentIntent.amount_received) ||
-    String(session.currency ?? "usd").toLowerCase() !== paymentIntent.currency.toLowerCase()
+    String(session.currency ?? "usd").toLowerCase() !==
+      paymentIntent.currency.toLowerCase()
   ) {
-    throw new Error("Terminal payment amount or currency does not match its session.");
+    throw new Error(
+      "Terminal payment amount or currency does not match its session.",
+    );
   }
 
   await fulfillTerminalPayment({
@@ -100,7 +185,7 @@ function toDateOnlyOrNull(unixSeconds: number | null): string | null {
 }
 
 function mapStripeSubscriptionStatusToLocal(
-  status: string
+  status: string,
 ): "pending" | "active" | "cancelled" | "past_due" | "unpaid" {
   if (status === "active" || status === "trialing") return "active";
   if (status === "canceled") return "cancelled";
@@ -110,12 +195,13 @@ function mapStripeSubscriptionStatusToLocal(
 }
 
 function mapStudioSubscriptionStatus(
-  status: string
+  status: string,
 ): "inactive" | "trialing" | "active" | "past_due" | "cancelled" {
   if (status === "trialing") return "trialing";
   if (status === "active") return "active";
   if (status === "past_due" || status === "unpaid") return "past_due";
-  if (status === "canceled" || status === "incomplete_expired") return "cancelled";
+  if (status === "canceled" || status === "incomplete_expired")
+    return "cancelled";
   return "inactive";
 }
 
@@ -128,7 +214,7 @@ function getInvoiceSubscriptionId(invoice: Stripe.Invoice): string | null {
 
   return typeof rawSubscription === "string"
     ? rawSubscription
-    : rawSubscription?.id ?? null;
+    : (rawSubscription?.id ?? null);
 }
 
 function getInvoicePaymentIntentId(invoice: Stripe.Invoice): string | null {
@@ -153,7 +239,7 @@ function getInvoicePaymentIntentId(invoice: Stripe.Invoice): string | null {
 
   return typeof payment.payment_intent === "string"
     ? payment.payment_intent
-    : payment.payment_intent?.id ?? null;
+    : (payment.payment_intent?.id ?? null);
 }
 
 function getInvoiceChargeId(invoice: Stripe.Invoice): string | null {
@@ -178,7 +264,7 @@ function getInvoiceChargeId(invoice: Stripe.Invoice): string | null {
 
   return typeof payment.charge === "string"
     ? payment.charge
-    : payment.charge?.id ?? null;
+    : (payment.charge?.id ?? null);
 }
 
 async function upsertStripePaymentMethodRecord(
@@ -189,7 +275,7 @@ async function upsertStripePaymentMethodRecord(
     clientId: string;
     customerId: string;
     paymentMethodId: string;
-  }
+  },
 ) {
   const { studioId, clientId, customerId, paymentMethodId } = input;
 
@@ -277,7 +363,7 @@ async function upsertStripePaymentMethodRecord(
 async function upsertStripeSubscriptionRecord(
   supabase: SupabaseClient,
   subscription: Stripe.Subscription,
-  stripeAccountId?: string | null
+  stripeAccountId?: string | null,
 ) {
   const stripeSubscriptionId = subscription.id;
   const stripeCustomerId = getString(subscription.customer);
@@ -293,21 +379,23 @@ async function upsertStripeSubscriptionRecord(
   const membershipPlanId = metadata.membershipPlanId || null;
 
   const currentPeriodStartUnix = getNumber(
-    (subscription as unknown as { current_period_start?: number }).current_period_start
+    (subscription as unknown as { current_period_start?: number })
+      .current_period_start,
   );
   const currentPeriodEndUnix = getNumber(
-    (subscription as unknown as { current_period_end?: number }).current_period_end
+    (subscription as unknown as { current_period_end?: number })
+      .current_period_end,
   );
 
   const latestInvoiceId =
     typeof subscription.latest_invoice === "string"
       ? subscription.latest_invoice
-      : subscription.latest_invoice?.id ?? null;
+      : (subscription.latest_invoice?.id ?? null);
 
   const defaultPaymentMethodId =
     typeof subscription.default_payment_method === "string"
       ? subscription.default_payment_method
-      : subscription.default_payment_method?.id ?? null;
+      : (subscription.default_payment_method?.id ?? null);
 
   const payload = {
     studio_id: studioId,
@@ -327,11 +415,12 @@ async function upsertStripeSubscriptionRecord(
     updated_at: new Date().toISOString(),
   };
 
-  const { data: existingSubscription, error: existingSubscriptionError } = await supabase
-    .from("stripe_subscriptions")
-    .select("id")
-    .eq("stripe_subscription_id", stripeSubscriptionId)
-    .maybeSingle();
+  const { data: existingSubscription, error: existingSubscriptionError } =
+    await supabase
+      .from("stripe_subscriptions")
+      .select("id")
+      .eq("stripe_subscription_id", stripeSubscriptionId)
+      .maybeSingle();
 
   if (existingSubscriptionError) {
     throw new Error(existingSubscriptionError.message);
@@ -364,7 +453,8 @@ async function upsertStripeSubscriptionRecord(
       .from("client_memberships")
       .update({
         status: mapStripeSubscriptionStatusToLocal(subscription.status),
-        current_period_start: toDateOnlyOrNull(currentPeriodStartUnix) ?? undefined,
+        current_period_start:
+          toDateOnlyOrNull(currentPeriodStartUnix) ?? undefined,
         current_period_end: toDateOnlyOrNull(currentPeriodEndUnix) ?? undefined,
         ends_on: subscription.cancel_at_period_end
           ? toDateOnlyOrNull(currentPeriodEndUnix)
@@ -388,14 +478,20 @@ async function upsertStudioBillingCustomer(params: {
   email?: string | null;
   contactName?: string | null;
 }) {
-  const { supabase, stripeCustomerId, studioId, email = null, contactName = null } =
-    params;
+  const {
+    supabase,
+    stripeCustomerId,
+    studioId,
+    email = null,
+    contactName = null,
+  } = params;
 
-  const { data: existingCustomer, error: existingCustomerError } = await supabase
-    .from("studio_billing_customers")
-    .select("id")
-    .eq("studio_id", studioId)
-    .maybeSingle();
+  const { data: existingCustomer, error: existingCustomerError } =
+    await supabase
+      .from("studio_billing_customers")
+      .select("id")
+      .eq("studio_id", studioId)
+      .maybeSingle();
 
   if (existingCustomerError) {
     throw new Error(existingCustomerError.message);
@@ -495,7 +591,6 @@ function getSubscriptionSource(subscription: Stripe.Subscription) {
   return null;
 }
 
-
 const ORGANIZER_SUITE_FEATURE_KEY = "organizer_suite";
 
 function getOrganizerSuiteAddonPriceIds() {
@@ -527,38 +622,40 @@ async function syncOrganizerSuiteAddonEntitlements(params: {
 }) {
   const { supabase, studioId, subscription } = params;
   const now = new Date().toISOString();
-  const subscriptionIsActive = subscription.status === "active" || subscription.status === "trialing";
-  const organizerSuiteItems = subscription.items.data.filter(isOrganizerSuiteSubscriptionItem);
+  const subscriptionIsActive =
+    subscription.status === "active" || subscription.status === "trialing";
+  const organizerSuiteItems = subscription.items.data.filter(
+    isOrganizerSuiteSubscriptionItem,
+  );
   const activeItemIds = new Set(organizerSuiteItems.map((item) => item.id));
 
   for (const item of organizerSuiteItems) {
-    const { error } = await supabase
-      .from("usage_addon_entitlements")
-      .upsert(
-  {
-    studio_id: studioId,
-    workspace_type: "studio",
-    feature_key: ORGANIZER_SUITE_FEATURE_KEY,
-    source: "stripe_subscription_item",
-    stripe_subscription_item_id: item.id,
-    quantity_included: 1,
-    status: subscriptionIsActive ? "active" : "canceled",
-    updated_at: now,
-  },
-  { onConflict: "studio_id,feature_key" },
-);
+    const { error } = await supabase.from("usage_addon_entitlements").upsert(
+      {
+        studio_id: studioId,
+        workspace_type: "studio",
+        feature_key: ORGANIZER_SUITE_FEATURE_KEY,
+        source: "stripe_subscription_item",
+        stripe_subscription_item_id: item.id,
+        quantity_included: 1,
+        status: subscriptionIsActive ? "active" : "canceled",
+        updated_at: now,
+      },
+      { onConflict: "studio_id,feature_key" },
+    );
 
     if (error) {
       throw new Error(error.message);
     }
   }
 
-  const { data: existingEntitlements, error: existingEntitlementsError } = await supabase
-    .from("usage_addon_entitlements")
-    .select("id, stripe_subscription_item_id, status")
-    .eq("studio_id", studioId)
-    .eq("feature_key", ORGANIZER_SUITE_FEATURE_KEY)
-    .eq("source", "stripe_subscription_item");
+  const { data: existingEntitlements, error: existingEntitlementsError } =
+    await supabase
+      .from("usage_addon_entitlements")
+      .select("id, stripe_subscription_item_id, status")
+      .eq("studio_id", studioId)
+      .eq("feature_key", ORGANIZER_SUITE_FEATURE_KEY)
+      .eq("source", "stripe_subscription_item");
 
   if (existingEntitlementsError) {
     throw new Error(existingEntitlementsError.message);
@@ -566,8 +663,14 @@ async function syncOrganizerSuiteAddonEntitlements(params: {
 
   const staleEntitlementIds = (existingEntitlements ?? [])
     .filter((row) => {
-      const itemId = typeof row.stripe_subscription_item_id === "string" ? row.stripe_subscription_item_id : null;
-      return row.status === "active" && (!itemId || !activeItemIds.has(itemId) || !subscriptionIsActive);
+      const itemId =
+        typeof row.stripe_subscription_item_id === "string"
+          ? row.stripe_subscription_item_id
+          : null;
+      return (
+        row.status === "active" &&
+        (!itemId || !activeItemIds.has(itemId) || !subscriptionIsActive)
+      );
     })
     .map((row) => row.id)
     .filter((id): id is string => typeof id === "string");
@@ -599,7 +702,8 @@ async function upsertStudioSubscription(params: {
     return false;
   }
 
-  const metadataStudioId = getString(metadata.studioId) ?? getString(metadata.workspaceId);
+  const metadataStudioId =
+    getString(metadata.studioId) ?? getString(metadata.workspaceId);
 
   const studioId =
     metadataStudioId ??
@@ -616,31 +720,32 @@ async function upsertStudioSubscription(params: {
   const stripePriceId = getString(subscription.items.data[0]?.price?.id);
 
   const currentPeriodStartUnix = getNumber(
-    (subscription as unknown as { current_period_start?: number }).current_period_start
+    (subscription as unknown as { current_period_start?: number })
+      .current_period_start,
   );
   const currentPeriodEndUnix = getNumber(
-    (subscription as unknown as { current_period_end?: number }).current_period_end
+    (subscription as unknown as { current_period_end?: number })
+      .current_period_end,
   );
 
   const trialEndUnix = getNumber(
-  (subscription as unknown as { trial_end?: number | null }).trial_end ?? null
-);
+    (subscription as unknown as { trial_end?: number | null }).trial_end ??
+      null,
+  );
 
-  let planRow:
-    | {
-        id: string;
-        code: string;
-        stripe_price_id_monthly: string | null;
-        stripe_price_id_yearly: string | null;
-      }
-    | null = null;
+  let planRow: {
+    id: string;
+    code: string;
+    stripe_price_id_monthly: string | null;
+    stripe_price_id_yearly: string | null;
+  } | null = null;
 
   if (stripePriceId) {
     const { data, error } = await supabase
       .from("subscription_plans")
       .select("id, code, stripe_price_id_monthly, stripe_price_id_yearly")
       .or(
-        `stripe_price_id_monthly.eq.${stripePriceId},stripe_price_id_yearly.eq.${stripePriceId}`
+        `stripe_price_id_monthly.eq.${stripePriceId},stripe_price_id_yearly.eq.${stripePriceId}`,
       )
       .limit(1)
       .maybeSingle();
@@ -670,12 +775,14 @@ async function upsertStudioSubscription(params: {
 
   if (!planRow) {
     throw new Error(
-      `Could not resolve subscription plan for ${subscription.id}. stripePriceId=${stripePriceId || "null"} metadata.planCode=${metadataPlanCode || "null"}`
+      `Could not resolve subscription plan for ${subscription.id}. stripePriceId=${stripePriceId || "null"} metadata.planCode=${metadataPlanCode || "null"}`,
     );
   }
 
   const billingInterval =
-    stripePriceId && planRow.stripe_price_id_yearly === stripePriceId ? "year" : "month";
+    stripePriceId && planRow.stripe_price_id_yearly === stripePriceId
+      ? "year"
+      : "month";
 
   const mappedStatus = mapStudioSubscriptionStatus(subscription.status);
 
@@ -693,11 +800,12 @@ async function upsertStudioSubscription(params: {
     updated_at: new Date().toISOString(),
   };
 
-  const { data: existingByStudio, error: existingByStudioError } = await supabase
-    .from("studio_subscriptions")
-    .select("id")
-    .eq("studio_id", studioId)
-    .maybeSingle();
+  const { data: existingByStudio, error: existingByStudioError } =
+    await supabase
+      .from("studio_subscriptions")
+      .select("id")
+      .eq("studio_id", studioId)
+      .maybeSingle();
 
   if (existingByStudioError) {
     throw new Error(existingByStudioError.message);
@@ -738,7 +846,6 @@ async function upsertStudioSubscription(params: {
     stripeSubscriptionId: subscription.id,
     subscriptionStatus: subscription.status,
   });
-
 
   if (source === "studio_subscription") {
     await syncOrganizerSuiteAddonEntitlements({
@@ -782,12 +889,13 @@ async function upsertStudioInvoice(params: {
   let studioSubscriptionId: string | null = null;
 
   if (stripeSubscriptionId) {
-    const { data: studioSubscription, error: studioSubscriptionError } = await supabase
-      .from("studio_subscriptions")
-      .select("id")
-      .eq("studio_id", studioId)
-      .eq("stripe_subscription_id", stripeSubscriptionId)
-      .maybeSingle();
+    const { data: studioSubscription, error: studioSubscriptionError } =
+      await supabase
+        .from("studio_subscriptions")
+        .select("id")
+        .eq("studio_id", studioId)
+        .eq("stripe_subscription_id", stripeSubscriptionId)
+        .maybeSingle();
 
     if (studioSubscriptionError) {
       throw new Error(studioSubscriptionError.message);
@@ -849,7 +957,7 @@ async function upsertStudioInvoice(params: {
 async function handleStudioCheckoutCompleted(
   supabase: SupabaseClient,
   stripe: Stripe,
-  session: Stripe.Checkout.Session
+  session: Stripe.Checkout.Session,
 ) {
   const source = getString(session.metadata?.source);
 
@@ -868,9 +976,13 @@ async function handleStudioCheckoutCompleted(
 
   const customer = await stripe.customers.retrieve(stripeCustomerId);
   const contactName =
-    !("deleted" in customer) || customer.deleted !== true ? customer.name : null;
+    !("deleted" in customer) || customer.deleted !== true
+      ? customer.name
+      : null;
   const billingEmail =
-    !("deleted" in customer) || customer.deleted !== true ? customer.email : null;
+    !("deleted" in customer) || customer.deleted !== true
+      ? customer.email
+      : null;
 
   await upsertStudioBillingCustomer({
     supabase,
@@ -908,7 +1020,6 @@ function getAppUrl() {
     "http://localhost:3000"
   );
 }
-
 
 type EventRegistrationCrmCaptureRow = {
   id: string;
@@ -961,10 +1072,11 @@ async function safeCaptureStudioEventRegistrationLead(params: {
   registrationId: string;
 }) {
   try {
-    const { data: registration, error: registrationError } = await params.supabase
-      .from("event_registrations")
-      .select(
-        `
+    const { data: registration, error: registrationError } =
+      await params.supabase
+        .from("event_registrations")
+        .select(
+          `
         id,
         event_id,
         studio_id,
@@ -980,15 +1092,15 @@ async function safeCaptureStudioEventRegistrationLead(params: {
           studio_id,
           organizer_id
         )
-      `
-      )
-      .eq("id", params.registrationId)
-      .maybeSingle();
+      `,
+        )
+        .eq("id", params.registrationId)
+        .maybeSingle();
 
     if (registrationError || !registration) {
       console.error(
         "event registration CRM capture lookup failed:",
-        registrationError?.message ?? "Registration not found"
+        registrationError?.message ?? "Registration not found",
       );
       return;
     }
@@ -1014,23 +1126,29 @@ async function safeCaptureStudioEventRegistrationLead(params: {
       return;
     }
 
-    const firstName = (typedRegistration.attendee_first_name ?? "").trim() || "Event";
-    const lastName = (typedRegistration.attendee_last_name ?? "").trim() || "Registrant";
+    const firstName =
+      (typedRegistration.attendee_first_name ?? "").trim() || "Event";
+    const lastName =
+      (typedRegistration.attendee_last_name ?? "").trim() || "Registrant";
     const nowIso = new Date().toISOString();
 
     let clientId = typedRegistration.client_id;
 
     if (!clientId) {
-      const { data: existingClients, error: existingClientError } = await params.supabase
-        .from("clients")
-        .select("id, referral_source, source_system, status")
-        .eq("studio_id", studioId)
-        .ilike("email", email)
-        .order("created_at", { ascending: true })
-        .limit(1);
+      const { data: existingClients, error: existingClientError } =
+        await params.supabase
+          .from("clients")
+          .select("id, referral_source, source_system, status")
+          .eq("studio_id", studioId)
+          .ilike("email", email)
+          .order("created_at", { ascending: true })
+          .limit(1);
 
       if (existingClientError) {
-        console.error("event registration CRM capture client lookup failed:", existingClientError.message);
+        console.error(
+          "event registration CRM capture client lookup failed:",
+          existingClientError.message,
+        );
         return;
       }
 
@@ -1056,30 +1174,34 @@ async function safeCaptureStudioEventRegistrationLead(params: {
             .eq("id", existingClient.id);
 
           if (clientUpdateError) {
-            console.error("event registration CRM capture client update failed:", clientUpdateError.message);
+            console.error(
+              "event registration CRM capture client update failed:",
+              clientUpdateError.message,
+            );
           }
         }
       } else {
-        const { data: insertedClient, error: insertClientError } = await params.supabase
-          .from("clients")
-          .insert({
-            studio_id: studioId,
-            first_name: firstName,
-            last_name: lastName,
-            email,
-            phone: typedRegistration.attendee_phone || null,
-            status: "lead",
-            referral_source: "Event Registration",
-            source_system: "event_registration",
-            notes: `Created from event registration for ${event.name}.`,
-          })
-          .select("id")
-          .single();
+        const { data: insertedClient, error: insertClientError } =
+          await params.supabase
+            .from("clients")
+            .insert({
+              studio_id: studioId,
+              first_name: firstName,
+              last_name: lastName,
+              email,
+              phone: typedRegistration.attendee_phone || null,
+              status: "lead",
+              referral_source: "Event Registration",
+              source_system: "event_registration",
+              notes: `Created from event registration for ${event.name}.`,
+            })
+            .select("id")
+            .single();
 
         if (insertClientError || !insertedClient) {
           console.error(
             "event registration CRM capture client insert failed:",
-            insertClientError?.message ?? "Client not created"
+            insertClientError?.message ?? "Client not created",
           );
           return;
         }
@@ -1098,7 +1220,7 @@ async function safeCaptureStudioEventRegistrationLead(params: {
       if (registrationClientUpdateError) {
         console.error(
           "event registration CRM capture registration link failed:",
-          registrationClientUpdateError.message
+          registrationClientUpdateError.message,
         );
       }
 
@@ -1114,7 +1236,10 @@ async function safeCaptureStudioEventRegistrationLead(params: {
 
       // Keep webhook finalization safe even if notification type constraints need a later schema update.
       if (notificationError) {
-        console.error("event registration notification insert failed:", notificationError.message);
+        console.error(
+          "event registration notification insert failed:",
+          notificationError.message,
+        );
       }
     }
   } catch (error) {
@@ -1122,16 +1247,16 @@ async function safeCaptureStudioEventRegistrationLead(params: {
   }
 }
 
-
 async function safeCaptureOrganizerEventRegistrationContact(params: {
   supabase: SupabaseClient;
   registrationId: string;
 }) {
   try {
-    const { data: registration, error: registrationError } = await params.supabase
-      .from("event_registrations")
-      .select(
-        `
+    const { data: registration, error: registrationError } =
+      await params.supabase
+        .from("event_registrations")
+        .select(
+          `
         id,
         event_id,
         studio_id,
@@ -1157,15 +1282,15 @@ async function safeCaptureOrganizerEventRegistrationContact(params: {
           studio_id,
           organizer_id
         )
-      `
-      )
-      .eq("id", params.registrationId)
-      .maybeSingle();
+      `,
+        )
+        .eq("id", params.registrationId)
+        .maybeSingle();
 
     if (registrationError || !registration) {
       console.error(
         "organizer contact capture lookup failed:",
-        registrationError?.message ?? "Registration not found"
+        registrationError?.message ?? "Registration not found",
       );
       return;
     }
@@ -1179,25 +1304,31 @@ async function safeCaptureOrganizerEventRegistrationContact(params: {
       return;
     }
 
-    const firstName = (typedRegistration.attendee_first_name ?? "").trim() || null;
-    const lastName = (typedRegistration.attendee_last_name ?? "").trim() || null;
+    const firstName =
+      (typedRegistration.attendee_first_name ?? "").trim() || null;
+    const lastName =
+      (typedRegistration.attendee_last_name ?? "").trim() || null;
     const phone = (typedRegistration.attendee_phone ?? "").trim() || null;
     const nowIso = new Date().toISOString();
     const amount = Number(
-      typedRegistration.total_amount ?? typedRegistration.total_price ?? 0
+      typedRegistration.total_amount ?? typedRegistration.total_price ?? 0,
     );
     const currency = (typedRegistration.currency || "USD").toUpperCase();
 
-    const { data: existingContacts, error: existingContactError } = await params.supabase
-      .from("organizer_contacts")
-      .select("id, first_seen_at, first_name, last_name, phone")
-      .eq("organizer_id", organizerId)
-      .ilike("email", email)
-      .order("created_at", { ascending: true })
-      .limit(1);
+    const { data: existingContacts, error: existingContactError } =
+      await params.supabase
+        .from("organizer_contacts")
+        .select("id, first_seen_at, first_name, last_name, phone")
+        .eq("organizer_id", organizerId)
+        .ilike("email", email)
+        .order("created_at", { ascending: true })
+        .limit(1);
 
     if (existingContactError) {
-      console.error("organizer contact lookup failed:", existingContactError.message);
+      console.error(
+        "organizer contact lookup failed:",
+        existingContactError.message,
+      );
       return;
     }
 
@@ -1220,36 +1351,40 @@ async function safeCaptureOrganizerEventRegistrationContact(params: {
         .eq("id", contactId);
 
       if (contactUpdateError) {
-        console.error("organizer contact update failed:", contactUpdateError.message);
+        console.error(
+          "organizer contact update failed:",
+          contactUpdateError.message,
+        );
         return;
       }
     } else {
-      const { data: insertedContact, error: contactInsertError } = await params.supabase
-        .from("organizer_contacts")
-        .insert({
-          organizer_id: organizerId,
-          email,
-          first_name: firstName,
-          last_name: lastName,
-          phone,
-          source: "event_registration",
-          first_seen_at: nowIso,
-          last_seen_at: nowIso,
-          last_event_id: event.id,
-          last_registration_id: typedRegistration.id,
-          currency,
-          metadata: {
-            event_name: event.name,
-            event_slug: event.slug,
-          },
-        })
-        .select("id")
-        .single();
+      const { data: insertedContact, error: contactInsertError } =
+        await params.supabase
+          .from("organizer_contacts")
+          .insert({
+            organizer_id: organizerId,
+            email,
+            first_name: firstName,
+            last_name: lastName,
+            phone,
+            source: "event_registration",
+            first_seen_at: nowIso,
+            last_seen_at: nowIso,
+            last_event_id: event.id,
+            last_registration_id: typedRegistration.id,
+            currency,
+            metadata: {
+              event_name: event.name,
+              event_slug: event.slug,
+            },
+          })
+          .select("id")
+          .single();
 
       if (contactInsertError || !insertedContact) {
         console.error(
           "organizer contact insert failed:",
-          contactInsertError?.message ?? "Contact not created"
+          contactInsertError?.message ?? "Contact not created",
         );
         return;
       }
@@ -1279,11 +1414,14 @@ async function safeCaptureOrganizerEventRegistrationContact(params: {
           registered_at: typedRegistration.created_at ?? nowIso,
           updated_at: nowIso,
         },
-        { onConflict: "registration_id" }
+        { onConflict: "registration_id" },
       );
 
     if (linkError) {
-      console.error("organizer contact registration link failed:", linkError.message);
+      console.error(
+        "organizer contact registration link failed:",
+        linkError.message,
+      );
     }
 
     const { error: registrationUpdateError } = await params.supabase
@@ -1295,14 +1433,15 @@ async function safeCaptureOrganizerEventRegistrationContact(params: {
     if (registrationUpdateError) {
       console.error(
         "organizer contact registration update failed:",
-        registrationUpdateError.message
+        registrationUpdateError.message,
       );
     }
 
-    const { data: contactRollupRows, error: rollupError } = await params.supabase
-      .from("organizer_contact_registrations")
-      .select("payment_status, total_amount, currency")
-      .eq("organizer_contact_id", contactId);
+    const { data: contactRollupRows, error: rollupError } =
+      await params.supabase
+        .from("organizer_contact_registrations")
+        .select("payment_status, total_amount, currency")
+        .eq("organizer_contact_id", contactId);
 
     if (rollupError) {
       console.error("organizer contact rollup failed:", rollupError.message);
@@ -1311,12 +1450,13 @@ async function safeCaptureOrganizerEventRegistrationContact(params: {
 
     const totalRegistrations = contactRollupRows?.length ?? 0;
     const paidRows = (contactRollupRows ?? []).filter(
-      (row) => row.payment_status === "paid" || row.payment_status === "partial"
+      (row) =>
+        row.payment_status === "paid" || row.payment_status === "partial",
     );
     const totalPaidRegistrations = paidRows.length;
     const totalSpend = paidRows.reduce(
       (sum, row) => sum + Number(row.total_amount ?? 0),
-      0
+      0,
     );
 
     const { error: rollupUpdateError } = await params.supabase
@@ -1334,7 +1474,10 @@ async function safeCaptureOrganizerEventRegistrationContact(params: {
       .eq("id", contactId);
 
     if (rollupUpdateError) {
-      console.error("organizer contact rollup update failed:", rollupUpdateError.message);
+      console.error(
+        "organizer contact rollup update failed:",
+        rollupUpdateError.message,
+      );
     }
   } catch (error) {
     console.error("organizer contact capture failed:", error);
@@ -1371,7 +1514,7 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
           last_name,
           ticket_code
         )
-      `
+      `,
       )
       .eq("id", params.registrationId)
       .single();
@@ -1379,7 +1522,7 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
     if (error || !registration) {
       console.error(
         "paid event confirmation lookup failed:",
-        error?.message ?? "Registration not found"
+        error?.message ?? "Registration not found",
       );
       return;
     }
@@ -1398,11 +1541,11 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
     }
 
     const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(
-      eventValue.slug
+      eventValue.slug,
     )}`;
 
     const attendeeRows = Array.isArray(
-      (registration as any).event_registration_attendees
+      (registration as any).event_registration_attendees,
     )
       ? (registration as any).event_registration_attendees
       : [];
@@ -1474,7 +1617,6 @@ async function safeQueuePaidEventRegistrationConfirmation(params: {
   }
 }
 
-
 type EventOrderItemConfirmationRow = {
   item_type: string | null;
   description: string | null;
@@ -1496,16 +1638,12 @@ type EventOrderRegistrationConfirmationRow = {
   total_amount: number | null;
   currency: string | null;
   event_ticket_types:
-    | { name: string | null }
-    | { name: string | null }[]
-    | null;
-  event_registration_attendees:
-    | Array<{
-        first_name: string | null;
-        last_name: string | null;
-        ticket_code: string | null;
-      }>
-    | null;
+    { name: string | null } | { name: string | null }[] | null;
+  event_registration_attendees: Array<{
+    first_name: string | null;
+    last_name: string | null;
+    ticket_code: string | null;
+  }> | null;
 };
 
 async function safeQueuePaidEventCartOrderConfirmation(params: {
@@ -1528,7 +1666,7 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
           slug,
           name
         )
-      `
+      `,
       )
       .eq("id", params.orderId)
       .maybeSingle();
@@ -1536,22 +1674,25 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
     if (orderError || !order) {
       console.error(
         "paid event cart confirmation order lookup failed:",
-        orderError?.message ?? "Order not found"
+        orderError?.message ?? "Order not found",
       );
       return;
     }
 
-    const eventValue = Array.isArray(order.events) ? order.events[0] : order.events;
+    const eventValue = Array.isArray(order.events)
+      ? order.events[0]
+      : order.events;
 
     if (!eventValue) {
       console.error("paid event cart confirmation missing event");
       return;
     }
 
-    const { data: registrations, error: registrationsError } = await params.supabase
-      .from("event_registrations")
-      .select(
-        `
+    const { data: registrations, error: registrationsError } =
+      await params.supabase
+        .from("event_registrations")
+        .select(
+          `
         id,
         studio_id,
         attendee_first_name,
@@ -1570,17 +1711,21 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
           last_name,
           ticket_code
         )
-      `
-      )
-      .eq("order_id", params.orderId)
-      .order("created_at", { ascending: true });
+      `,
+        )
+        .eq("order_id", params.orderId)
+        .order("created_at", { ascending: true });
 
     if (registrationsError) {
-      console.error("paid event cart confirmation registrations lookup failed:", registrationsError.message);
+      console.error(
+        "paid event cart confirmation registrations lookup failed:",
+        registrationsError.message,
+      );
       return;
     }
 
-    const typedRegistrations = (registrations ?? []) as EventOrderRegistrationConfirmationRow[];
+    const typedRegistrations = (registrations ??
+      []) as EventOrderRegistrationConfirmationRow[];
     const primaryRegistration = typedRegistrations[0] ?? null;
 
     if (!primaryRegistration) {
@@ -1590,24 +1735,42 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
 
     const { data: orderItems, error: orderItemsError } = await params.supabase
       .from("event_order_items")
-      .select("item_type, description, quantity, total_price, currency, attendee_names, created_at")
+      .select(
+        "item_type, description, quantity, total_price, currency, attendee_names, created_at",
+      )
       .eq("order_id", params.orderId)
       .order("created_at", { ascending: true });
 
     if (orderItemsError) {
-      console.error("paid event cart confirmation order items lookup failed:", orderItemsError.message);
+      console.error(
+        "paid event cart confirmation order items lookup failed:",
+        orderItemsError.message,
+      );
       return;
     }
 
-    const typedOrderItems = (orderItems ?? []) as EventOrderItemConfirmationRow[];
-    const currency = (order.currency || primaryRegistration.currency || "USD").toUpperCase();
+    const typedOrderItems = (orderItems ??
+      []) as EventOrderItemConfirmationRow[];
+    const currency = (
+      order.currency ||
+      primaryRegistration.currency ||
+      "USD"
+    ).toUpperCase();
     const eventUrl = `${getAppUrl()}/events/${encodeURIComponent(eventValue.slug)}`;
     const buyerName = String(order.buyer_name || "").trim();
-    const firstName = buyerName.split(/\s+/)[0] || primaryRegistration.attendee_first_name || "there";
-    const lastName = buyerName.split(/\s+/).slice(1).join(" ") || primaryRegistration.attendee_last_name || "";
+    const firstName =
+      buyerName.split(/\s+/)[0] ||
+      primaryRegistration.attendee_first_name ||
+      "there";
+    const lastName =
+      buyerName.split(/\s+/).slice(1).join(" ") ||
+      primaryRegistration.attendee_last_name ||
+      "";
 
     const purchasedItems = typedOrderItems.map((item) => ({
-      name: item.description || (item.item_type === "coach_slot" ? "Private lesson" : "Event ticket"),
+      name:
+        item.description ||
+        (item.item_type === "coach_slot" ? "Private lesson" : "Event ticket"),
       quantity: Number(item.quantity ?? 1),
       totalPrice: Number(item.total_price ?? 0),
     }));
@@ -1620,28 +1783,40 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
       return {
         name: ticketType?.name || "Event ticket",
         quantity: Number(registration.quantity ?? 1),
-        totalPrice: Number(registration.total_price ?? registration.total_amount ?? 0),
+        totalPrice: Number(
+          registration.total_price ?? registration.total_amount ?? 0,
+        ),
       };
     });
 
-    const finalPurchasedItems = purchasedItems.length > 0 ? purchasedItems : registrationItems;
+    const finalPurchasedItems =
+      purchasedItems.length > 0 ? purchasedItems : registrationItems;
     const ticketCodes = typedRegistrations.flatMap((registration) => {
-      const attendeeRows = Array.isArray(registration.event_registration_attendees)
+      const attendeeRows = Array.isArray(
+        registration.event_registration_attendees,
+      )
         ? registration.event_registration_attendees
         : [];
 
       return attendeeRows
         .map((attendee) => {
-          const code = typeof attendee.ticket_code === "string" ? attendee.ticket_code.trim() : "";
+          const code =
+            typeof attendee.ticket_code === "string"
+              ? attendee.ticket_code.trim()
+              : "";
           if (!code) return null;
 
-          const name = `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim();
+          const name =
+            `${attendee.first_name ?? ""} ${attendee.last_name ?? ""}`.trim();
           return { name: name || "Attendee", code };
         })
         .filter(Boolean) as Array<{ name: string; code: string }>;
     });
 
-    const ticketQuantity = registrationItems.reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
+    const ticketQuantity = registrationItems.reduce(
+      (sum, item) => sum + Number(item.quantity ?? 0),
+      0,
+    );
     const coachSlotQuantity = typedOrderItems
       .filter((item) => item.item_type === "coach_slot")
       .reduce((sum, item) => sum + Number(item.quantity ?? 0), 0);
@@ -1705,14 +1880,16 @@ async function safeQueuePaidEventCartOrderConfirmation(params: {
 async function handleEventRegistrationCheckoutCompleted(
   supabase: SupabaseClient,
   stripe: Stripe,
-  session: Stripe.Checkout.Session
+  session: Stripe.Checkout.Session,
 ) {
   const source = getString(session.metadata?.source);
   if (source !== "event_registration") return false;
 
   const registrationId = getString(session.metadata?.registration_id);
   if (!registrationId) {
-    throw new Error("Event registration checkout missing registration_id metadata.");
+    throw new Error(
+      "Event registration checkout missing registration_id metadata.",
+    );
   }
 
   if (session.payment_status !== "paid") {
@@ -1723,6 +1900,13 @@ async function handleEventRegistrationCheckoutCompleted(
   const sessionId = session.id;
   const amountTotal = Number(session.amount_total ?? 0) / 100;
   const currency = (session.currency ?? "usd").toUpperCase();
+
+  await assertEventRegistrationPaymentMatches({
+    supabase,
+    registrationId,
+    amountTotal,
+    currency,
+  });
 
   const { error: registrationUpdateError } = await supabase
     .from("event_registrations")
@@ -1807,12 +1991,10 @@ async function handleEventRegistrationCheckoutCompleted(
   return true;
 }
 
-
-
 async function handleEventCartOrderCheckoutCompleted(
   supabase: SupabaseClient,
   stripe: Stripe,
-  session: Stripe.Checkout.Session
+  session: Stripe.Checkout.Session,
 ) {
   const source = getString(session.metadata?.source);
   if (source !== "event_cart_order") return false;
@@ -1831,6 +2013,13 @@ async function handleEventCartOrderCheckoutCompleted(
   const amountTotal = Number(session.amount_total ?? 0) / 100;
   const currency = (session.currency ?? "usd").toUpperCase();
   const paidAt = new Date().toISOString();
+
+  await assertEventOrderPaymentMatches({
+    supabase,
+    orderId,
+    amountTotal,
+    currency,
+  });
 
   const { error: orderUpdateError } = await supabase
     .from("event_orders")
@@ -1874,12 +2063,13 @@ async function handleEventCartOrderCheckoutCompleted(
       throw new Error(registrationUpdateError.message);
     }
 
-    const { data: existingPayment, error: existingPaymentError } = await supabase
-      .from("event_payments")
-      .select("id")
-      .eq("registration_id", registration.id)
-      .eq("stripe_checkout_session_id", sessionId)
-      .maybeSingle();
+    const { data: existingPayment, error: existingPaymentError } =
+      await supabase
+        .from("event_payments")
+        .select("id")
+        .eq("registration_id", registration.id)
+        .eq("stripe_checkout_session_id", sessionId)
+        .maybeSingle();
 
     if (existingPaymentError) {
       throw new Error(existingPaymentError.message);
@@ -1898,7 +2088,8 @@ async function handleEventCartOrderCheckoutCompleted(
           stripe_checkout_session_id: sessionId,
           stripe_payment_intent_id: paymentIntentId,
           external_reference: sessionId,
-          notes: "Created by Stripe checkout.session.completed webhook for event cart order.",
+          notes:
+            "Created by Stripe checkout.session.completed webhook for event cart order.",
         });
 
       if (paymentInsertError) {
@@ -1951,7 +2142,7 @@ async function handleEventCartOrderCheckoutCompleted(
 async function handleEventCartOrderPaymentIntentSucceeded(
   supabase: SupabaseClient,
   stripe: Stripe,
-  paymentIntent: Stripe.PaymentIntent
+  paymentIntent: Stripe.PaymentIntent,
 ) {
   const source = getString(paymentIntent.metadata?.source);
   if (source !== "event_cart_order") return false;
@@ -1962,9 +2153,17 @@ async function handleEventCartOrderPaymentIntentSucceeded(
   }
 
   const paymentIntentId = paymentIntent.id;
-  const amountTotal = Number(paymentIntent.amount_received ?? paymentIntent.amount ?? 0) / 100;
+  const amountTotal =
+    Number(paymentIntent.amount_received ?? paymentIntent.amount ?? 0) / 100;
   const currency = (paymentIntent.currency ?? "usd").toUpperCase();
   const paidAt = new Date().toISOString();
+
+  await assertEventOrderPaymentMatches({
+    supabase,
+    orderId,
+    amountTotal,
+    currency,
+  });
 
   const { error: orderUpdateError } = await supabase
     .from("event_orders")
@@ -2006,12 +2205,13 @@ async function handleEventCartOrderPaymentIntentSucceeded(
       throw new Error(registrationUpdateError.message);
     }
 
-    const { data: existingPayment, error: existingPaymentError } = await supabase
-      .from("event_payments")
-      .select("id")
-      .eq("registration_id", registration.id)
-      .eq("stripe_payment_intent_id", paymentIntentId)
-      .maybeSingle();
+    const { data: existingPayment, error: existingPaymentError } =
+      await supabase
+        .from("event_payments")
+        .select("id")
+        .eq("registration_id", registration.id)
+        .eq("stripe_payment_intent_id", paymentIntentId)
+        .maybeSingle();
 
     if (existingPaymentError) {
       throw new Error(existingPaymentError.message);
@@ -2029,7 +2229,8 @@ async function handleEventCartOrderPaymentIntentSucceeded(
           source: "stripe",
           stripe_payment_intent_id: paymentIntentId,
           external_reference: paymentIntentId,
-          notes: "Created by Stripe payment_intent.succeeded webhook for native event checkout.",
+          notes:
+            "Created by Stripe payment_intent.succeeded webhook for native event checkout.",
         });
 
       if (paymentInsertError) {
@@ -2078,7 +2279,7 @@ async function handleEventCartOrderPaymentIntentSucceeded(
 
 async function handleEventPrivateLessonCheckoutCompleted(
   supabase: SupabaseClient,
-  session: Stripe.Checkout.Session
+  session: Stripe.Checkout.Session,
 ) {
   const source = getString(session.metadata?.source);
   if (source !== "event_private_lesson_slot") return false;
@@ -2093,6 +2294,35 @@ async function handleEventPrivateLessonCheckoutCompleted(
   }
 
   const paymentIntentId = getString(session.payment_intent);
+  const amountTotal = Number(session.amount_total ?? 0) / 100;
+
+  const { data: privateLessonSlot, error: privateLessonSlotError } =
+    await supabase
+      .from("event_private_lesson_slots")
+      .select("id, price, status, payment_status, stripe_checkout_session_id")
+      .eq("id", slotId)
+      .maybeSingle();
+
+  if (privateLessonSlotError || !privateLessonSlot) {
+    throw new Error(
+      `Private lesson slot validation failed: ${privateLessonSlotError?.message ?? "slot not found"}`,
+    );
+  }
+
+  if (!amountsMatch(Number(privateLessonSlot.price ?? 0), amountTotal)) {
+    throw new Error(
+      `Private lesson amount mismatch. Expected ${Number(privateLessonSlot.price ?? 0)}, received ${amountTotal}.`,
+    );
+  }
+
+  if (
+    privateLessonSlot.stripe_checkout_session_id &&
+    privateLessonSlot.stripe_checkout_session_id !== session.id
+  ) {
+    throw new Error(
+      "Private lesson checkout session did not match the held slot.",
+    );
+  }
 
   const { error: slotUpdateError } = await supabase
     .from("event_private_lesson_slots")
@@ -2113,7 +2343,6 @@ async function handleEventPrivateLessonCheckoutCompleted(
 
   return true;
 }
-
 
 type StripeFeeDetails = {
   chargeId: string | null;
@@ -2140,20 +2369,27 @@ function dollarsToCents(value: number | string | null | undefined) {
   return Math.round(Number(value ?? 0) * 100);
 }
 
-function prorateCents(totalCents: number, rowAmountCents: number, allRowsAmountCents: number) {
-  if (totalCents <= 0 || rowAmountCents <= 0 || allRowsAmountCents <= 0) return 0;
+function prorateCents(
+  totalCents: number,
+  rowAmountCents: number,
+  allRowsAmountCents: number,
+) {
+  if (totalCents <= 0 || rowAmountCents <= 0 || allRowsAmountCents <= 0)
+    return 0;
   return Math.round((totalCents * rowAmountCents) / allRowsAmountCents);
 }
 
 async function getStripeFeeDetailsFromCharge(
   stripe: Stripe,
-  charge: Stripe.Charge
+  charge: Stripe.Charge,
 ): Promise<StripeFeeDetails> {
   const chargeId = charge.id ?? null;
   const balanceTransactionId = stripeObjectId(charge.balance_transaction);
 
   let stripeProcessingFeeAmount = 0;
-  let stripeApplicationFeeAmount = centsToDollars(charge.application_fee_amount ?? 0);
+  let stripeApplicationFeeAmount = centsToDollars(
+    charge.application_fee_amount ?? 0,
+  );
   let platformFeeAmount = stripeApplicationFeeAmount;
 
   if (balanceTransactionId) {
@@ -2167,7 +2403,10 @@ async function getStripeFeeDetailsFromCharge(
 
       stripeProcessingFeeAmount = centsToDollars(balanceTransaction.fee ?? 0);
     } catch (error) {
-      console.warn("Unable to retrieve Stripe balance transaction fees.", error);
+      console.warn(
+        "Unable to retrieve Stripe balance transaction fees.",
+        error,
+      );
     }
   }
 
@@ -2182,12 +2421,15 @@ async function getStripeFeeDetailsFromCharge(
 
 async function getStripeFeeDetailsFromPaymentIntent(
   stripe: Stripe,
-  paymentIntentId: string
+  paymentIntentId: string,
 ) {
   try {
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId, {
-      expand: ["latest_charge", "latest_charge.balance_transaction"],
-    });
+    const paymentIntent = await stripe.paymentIntents.retrieve(
+      paymentIntentId,
+      {
+        expand: ["latest_charge", "latest_charge.balance_transaction"],
+      },
+    );
 
     const latestCharge = paymentIntent.latest_charge;
     const charge =
@@ -2199,7 +2441,10 @@ async function getStripeFeeDetailsFromPaymentIntent(
 
     return getStripeFeeDetailsFromCharge(stripe, charge);
   } catch (error) {
-    console.warn("Unable to retrieve Stripe payment intent fee details.", error);
+    console.warn(
+      "Unable to retrieve Stripe payment intent fee details.",
+      error,
+    );
     return null;
   }
 }
@@ -2207,9 +2452,12 @@ async function getStripeFeeDetailsFromPaymentIntent(
 async function syncFeeDetailsForPaymentIntent(
   supabase: SupabaseClient,
   stripe: Stripe,
-  paymentIntentId: string
+  paymentIntentId: string,
 ) {
-  const feeDetails = await getStripeFeeDetailsFromPaymentIntent(stripe, paymentIntentId);
+  const feeDetails = await getStripeFeeDetailsFromPaymentIntent(
+    stripe,
+    paymentIntentId,
+  );
   if (!feeDetails) return false;
 
   const feePayload = {
@@ -2229,10 +2477,11 @@ async function syncFeeDetailsForPaymentIntent(
     throw new Error(paymentsError.message);
   }
 
-  const { data: eventPayments, error: eventPaymentsLookupError } = await supabase
-    .from("event_payments")
-    .select("id, amount")
-    .eq("stripe_payment_intent_id", paymentIntentId);
+  const { data: eventPayments, error: eventPaymentsLookupError } =
+    await supabase
+      .from("event_payments")
+      .select("id, amount")
+      .eq("stripe_payment_intent_id", paymentIntentId);
 
   if (eventPaymentsLookupError) {
     throw new Error(eventPaymentsLookupError.message);
@@ -2292,7 +2541,7 @@ async function syncFeeDetailsForPaymentIntent(
 async function syncFeeDetailsForCharge(
   supabase: SupabaseClient,
   stripe: Stripe,
-  charge: Stripe.Charge
+  charge: Stripe.Charge,
 ) {
   const paymentIntentId = stripeObjectId(charge.payment_intent);
   if (!paymentIntentId) return false;
@@ -2304,7 +2553,7 @@ async function updatePaymentRefundByPaymentIntent(
   supabase: SupabaseClient,
   paymentIntentId: string,
   refundAmount: number,
-  stripeRefundId: string | null
+  stripeRefundId: string | null,
 ) {
   const { data: payments, error: paymentsLookupError } = await supabase
     .from("payments")
@@ -2348,11 +2597,13 @@ async function updateEventPaymentRefundByPaymentIntent(
   supabase: SupabaseClient,
   paymentIntentId: string,
   refundAmount: number,
-  stripeRefundId: string | null
+  stripeRefundId: string | null,
 ) {
   const { data: eventPayments, error: paymentLookupError } = await supabase
     .from("event_payments")
-    .select("id, registration_id, amount, refund_amount, stripe_payment_intent_id")
+    .select(
+      "id, registration_id, amount, refund_amount, stripe_payment_intent_id",
+    )
     .eq("stripe_payment_intent_id", paymentIntentId);
 
   if (paymentLookupError) {
@@ -2362,7 +2613,10 @@ async function updateEventPaymentRefundByPaymentIntent(
   const rows = eventPayments ?? [];
   if (rows.length === 0) return false;
 
-  const totalAmount = rows.reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+  const totalAmount = rows.reduce(
+    (sum, row) => sum + Number(row.amount ?? 0),
+    0,
+  );
   const fullyRefundedCart = refundAmount >= totalAmount;
 
   for (const eventPayment of rows) {
@@ -2419,7 +2673,7 @@ async function updateEventPaymentRefundByPaymentIntent(
 async function handleStripeRefundUpdated(
   supabase: SupabaseClient,
   stripe: Stripe,
-  refund: Stripe.Refund
+  refund: Stripe.Refund,
 ) {
   const paymentIntentId = stripeObjectId(refund.payment_intent);
   const chargeId = stripeObjectId(refund.charge);
@@ -2435,12 +2689,15 @@ async function handleStripeRefundUpdated(
         expand: ["balance_transaction"],
       });
       resolvedPaymentIntentId =
-        resolvedPaymentIntentId ?? stripeObjectId(resolvedCharge.payment_intent);
+        resolvedPaymentIntentId ??
+        stripeObjectId(resolvedCharge.payment_intent);
 
       // Stripe Refund.amount is the amount for this single refund event.
       // Charge.amount_refunded is cumulative across multiple partial refunds,
       // which is what event_payments.refund_amount and accounting_entries need.
-      const chargeRefundAmount = centsToDollars(resolvedCharge.amount_refunded ?? 0);
+      const chargeRefundAmount = centsToDollars(
+        resolvedCharge.amount_refunded ?? 0,
+      );
       if (chargeRefundAmount > 0) {
         cumulativeRefundAmount = chargeRefundAmount;
       }
@@ -2468,7 +2725,11 @@ async function handleStripeRefundUpdated(
   if (resolvedCharge) {
     await syncFeeDetailsForCharge(supabase, stripe, resolvedCharge);
   } else {
-    await syncFeeDetailsForPaymentIntent(supabase, stripe, resolvedPaymentIntentId);
+    await syncFeeDetailsForPaymentIntent(
+      supabase,
+      stripe,
+      resolvedPaymentIntentId,
+    );
   }
 
   return paymentUpdated || eventPaymentUpdated;
@@ -2477,7 +2738,7 @@ async function handleStripeRefundUpdated(
 async function handleChargeRefunded(
   supabase: SupabaseClient,
   stripe: Stripe,
-  charge: Stripe.Charge
+  charge: Stripe.Charge,
 ) {
   const paymentIntentId = stripeObjectId(charge.payment_intent);
   const refundAmount = centsToDollars(charge.amount_refunded ?? 0);
@@ -2506,7 +2767,7 @@ async function handleChargeRefunded(
 
 async function handlePortalFloorRentalCheckoutCompleted(
   supabase: SupabaseClient,
-  session: Stripe.Checkout.Session
+  session: Stripe.Checkout.Session,
 ) {
   const source = getString(session.metadata?.source);
   if (source !== "portal_floor_rental_balance_payment") return false;
@@ -2529,7 +2790,9 @@ async function handlePortalFloorRentalCheckoutCompleted(
     .filter(Boolean);
 
   if (appointmentIds.length === 0) {
-    throw new Error("Portal floor rental balance checkout missing appointments.");
+    throw new Error(
+      "Portal floor rental balance checkout missing appointments.",
+    );
   }
 
   const paymentIntentId = getString(session.payment_intent);
@@ -2552,7 +2815,9 @@ async function handlePortalFloorRentalCheckoutCompleted(
 
   const { data: appointments, error: appointmentsError } = await supabase
     .from("appointments")
-    .select("id, studio_id, client_id, appointment_type, status, payment_status, price_amount")
+    .select(
+      "id, studio_id, client_id, appointment_type, status, payment_status, price_amount",
+    )
     .eq("studio_id", studioId)
     .eq("client_id", clientId)
     .eq("appointment_type", "floor_space_rental")
@@ -2565,28 +2830,29 @@ async function handlePortalFloorRentalCheckoutCompleted(
   const payableAppointments = (appointments ?? []).filter(
     (appointment) =>
       appointment.status !== "cancelled" &&
-      (appointment.payment_status === "unpaid" || appointment.payment_status === "partial") &&
-      Number(appointment.price_amount ?? 0) > 0
+      (appointment.payment_status === "unpaid" ||
+        appointment.payment_status === "partial") &&
+      Number(appointment.price_amount ?? 0) > 0,
   );
 
   if (payableAppointments.length === 0) {
-    throw new Error("No payable floor rentals were found for the checkout session.");
+    throw new Error(
+      "No payable floor rentals were found for the checkout session.",
+    );
   }
 
   const expectedAmount = payableAppointments.reduce(
     (sum, appointment) => sum + Number(appointment.price_amount ?? 0),
-    0
+    0,
   );
 
   if (Math.abs(expectedAmount - amountTotal) > 0.01) {
     throw new Error(
-      `Portal floor rental balance amount mismatch. Expected ${expectedAmount}, received ${amountTotal}.`
+      `Portal floor rental balance amount mismatch. Expected ${expectedAmount}, received ${amountTotal}.`,
     );
   }
 
-  const { error: insertPaymentError } = await supabase
-  .from("payments")
-  .insert({
+  const { error: insertPaymentError } = await supabase.from("payments").insert({
     studio_id: studioId,
     client_id: clientId,
     amount: amountTotal,
@@ -2612,7 +2878,7 @@ async function handlePortalFloorRentalCheckoutCompleted(
     })
     .in(
       "id",
-      payableAppointments.map((appointment) => appointment.id)
+      payableAppointments.map((appointment) => appointment.id),
     );
 
   if (updateAppointmentsError) {
@@ -2624,7 +2890,7 @@ async function handlePortalFloorRentalCheckoutCompleted(
 
 async function handleClientPaymentRequestCheckoutCompleted(
   supabase: SupabaseClient,
-  session: Stripe.Checkout.Session
+  session: Stripe.Checkout.Session,
 ) {
   const source = getString(session.metadata?.source);
   if (source !== "client_payment_request") return false;
@@ -2645,7 +2911,9 @@ async function handleClientPaymentRequestCheckoutCompleted(
 
   const { data: payment, error: paymentLookupError } = await supabase
     .from("payments")
-    .select("id, studio_id, client_id, client_package_id, client_membership_id, amount, status")
+    .select(
+      "id, studio_id, client_id, client_package_id, client_membership_id, amount, status",
+    )
     .eq("id", paymentId)
     .maybeSingle();
 
@@ -2660,7 +2928,7 @@ async function handleClientPaymentRequestCheckoutCompleted(
   const expectedAmount = Number(payment.amount ?? 0);
   if (Math.abs(expectedAmount - amountTotal) > 0.01) {
     throw new Error(
-      `Client payment request amount mismatch. Expected ${expectedAmount}, received ${amountTotal}.`
+      `Client payment request amount mismatch. Expected ${expectedAmount}, received ${amountTotal}.`,
     );
   }
 
@@ -2719,61 +2987,51 @@ async function handleClientPaymentRequestCheckoutCompleted(
 async function handleCheckoutSessionCompleted(
   supabase: SupabaseClient,
   stripe: Stripe,
-  session: Stripe.Checkout.Session
+  session: Stripe.Checkout.Session,
 ) {
   const handledStudioSubscription = await handleStudioCheckoutCompleted(
     supabase,
     stripe,
-    session
+    session,
   );
 
   if (handledStudioSubscription) {
     return;
   }
 
-
   const handledEventCartOrder = await handleEventCartOrderCheckoutCompleted(
     supabase,
     stripe,
-    session
+    session,
   );
 
   if (handledEventCartOrder) {
     return;
   }
 
-  const handledPrivateLessonSlot = await handleEventPrivateLessonCheckoutCompleted(
-    supabase,
-    session
-  );
+  const handledPrivateLessonSlot =
+    await handleEventPrivateLessonCheckoutCompleted(supabase, session);
 
   if (handledPrivateLessonSlot) {
     return;
   }
 
-    const handledEventRegistration = await handleEventRegistrationCheckoutCompleted(
-    supabase,
-    stripe,
-    session
-  );
+  const handledEventRegistration =
+    await handleEventRegistrationCheckoutCompleted(supabase, stripe, session);
 
   if (handledEventRegistration) {
     return;
   }
 
-  const handledPortalFloorRental = await handlePortalFloorRentalCheckoutCompleted(
-    supabase,
-    session
-  );
+  const handledPortalFloorRental =
+    await handlePortalFloorRentalCheckoutCompleted(supabase, session);
 
   if (handledPortalFloorRental) {
     return;
   }
 
-  const handledClientPaymentRequest = await handleClientPaymentRequestCheckoutCompleted(
-    supabase,
-    session
-  );
+  const handledClientPaymentRequest =
+    await handleClientPaymentRequestCheckoutCompleted(supabase, session);
 
   if (handledClientPaymentRequest) {
     return;
@@ -2825,7 +3083,7 @@ async function handleCheckoutSessionCompleted(
     const defaultPaymentMethodId =
       typeof subscription.default_payment_method === "string"
         ? subscription.default_payment_method
-        : subscription.default_payment_method?.id ?? null;
+        : (subscription.default_payment_method?.id ?? null);
 
     let paymentMethodId = defaultPaymentMethodId;
 
@@ -2838,7 +3096,7 @@ async function handleCheckoutSessionCompleted(
         paymentMethodId =
           typeof customer.invoice_settings?.default_payment_method === "string"
             ? customer.invoice_settings.default_payment_method
-            : customer.invoice_settings?.default_payment_method?.id ?? null;
+            : (customer.invoice_settings?.default_payment_method?.id ?? null);
       }
     }
 
@@ -2859,7 +3117,7 @@ async function handleInvoicePaid(
   supabase: SupabaseClient,
   stripe: Stripe,
   invoice: Stripe.Invoice,
-  stripeAccountId?: string | null
+  stripeAccountId?: string | null,
 ) {
   const studioInvoiceHandled = await upsertStudioInvoice({
     supabase,
@@ -2872,7 +3130,7 @@ async function handleInvoicePaid(
     const subscription = await stripe.subscriptions.retrieve(
       stripeSubscriptionId,
       {},
-      stripeAccountId ? { stripeAccount: stripeAccountId } : undefined
+      stripeAccountId ? { stripeAccount: stripeAccountId } : undefined,
     );
     await upsertStudioSubscription({
       supabase,
@@ -2909,12 +3167,14 @@ async function handleInvoicePaid(
   let resolvedClientMembershipId: string | null = null;
 
   if (stripeSubscriptionId) {
-    const { data: localStripeSubscription, error: localStripeSubscriptionError } =
-      await supabase
-        .from("stripe_subscriptions")
-        .select("studio_id, client_id, client_membership_id")
-        .eq("stripe_subscription_id", stripeSubscriptionId)
-        .maybeSingle();
+    const {
+      data: localStripeSubscription,
+      error: localStripeSubscriptionError,
+    } = await supabase
+      .from("stripe_subscriptions")
+      .select("studio_id, client_id, client_membership_id")
+      .eq("stripe_subscription_id", stripeSubscriptionId)
+      .maybeSingle();
 
     if (localStripeSubscriptionError) {
       throw new Error(localStripeSubscriptionError.message);
@@ -2931,13 +3191,13 @@ async function handleInvoicePaid(
     const subscription = await stripe.subscriptions.retrieve(
       stripeSubscriptionId,
       {},
-      stripeAccountId ? { stripeAccount: stripeAccountId } : undefined
+      stripeAccountId ? { stripeAccount: stripeAccountId } : undefined,
     );
 
     const studioIdFromMetadata = getString(subscription.metadata?.studioId);
     const clientIdFromMetadata = getString(subscription.metadata?.clientId);
     const localMembershipIdFromMetadata = getString(
-      subscription.metadata?.localMembershipId
+      subscription.metadata?.localMembershipId,
     );
 
     if (studioIdFromMetadata && clientIdFromMetadata) {
@@ -2947,28 +3207,32 @@ async function handleInvoicePaid(
         localMembershipIdFromMetadata ?? resolvedClientMembershipId;
 
       const currentPeriodStartUnix = getNumber(
-        (subscription as unknown as { current_period_start?: number }).current_period_start
+        (subscription as unknown as { current_period_start?: number })
+          .current_period_start,
       );
       const currentPeriodEndUnix = getNumber(
-        (subscription as unknown as { current_period_end?: number }).current_period_end
+        (subscription as unknown as { current_period_end?: number })
+          .current_period_end,
       );
 
       const latestInvoiceId =
         typeof subscription.latest_invoice === "string"
           ? subscription.latest_invoice
-          : subscription.latest_invoice?.id ?? null;
+          : (subscription.latest_invoice?.id ?? null);
 
       const defaultPaymentMethodId =
         typeof subscription.default_payment_method === "string"
           ? subscription.default_payment_method
-          : subscription.default_payment_method?.id ?? null;
+          : (subscription.default_payment_method?.id ?? null);
 
-      const { data: existingStripeSubscription, error: existingStripeSubscriptionError } =
-        await supabase
-          .from("stripe_subscriptions")
-          .select("id")
-          .eq("stripe_subscription_id", stripeSubscriptionId)
-          .maybeSingle();
+      const {
+        data: existingStripeSubscription,
+        error: existingStripeSubscriptionError,
+      } = await supabase
+        .from("stripe_subscriptions")
+        .select("id")
+        .eq("stripe_subscription_id", stripeSubscriptionId)
+        .maybeSingle();
 
       if (existingStripeSubscriptionError) {
         throw new Error(existingStripeSubscriptionError.message);
@@ -2981,7 +3245,8 @@ async function handleInvoicePaid(
         membership_plan_id: getString(subscription.metadata?.membershipPlanId),
         stripe_customer_id: stripeCustomerId,
         stripe_subscription_id: stripeSubscriptionId,
-        stripe_price_id: getString(subscription.items.data[0]?.price?.id) ?? null,
+        stripe_price_id:
+          getString(subscription.items.data[0]?.price?.id) ?? null,
         status: subscription.status,
         current_period_start: toIsoOrNull(currentPeriodStartUnix),
         current_period_end: toIsoOrNull(currentPeriodEndUnix),
@@ -3016,11 +3281,12 @@ async function handleInvoicePaid(
   }
 
   if ((!resolvedStudioId || !resolvedClientId) && stripeCustomerId) {
-    const { data: stripeCustomerRow, error: stripeCustomerRowError } = await supabase
-      .from("stripe_customers")
-      .select("studio_id, client_id")
-      .eq("stripe_customer_id", stripeCustomerId)
-      .maybeSingle();
+    const { data: stripeCustomerRow, error: stripeCustomerRowError } =
+      await supabase
+        .from("stripe_customers")
+        .select("studio_id, client_id")
+        .eq("stripe_customer_id", stripeCustomerId)
+        .maybeSingle();
 
     if (stripeCustomerRowError) {
       throw new Error(stripeCustomerRowError.message);
@@ -3065,7 +3331,7 @@ async function handleInvoicePaid(
 
   if (resolvedClientMembershipId) {
     const currentPeriodEndUnix = getNumber(
-      invoice.lines?.data?.[0]?.period?.end ?? null
+      invoice.lines?.data?.[0]?.period?.end ?? null,
     );
 
     const { error: membershipUpdateError } = await supabase
@@ -3086,7 +3352,7 @@ async function handleInvoicePaid(
 async function handleInvoicePaymentFailed(
   supabase: SupabaseClient,
   stripe: Stripe,
-  invoice: Stripe.Invoice
+  invoice: Stripe.Invoice,
 ) {
   const studioInvoiceHandled = await upsertStudioInvoice({
     supabase,
@@ -3096,7 +3362,8 @@ async function handleInvoicePaymentFailed(
   const stripeSubscriptionId = getInvoiceSubscriptionId(invoice);
 
   if (studioInvoiceHandled && stripeSubscriptionId) {
-    const subscription = await stripe.subscriptions.retrieve(stripeSubscriptionId);
+    const subscription =
+      await stripe.subscriptions.retrieve(stripeSubscriptionId);
     await upsertStudioSubscription({
       supabase,
       stripe,
@@ -3106,17 +3373,21 @@ async function handleInvoicePaymentFailed(
 
   if (!stripeSubscriptionId) return;
 
-  const { data: stripeSubscription, error: stripeSubscriptionError } = await supabase
-    .from("stripe_subscriptions")
-    .select("studio_id, client_id, client_membership_id")
-    .eq("stripe_subscription_id", stripeSubscriptionId)
-    .maybeSingle();
+  const { data: stripeSubscription, error: stripeSubscriptionError } =
+    await supabase
+      .from("stripe_subscriptions")
+      .select("studio_id, client_id, client_membership_id")
+      .eq("stripe_subscription_id", stripeSubscriptionId)
+      .maybeSingle();
 
   if (stripeSubscriptionError) {
     throw new Error(stripeSubscriptionError.message);
   }
 
-  if (!stripeSubscription?.studio_id || !stripeSubscription?.client_membership_id) {
+  if (
+    !stripeSubscription?.studio_id ||
+    !stripeSubscription?.client_membership_id
+  ) {
     return;
   }
 
@@ -3135,7 +3406,7 @@ async function handleInvoicePaymentFailed(
 
 async function resolveStudioIdForStripeAccount(
   supabase: SupabaseClient,
-  stripeAccountId: string | null
+  stripeAccountId: string | null,
 ) {
   if (!stripeAccountId) return null;
 
@@ -3153,21 +3424,24 @@ async function resolveStudioIdForStripeAccount(
 }
 
 function getStripeBalanceTransactionId(
-  value: string | Stripe.BalanceTransaction | null | undefined
+  value: string | Stripe.BalanceTransaction | null | undefined,
 ) {
   if (!value) return null;
-  return typeof value === "string" ? value : value.id ?? null;
+  return typeof value === "string" ? value : (value.id ?? null);
 }
 
 async function upsertStripePayoutRecord(
   supabase: SupabaseClient,
   event: Stripe.Event,
-  payout: Stripe.Payout
+  payout: Stripe.Payout,
 ) {
   const stripeAccountId = event.account ?? null;
-  const studioId = await resolveStudioIdForStripeAccount(supabase, stripeAccountId);
+  const studioId = await resolveStudioIdForStripeAccount(
+    supabase,
+    stripeAccountId,
+  );
   const stripeBalanceTransactionId = getStripeBalanceTransactionId(
-    payout.balance_transaction
+    payout.balance_transaction,
   );
 
   const payload = {
@@ -3397,19 +3671,24 @@ async function upsertStripePayoutItem(params: {
     amount: Number(balanceTransaction.amount ?? 0) / 100,
     fee: Number(balanceTransaction.fee ?? 0) / 100,
     net: Number(balanceTransaction.net ?? 0) / 100,
-    currency: (balanceTransaction.currency ?? payout.currency ?? "usd").toUpperCase(),
+    currency: (
+      balanceTransaction.currency ??
+      payout.currency ??
+      "usd"
+    ).toUpperCase(),
     type: balanceTransaction.type ?? null,
     description: balanceTransaction.description ?? null,
     available_on: toDateOnlyOrNull(balanceTransaction.available_on ?? null),
     balance_transaction_created_at: toIsoOrNull(
-      balanceTransaction.created ?? null
+      balanceTransaction.created ?? null,
     ),
     reporting_category: balanceTransaction.reporting_category ?? null,
     fee_details:
-      (balanceTransaction.fee_details as unknown as Record<string, unknown>[]) ??
-      [],
-    raw_payload:
-      balanceTransaction as unknown as Record<string, unknown>,
+      (balanceTransaction.fee_details as unknown as Record<
+        string,
+        unknown
+      >[]) ?? [],
+    raw_payload: balanceTransaction as unknown as Record<string, unknown>,
     updated_at: new Date().toISOString(),
   };
 
@@ -3457,8 +3736,14 @@ async function syncStripePayoutItems(params: {
   stripeAccountId: string | null;
   studioId: string | null;
 }) {
-  const { supabase, stripe, payout, payoutRecordId, stripeAccountId, studioId } =
-    params;
+  const {
+    supabase,
+    stripe,
+    payout,
+    payoutRecordId,
+    stripeAccountId,
+    studioId,
+  } = params;
 
   let hasMore = true;
   let startingAfter: string | undefined;
@@ -3479,7 +3764,7 @@ async function syncStripePayoutItems(params: {
 
     const balanceTransactions = await stripe.balanceTransactions.list(
       listParams,
-      requestOptions
+      requestOptions,
     );
 
     for (const balanceTransaction of balanceTransactions.data) {
@@ -3494,10 +3779,10 @@ async function syncStripePayoutItems(params: {
     }
 
     hasMore = balanceTransactions.has_more;
-    startingAfter = balanceTransactions.data[balanceTransactions.data.length - 1]?.id;
+    startingAfter =
+      balanceTransactions.data[balanceTransactions.data.length - 1]?.id;
   }
 }
-
 
 export async function POST(request: Request) {
   const stripe = getStripe();
@@ -3507,12 +3792,14 @@ export async function POST(request: Request) {
   const webhookSecrets = [
     process.env.STRIPE_WEBHOOK_SECRET,
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
-  ].filter((value): value is string => Boolean(value && value.trim().length > 0));
+  ].filter((value): value is string =>
+    Boolean(value && value.trim().length > 0),
+  );
 
   if (webhookSecrets.length === 0) {
     return new Response(
       "Missing STRIPE_WEBHOOK_SECRET or STRIPE_CONNECT_WEBHOOK_SECRET",
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -3572,9 +3859,12 @@ export async function POST(request: Request) {
       .eq("provider_event_id", event.id);
 
     if (retryEventError) {
-      return new Response(`Event retry logging failed: ${retryEventError.message}`, {
-        status: 500,
-      });
+      return new Response(
+        `Event retry logging failed: ${retryEventError.message}`,
+        {
+          status: 500,
+        },
+      );
     }
   } else {
     const { error: insertEventError } = await supabase
@@ -3600,7 +3890,7 @@ export async function POST(request: Request) {
         await handleCheckoutSessionCompleted(
           supabase,
           stripe,
-          event.data.object as Stripe.Checkout.Session
+          event.data.object as Stripe.Checkout.Session,
         );
         break;
       }
@@ -3609,17 +3899,21 @@ export async function POST(request: Request) {
         const paymentIntent = event.data.object as Stripe.PaymentIntent;
         const handledTerminal = await handleTerminalPaymentIntentSucceeded(
           supabase,
-          paymentIntent
+          paymentIntent,
         );
         const handledEventCart = handledTerminal
           ? false
           : await handleEventCartOrderPaymentIntentSucceeded(
               supabase,
               stripe,
-              paymentIntent
+              paymentIntent,
             );
         if (!handledTerminal && !handledEventCart) {
-          await syncFeeDetailsForPaymentIntent(supabase, stripe, paymentIntent.id);
+          await syncFeeDetailsForPaymentIntent(
+            supabase,
+            stripe,
+            paymentIntent.id,
+          );
         }
         break;
       }
@@ -3628,7 +3922,7 @@ export async function POST(request: Request) {
         await syncFeeDetailsForCharge(
           supabase,
           stripe,
-          event.data.object as Stripe.Charge
+          event.data.object as Stripe.Charge,
         );
         break;
       }
@@ -3648,7 +3942,7 @@ export async function POST(request: Request) {
         await handleStripeRefundUpdated(
           supabase,
           stripe,
-          event.data.object as Stripe.Refund
+          event.data.object as Stripe.Refund,
         );
         break;
       }
@@ -3657,35 +3951,39 @@ export async function POST(request: Request) {
         await handleChargeRefunded(
           supabase,
           stripe,
-          event.data.object as Stripe.Charge
+          event.data.object as Stripe.Charge,
         );
         break;
       }
 
       case "customer.subscription.created":
-case "customer.subscription.updated":
-case "customer.subscription.deleted": {
-  const subscription = event.data.object as Stripe.Subscription;
+      case "customer.subscription.updated":
+      case "customer.subscription.deleted": {
+        const subscription = event.data.object as Stripe.Subscription;
 
-  const handled = await upsertStudioSubscription({
-    supabase,
-    stripe,
-    subscription,
-  });
+        const handled = await upsertStudioSubscription({
+          supabase,
+          stripe,
+          subscription,
+        });
 
-  if (!handled) {
-    await upsertStripeSubscriptionRecord(supabase, subscription, event.account);
-  }
+        if (!handled) {
+          await upsertStripeSubscriptionRecord(
+            supabase,
+            subscription,
+            event.account,
+          );
+        }
 
-  break;
-}
+        break;
+      }
 
       case "invoice.paid": {
         await handleInvoicePaid(
           supabase,
           stripe,
           event.data.object as Stripe.Invoice,
-          event.account
+          event.account,
         );
         break;
       }
@@ -3694,7 +3992,7 @@ case "customer.subscription.deleted": {
         await handleInvoicePaymentFailed(
           supabase,
           stripe,
-          event.data.object as Stripe.Invoice
+          event.data.object as Stripe.Invoice,
         );
         break;
       }
@@ -3707,7 +4005,7 @@ case "customer.subscription.deleted": {
         const payoutSync = await upsertStripePayoutRecord(
           supabase,
           event,
-          payout
+          payout,
         );
 
         await syncStripePayoutItems({
@@ -3736,9 +4034,12 @@ case "customer.subscription.deleted": {
       .eq("provider_event_id", event.id);
 
     if (processedError) {
-      return new Response(`Event finalization failed: ${processedError.message}`, {
-        status: 500,
-      });
+      return new Response(
+        `Event finalization failed: ${processedError.message}`,
+        {
+          status: 500,
+        },
+      );
     }
 
     return new Response(`Webhook processed: ${event.type}`, { status: 200 });
@@ -3760,6 +4061,3 @@ case "customer.subscription.deleted": {
     });
   }
 }
-
-
-
