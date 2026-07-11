@@ -2,6 +2,7 @@ import Link from "next/link";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import { loginAction, requestPasswordResetAction } from "../actions";
+import { normalizeLocalRedirectPath } from "@/lib/security/redirects";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -41,6 +42,9 @@ function normalizeMode(value: string | undefined) {
 
 function normalizeErrorMessage(value: string | undefined) {
   if (!value) return "";
+  if (value.length > 180 || value.includes("://") || value.includes("\\")) {
+    return "That sign-in link could not be verified. Request a fresh sign-in link and use the newest email.";
+  }
 
   if (value === "portal-access-not-found") {
     return "We could not find a portal record for that email at this studio. Use the same email your studio has on file, or ask the studio to resend your portal invite.";
@@ -102,7 +106,7 @@ export default async function LoginPage({
 }) {
   const resolvedSearchParams = (await searchParams) ?? {};
 
-  const nextPath = getSingleSearchParam(resolvedSearchParams.next) ?? "";
+  const nextPath = normalizeLocalRedirectPath(getSingleSearchParam(resolvedSearchParams.next), "");
   const loginIntent = normalizeIntent(
     getSingleSearchParam(resolvedSearchParams.intent),
     nextPath,

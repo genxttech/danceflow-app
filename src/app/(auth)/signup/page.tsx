@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import { signupAction } from "../actions";
+import { normalizeLocalRedirectPath } from "@/lib/security/redirects";
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -20,13 +21,6 @@ function normalizeIntent(value: string | undefined) {
   return "public";
 }
 
-function normalizeNextPath(value: string | undefined) {
-  if (!value) return "";
-  if (!value.startsWith("/")) return "";
-  if (value.startsWith("//")) return "";
-  return value;
-}
-
 export default async function SignupPage({
   searchParams,
 }: {
@@ -38,8 +32,9 @@ export default async function SignupPage({
     getSingleSearchParam(resolvedSearchParams.intent)
   );
   const selectedPlan = getSingleSearchParam(resolvedSearchParams.plan) ?? "";
-  const nextPath = normalizeNextPath(
-    getSingleSearchParam(resolvedSearchParams.next)
+  const nextPath = normalizeLocalRedirectPath(
+    getSingleSearchParam(resolvedSearchParams.next),
+    ""
   );
   const emailHint = getSingleSearchParam(resolvedSearchParams.email) ?? "";
 

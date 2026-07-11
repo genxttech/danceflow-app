@@ -3,6 +3,10 @@ import type { NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import type { EmailOtpType } from "@supabase/supabase-js";
 import {
+  buildLoginErrorPath,
+  normalizeRedirectParam,
+} from "@/lib/security/redirects";
+import {
   claimGroupLessonRecapsForUser,
   ensurePortalProfileAndClientLinks,
   getAuthUserFullName,
@@ -62,13 +66,6 @@ function isOrganizerWorkspaceName(value: string | null | undefined) {
   );
 }
 
-function normalizeLocalNextPath(value: string | null) {
-  if (!value) return null;
-  if (!value.startsWith("/")) return null;
-  if (value.startsWith("//")) return null;
-  return value;
-}
-
 function getRequestedNextPath(requestUrl: URL) {
   const raw =
     requestUrl.searchParams.get("next") ||
@@ -77,20 +74,7 @@ function getRequestedNextPath(requestUrl: URL) {
 
   if (!raw) return null;
 
-  const normalizedLocal = normalizeLocalNextPath(raw);
-  if (normalizedLocal) return normalizedLocal;
-
-  try {
-    const parsed = new URL(raw);
-
-    if (parsed.origin !== requestUrl.origin) {
-      return null;
-    }
-
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
-  } catch {
-    return null;
-  }
+  return normalizeRedirectParam(raw, requestUrl.origin, null);
 }
 
 function isGenericAuthLandingPath(path: string | null) {
@@ -309,7 +293,7 @@ export async function GET(request: NextRequest) {
 
   if (!code && !tokenHash) {
     return NextResponse.redirect(
-      new URL("/login?error=missing-code", request.url)
+      new URL(buildLoginErrorPath("missing-code"), request.url)
     );
   }
 
@@ -341,10 +325,7 @@ export async function GET(request: NextRequest) {
 
   if (exchangeError) {
     return NextResponse.redirect(
-      new URL(
-        `/login?error=${encodeURIComponent(exchangeError.message)}`,
-        request.url
-      )
+      new URL(buildLoginErrorPath("auth-callback-failed"), request.url)
     );
   }
 
@@ -355,7 +336,7 @@ export async function GET(request: NextRequest) {
 
   if (userError || !user) {
     return NextResponse.redirect(
-      new URL("/login?error=missing-user-after-callback", request.url)
+      new URL(buildLoginErrorPath("missing-user-after-callback"), request.url)
     );
   }
 
@@ -383,12 +364,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (syncError) {
     return NextResponse.redirect(
-      new URL(
-        `/login?error=${encodeURIComponent(
-          syncError instanceof Error ? syncError.message : "callback-sync-failed"
-        )}`,
-        request.url
-      )
+      new URL(buildLoginErrorPath("callback-sync-failed"), request.url)
     );
   }
 
@@ -401,12 +377,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (roleError) {
     return NextResponse.redirect(
-      new URL(
-        `/login?error=${encodeURIComponent(
-          roleError instanceof Error ? roleError.message : "role-lookup-failed"
-        )}`,
-        request.url
-      )
+      new URL(buildLoginErrorPath("role-lookup-failed"), request.url)
     );
   }
 

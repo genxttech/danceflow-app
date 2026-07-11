@@ -3,6 +3,10 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
+  getTrustedRequestOrigin,
+  normalizeLocalRedirectPath,
+} from "@/lib/security/redirects";
+import {
   claimGroupLessonRecapsForUser,
   getGroupLessonRecapTokenFromPath,
 } from "@/lib/auth/portal-linking";
@@ -13,23 +17,9 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function normalizeLocalNextPath(value: string) {
-  if (!value) return "";
-  if (!value.startsWith("/")) return "";
-  if (value.startsWith("//")) return "";
-  return value;
-}
-
 async function getBaseUrl() {
   const headerStore = await headers();
-  const host = headerStore.get("x-forwarded-host") ?? headerStore.get("host");
-  const proto = headerStore.get("x-forwarded-proto") ?? "http";
-
-  if (!host) {
-    return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-  }
-
-  return `${proto}://${host}`;
+  return getTrustedRequestOrigin(headerStore);
 }
 
 function getPostLoginPath(hasWorkspaceRole: boolean) {
@@ -108,7 +98,7 @@ function buildSignupRedirectPath(params: {
 }) {
   const { signupIntent, selectedPlan, nextPath } = params;
 
-  const normalizedNext = normalizeLocalNextPath(nextPath ?? "");
+  const normalizedNext = normalizeLocalRedirectPath(nextPath ?? "");
   if (normalizedNext) {
     return normalizedNext;
   }
@@ -159,7 +149,7 @@ function buildLoginRedirectPath(params: {
     search.set("plan", params.selectedPlan);
   }
 
-  const normalizedNext = normalizeLocalNextPath(params.nextPath ?? "");
+  const normalizedNext = normalizeLocalRedirectPath(params.nextPath ?? "");
   if (normalizedNext) {
     search.set("next", normalizedNext);
   }
@@ -419,7 +409,7 @@ export async function signupAction(formData: FormData) {
 export async function loginAction(formData: FormData) {
   const email = getString(formData, "email").toLowerCase();
   const password = getString(formData, "password");
-  const next = normalizeLocalNextPath(getString(formData, "next"));
+  const next = normalizeLocalRedirectPath(getString(formData, "next"));
   const loginMode = getString(formData, "loginMode") || "password";
   const loginIntent = getString(formData, "loginIntent") || "public";
 
@@ -507,7 +497,7 @@ export async function loginAction(formData: FormData) {
 export async function requestPasswordResetAction(formData: FormData) {
   const email = getString(formData, "email").toLowerCase();
   const loginIntent = getString(formData, "loginIntent") || "studio";
-  const next = normalizeLocalNextPath(getString(formData, "next"));
+  const next = normalizeLocalRedirectPath(getString(formData, "next"));
 
   if (!email) {
     return { error: "Email is required." };
@@ -550,7 +540,7 @@ export async function updatePasswordAction(formData: FormData) {
   const password = getString(formData, "password");
   const confirmPassword = getString(formData, "confirmPassword");
   const loginIntent = getString(formData, "loginIntent") || "studio";
-  const next = normalizeLocalNextPath(getString(formData, "next"));
+  const next = normalizeLocalRedirectPath(getString(formData, "next"));
 
   const errorSearch = new URLSearchParams({
     intent: loginIntent,
@@ -593,7 +583,7 @@ export async function updatePasswordAction(formData: FormData) {
   });
 
   if (error) {
-    redirectWithError(error.message);
+    redirectWithError("Password update failed. Please request a fresh reset link.");
   }
 
   const loginSearch = new URLSearchParams({
