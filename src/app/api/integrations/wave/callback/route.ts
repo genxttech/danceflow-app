@@ -3,24 +3,36 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { encryptIntegrationSecret } from "@/lib/integrations/wave/secrets";
 import { exchangeWaveAuthorizationCode, getWaveUserAndBusinesses } from "@/lib/integrations/wave/client";
+import { isValidOAuthState, parseOAuthStateCookie, safeOAuthErrorCode } from "@/lib/security/oauth";
 
 function settingsRedirect(request: NextRequest, code: string) {
-  return NextResponse.redirect(new URL(`/app/settings/integrations/wave?status=${code}`, request.url));
+  const response = NextResponse.redirect(new URL(`/app/settings/integrations/wave?status=${safeOAuthErrorCode(code)}`, request.url));
+  response.cookies.delete("wave_oauth_state");
+  return response;
 }
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
   const returnedState = request.nextUrl.searchParams.get("state");
   const error = request.nextUrl.searchParams.get("error");
-  const rawState = request.cookies.get("wave_oauth_state")?.value;
-  let saved: { state: string; studioId: string } | null = null;
-  try { saved = rawState ? JSON.parse(rawState) : null; } catch { saved = null; }
+  const saved = parseOAuthStateCookie(request.cookies.get("wave_oauth_state")?.value);
+
   if (error) return settingsRedirect(request, "oauth_denied");
-  if (!code || !returnedState || !saved || saved.state !== returnedState || !saved.studioId) return settingsRedirect(request, "invalid_state");
+  if (!code || !returnedState || !saved) return settingsRedirect(request, "invalid_state");
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return settingsRedirect(request, "signed_out");
+
+  if (!isValidOAuthState({
+    expected: saved,
+    returnedState,
+    studioId: saved.studioId,
+    userId: user.id,
+  })) {
+    return settingsRedirect(request, "invalid_state");
+  }
+
   const { data: mayManage } = await supabase.rpc("can_manage_studio_wave", { target_studio_id: saved.studioId });
   if (!mayManage) return settingsRedirect(request, "forbidden");
 
@@ -60,15 +72,13 @@ export async function GET(request: NextRequest) {
     await admin.from("studio_wave_businesses").delete().eq("connection_id", connection.id);
     if (businesses.length) {
       const { error: businessesError } = await admin.from("studio_wave_businesses").insert(businesses.map((business) => ({
-        connection_id: connection.id, studio_id: saved!.studioId, wave_business_id: business.id,
+        connection_id: connection.id, studio_id: saved.studioId, wave_business_id: business.id,
         name: business.name, currency: business.currency?.code ?? null, is_personal: business.isPersonal,
         is_classic_accounting: business.isClassicAccounting, refreshed_at: new Date().toISOString(),
       })));
       if (businessesError) throw new Error(businessesError.message);
     }
-    const response = settingsRedirect(request, selected ? "connected" : "select_business");
-    response.cookies.delete("wave_oauth_state");
-    return response;
+    return settingsRedirect(request, selected ? "connected" : "select_business");
   } catch (caught) {
     console.error("Wave OAuth callback failed", caught);
     return settingsRedirect(request, "connection_failed");

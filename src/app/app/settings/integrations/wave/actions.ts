@@ -386,7 +386,16 @@ export async function disconnectWaveAction() {
   const { error: credentialError } = await admin.from("studio_wave_credentials").delete().eq("connection_id", connection.id);
   if (credentialError) throw new Error(credentialError.message);
   const { error } = await supabase.from("studio_wave_connections").update({
-    status: "disconnected", wave_user_id: null, scopes: [], last_error: null, updated_at: new Date().toISOString(),
+    status: "disconnected",
+    wave_user_id: null,
+    wave_business_id: null,
+    wave_business_name: null,
+    business_currency: null,
+    scopes: [],
+    posting_enabled: false,
+    posting_mode: "manual_review",
+    last_error: null,
+    updated_at: new Date().toISOString(),
   }).eq("id", connection.id).eq("studio_id", studioId);
   if (error) throw new Error(error.message);
   revalidatePath("/app/settings/integrations/wave");

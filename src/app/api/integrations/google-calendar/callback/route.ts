@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { createClient } from "@/lib/supabase/server";
 import { encryptIntegrationSecret } from "@/lib/integrations/wave/secrets";
@@ -7,36 +7,41 @@ import {
   getGoogleAccountEmail,
   listGoogleCalendars,
 } from "@/lib/integrations/google-calendar/client";
+import { isValidOAuthState, parseOAuthStateCookie, safeOAuthErrorCode } from "@/lib/security/oauth";
+
+function appOrigin(request: Request) {
+  return (
+    process.env.NEXT_PUBLIC_APP_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    new URL(request.url).origin
+  ).replace(/\/$/, "");
+}
 
 function callbackUrl(request: Request) {
-  return new URL("/api/integrations/google-calendar/callback", request.url).toString();
+  return new URL("/api/integrations/google-calendar/callback", appOrigin(request)).toString();
 }
 
-function decodeState(value: string | null) {
-  if (!value) return null;
-  try {
-    return JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as {
-      studioId?: string;
-      userId?: string;
-      createdAt?: number;
-    };
-  } catch {
-    return null;
-  }
+function redirectWithClearedState(request: Request, path: string) {
+  const response = NextResponse.redirect(new URL(path, request.url));
+  response.cookies.delete("google_calendar_oauth_state");
+  return response;
 }
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
+  const returnedState = url.searchParams.get("state");
   const error = url.searchParams.get("error");
-  const state = decodeState(url.searchParams.get("state"));
 
   if (error) {
-    return NextResponse.redirect(new URL(`/app/settings/integrations/google-calendar?error=${encodeURIComponent(error)}`, request.url));
+    return redirectWithClearedState(
+      request,
+      `/app/settings/integrations/google-calendar?error=${encodeURIComponent(safeOAuthErrorCode(error))}`,
+    );
   }
 
-  if (!code || !state?.studioId || !state?.userId) {
-    return NextResponse.redirect(new URL("/app/settings/integrations/google-calendar?error=invalid_callback", request.url));
+  if (!code || !returnedState) {
+    return redirectWithClearedState(request, "/app/settings/integrations/google-calendar?error=invalid_callback");
   }
 
   const supabase = await createClient();
@@ -44,11 +49,18 @@ export async function GET(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) return NextResponse.redirect(new URL("/login", request.url));
+  if (!user) return redirectWithClearedState(request, "/login");
 
   const context = await getCurrentStudioContext();
-  if (context.studioId !== state.studioId || user.id !== state.userId) {
-    return NextResponse.redirect(new URL("/app/settings/integrations/google-calendar?error=state_mismatch", request.url));
+  const savedState = parseOAuthStateCookie(request.cookies.get("google_calendar_oauth_state")?.value);
+
+  if (!isValidOAuthState({
+    expected: savedState,
+    returnedState,
+    studioId: context.studioId,
+    userId: user.id,
+  })) {
+    return redirectWithClearedState(request, "/app/settings/integrations/google-calendar?error=state_mismatch");
   }
 
   const tokens = await exchangeGoogleCalendarCode({ code, redirectUri: callbackUrl(request) });
@@ -61,21 +73,27 @@ export async function GET(request: Request) {
     ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
     : null;
 
+  const payload: Record<string, unknown> = {
+    studio_id: context.studioId,
+    status: "connected",
+    google_account_email: accountEmail,
+    calendar_id: primaryCalendar?.id ?? "primary",
+    calendar_summary: primaryCalendar?.summary ?? "Primary calendar",
+    scopes,
+    encrypted_access_token: encryptIntegrationSecret(tokens.access_token),
+    token_expires_at: tokenExpiresAt,
+    updated_by: user.id,
+    created_by: user.id,
+    last_sync_error: null,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (tokens.refresh_token) {
+    payload.encrypted_refresh_token = encryptIntegrationSecret(tokens.refresh_token);
+  }
+
   const { error: upsertError } = await supabase.from("studio_google_calendar_connections").upsert(
-    {
-      studio_id: context.studioId,
-      status: "connected",
-      google_account_email: accountEmail,
-      calendar_id: primaryCalendar?.id ?? "primary",
-      calendar_summary: primaryCalendar?.summary ?? "Primary calendar",
-      scopes,
-      encrypted_access_token: encryptIntegrationSecret(tokens.access_token),
-      encrypted_refresh_token: tokens.refresh_token ? encryptIntegrationSecret(tokens.refresh_token) : undefined,
-      token_expires_at: tokenExpiresAt,
-      updated_by: user.id,
-      created_by: user.id,
-      last_sync_error: null,
-    },
+    payload,
     { onConflict: "studio_id" },
   );
 
@@ -83,5 +101,5 @@ export async function GET(request: Request) {
     throw new Error(`Failed to save Google Calendar connection: ${upsertError.message}`);
   }
 
-  return NextResponse.redirect(new URL("/app/settings/integrations/google-calendar?connected=1", request.url));
+  return redirectWithClearedState(request, "/app/settings/integrations/google-calendar?connected=1");
 }

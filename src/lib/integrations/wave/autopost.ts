@@ -192,8 +192,10 @@ async function postClaimedLine({
 }
 
 export async function runWaveAutoPost(options: { maxRuns?: number; maxLines?: number } = {}): Promise<AutoPostResult> {
-  const maxRuns = Math.max(1, Math.min(options.maxRuns ?? 10, 25));
-  const maxLines = Math.max(1, Math.min(options.maxLines ?? 10, 50));
+  const requestedMaxRuns = Number(options.maxRuns ?? 10);
+  const requestedMaxLines = Number(options.maxLines ?? 10);
+  const maxRuns = Number.isFinite(requestedMaxRuns) ? Math.max(1, Math.min(Math.floor(requestedMaxRuns), 25)) : 10;
+  const maxLines = Number.isFinite(requestedMaxLines) ? Math.max(1, Math.min(Math.floor(requestedMaxLines), 50)) : 10;
   const admin = createAdminClient();
   const result: AutoPostResult = {
     scannedRuns: 0,

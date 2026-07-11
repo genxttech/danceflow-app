@@ -127,9 +127,22 @@ export async function getValidGoogleCalendarAccessToken(connectionId: string) {
     throw new Error("Google Calendar authorization expired. Reconnect Google Calendar.");
   }
 
-  const tokens = await refreshGoogleCalendarAccessToken(
-    decryptIntegrationSecret(data.encrypted_refresh_token),
-  );
+  let tokens: GoogleCalendarTokens;
+  try {
+    tokens = await refreshGoogleCalendarAccessToken(
+      decryptIntegrationSecret(data.encrypted_refresh_token),
+    );
+  } catch {
+    await admin
+      .from("studio_google_calendar_connections")
+      .update({
+        status: "needs_reauth",
+        last_sync_error: "Google Calendar authorization expired. Reconnect Google Calendar.",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", connectionId);
+    throw new Error("Google Calendar authorization expired. Reconnect Google Calendar.");
+  }
 
   const { error: saveError } = await admin
     .from("studio_google_calendar_connections")

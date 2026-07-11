@@ -175,6 +175,7 @@ export default async function GoogleCalendarIntegrationPage({ searchParams }: { 
       {params.disconnected ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">Google Calendar disconnected.</div> : null}
       {params.synced ? <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">Sync complete. {params.synced} item{params.synced === "1" ? "" : "s"} synced, {params.failed ?? "0"} failed.</div> : null}
       {params.error ? <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-semibold text-rose-900">Google Calendar needs attention: {params.error.replaceAll("_", " ")}</div> : null}
+      {connection?.status === "needs_reauth" ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">Google Calendar authorization expired. Reconnect Google Calendar before syncing.</div> : null}
       {calendarLoadError ? <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">{calendarLoadError}</div> : null}
 
       <section className="grid gap-4 md:grid-cols-4">

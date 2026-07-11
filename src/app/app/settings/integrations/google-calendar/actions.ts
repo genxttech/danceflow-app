@@ -66,10 +66,17 @@ function one<T>(value: T | T[] | null): T | null {
 }
 
 function safeReturnPath(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//"))
+  const raw = String(value ?? "")
+    .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+    .trim();
+  if (!raw || !raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) {
     return "/app/settings/integrations/google-calendar";
+  }
   return raw;
+}
+
+function redirectWithParam(returnTo: string, key: string, value: string): never {
+  redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}${key}=${encodeURIComponent(value)}`);
 }
 
 function normalize(value: string | null | undefined) {
@@ -190,14 +197,33 @@ function eventPayload(row: EventSyncRow): GoogleCalendarEventPayload {
 export async function updateGoogleCalendarSettingsAction(formData: FormData) {
   const { supabase, studioId } = await requireSettingsManageAccess();
   const returnTo = safeReturnPath(formData.get("returnTo"));
-  const calendarId = String(formData.get("calendarId") ?? "").trim();
-  const calendarSummary = String(formData.get("calendarSummary") ?? "").trim();
+  const requestedCalendarId = String(formData.get("calendarId") ?? "").trim();
+
+  const { data: connection, error: connectionError } = await supabase
+    .from("studio_google_calendar_connections")
+    .select("id")
+    .eq("studio_id", studioId)
+    .eq("status", "connected")
+    .maybeSingle<{ id: string }>();
+
+  if (connectionError) throw new Error(`Failed to load Google Calendar connection: ${connectionError.message}`);
+  if (!connection) redirectWithParam(returnTo, "error", "not_connected");
+
+  const accessToken = await getValidGoogleCalendarAccessToken(connection.id);
+  const calendars = await listGoogleCalendars(accessToken);
+  const selectedCalendar = requestedCalendarId
+    ? calendars.find((calendar) => calendar.id === requestedCalendarId)
+    : null;
+
+  if (requestedCalendarId && !selectedCalendar) {
+    redirectWithParam(returnTo, "error", "invalid_calendar");
+  }
 
   const { error } = await supabase
     .from("studio_google_calendar_connections")
     .update({
-      calendar_id: calendarId || null,
-      calendar_summary: calendarSummary || null,
+      calendar_id: selectedCalendar?.id ?? null,
+      calendar_summary: selectedCalendar?.summary ?? null,
       sync_lessons: formData.get("syncLessons") === "on",
       sync_classes: formData.get("syncClasses") === "on",
       sync_events: formData.get("syncEvents") === "on",

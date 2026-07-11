@@ -108,6 +108,7 @@ const statusText: Record<string, string> = {
   run_reconciled: "The Wave run reconciliation status was saved.",
   audit_completion_failed: "Wave posted successfully, but audit completion failed. Posting is stopped for manual review.",
   disconnected: "Wave was disconnected.",
+  needs_reauth: "Wave authorization expired. Reconnect Wave before posting or refreshing accounts.",
   oauth_denied: "Wave authorization was cancelled.",
   invalid_state: "The Wave authorization session expired. Start the connection again.",
   connection_failed: "Wave could not be connected. Check the server logs and OAuth configuration.",
@@ -188,6 +189,7 @@ export default async function WaveSettingsPage({ searchParams }: PageProps) {
       </nav> : null}
 
       {params.status && statusText[params.status] ? <div className="flex items-start gap-3 rounded-lg border border-fuchsia-200 bg-fuchsia-50 px-4 py-3 text-sm text-fuchsia-950"><BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-fuchsia-700" /><p>{statusText[params.status]}</p></div> : null}
+      {connection?.status === "needs_reauth" ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"><p className="font-semibold">Wave authorization expired</p><p className="mt-1 text-amber-900">Reconnect Wave before posting, refreshing accounts, or running automation.</p><a href="/api/integrations/wave/connect" className="mt-3 inline-flex rounded-md bg-amber-900 px-3 py-2 font-semibold text-white">Reconnect Wave</a></div> : null}
       {connection?.status === "connected" && !connection.scopes?.includes("transaction:write") ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"><p className="font-semibold">Wave authorization needs an update</p><p className="mt-1 text-amber-900">Reconnect once to approve posting access.</p><a href="/api/integrations/wave/connect" className="mt-3 inline-flex rounded-md bg-amber-900 px-3 py-2 font-semibold text-white">Reauthorize Wave</a></div> : null}
       {!postingEnabled ? <div className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-[#5B197A]" /><div><p className="font-semibold text-slate-900">Posting is paused platform-wide</p><p className="mt-1">You can continue configuring, previewing, approving, and reconciling runs.</p></div></div> : null}
 
@@ -219,10 +221,10 @@ export default async function WaveSettingsPage({ searchParams }: PageProps) {
         </div>
       </section> : null}
 
-      {!connection || connection.status === "disconnected" ? (
+      {!connection || connection.status === "disconnected" || connection.status === "needs_reauth" ? (
         <section className="overflow-hidden rounded-lg border border-fuchsia-200 bg-white shadow-sm">
           <div className="grid md:grid-cols-[1fr_auto] md:items-center">
-            <div className="p-6"><p className="text-xs font-bold uppercase tracking-[0.14em] text-fuchsia-700">Get connected</p><h2 className="mt-2 text-2xl font-semibold text-slate-950">Link your Wave business</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Authorize DanceFlow to read your Wave business and accounts, then configure a controlled accounting workflow.</p><a href="/api/integrations/wave/connect" className="mt-5 inline-flex items-center gap-2 rounded-md bg-[#5B197A] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#46115E]"><Link2 className="h-4 w-4" />Connect Wave</a></div>
+            <div className="p-6"><p className="text-xs font-bold uppercase tracking-[0.14em] text-fuchsia-700">Get connected</p><h2 className="mt-2 text-2xl font-semibold text-slate-950">{connection?.status === "needs_reauth" ? "Reconnect your Wave business" : "Link your Wave business"}</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Authorize DanceFlow to read your Wave business and accounts, then configure a controlled accounting workflow.</p><a href="/api/integrations/wave/connect" className="mt-5 inline-flex items-center gap-2 rounded-md bg-[#5B197A] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#46115E]"><Link2 className="h-4 w-4" />{connection?.status === "needs_reauth" ? "Reconnect Wave" : "Connect Wave"}</a></div>
             <div className="hidden h-full min-h-48 w-56 items-center justify-center bg-fuchsia-50 text-[#5B197A] md:flex"><Waves className="h-20 w-20" strokeWidth={1.25} /></div>
           </div>
         </section>
