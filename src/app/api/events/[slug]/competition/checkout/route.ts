@@ -11,6 +11,9 @@ const FEE_STANDARD = 0.035;
 const FEE_STUDIO = 0.0325;
 const FEE_PRO = 0.03;
 
+const competitionRegistrationEnabled =
+  process.env.NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED === "true";
+
 function adminClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -48,6 +51,13 @@ async function platformFeePercent(supabase: SupabaseClient, studioId: string) {
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
+  if (!competitionRegistrationEnabled) {
+    return NextResponse.json(
+      { error: "Competition registration is not available." },
+      { status: 404 },
+    );
+  }
+
   const rateLimit = checkRateLimit(
     rateLimitKey("checkout:competition", getIpFromRequest(request)),
     { limit: 5, windowMs: 15 * 60 * 1000 },

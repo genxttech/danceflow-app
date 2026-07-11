@@ -4,6 +4,9 @@ import { createClient } from "@/lib/supabase/server";
 import { loadCompetitionRegistrationCatalog } from "@/lib/competition/registrationServer";
 import CompetitionRegistrationBuilder from "./CompetitionRegistrationBuilder";
 
+const competitionRegistrationEnabled =
+  process.env.NEXT_PUBLIC_COMPETITION_REGISTRATION_ENABLED === "true";
+
 export default async function CompetitionRegisterPage({
   params,
   searchParams,
@@ -11,6 +14,10 @@ export default async function CompetitionRegisterPage({
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ success?: string; order?: string; error?: string }>;
 }) {
+  if (!competitionRegistrationEnabled) {
+    notFound();
+  }
+
   const { slug } = await params;
   const query = await searchParams;
   const supabase = await createClient();
