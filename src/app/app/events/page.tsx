@@ -838,13 +838,25 @@ export default async function EventsPage() {
 
   const studioFeedSlug = workspace?.slug ?? null;
 
-  const calendarFeedUrl = organizerWorkspace
+  const publicEventsPageUrl = organizerWorkspace
     ? organizerFeedSlug
-      ? `${siteUrl}/api/public-calendars/organizers/${organizerFeedSlug}/events.ics`
+      ? `${siteUrl}/organizers/${organizerFeedSlug}`
       : null
     : studioFeedSlug
-      ? `${siteUrl}/api/public-calendars/studios/${studioFeedSlug}/events.ics`
+      ? `${siteUrl}/studios/${studioFeedSlug}?tab=events`
       : null;
+
+  const calendarFeedUrl = organizerWorkspace
+    ? organizerFeedSlug
+      ? `${siteUrl}/organizers/${organizerFeedSlug}/events.ics`
+      : null
+    : studioFeedSlug
+      ? `${siteUrl}/studios/${studioFeedSlug}/events.ics`
+      : null;
+
+  const calendarWebcalUrl = calendarFeedUrl
+    ? calendarFeedUrl.replace(/^https?:\/\//, "webcal://")
+    : null;
 
   let typedRegistrations: RegistrationSummaryRow[] = [];
   let typedAttendance: AttendanceSummaryRow[] = [];
@@ -2473,7 +2485,7 @@ export default async function EventsPage() {
       </section>
 
       <section className="rounded-[28px] border border-emerald-200 bg-emerald-50 p-6 shadow-sm">
-        <div className="grid gap-5 lg:grid-cols-[1fr_1.15fr] lg:items-center">
+        <div className="grid gap-5 lg:grid-cols-[1fr_1.15fr] lg:items-start">
           <div>
             <div className="flex items-center gap-3">
               <div className="rounded-2xl bg-white p-3 text-emerald-700">
@@ -2482,24 +2494,66 @@ export default async function EventsPage() {
 
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                  Website Calendar Feed
+                  Add Events to Your Website
                 </p>
                 <h2 className="mt-1 text-xl font-semibold text-emerald-950">
-                  Add DanceFlow events to your website calendar
+                  Share or sync your public DanceFlow events
                 </h2>
               </div>
             </div>
 
             <p className="mt-4 text-sm leading-7 text-emerald-900">
-              Create and update events once in DanceFlow, then subscribe to this
-              read-only calendar feed from your website calendar, Google
+              Use the public events page as a website button link, or connect
+              the read-only calendar feed to your website calendar, Google
               Calendar, Apple Calendar, Outlook, or supported calendar plugins.
+              Updates flow from DanceFlow to your website/calendar.
             </p>
           </div>
 
-          <div>
+          <div className="space-y-3">
+            {publicEventsPageUrl ? (
+              <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                  Public Events Page Link
+                </p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Use this as a website button or menu link. Visitors can view
+                  your public DanceFlow events and register where registration
+                  is enabled.
+                </p>
+                <a
+                  href={publicEventsPageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex break-all text-sm font-semibold text-emerald-800 hover:text-emerald-900"
+                >
+                  {publicEventsPageUrl}
+                </a>
+              </div>
+            ) : null}
+
             {calendarFeedUrl ? (
-              <CopyCalendarFeedButton feedUrl={calendarFeedUrl} />
+              <div className="space-y-3">
+                <CopyCalendarFeedButton feedUrl={calendarFeedUrl} />
+
+                {calendarWebcalUrl ? (
+                  <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                      Webcal Subscribe Link
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-slate-600">
+                      Use this for calendar apps that understand webcal
+                      subscriptions.
+                    </p>
+                    <a
+                      href={calendarWebcalUrl}
+                      className="mt-3 inline-flex break-all text-sm font-semibold text-emerald-800 hover:text-emerald-900"
+                    >
+                      {calendarWebcalUrl}
+                    </a>
+                  </div>
+                ) : null}
+              </div>
             ) : (
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
                 Calendar feed link is not available yet. Make sure this
