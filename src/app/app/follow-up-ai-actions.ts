@@ -1,5 +1,6 @@
 "use server";
 
+import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import { studioHasFeature } from "@/lib/billing/access";
 import { getUsageAllowance, getUsageLimitMessage, recordUsageEvent } from "@/lib/usage/addons";
 
@@ -89,6 +90,15 @@ export async function generateFollowUpMessageAction(
     process.env.OPENAI_MODEL_FOLLOW_UPS ??
     process.env.OPENAI_MODEL_REPORT_INSIGHTS ??
     "gpt-4.1-mini";
+
+  const rateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("ai:follow-up", [reason, suggestedAction, tone]),
+    { limit: 12, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return { ok: false, error: rateLimitErrorMessage(rateLimit) };
+  }
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",

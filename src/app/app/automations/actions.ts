@@ -1,5 +1,6 @@
 "use server";
 
+import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -2150,6 +2151,15 @@ async function buildOrganizerAriaOperationalCandidates(params: {
 }
 
 export async function generateAriaOperationalActionsAction(formData: FormData) {
+  const rateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("aria:generate-actions", [String(formData.get("ruleKey") ?? "")]),
+    { limit: 4, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    redirect(`/app/aria/operations?error=${encodeURIComponent(rateLimitErrorMessage(rateLimit))}`);
+  }
+
   const returnTo =
     getAutomationActionReturnTo(formData.get("returnTo")) ??
     "/app/aria/operations";
@@ -2379,6 +2389,15 @@ ${studioName}`;
 }
 
 export async function executeAriaApprovedActionsAction(formData: FormData) {
+  const rateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("aria:execute-actions", [String(formData.get("ruleKey") ?? "")]),
+    { limit: 4, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    redirect(`/app/aria/operations?error=${encodeURIComponent(rateLimitErrorMessage(rateLimit))}`);
+  }
+
   const returnTo =
     getAutomationActionReturnTo(formData.get("returnTo")) ??
     "/app/aria/operations";
@@ -4136,6 +4155,15 @@ async function evaluateFirstLessonFollowUpAutomation(params: {
 }
 
 export async function evaluateAutomationRuleAction(formData: FormData) {
+  const rateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("automation:evaluate-rule", [String(formData.get("ruleKey") ?? "")]),
+    { limit: 8, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    redirect(`/app/automations?error=${encodeURIComponent(rateLimitErrorMessage(rateLimit))}`);
+  }
+
   const ruleKey = String(formData.get("ruleKey") ?? "");
   const context = await getCurrentStudioContext();
 

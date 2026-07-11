@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { mapTwilioStatusToSmsLogStatus } from "@/lib/sms/twilio";
 import { cleanTextValue } from "@/lib/validation/forms";
 import { hasValidSecret } from "@/lib/security/cron";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 function getServiceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -19,6 +20,15 @@ function getServiceSupabase() {
 }
 
 export async function POST(request: Request) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("sms:twilio-status", getIpFromRequest(request)),
+    { limit: 60, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   const url = new URL(request.url);
   const expectedSecret = process.env.TWILIO_STATUS_CALLBACK_SECRET ?? "";
   const providedSecret = url.searchParams.get("secret") ?? "";

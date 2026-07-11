@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/payments/stripe";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 function buildAppUrl(request: NextRequest) {
   return (
@@ -21,6 +22,15 @@ async function createClientFromRequest() {
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("billing:portal", getIpFromRequest(request)),
+    { limit: 10, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   try {
     const supabase = await createClientFromRequest();
 

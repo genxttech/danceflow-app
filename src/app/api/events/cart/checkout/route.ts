@@ -16,6 +16,7 @@ import {
   normalizeTextList,
   rawFormString,
 } from "@/lib/validation/forms";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -335,6 +336,15 @@ function validateTicketWindow(ticket: TicketTypeRow) {
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("checkout:event-cart", getIpFromRequest(request)),
+    { limit: 8, windowMs: 15 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   const supabase = getSupabaseAdmin();
   const stripe = getStripe();
   const formData = await request.formData();

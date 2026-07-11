@@ -1,5 +1,6 @@
 "use server";
 
+import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 export type EventDescriptionAIState = {
   ok: boolean;
   error?: string;
@@ -121,6 +122,15 @@ export async function generateEventDescriptionAssistantAction(
     currentSummary: currentSummary || null,
     currentDescription: currentDescription || null,
   };
+
+  const rateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("ai:event-description", [eventName, eventType, task]),
+    { limit: 10, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return { ok: false, error: rateLimitErrorMessage(rateLimit) };
+  }
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",

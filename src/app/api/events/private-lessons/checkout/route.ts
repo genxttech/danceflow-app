@@ -4,6 +4,7 @@ import {
   SupabaseClient,
 } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -128,6 +129,15 @@ function calculateApplicationFeeAmount(amount: number, feePercent: number) {
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("checkout:private-lesson", getIpFromRequest(request)),
+    { limit: 6, windowMs: 15 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   const supabase = getSupabaseAdmin();
   const stripe = getStripe();
   const formData = await request.formData();

@@ -9,6 +9,7 @@ import {
 } from "@/lib/sms/compliance";
 import { estimateSmsSegments, sendTwilioSms } from "@/lib/sms/twilio";
 import { cleanTextValue, normalizeOptionalUuid } from "@/lib/validation/forms";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 function canSendClientSms(role: string | null | undefined) {
   return ["studio_owner", "studio_admin", "front_desk"].includes(
@@ -17,6 +18,15 @@ function canSendClientSms(role: string | null | undefined) {
 }
 
 export async function POST(request: Request) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("sms:send", getIpFromRequest(request)),
+    { limit: 10, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   try {
     const supabase = await createClient();
     const context = await getCurrentStudioContext();

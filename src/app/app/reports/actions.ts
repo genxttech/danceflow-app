@@ -1,5 +1,6 @@
 "use server";
 
+import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 export type ReportInsightsMetrics = {
   range: string;
   plan: string;
@@ -135,6 +136,15 @@ export async function generateReportInsights(metrics: ReportInsightsMetrics) {
   }
 
   const model = process.env.OPENAI_MODEL_REPORT_INSIGHTS ?? "gpt-4.1-mini";
+
+  const rateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("ai:report-insights", [metrics.range, metrics.plan]),
+    { limit: 8, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return { ok: false, error: rateLimitErrorMessage(rateLimit) };
+  }
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",

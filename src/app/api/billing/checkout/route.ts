@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import { getBillingPlan, type PlanAudience } from "@/lib/billing/plans";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 type StudioRow = {
   id: string;
@@ -577,9 +578,27 @@ async function handleCheckout(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("billing:checkout", getIpFromRequest(request)),
+    { limit: 8, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   return handleCheckout(request);
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("billing:checkout", getIpFromRequest(request)),
+    { limit: 8, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   return handleCheckout(request);
 }

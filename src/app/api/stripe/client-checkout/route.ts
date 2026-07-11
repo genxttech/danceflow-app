@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/payments/stripe";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
 
@@ -40,6 +41,15 @@ function paymentLabel(paymentType: string | null, fallback: string | null) {
 }
 
 export async function GET(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("stripe:client-checkout", getIpFromRequest(request)),
+    { limit: 12, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   const supabase = await createClient();
   const stripe = getStripe();
 

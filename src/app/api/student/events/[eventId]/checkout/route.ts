@@ -12,6 +12,7 @@ import {
   normalizeOptionalUuid,
   normalizeTextList,
 } from "@/lib/validation/forms";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 type Params = {
   params: Promise<{ eventId: string }>;
@@ -405,6 +406,15 @@ async function assertTicketCapacityAvailable(params: {
 }
 
 export async function POST(request: NextRequest, { params }: Params) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("checkout:student-event", getIpFromRequest(request)),
+    { limit: 8, windowMs: 15 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   const { eventId } = await params;
   const normalizedEventId = normalizeStudentApiUuid(eventId);
   if (!normalizedEventId) {

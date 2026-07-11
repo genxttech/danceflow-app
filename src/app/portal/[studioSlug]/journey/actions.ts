@@ -1,5 +1,6 @@
 "use server";
 
+import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
@@ -255,6 +256,15 @@ export async function generateLumiPlanAction(
     visibleSyllabusProgress,
     upcomingLessons: upcoming,
   };
+
+  const rateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("ai:lumi", [studioSlug, task]),
+    { limit: 8, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return { ok: false, error: rateLimitErrorMessage(rateLimit) };
+  }
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",

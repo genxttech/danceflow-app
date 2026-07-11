@@ -8,6 +8,7 @@ import {
   saveAiCreditPackEntitlementForStripeItem,
   syncAiCreditPackEntitlementsForStudio,
 } from "@/lib/usage/ai-credit-packs";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 type StudioBillingRow = {
   id: string;
@@ -63,6 +64,15 @@ async function readPackKey(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("billing:ai-checkout", getIpFromRequest(request)),
+    { limit: 6, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   try {
     const packKey = await readPackKey(request);
     const pack = getAiCreditPack(packKey);

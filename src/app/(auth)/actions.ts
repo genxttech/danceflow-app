@@ -1,5 +1,6 @@
 "use server";
 
+import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
@@ -270,6 +271,15 @@ export async function signupAction(formData: FormData) {
     return { error: "Full name and email are required." };
   }
 
+  const signupRateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("auth:signup", [email, signupIntent]),
+    { limit: 5, windowMs: 15 * 60 * 1000 },
+  );
+
+  if (!signupRateLimit.allowed) {
+    return { error: rateLimitErrorMessage(signupRateLimit) };
+  }
+
   const supabase = await createClient();
 
   const redirectPath = buildSignupRedirectPath({
@@ -417,6 +427,15 @@ export async function loginAction(formData: FormData) {
     return { error: "Email is required." };
   }
 
+  const loginRateLimit = checkRateLimit(
+    await getServerActionRateLimitKey(`auth:${loginMode === "magic_link" ? "magic" : "password"}`, [email]),
+    { limit: loginMode === "magic_link" ? 4 : 8, windowMs: 15 * 60 * 1000 },
+  );
+
+  if (!loginRateLimit.allowed) {
+    return { error: rateLimitErrorMessage(loginRateLimit) };
+  }
+
   const supabase = await createClient();
 
   if (loginMode === "magic_link") {
@@ -501,6 +520,15 @@ export async function requestPasswordResetAction(formData: FormData) {
 
   if (!email) {
     return { error: "Email is required." };
+  }
+
+  const resetRateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("auth:password-reset", [email]),
+    { limit: 4, windowMs: 30 * 60 * 1000 },
+  );
+
+  if (!resetRateLimit.allowed) {
+    return { error: rateLimitErrorMessage(resetRateLimit) };
   }
 
   const supabase = await createClient();

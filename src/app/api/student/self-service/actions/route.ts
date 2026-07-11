@@ -16,6 +16,7 @@ import {
 import { canUseSelfServiceBooking } from "@/lib/booking/selfServicePolicy";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 type BookingActionPayload = {
   studioSlug?: string;
@@ -335,6 +336,15 @@ async function executeInstantRequest(params: {
 }
 
 export async function POST(request: Request) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("student:self-service", getIpFromRequest(request)),
+    { limit: 12, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   const user = await getStudentApiUser(request);
 
   if (!user) {

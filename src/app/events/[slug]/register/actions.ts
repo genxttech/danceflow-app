@@ -1,5 +1,6 @@
 "use server";
 
+import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { createClient } from "@/lib/supabase/server";
@@ -789,6 +790,15 @@ export async function createEventRegistrationAction(
   const attendeeFirstName = getValidatedValue(attendeeFirstNameResult);
   const attendeeLastName = getValidatedValue(attendeeLastNameResult);
   const attendeeEmail = getValidatedValue(attendeeEmailResult);
+
+  const registrationRateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("public:event-registration", [eventSlug, attendeeEmail]),
+    { limit: 6, windowMs: 15 * 60 * 1000 },
+  );
+
+  if (!registrationRateLimit.allowed) {
+    return { error: rateLimitErrorMessage(registrationRateLimit), success: "" };
+  }
   const attendeePhone = getValidatedValue(attendeePhoneResult);
   const notes = getValidatedValue(notesResult);
   const additionalAttendeeNames = getValidatedValue(additionalAttendeeNamesResult);
@@ -1184,6 +1194,15 @@ export async function createEventRegistrationAction(
 }
 
 export async function retryEventRegistrationCheckoutAction(formData: FormData) {
+  const retryRateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("public:event-registration-retry", [getString(formData, "registrationId")]),
+    { limit: 6, windowMs: 15 * 60 * 1000 },
+  );
+
+  if (!retryRateLimit.allowed) {
+    redirect(`/events/${encodeURIComponent(getString(formData, "eventSlug"))}?error=too_many_requests`);
+  }
+
   const eventSlugResult = normalizeRequiredSlug(rawFormString(formData, "eventSlug"), "Event");
   const registrationIdResult = normalizeOptionalUuid(rawFormString(formData, "registrationId"), "Registration");
   const validationError = getValidationError([eventSlugResult, registrationIdResult]);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStudentApiUser } from "@/lib/auth/studentApiAuth";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 type PartnerMessageBody = {
   body?: string;
@@ -87,6 +88,15 @@ async function sendPartnerPush(params: {
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("student:partner-message", getIpFromRequest(request)),
+    { limit: 20, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   const user = await getStudentApiUser(request);
 
   if (!user) {

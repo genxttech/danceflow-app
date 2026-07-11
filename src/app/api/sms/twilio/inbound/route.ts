@@ -2,6 +2,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { normalizeSmsPhone } from "@/lib/sms/compliance";
 import { cleanTextValue } from "@/lib/validation/forms";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 function getServiceSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -54,6 +55,15 @@ function classifyKeyword(body: string) {
 }
 
 export async function POST(request: Request) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("sms:twilio-inbound", getIpFromRequest(request)),
+    { limit: 30, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   const supabase = getServiceSupabase();
 
   if (!supabase) {

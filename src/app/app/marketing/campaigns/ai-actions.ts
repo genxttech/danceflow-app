@@ -1,5 +1,6 @@
 "use server";
 
+import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import { studioHasFeature } from "@/lib/billing/access";
 import { getUsageAllowance, getUsageLimitMessage, recordUsageEvent } from "@/lib/usage/addons";
 
@@ -136,6 +137,15 @@ export async function generateCampaignDraftAssistantAction(
     ctaLabel: ctaLabel || null,
     ctaUrl: ctaUrl || null,
   };
+
+  const rateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("ai:campaign-draft", [audienceLabel, eventName, task]),
+    { limit: 10, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return { ok: false, error: rateLimitErrorMessage(rateLimit) };
+  }
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",

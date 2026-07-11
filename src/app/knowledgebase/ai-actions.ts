@@ -1,5 +1,6 @@
 "use server";
 
+import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import {
   getPublicKnowledgebaseArticles,
   type KnowledgebaseArticle,
@@ -184,6 +185,15 @@ export async function askKnowledgebaseAssistantAction(
     process.env.OPENAI_MODEL_KNOWLEDGEBASE_ASSISTANT ??
     process.env.OPENAI_MODEL_REPORT_INSIGHTS ??
     "gpt-4.1-mini";
+
+  const rateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("ai:knowledgebase", [question.slice(0, 80)]),
+    { limit: 15, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return { ok: false, error: rateLimitErrorMessage(rateLimit) };
+  }
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",

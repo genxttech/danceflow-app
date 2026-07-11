@@ -7,6 +7,7 @@ import {
   markAiCreditPackEntitlementCanceled,
   syncAiCreditPackEntitlementsForStudio,
 } from "@/lib/usage/ai-credit-packs";
+import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
 
 type StudioBillingRow = {
   id: string;
@@ -68,6 +69,15 @@ async function readEntitlementId(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const rateLimit = checkRateLimit(
+    rateLimitKey("billing:ai-remove", getIpFromRequest(request)),
+    { limit: 8, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!rateLimit.allowed) {
+    return rateLimitedJson(rateLimit);
+  }
+
   try {
     const entitlementId = await readEntitlementId(request);
 
