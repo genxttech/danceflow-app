@@ -858,6 +858,13 @@ export default async function EventsPage() {
     ? calendarFeedUrl.replace(/^https?:\/\//, "webcal://")
     : null;
 
+  const websiteEmbedSource = organizerWorkspace ? "organizer" : "studio";
+  const websiteEmbedSlug = organizerWorkspace ? organizerFeedSlug : studioFeedSlug;
+  const websiteEmbedCode = websiteEmbedSlug
+    ? `<div data-danceflow-events="${websiteEmbedSlug}" data-danceflow-source="${websiteEmbedSource}" data-danceflow-layout="cards" data-danceflow-limit="6" data-danceflow-show-images="true"></div>
+<script async src="${siteUrl}/embed/events.js"></script>`
+    : null;
+
   let typedRegistrations: RegistrationSummaryRow[] = [];
   let typedAttendance: AttendanceSummaryRow[] = [];
   let typedTicketCheckIns: EventTicketCheckInRow[] = [];
@@ -2532,9 +2539,42 @@ export default async function EventsPage() {
               </div>
             ) : null}
 
+            {websiteEmbedCode ? (
+              <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                  Embed Event Cards
+                </p>
+                <p className="mt-1 text-sm leading-6 text-slate-600">
+                  Paste this code into Wix, Squarespace, WordPress, or a custom
+                  website section to show DanceFlow-powered event cards. The
+                  cards refresh from your published public DanceFlow events.
+                </p>
+                <div className="mt-3">
+                  <CopyCalendarFeedButton
+                    feedUrl={websiteEmbedCode}
+                    buttonLabel="Copy Embed Code"
+                    tip="This is one-way website sync: DanceFlow events render on your website, but website edits do not write back into DanceFlow."
+                    multiline
+                  />
+                </div>
+              </div>
+            ) : null}
+
             {calendarFeedUrl ? (
               <div className="space-y-3">
-                <CopyCalendarFeedButton feedUrl={calendarFeedUrl} />
+                <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
+                    Calendar Feed URL / ICS
+                  </p>
+                  <p className="mt-1 text-sm leading-6 text-slate-600">
+                    Use this read-only feed with website calendar plugins,
+                    Google Calendar, Apple Calendar, Outlook, and other tools
+                    that can subscribe to an ICS calendar.
+                  </p>
+                  <div className="mt-3">
+                    <CopyCalendarFeedButton feedUrl={calendarFeedUrl} />
+                  </div>
+                </div>
 
                 {calendarWebcalUrl ? (
                   <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
