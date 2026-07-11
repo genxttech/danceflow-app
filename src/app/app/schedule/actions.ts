@@ -13,6 +13,11 @@ import {
   requireAppointmentEditAccess,
   requireAttendanceAccess,
 } from "@/lib/auth/serverRoleGuard";
+import {
+  VIDEO_UPLOAD_MIME_TYPES,
+  safeOriginalFileName,
+  validateUploadFile,
+} from "@/lib/security/uploads";
 
 type ActionState = {
   error?: string;
@@ -3207,15 +3212,24 @@ export async function uploadLessonRecapVideoAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "lesson_recap_not_found"));
     }
 
-    const extension = file.name.includes(".")
-      ? file.name.split(".").pop()
-      : "mp4";
-    const storagePath = `${studioId}/${appointmentId}/${crypto.randomUUID()}.${extension}`;
+    const uploadValidation = await validateUploadFile(file, {
+      fieldLabel: "Lesson recap video",
+      maxBytes: 250 * 1024 * 1024,
+      allowedMimeTypes: VIDEO_UPLOAD_MIME_TYPES,
+      allowedExtensions: ["mp4", "mov", "webm"],
+      kind: "video",
+    });
+
+    if (!uploadValidation.ok) {
+      redirect(getErrorRedirect(formData, fallback, "invalid_video"));
+    }
+
+    const storagePath = `${studioId}/${appointmentId}/${crypto.randomUUID()}.${uploadValidation.extension}`;
 
     const { error: uploadError } = await supabase.storage
       .from(LESSON_RECAP_VIDEO_BUCKET)
       .upload(storagePath, file, {
-        contentType: file.type || "video/mp4",
+        contentType: uploadValidation.mimeType,
         upsert: false,
       });
 
@@ -3227,8 +3241,8 @@ export async function uploadLessonRecapVideoAction(formData: FormData) {
       .from("lesson_recaps")
       .update({
         video_storage_path: storagePath,
-        video_original_name: file.name,
-        video_mime_type: file.type || null,
+        video_original_name: safeOriginalFileName(file.name, "lesson-recap-video"),
+        video_mime_type: uploadValidation.mimeType,
         video_size_bytes: file.size,
         video_uploaded_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),

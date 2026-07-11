@@ -2712,7 +2712,7 @@ export default function EventForm({
                   id="coverImageFile"
                   name="coverImageFile"
                   type="file"
-                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  accept="image/jpeg,image/png,image/webp"
                   className="w-full rounded-xl border border-slate-300 px-3 py-3 text-sm"
                 />
                 <p className="mt-1 text-xs text-slate-500">

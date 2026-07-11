@@ -6,6 +6,11 @@ import { getCurrentStudioContext, requireStudioRole } from "@/lib/auth/studio";
 import { buildStudioLocationQuery, geocodeAddress } from "@/lib/geocoding";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import {
+  IMAGE_UPLOAD_MIME_TYPES,
+  getOptionalUploadFile,
+  validateUploadFile,
+} from "@/lib/security/uploads";
 
 const STYLE_KEYS = ["country", "ballroom", "latin", "salsa", "bachata", "swing", "west_coast_swing", "hip_hop", "contemporary", "ballet"] as const;
 const OFFERING_KEYS = ["private_lessons", "group_classes", "wedding_dance", "kids_classes", "socials", "competitive_coaching", "beginner_program", "floor_rental"] as const;
@@ -39,20 +44,22 @@ function integer(formData: FormData, key: string, fallback: number, minimum: num
   return value;
 }
 
-function file(formData: FormData, key: string) {
-  const value = formData.get(key);
-  return value instanceof File && value.size > 0 ? value : null;
-}
-
 async function uploadImage(studioId: string, image: File, kind: "logo" | "hero") {
-  const allowed = new Set(["image/png", "image/jpeg", "image/webp"]);
-  const maxBytes = kind === "logo" ? 2 * 1024 * 1024 : 5 * 1024 * 1024;
-  if (!allowed.has(image.type)) throw new Error("Images must be PNG, JPG, or WebP files.");
-  if (image.size > maxBytes) throw new Error(`${kind === "logo" ? "Logo" : "Hero image"} is too large.`);
-  const extension = image.type === "image/png" ? "png" : image.type === "image/webp" ? "webp" : "jpg";
-  const path = `${studioId}/${kind}-${Date.now()}.${extension}`;
+  const validation = await validateUploadFile(image, {
+    fieldLabel: kind === "logo" ? "Logo" : "Hero image",
+    maxBytes: kind === "logo" ? 2 * 1024 * 1024 : 5 * 1024 * 1024,
+    allowedMimeTypes: IMAGE_UPLOAD_MIME_TYPES,
+    allowedExtensions: ["jpg", "jpeg", "png", "webp"],
+    kind: "image",
+  });
+
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+
+  const path = `${studioId}/${kind}-${Date.now()}-${crypto.randomUUID()}.${validation.extension}`;
   const admin = createAdminClient();
-  const { error } = await admin.storage.from(ASSET_BUCKET).upload(path, image, { contentType: image.type, upsert: true });
+  const { error } = await admin.storage.from(ASSET_BUCKET).upload(path, image, { contentType: validation.mimeType, upsert: false });
   if (error) throw new Error(`Image upload failed: ${error.message}`);
   return admin.storage.from(ASSET_BUCKET).getPublicUrl(path).data.publicUrl;
 }
@@ -86,8 +93,8 @@ export async function savePublicProfileAction(formData: FormData) {
   const endTime = text(formData, "booking_request_end_time") || "21:00";
   if (startTime >= endTime) throw new Error("Booking start time must be earlier than the end time.");
 
-  const logo = file(formData, "public_logo_file");
-  const hero = file(formData, "public_hero_image_file");
+  const logo = getOptionalUploadFile(formData, "public_logo_file");
+  const hero = getOptionalUploadFile(formData, "public_hero_image_file");
   const logoUrl = logo ? await uploadImage(studioId, logo, "logo") : existing.public_logo_url;
   const heroUrl = hero ? await uploadImage(studioId, hero, "hero") : existing.public_hero_image_url;
 

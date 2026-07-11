@@ -22,6 +22,11 @@ import {
   normalizeTextList,
   rawFormString,
 } from "@/lib/validation/forms";
+import {
+  IMAGE_UPLOAD_MIME_TYPES,
+  getOptionalUploadFile,
+  validateUploadFile,
+} from "@/lib/security/uploads";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -56,7 +61,7 @@ function appendQueryParam(url: string, key: string, value: string) {
 
 const CLIENT_PHOTO_BUCKET = "client-photos";
 const MAX_CLIENT_PHOTO_BYTES = 5 * 1024 * 1024;
-const ALLOWED_CLIENT_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
 const CLIENT_DANCE_STYLE_VALUES = [
   "American Smooth",
   "American Smooth - Waltz",
@@ -111,30 +116,6 @@ const CLIENT_DANCE_GOAL_VALUES = [
 ] as const;
 
 
-function getOptionalImageFile(formData: FormData, key: string) {
-  const value = formData.get(key);
-
-  if (!(value instanceof File) || value.size === 0) {
-    return null;
-  }
-
-  return value;
-}
-
-function safePhotoFileName(file: File) {
-  const extension =
-    file.type === "image/png" ? "png" : file.type === "image/webp" ? "webp" : "jpg";
-
-  const baseName = file.name
-    .replace(/\.[^/.]+$/, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-    .slice(0, 40);
-
-  return `${baseName || "client-photo"}.${extension}`;
-}
-
 async function uploadClientPhoto(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   studioId: string;
@@ -147,26 +128,27 @@ async function uploadClientPhoto(params: {
     return { url: null as string | null, error: null as string | null };
   }
 
-  if (!ALLOWED_CLIENT_PHOTO_TYPES.has(file.type)) {
+  const validation = await validateUploadFile(file, {
+    fieldLabel: "Client photo",
+    maxBytes: MAX_CLIENT_PHOTO_BYTES,
+    allowedMimeTypes: IMAGE_UPLOAD_MIME_TYPES,
+    allowedExtensions: ["jpg", "jpeg", "png", "webp"],
+    kind: "image",
+  });
+
+  if (!validation.ok) {
     return {
       url: null,
-      error: "Client photo must be a JPG, PNG, or WebP image.",
+      error: validation.error,
     };
   }
 
-  if (file.size > MAX_CLIENT_PHOTO_BYTES) {
-    return {
-      url: null,
-      error: "Client photo must be 5MB or smaller.",
-    };
-  }
-
-  const photoPath = `${studioId}/${clientId}/${Date.now()}-${safePhotoFileName(file)}`;
+  const photoPath = `${studioId}/${clientId}/${Date.now()}-${crypto.randomUUID()}.${validation.extension}`;
   const { error: uploadError } = await supabase.storage
     .from(CLIENT_PHOTO_BUCKET)
     .upload(photoPath, file, {
       cacheControl: "3600",
-      contentType: file.type,
+      contentType: validation.mimeType,
       upsert: false,
     });
 
@@ -473,7 +455,7 @@ export async function createClientAction(
     const linkedInstructorId = getValidatedValue(linkedInstructorIdResult);
     const isIndependentInstructor =
       formData.get("isIndependentInstructor") === "on";
-    const clientPhoto = getOptionalImageFile(formData, "clientPhoto");
+    const clientPhoto = getOptionalUploadFile(formData, "clientPhoto");
     const createPartner = formData.get("createPartner") === "on";
     const partnerFirstName = getValidatedValue(partnerFirstNameResult);
     const partnerLastName = getValidatedValue(partnerLastNameResult);
@@ -776,7 +758,7 @@ export async function updateClientAction(
     const linkedInstructorId = getValidatedValue(linkedInstructorIdResult);
     const isIndependentInstructor =
       formData.get("isIndependentInstructor") === "on";
-    const clientPhoto = getOptionalImageFile(formData, "clientPhoto");
+    const clientPhoto = getOptionalUploadFile(formData, "clientPhoto");
 
     const dropdownError = validateClientDropdowns({
       status,

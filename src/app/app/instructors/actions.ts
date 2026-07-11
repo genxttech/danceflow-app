@@ -4,6 +4,11 @@ import { randomBytes } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { requireInstructorManageAccess } from "@/lib/auth/serverRoleGuard";
+import {
+  IMAGE_UPLOAD_MIME_TYPES,
+  getOptionalUploadFile,
+  validateUploadFile,
+} from "@/lib/security/uploads";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -22,24 +27,6 @@ function getOptionalInteger(formData: FormData, key: string) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function getFile(formData: FormData, key: string) {
-  const value = formData.get(key);
-
-  if (value instanceof File && value.size > 0) {
-    return value;
-  }
-
-  return null;
-}
-
-function safeFileName(name: string) {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-}
-
 async function uploadInstructorPhoto({
   supabase,
   studioId,
@@ -51,22 +38,24 @@ async function uploadInstructorPhoto({
 }) {
   if (!file) return null;
 
-  if (!file.type.startsWith("image/")) {
-    throw new Error("Instructor photo must be an image file.");
+  const validation = await validateUploadFile(file, {
+    fieldLabel: "Instructor photo",
+    maxBytes: 5 * 1024 * 1024,
+    allowedMimeTypes: IMAGE_UPLOAD_MIME_TYPES,
+    allowedExtensions: ["jpg", "jpeg", "png", "webp"],
+    kind: "image",
+  });
+
+  if (!validation.ok) {
+    throw new Error(validation.error);
   }
 
-  const maxBytes = 5 * 1024 * 1024;
-  if (file.size > maxBytes) {
-    throw new Error("Instructor photo must be smaller than 5 MB.");
-  }
-
-  const extension = safeFileName(file.name).split(".").pop() || "jpg";
-  const storagePath = `${studioId}/${randomBytes(16).toString("hex")}.${extension}`;
+  const storagePath = `${studioId}/${randomBytes(16).toString("hex")}.${validation.extension}`;
 
   const { error: uploadError } = await supabase.storage
     .from("instructor-photos")
     .upload(storagePath, file, {
-      contentType: file.type,
+      contentType: validation.mimeType,
       upsert: false,
     });
 
@@ -104,7 +93,7 @@ export async function createInstructorAction(
     const specialties = getString(formData, "specialties");
     const publicProfileEnabled = getCheckbox(formData, "publicProfileEnabled");
     const publicPhotoUrl = getString(formData, "publicPhotoUrl");
-    const instructorPhoto = getFile(formData, "instructorPhoto");
+    const instructorPhoto = getOptionalUploadFile(formData, "instructorPhoto");
     const uploadedPhotoUrl = await uploadInstructorPhoto({
       supabase,
       studioId,
@@ -180,7 +169,7 @@ export async function updateInstructorAction(
     const specialties = getString(formData, "specialties");
     const publicProfileEnabled = getCheckbox(formData, "publicProfileEnabled");
     const publicPhotoUrl = getString(formData, "publicPhotoUrl");
-    const instructorPhoto = getFile(formData, "instructorPhoto");
+    const instructorPhoto = getOptionalUploadFile(formData, "instructorPhoto");
     const uploadedPhotoUrl = await uploadInstructorPhoto({
       supabase,
       studioId,

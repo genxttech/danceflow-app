@@ -3,6 +3,11 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { canManageSettings } from "@/lib/auth/permissions";
+import {
+  CSV_UPLOAD_MIME_TYPES,
+  safeOriginalFileName,
+  validateUploadFile,
+} from "@/lib/security/uploads";
 
 const IMPORT_BUCKET = "imports";
 
@@ -965,6 +970,18 @@ export async function createImportBatchAction(
       }
     }
 
+    const uploadValidation = await validateUploadFile(file, {
+      fieldLabel: "CSV file",
+      maxBytes: 25 * 1024 * 1024,
+      allowedMimeTypes: CSV_UPLOAD_MIME_TYPES,
+      allowedExtensions: ["csv"],
+      kind: "csv",
+    });
+
+    if (!uploadValidation.ok) {
+      return { error: uploadValidation.error };
+    }
+
     const csvText = await file!.text();
     const headerColumns = parseCsvHeaders(csvText);
     const rowCount = countCsvRows(csvText);
@@ -992,7 +1009,7 @@ export async function createImportBatchAction(
       };
     }
 
-    const safeName = sanitizeFileName(file!.name || "import.csv");
+    const safeName = sanitizeFileName(safeOriginalFileName(file!.name, "import.csv"));
     const storagePath = `${studioId}/${batch.id}/${Date.now()}-${safeName}`;
 
     const bytes = new Uint8Array(await file!.arrayBuffer());
@@ -1000,7 +1017,7 @@ export async function createImportBatchAction(
     const { error: uploadError } = await supabase.storage
       .from(IMPORT_BUCKET)
       .upload(storagePath, bytes, {
-        contentType: file!.type || "text/csv",
+        contentType: uploadValidation.mimeType,
         upsert: false,
       });
 
@@ -1010,10 +1027,10 @@ export async function createImportBatchAction(
 
     const { error: fileRowError } = await supabase.from("import_batch_files").insert({
       import_batch_id: batch.id,
-      original_filename: file!.name,
+      original_filename: safeOriginalFileName(file!.name, "import.csv"),
       storage_bucket: IMPORT_BUCKET,
       storage_path: storagePath,
-      mime_type: file!.type || "text/csv",
+      mime_type: uploadValidation.mimeType,
       file_size_bytes: file!.size,
       row_count: rowCount,
       detected_kind: detectKindFromFilename(file!.name, importType),

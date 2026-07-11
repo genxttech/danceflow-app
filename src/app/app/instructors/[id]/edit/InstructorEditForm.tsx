@@ -318,11 +318,11 @@ export default function InstructorEditForm({
                     id="instructorPhoto"
                     name="instructorPhoto"
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/png,image/webp"
                     className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm file:mr-4 file:rounded-full file:border-0 file:bg-orange-50 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-orange-700"
                   />
                   <p className="mt-2 text-xs text-slate-500">
-                    Choose an existing photo or take a new one, depending on your device.
+                    JPG, PNG, or WebP up to 5 MB. Choose an existing photo or take a new one, depending on your device.
                   </p>
                 </div>
 

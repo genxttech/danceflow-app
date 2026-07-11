@@ -18,6 +18,12 @@ import {
   sendEventUpdatedPush,
   sendFavoriteNewEventPush,
 } from "@/lib/notifications/eventPush";
+import {
+  IMAGE_UPLOAD_MIME_TYPES,
+  getOptionalUploadFile,
+  safeStorageSegment,
+  validateUploadFile,
+} from "@/lib/security/uploads";
 
 type ActionState = {
   error?: string;
@@ -229,8 +235,7 @@ function getBoolean(formData: FormData, key: string) {
 }
 
 function getFile(formData: FormData, key: string) {
-  const value = formData.get(key);
-  return value instanceof File && value.size > 0 ? value : null;
+  return getOptionalUploadFile(formData, key);
 }
 
 function parseOptionalDateTimeLocal(value: string) {
@@ -886,8 +891,8 @@ function validateEventPayload(payload: ReturnType<typeof buildEventPayload>) {
   }
 
   if (payload.coverImageFile) {
-    const allowed = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
-    if (!allowed.includes(payload.coverImageFile.type)) {
+    const allowed = new Set<string>(IMAGE_UPLOAD_MIME_TYPES);
+    if (!allowed.has(payload.coverImageFile.type)) {
       return "Cover image must be a JPG, PNG, or WEBP file.";
     }
 
@@ -1828,18 +1833,25 @@ async function uploadEventCoverImage(params: {
 }) {
   const { supabase, studioId, slug, file } = params;
 
-  const safeName = sanitizeFileName(file.name || "cover-image");
-  const extension = safeName.includes(".") ? safeName.split(".").pop() : "jpg";
+  const validation = await validateUploadFile(file, {
+    fieldLabel: "Cover image",
+    maxBytes: 10 * 1024 * 1024,
+    allowedMimeTypes: IMAGE_UPLOAD_MIME_TYPES,
+    allowedExtensions: ["jpg", "jpeg", "png", "webp"],
+    kind: "image",
+  });
 
-  const path = `${studioId}/${slug}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
 
-  const arrayBuffer = await file.arrayBuffer();
-  const fileBuffer = new Uint8Array(arrayBuffer);
+  const safeSlug = safeStorageSegment(slug, "event");
+  const path = `${studioId}/${safeSlug}/${Date.now()}-${crypto.randomUUID()}.${validation.extension}`;
 
   const { error: uploadError } = await supabase.storage
     .from(EVENT_IMAGE_BUCKET)
-    .upload(path, fileBuffer, {
-      contentType: file.type,
+    .upload(path, file, {
+      contentType: validation.mimeType,
       upsert: false,
     });
 
