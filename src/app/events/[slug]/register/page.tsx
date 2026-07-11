@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createEventRegistrationAction } from "./actions";
 import RegistrationForm from "./RegistrationForm";
+import { BOT_HONEYPOT_FIELD, BOT_STARTED_AT_FIELD } from "@/lib/security/bot-protection";
 
 type Params = Promise<{
   slug: string;
@@ -452,6 +453,16 @@ export default async function PublicEventRegisterPage({
             className="mt-5"
           >
             <input type="hidden" name="eventSlug" value={typedEvent.slug} />
+            <input type="hidden" name={BOT_STARTED_AT_FIELD} value={String(Date.now())} />
+            <div className="hidden" aria-hidden="true">
+              <label htmlFor="dfRegisterWebsite">Website</label>
+              <input
+                id="dfRegisterWebsite"
+                name={BOT_HONEYPOT_FIELD}
+                tabIndex={-1}
+                autoComplete="off"
+              />
+            </div>
             <button
               type="submit"
               className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"

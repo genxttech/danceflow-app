@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useMemo } from "react";
 import { useFormStatus } from "react-dom";
 import {
   submitPublicLeadAction,
@@ -21,6 +21,9 @@ type StudioBranding = {
   intro_lesson_duration_minutes?: number | null;
   intro_booking_window_days?: number | null;
 };
+
+const BOT_HONEYPOT_FIELD = "df_website";
+const BOT_STARTED_AT_FIELD = "df_started_at";
 
 const initialState: PublicLeadFormState = {
   error: "",
@@ -52,6 +55,7 @@ export default function PublicLeadForm({
     submitPublicLeadAction,
     initialState
   );
+  const botStartedAt = useMemo(() => String(Date.now()), []);
 
   if (!studio) {
     return (
@@ -91,6 +95,16 @@ export default function PublicLeadForm({
           name="inquiryIntent"
           value={introBookingEnabled ? "intro_lesson" : "general_inquiry"}
         />
+        <input type="hidden" name={BOT_STARTED_AT_FIELD} value={botStartedAt} />
+        <div className="hidden" aria-hidden="true">
+          <label htmlFor="dfLeadWebsite">Website</label>
+          <input
+            id="dfLeadWebsite"
+            name={BOT_HONEYPOT_FIELD}
+            tabIndex={-1}
+            autoComplete="off"
+          />
+        </div>
 
         {introBookingEnabled ? (
           <div className="rounded-2xl border border-violet-200 bg-white/70 px-4 py-4 text-sm leading-6 text-violet-950">

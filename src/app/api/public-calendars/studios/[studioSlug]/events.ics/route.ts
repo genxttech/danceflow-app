@@ -37,6 +37,7 @@ type EventRow = {
 };
 
 const siteUrl = "https://www.idanceflow.com";
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
 
 function hasActivePublicAccess(studio: {
   billing_plan?: string | null;
@@ -194,12 +195,24 @@ export async function GET(
   }
 ) {
   const { studioSlug } = await context.params;
+  const normalizedSlug = studioSlug.trim();
+
+  if (!SLUG_PATTERN.test(normalizedSlug)) {
+    return new NextResponse("Calendar not found.", {
+      status: 404,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+
   const supabase = await createClient();
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
     .select("id, name, public_name, slug, public_directory_enabled, billing_plan, subscription_status")
-    .eq("slug", studioSlug)
+    .eq("slug", normalizedSlug)
     .eq("public_directory_enabled", true)
     .maybeSingle<StudioRow>();
 
@@ -283,6 +296,7 @@ export async function GET(
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
       "Cache-Control": "public, max-age=300, s-maxage=3600",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }

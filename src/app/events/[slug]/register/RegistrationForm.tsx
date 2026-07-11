@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
+const BOT_HONEYPOT_FIELD = "df_website";
+const BOT_STARTED_AT_FIELD = "df_started_at";
+
 type SelectedCoachSlotSummary = {
   id: string;
   coachName: string;
@@ -153,6 +156,7 @@ export default function RegistrationForm({
   requiredEventDocuments = [],
 }: RegistrationFormProps) {
   const [ticketQuantities, setTicketQuantities] = useState<Record<string, number>>({});
+  const botStartedAt = useMemo(() => String(Date.now()), []);
   const [waiversAccepted, setWaiversAccepted] = useState(false);
 
   const ticketOptions = useMemo(() => {
@@ -280,6 +284,16 @@ export default function RegistrationForm({
       className="mt-4 space-y-4"
     >
       <input type="hidden" name="eventSlug" value={eventSlug} />
+      <input type="hidden" name={BOT_STARTED_AT_FIELD} value={botStartedAt} />
+      <div className="hidden" aria-hidden="true">
+        <label htmlFor="dfEventWebsite">Website</label>
+        <input
+          id="dfEventWebsite"
+          name={BOT_HONEYPOT_FIELD}
+          tabIndex={-1}
+          autoComplete="off"
+        />
+      </div>
 
       {selectedTickets.map((ticket) => (
         <div key={ticket.id}>

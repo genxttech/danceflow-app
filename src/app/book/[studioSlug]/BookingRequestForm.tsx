@@ -1,7 +1,10 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useMemo } from "react";
 import { createPublicIntroBookingAction } from "./actions";
+
+const BOT_HONEYPOT_FIELD = "df_website";
+const BOT_STARTED_AT_FIELD = "df_started_at";
 
 const initialState = { error: "" };
 
@@ -31,6 +34,7 @@ export default function BookingRequestForm({
     createPublicIntroBookingAction,
     initialState
   );
+  const botStartedAt = useMemo(() => String(Date.now()), []);
 
   return (
     <div className="mt-5 space-y-5">
@@ -50,6 +54,16 @@ export default function BookingRequestForm({
         <input type="hidden" name="slotEnd" value={slotEnd} />
         <input type="hidden" name="instructorId" value={instructorId} />
         <input type="hidden" name="roomId" value={roomId ?? ""} />
+        <input type="hidden" name={BOT_STARTED_AT_FIELD} value={botStartedAt} />
+        <div className="hidden" aria-hidden="true">
+          <label htmlFor="dfBookingWebsite">Website</label>
+          <input
+            id="dfBookingWebsite"
+            name={BOT_HONEYPOT_FIELD}
+            tabIndex={-1}
+            autoComplete="off"
+          />
+        </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <div>

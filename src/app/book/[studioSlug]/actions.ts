@@ -1,6 +1,7 @@
 "use server";
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
+import { checkPublicFormProtection } from "@/lib/security/bot-protection";
 import { redirect } from "next/navigation";
 import {
   buildSelfServiceSlots,
@@ -481,6 +482,11 @@ export async function createPublicIntroBookingAction(
   formData: FormData
 ) {
   try {
+    const botCheck = await checkPublicFormProtection(formData, { minAgeMs: 1_200 });
+    if (!botCheck.allowed) {
+      return { error: botCheck.message ?? "Submission could not be processed." };
+    }
+
     const studioSlugResult = normalizeRequiredSlug(
       rawFormString(formData, "studioSlug"),
       "Studio"

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { botBlockedJson, requestLooksAutomated } from "@/lib/security/bot-protection";
 
 type Params = Promise<{
   studioSlug: string;
@@ -161,6 +162,10 @@ export async function GET(
     params: Params;
   },
 ) {
+  if (requestLooksAutomated(request)) {
+    return botBlockedJson(corsHeaders());
+  }
+
   const { studioSlug } = await context.params;
   const normalizedSlug = studioSlug.trim().toLowerCase();
 
@@ -255,6 +260,7 @@ export async function GET(
       headers: {
         ...corsHeaders(),
         "Cache-Control": "public, max-age=300, s-maxage=900",
+        "X-Content-Type-Options": "nosniff",
       },
     },
   );

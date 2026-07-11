@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 
 type FavoriteTargetType = "studio" | "event";
 
@@ -17,9 +18,16 @@ type ToggleFavoriteResult = {
   error?: string;
 };
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+
 function normalizePath(path?: string) {
-  if (!path || !path.startsWith("/")) return "/";
-  return path;
+  if (!path || !path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return "/";
+  return path.slice(0, 300);
+}
+
+function hasActivePublicAccess(studio: { subscription_status?: string | null } | null | undefined) {
+  const status = (studio?.subscription_status ?? "").trim().toLowerCase();
+  return status === "active" || status === "trialing";
 }
 
 export async function toggleFavoriteAction(
@@ -43,11 +51,24 @@ export async function toggleFavoriteAction(
   const targetId = params.targetId?.trim();
   const returnPath = normalizePath(params.returnPath);
 
-  if (!targetId) {
+  if (!targetId || !UUID_PATTERN.test(targetId)) {
     return {
       ok: false,
       favorited: false,
       error: "Missing favorite target.",
+    };
+  }
+
+  const favoriteRateLimit = checkRateLimit(
+    await getServerActionRateLimitKey("public:favorites", [user.id]),
+    { limit: 30, windowMs: 10 * 60 * 1000 },
+  );
+
+  if (!favoriteRateLimit.allowed) {
+    return {
+      ok: false,
+      favorited: false,
+      error: rateLimitErrorMessage(favoriteRateLimit),
     };
   }
 
@@ -60,6 +81,21 @@ export async function toggleFavoriteAction(
   }
 
   if (targetType === "studio") {
+    const { data: studioTarget, error: studioTargetError } = await supabase
+      .from("studios")
+      .select("id, subscription_status")
+      .eq("id", targetId)
+      .eq("public_directory_enabled", true)
+      .maybeSingle<{ id: string; subscription_status: string | null }>();
+
+    if (studioTargetError || !studioTarget || !hasActivePublicAccess(studioTarget)) {
+      return {
+        ok: false,
+        favorited: false,
+        error: "Favorite target was not found.",
+      };
+    }
+
     const { data: existing, error: existingError } = await supabase
       .from("user_favorites")
       .select("id")
@@ -131,6 +167,22 @@ export async function toggleFavoriteAction(
     return {
       ok: true,
       favorited: true,
+    };
+  }
+
+  const { data: eventTarget, error: eventTargetError } = await supabase
+    .from("events")
+    .select("id, status, visibility")
+    .eq("id", targetId)
+    .in("status", ["published", "open"])
+    .in("visibility", ["public", "unlisted"])
+    .maybeSingle<{ id: string; status: string | null; visibility: string | null }>();
+
+  if (eventTargetError || !eventTarget) {
+    return {
+      ok: false,
+      favorited: false,
+      error: "Favorite target was not found.",
     };
   }
 

@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { checkPublicFormProtection } from "@/lib/security/bot-protection";
 import {
   cleanFormText,
   normalizeOptionalEmail,
@@ -28,6 +29,10 @@ export async function submitPublicLeadAction(
   _prevState: PublicLeadFormState,
   formData: FormData
 ): Promise<PublicLeadFormState> {
+  const botCheck = await checkPublicFormProtection(formData, { minAgeMs: 1_200 });
+  if (!botCheck.allowed) {
+    return { error: botCheck.message ?? "Submission could not be processed." };
+  }
   const studioSlugResult = normalizeRequiredSlug(
     rawFormString(formData, "studioSlug"),
     "Studio"

@@ -3,6 +3,7 @@ import { getStudentApiUser } from "@/lib/auth/studentApiAuth";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
+import { containsExternalContactOrLink, looksLikeMessageAbuse } from "@/lib/security/bot-protection";
 
 type PartnerMessageBody = {
   body?: string;
@@ -35,6 +36,8 @@ type PartnerProfileRow = {
   id: string;
   display_name: string | null;
   user_id: string;
+  visibility: string | null;
+  moderation_status: string | null;
 };
 
 type PartnerThreadRow = {
@@ -112,22 +115,49 @@ export async function POST(request: NextRequest) {
     return jsonError("Add a message first.");
   }
 
+  if (looksLikeMessageAbuse(body) || containsExternalContactOrLink(body)) {
+    return jsonError("Keep partner messages inside DanceFlow and remove links, phone numbers, or email addresses.", 400);
+  }
+
+  const userRateLimit = checkRateLimit(
+    rateLimitKey("student:partner-message:user", user.id),
+    { limit: 30, windowMs: 60 * 60 * 1000 },
+  );
+
+  if (!userRateLimit.allowed) {
+    return rateLimitedJson(userRateLimit);
+  }
+
   const supabase = createAdminClient();
   const now = new Date().toISOString();
 
   if (partnerProfileId) {
     const { data: partnerProfile, error: profileError } = await supabase
       .from("dancer_partner_profiles")
-      .select("id, display_name, user_id")
+      .select("id, display_name, user_id, visibility, moderation_status")
       .eq("id", partnerProfileId)
       .single<PartnerProfileRow>();
 
-    if (profileError || !partnerProfile) {
+    if (
+      profileError ||
+      !partnerProfile ||
+      partnerProfile.visibility !== "published" ||
+      !["approved", "pending", null].includes(partnerProfile.moderation_status)
+    ) {
       return jsonError("Partner profile was not found.", 404);
     }
 
     if (partnerProfile.user_id === user.id) {
       return jsonError("You cannot message your own partner listing.");
+    }
+
+    const profileMessageRateLimit = checkRateLimit(
+      rateLimitKey("student:partner-message:profile", user.id, partnerProfile.id),
+      { limit: 3, windowMs: 60 * 60 * 1000 },
+    );
+
+    if (!profileMessageRateLimit.allowed) {
+      return rateLimitedJson(profileMessageRateLimit);
     }
 
     const { data: requestRow, error: requestError } = await supabase

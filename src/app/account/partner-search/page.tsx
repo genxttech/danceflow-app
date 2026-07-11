@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { savePartnerSearchProfileAction } from "./actions";
+import { BOT_HONEYPOT_FIELD, BOT_STARTED_AT_FIELD } from "@/lib/security/bot-protection";
 
 type SearchParams = Promise<{
   success?: string;
@@ -242,6 +243,16 @@ export default async function AccountPartnerSearchPage({
           action={savePartnerSearchProfileAction}
           className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"
         >
+          <input type="hidden" name={BOT_STARTED_AT_FIELD} value={String(Date.now())} />
+          <div className="hidden" aria-hidden="true">
+            <label htmlFor="dfPartnerWebsite">Website</label>
+            <input
+              id="dfPartnerWebsite"
+              name={BOT_HONEYPOT_FIELD}
+              tabIndex={-1}
+              autoComplete="off"
+            />
+          </div>
           <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
             <div>
               <h2 className="text-xl font-semibold text-slate-950">

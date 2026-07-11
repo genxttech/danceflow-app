@@ -205,6 +205,7 @@ function textResponse(message: string, status: number) {
     status,
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }
@@ -304,6 +305,7 @@ export async function GET(
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
       "Cache-Control": "public, max-age=300, s-maxage=3600",
+      "X-Content-Type-Options": "nosniff",
       "Content-Disposition": `inline; filename="${normalizedSlug}-events.ics"`,
     },
   });

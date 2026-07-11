@@ -3,17 +3,23 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { checkPublicFormProtection } from "@/lib/security/bot-protection";
 
 const ADVERTISING_PATTERN =
   /(private lessons?|book (a )?(lesson|session)|rates?|pricing|coach(ing)?|instructor available|studio owner|dm me|follow me|https?:\/\/|www\.|@[a-z0-9_.-]+|\b\d{3}[-.\s]?\d{3}[-.\s]?\d{4}\b|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/i;
 
-function getString(formData: FormData, key: string) {
+function getString(formData: FormData, key: string, maxLength = 2000) {
   const value = formData.get(key);
-  return typeof value === "string" ? value.trim() : "";
+  return typeof value === "string"
+    ? value
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .slice(0, maxLength)
+    : "";
 }
-
-function getOptionalString(formData: FormData, key: string) {
-  const value = getString(formData, key);
+function getOptionalString(formData: FormData, key: string, maxLength = 2000) {
+  const value = getString(formData, key, maxLength);
   return value.length ? value : null;
 }
 
@@ -23,7 +29,8 @@ function getMultiList(formData: FormData, key: string) {
       formData
         .getAll(key)
         .map((value) => (typeof value === "string" ? value.trim() : ""))
-        .filter(Boolean),
+        .filter(Boolean)
+        .slice(0, 20),
     ),
   );
 }
@@ -33,6 +40,10 @@ function hasAdvertisingRisk(values: Array<string | null | undefined>) {
 }
 
 export async function savePartnerSearchProfileAction(formData: FormData) {
+  const botCheck = await checkPublicFormProtection(formData, { minAgeMs: 1_000 });
+  if (!botCheck.allowed) {
+    redirect("/account/partner-search?error=save_failed");
+  }
   const supabase = await createClient();
   const {
     data: { user },
@@ -42,15 +53,15 @@ export async function savePartnerSearchProfileAction(formData: FormData) {
     redirect("/login?next=/account/partner-search");
   }
 
-  const displayName = getString(formData, "displayName");
-  const headline = getOptionalString(formData, "headline");
-  const bio = getOptionalString(formData, "bio");
-  const city = getOptionalString(formData, "city");
-  const state = getOptionalString(formData, "state");
+  const displayName = getString(formData, "displayName", 80);
+  const headline = getOptionalString(formData, "headline", 120);
+  const bio = getOptionalString(formData, "bio", 1200);
+  const city = getOptionalString(formData, "city", 80);
+  const state = getOptionalString(formData, "state", 2)?.toUpperCase() ?? null;
   const danceStyles = getMultiList(formData, "danceStyles");
   const goals = getMultiList(formData, "goals");
   const listingIntent = getString(formData, "listingIntent") || "practice";
-  const availabilityNotes = getOptionalString(formData, "availabilityNotes");
+  const availabilityNotes = getOptionalString(formData, "availabilityNotes", 500);
   const wantsVisible = getString(formData, "profileVisible") === "on";
 
   if (!displayName) {

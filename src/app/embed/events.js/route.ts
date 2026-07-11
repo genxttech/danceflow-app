@@ -9,6 +9,7 @@ export async function GET() {
       "Content-Type": "application/javascript; charset=utf-8",
       "Cache-Control": "public, max-age=300, s-maxage=3600",
       "Access-Control-Allow-Origin": "*",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }
