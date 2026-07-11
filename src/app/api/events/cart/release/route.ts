@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
+import { normalizeOptionalUuid, normalizeRequiredSlug } from "@/lib/validation/forms";
+import { normalizePublicToken, safeTokenEquals } from "@/lib/security/tokens";
 
 function getSupabaseAdmin(): SupabaseClient {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -14,43 +16,72 @@ function getSupabaseAdmin(): SupabaseClient {
   });
 }
 
+type EventOrderRow = {
+  id: string;
+  payment_status: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
 function eventUrl(request: NextRequest, eventSlug: string, query: string) {
   return new URL(`/events/${encodeURIComponent(eventSlug)}${query}`, request.nextUrl.origin);
 }
 
+function fallbackUrl(request: NextRequest, eventSlug: string, query: string) {
+  return eventSlug
+    ? eventUrl(request, eventSlug, query)
+    : new URL(`/discover/events${query}`, request.nextUrl.origin);
+}
+
+function getOrderHoldToken(order: EventOrderRow | null) {
+  const value = order?.metadata?.holdToken;
+  return typeof value === "string" ? value : null;
+}
+
 export async function GET(request: NextRequest) {
   const supabase = getSupabaseAdmin();
-  const orderId = request.nextUrl.searchParams.get("orderId") ?? "";
-  const eventSlug = request.nextUrl.searchParams.get("eventSlug") ?? "";
+  const orderIdResult = normalizeOptionalUuid(
+    request.nextUrl.searchParams.get("orderId"),
+    "Event order",
+  );
+  const eventSlugResult = normalizeRequiredSlug(
+    request.nextUrl.searchParams.get("eventSlug"),
+    "Event",
+  );
+  const holdToken = normalizePublicToken(request.nextUrl.searchParams.get("holdToken"), {
+    minLength: 16,
+    maxLength: 128,
+  });
 
-  if (!orderId || !eventSlug) {
-    return NextResponse.redirect(eventUrl(request, eventSlug, "?error=cart_release_failed"));
+  const orderId = orderIdResult.ok ? orderIdResult.value : null;
+  const eventSlug = eventSlugResult.ok ? eventSlugResult.value : "";
+
+  if (!orderId || !eventSlug || !holdToken) {
+    return NextResponse.redirect(fallbackUrl(request, eventSlug, "?error=cart_release_failed"));
   }
 
   const { data: order } = await supabase
     .from("event_orders")
-    .select("id, payment_status")
+    .select("id, payment_status, metadata")
     .eq("id", orderId)
-    .maybeSingle();
+    .maybeSingle<EventOrderRow>();
 
-  const { data: competitionCart } = orderId
-    ? await supabase
-        .from("event_competition_registration_carts")
-        .select("id")
-        .eq("order_id", orderId)
-        .maybeSingle()
-    : { data: null };
+  if (!order || !safeTokenEquals(getOrderHoldToken(order), holdToken)) {
+    return NextResponse.redirect(fallbackUrl(request, eventSlug, "?error=cart_release_failed"));
+  }
+
+  const { data: competitionCart } = await supabase
+    .from("event_competition_registration_carts")
+    .select("id")
+    .eq("order_id", orderId)
+    .maybeSingle();
 
   const returnPath = competitionCart
     ? `/events/${encodeURIComponent(eventSlug)}/competition/register`
     : `/events/${encodeURIComponent(eventSlug)}`;
 
-  if (!order || order.payment_status === "paid") {
+  if (order.payment_status === "paid") {
     return NextResponse.redirect(
-      new URL(
-        `${returnPath}${order?.payment_status === "paid" ? "?success=paid" : "?error=cart_release_failed"}`,
-        request.nextUrl.origin,
-      ),
+      new URL(`${returnPath}?success=paid`, request.nextUrl.origin),
     );
   }
 
@@ -70,6 +101,7 @@ export async function GET(request: NextRequest) {
       updated_at: new Date().toISOString(),
     })
     .eq("order_id", orderId)
+    .eq("hold_token", holdToken)
     .in("status", ["held", "available"]);
 
   await supabase
@@ -95,6 +127,3 @@ export async function GET(request: NextRequest) {
     new URL(`${returnPath}?error=checkout_cancelled`, request.nextUrl.origin),
   );
 }
-
-
-

@@ -3,6 +3,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { checkInClientIdentityAppointmentAction } from "./actions";
+import { normalizePublicToken } from "@/lib/security/tokens";
 
 type Params = Promise<{
   token: string;
@@ -147,7 +148,10 @@ export default async function ClientIdentityPage({
   const supabase = await createClient();
   const { studioId } = await getCurrentStudioContext();
 
-  const trimmedToken = token.trim();
+  const trimmedToken = normalizePublicToken(token, {
+    minLength: 16,
+    maxLength: 128,
+  });
 
   if (!trimmedToken) {
     notFound();

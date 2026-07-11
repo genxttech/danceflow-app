@@ -1,9 +1,9 @@
-import crypto from "crypto";
 import Link from "next/link";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import { createClient } from "@/lib/supabase/server";
 import { claimAmbassadorInviteAction, createAmbassadorAccountAction } from "./actions";
+import { normalizePublicToken, sha256TokenHash } from "@/lib/security/tokens";
 
 type SearchParams = Promise<{
   invite?: string;
@@ -53,10 +53,6 @@ type WorkspaceOption = {
   subscriptionStatus: string | null;
 };
 
-function hashInviteToken(token: string) {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
-
 function formatDate(value: string | null) {
   if (!value) return "—";
 
@@ -98,7 +94,11 @@ export default async function AmbassadorInvitePage({
   searchParams: SearchParams;
 }) {
   const params = await searchParams;
-  const token = params.invite?.trim() ?? "";
+  const token = normalizePublicToken(params.invite ?? null, {
+    minLength: 24,
+    maxLength: 128,
+    allowUuid: false,
+  }) ?? "";
   const supabase = await createClient();
 
   const {
@@ -109,7 +109,7 @@ export default async function AmbassadorInvitePage({
   let workspaceOptions: WorkspaceOption[] = [];
 
   if (token) {
-    const tokenHash = hashInviteToken(token);
+    const tokenHash = sha256TokenHash(token);
 
     const { data, error: previewError } = await supabase
       .rpc("get_platform_invite_public_preview", {

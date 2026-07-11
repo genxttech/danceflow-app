@@ -2,13 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { BookOpen, CalendarDays, ExternalLink, ShieldCheck } from "lucide-react";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { normalizeUuidToken } from "@/lib/security/tokens";
 
 export const dynamic = "force-dynamic";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 type Params = Promise<{ token: string }>;
 
 type RecipientRow = {
@@ -127,9 +125,9 @@ export default async function PublicGroupRecapPage({
   params: Params;
 }) {
   const { token } = await params;
-  const normalizedToken = token.trim();
+  const normalizedToken = normalizeUuidToken(token);
 
-  if (!UUID_PATTERN.test(normalizedToken)) {
+  if (!normalizedToken) {
     notFound();
   }
 

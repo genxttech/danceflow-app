@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { normalizeUuidToken } from "@/lib/security/tokens";
 
 const GROUP_RECAP_TOKEN_PATH_PATTERN =
   /^\/recaps\/([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})(?:[/?#]|$)/i;
@@ -20,7 +21,7 @@ export function getGroupLessonRecapTokenFromPath(value: string | null | undefine
   const path = value?.trim() ?? "";
   const match = path.match(GROUP_RECAP_TOKEN_PATH_PATTERN);
 
-  return match?.[1] ?? null;
+  return normalizeUuidToken(match?.[1] ?? null);
 }
 
 async function claimGroupLessonRecapRecipient(params: {
@@ -69,7 +70,8 @@ export async function claimGroupLessonRecapsForUser(params: {
   email: string | null | undefined;
   recapToken?: string | null;
 }) {
-  const { userId, recapToken } = params;
+  const { userId } = params;
+  const recapToken = normalizeUuidToken(params.recapToken ?? null);
   const normalizedEmail = params.email?.trim().toLowerCase() ?? "";
 
   if (!userId) {

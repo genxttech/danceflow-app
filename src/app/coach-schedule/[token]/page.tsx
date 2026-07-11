@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { normalizePublicToken } from "@/lib/security/tokens";
 import PublicSiteFooter from "@/components/public/PublicSiteFooter";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 
@@ -203,8 +204,12 @@ export default async function GuestCoachSchedulePage({
   params: Params;
 }) {
   const { token } = await params;
+  const normalizedToken = normalizePublicToken(token, {
+    minLength: 24,
+    maxLength: 128,
+  });
 
-  if (!token || token.length < 24) {
+  if (!normalizedToken) {
     notFound();
   }
 
@@ -213,7 +218,7 @@ export default async function GuestCoachSchedulePage({
   const { data: coach, error: coachError } = await supabase
     .from("event_guest_coaches")
     .select("id, event_id, studio_id, organizer_id, name, bio, photo_url, schedule_token_enabled, active")
-    .eq("schedule_token", token)
+    .eq("schedule_token", normalizedToken)
     .eq("active", true)
     .eq("schedule_token_enabled", true)
     .single();
@@ -310,7 +315,7 @@ export default async function GuestCoachSchedulePage({
   const eventLocation = [typedEvent.venue_name, typedEvent.city, typedEvent.state]
     .filter(Boolean)
     .join(" • ");
-  const calendarPath = `/coach-schedule/${token}/calendar`;
+  const calendarPath = `/coach-schedule/${encodeURIComponent(normalizedToken)}/calendar`;
   const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL ?? "").replace(/\/$/, "");
   const calendarUrl = siteUrl ? `${siteUrl}${calendarPath}` : calendarPath;
   const subscribeUrl = siteUrl

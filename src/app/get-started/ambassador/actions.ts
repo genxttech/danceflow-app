@@ -1,16 +1,12 @@
 "use server";
 
-import crypto from "crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { normalizePublicToken, sha256TokenHash } from "@/lib/security/tokens";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
-
-function hashInviteToken(token: string) {
-  return crypto.createHash("sha256").update(token).digest("hex");
-}
 
 function normalizeText(value: FormDataEntryValue | null) {
   return String(value ?? "").trim();
@@ -53,7 +49,11 @@ export async function createAmbassadorAccountAction(formData: FormData) {
   const supabase = await createClient();
   const adminSupabase = createAdminClient();
 
-  const token = normalizeText(formData.get("invite"));
+  const token = normalizePublicToken(normalizeText(formData.get("invite")), {
+    minLength: 24,
+    maxLength: 128,
+    allowUuid: false,
+  });
   const password = normalizePassword(formData.get("password"));
   const confirmPassword = normalizePassword(formData.get("confirmPassword"));
 
@@ -75,7 +75,7 @@ export async function createAmbassadorAccountAction(formData: FormData) {
     redirect(`${returnPath}&error=password_mismatch`);
   }
 
-  const tokenHash = hashInviteToken(token);
+  const tokenHash = sha256TokenHash(token);
 
   const { data: invite, error: inviteError } = await adminSupabase
     .from("platform_invites")
@@ -136,7 +136,11 @@ export async function createAmbassadorAccountAction(formData: FormData) {
 export async function claimAmbassadorInviteAction(formData: FormData) {
   const supabase = await createClient();
 
-  const token = normalizeText(formData.get("invite"));
+  const token = normalizePublicToken(normalizeText(formData.get("invite")), {
+    minLength: 24,
+    maxLength: 128,
+    allowUuid: false,
+  });
   const claimMode = normalizeText(formData.get("claimMode")) || "new";
   const existingStudioId = normalizeOptionalText(formData.get("existingStudioId"));
   const workspaceName = normalizeText(formData.get("workspaceName"));
@@ -164,7 +168,7 @@ export async function claimAmbassadorInviteAction(formData: FormData) {
     redirect(`/login?next=${encodeURIComponent(returnPath)}`);
   }
 
-  const tokenHash = hashInviteToken(token);
+  const tokenHash = sha256TokenHash(token);
 
   const { data: claimedStudioId, error } = await supabase.rpc("claim_platform_invite", {
     p_token_hash: tokenHash,

@@ -3,10 +3,23 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import { normalizeOptionalUuid } from "@/lib/validation/forms";
+import { normalizePublicToken } from "@/lib/security/tokens";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function safeClientIdentityReturnPath(value: string, token: string | null) {
+  const fallback = token ? `/app/client-identity/${encodeURIComponent(token)}` : "/app";
+  const path = value.trim() || fallback;
+
+  if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) {
+    return fallback;
+  }
+
+  return path;
 }
 
 function appendQueryParam(url: string, key: string, value: string) {
@@ -80,16 +93,20 @@ async function upsertAttendanceRecord(params: {
 }
 
 export async function checkInClientIdentityAppointmentAction(formData: FormData) {
-  const appointmentId = getString(formData, "appointmentId");
-  const clientId = getString(formData, "clientId");
-  const token = getString(formData, "token");
-  const returnTo =
-    getString(formData, "returnTo") ||
-    (token ? `/app/client-identity/${encodeURIComponent(token)}` : "/app");
+  const appointmentIdResult = normalizeOptionalUuid(getString(formData, "appointmentId"), "Appointment");
+  const clientIdResult = normalizeOptionalUuid(getString(formData, "clientId"), "Client");
+  const token = normalizePublicToken(getString(formData, "token"), {
+    minLength: 16,
+    maxLength: 128,
+  });
+  const returnTo = safeClientIdentityReturnPath(getString(formData, "returnTo"), token);
 
-  if (!appointmentId || !clientId || !token) {
+  if (!appointmentIdResult.ok || !appointmentIdResult.value || !clientIdResult.ok || !clientIdResult.value || !token) {
     redirect(appendQueryParam(returnTo, "error", "missing_checkin_context"));
   }
+
+  const appointmentId = appointmentIdResult.value;
+  const clientId = clientIdResult.value;
 
   try {
     const supabase = await createClient();

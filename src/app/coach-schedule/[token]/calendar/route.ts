@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { normalizePublicToken } from "@/lib/security/tokens";
 
 type Params = Promise<{
   token: string;
@@ -123,8 +124,12 @@ export async function GET(
   { params }: { params: Params },
 ) {
   const { token } = await params;
+  const normalizedToken = normalizePublicToken(token, {
+    minLength: 24,
+    maxLength: 128,
+  });
 
-  if (!token || token.length < 24) {
+  if (!normalizedToken) {
     notFound();
   }
 
@@ -133,7 +138,7 @@ export async function GET(
   const { data: coach, error: coachError } = await supabase
     .from("event_guest_coaches")
     .select("id, event_id, name, schedule_token_enabled, active")
-    .eq("schedule_token", token)
+    .eq("schedule_token", normalizedToken)
     .eq("active", true)
     .eq("schedule_token_enabled", true)
     .single();

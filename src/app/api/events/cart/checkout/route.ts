@@ -868,6 +868,7 @@ export async function POST(request: NextRequest) {
       expires_at: expiresAt,
       metadata: {
         source: "event_cart_v1",
+        holdToken,
       },
     })
     .select("id")
@@ -1143,7 +1144,7 @@ export async function POST(request: NextRequest) {
         `?success=cart_paid&order=${encodeURIComponent(order.id)}`,
       ),
       cancel_url: new URL(
-        `/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(eventSlug)}`,
+        `/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(eventSlug)}&holdToken=${encodeURIComponent(holdToken)}`,
         request.nextUrl.origin,
       ).toString(),
       line_items: lineItems,
