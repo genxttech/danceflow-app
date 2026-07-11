@@ -1,25 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-function getCronSecretFromRequest(request: NextRequest) {
-  const authHeader = request.headers.get("authorization");
-  const bearer = authHeader?.startsWith("Bearer ")
-    ? authHeader.slice("Bearer ".length)
-    : null;
-
-  return bearer || request.headers.get("x-cron-secret");
-}
-
-function requireCronAuth(request: NextRequest) {
-  const provided = getCronSecretFromRequest(request);
-  const expected = process.env.CRON_SECRET;
-
-  if (!expected || !provided || provided !== expected) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  return null;
-}
+import { getCronAuthFailure } from "@/lib/security/cron";
 
 function formatDateKey(date: Date, timeZone = "UTC") {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -128,7 +109,7 @@ function getStudioTimezone(studioMap: Map<string, string>, studioId: string) {
 }
 
 export async function POST(request: NextRequest) {
-  const authFailure = requireCronAuth(request);
+  const authFailure = getCronAuthFailure(request);
   if (authFailure) {
     return authFailure;
   }
