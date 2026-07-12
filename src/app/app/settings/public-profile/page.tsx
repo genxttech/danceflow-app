@@ -184,7 +184,7 @@ export default async function PublicProfileSettingsPage({
         </div>
       ) : null}
 
-      <form action={savePublicProfileAction} encType="multipart/form-data" className="space-y-6">
+      <form action={savePublicProfileAction} className="space-y-6">
         <input type="hidden" name="studio_name_fallback" value={studio.name} />
 
         <section className="rounded-lg border border-l-4 border-l-emerald-500 bg-white p-6 shadow-sm">

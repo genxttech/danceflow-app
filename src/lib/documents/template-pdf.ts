@@ -38,6 +38,9 @@ export async function renderTemplateVersionPdf(params: {
   body: string;
   versionNumber: number;
   consentText?: string | null;
+  studioName?: string | null;
+  studioLogoBytes?: Uint8Array | null;
+  studioLogoMimeType?: "image/png" | "image/jpeg" | null;
 }) {
   const pdf = await PDFDocument.create();
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
@@ -46,10 +49,70 @@ export async function renderTemplateVersionPdf(params: {
   let page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
   let y = PAGE_HEIGHT - MARGIN;
 
+  let logo:
+    | Awaited<ReturnType<typeof pdf.embedPng>>
+    | Awaited<ReturnType<typeof pdf.embedJpg>>
+    | null = null;
+
+  if (params.studioLogoBytes?.length && params.studioLogoMimeType) {
+    try {
+      logo =
+        params.studioLogoMimeType === "image/png"
+          ? await pdf.embedPng(params.studioLogoBytes)
+          : await pdf.embedJpg(params.studioLogoBytes);
+    } catch {
+      logo = null;
+    }
+  }
+
+  const drawBrandHeader = () => {
+    const studioName = params.studioName?.trim();
+    let textX = MARGIN;
+
+    if (logo) {
+      const natural = logo.scale(1);
+      const maxWidth = 96;
+      const maxHeight = 44;
+      const scale = Math.min(maxWidth / natural.width, maxHeight / natural.height, 1);
+      const width = natural.width * scale;
+      const height = natural.height * scale;
+
+      page.drawImage(logo, {
+        x: MARGIN,
+        y: PAGE_HEIGHT - MARGIN - height,
+        width,
+        height,
+      });
+      textX = MARGIN + width + 14;
+    }
+
+    if (studioName) {
+      page.drawText(studioName, {
+        x: textX,
+        y: PAGE_HEIGHT - MARGIN - 18,
+        size: 12,
+        font: bold,
+        color: rgb(0.25, 0.08, 0.3),
+        maxWidth: PAGE_WIDTH - textX - MARGIN,
+      });
+    }
+
+    page.drawLine({
+      start: { x: MARGIN, y: PAGE_HEIGHT - MARGIN - 54 },
+      end: { x: PAGE_WIDTH - MARGIN, y: PAGE_HEIGHT - MARGIN - 54 },
+      thickness: 0.8,
+      color: rgb(0.82, 0.78, 0.84),
+    });
+
+    y = PAGE_HEIGHT - MARGIN - 82;
+  };
+
   const addPage = () => {
     page = pdf.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
-    y = PAGE_HEIGHT - MARGIN;
+    drawBrandHeader();
   };
+
+  drawBrandHeader();
 
   const ensureSpace = (height: number) => {
     if (y - height < MARGIN) addPage();

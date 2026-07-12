@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { applySigningFields, type AppliedSignature, type SigningField, type SigningValue } from "@/lib/documents/pdf";
 import { DOCUMENT_FILES_BUCKET, hashSigningToken, signedStoragePath } from "@/lib/documents/signing";
+import { consumePublicSigningRateLimit, serverActionIp } from "@/lib/documents/public-signing-security";
 
 const CONSENT_TEXT = "I have reviewed this document, agree to use electronic records and signatures, and confirm that the signature I apply is my own.";
 
@@ -34,6 +35,15 @@ export async function completeSigningAction(formData: FormData) {
 
   const admin = createAdminClient();
   const tokenHash = hashSigningToken(token);
+  const ip = await serverActionIp();
+  const rateLimit = await consumePublicSigningRateLimit(admin, {
+    action: "complete",
+    tokenHash,
+    ip,
+  });
+  if (!rateLimit.allowed) {
+    redirect(`/sign/${encodeURIComponent(token)}?error=too_many_attempts`);
+  }
   const { data: envelope } = await admin
     .from("document_sign_envelopes")
     .select("id,studio_id,title,signer_name,signer_email,status,expires_at,source_bucket,source_path")
@@ -100,7 +110,6 @@ export async function completeSigningAction(formData: FormData) {
   if (signedUploadError) redirect(`/sign/${encodeURIComponent(token)}?error=completion_failed`);
 
   const headerStore = await headers();
-  const ip = headerStore.get("x-forwarded-for")?.split(",")[0]?.trim() || headerStore.get("x-real-ip") || null;
   const userAgent = headerStore.get("user-agent");
 
   const valueRows = (fields as SigningField[]).map((field) => {
@@ -118,7 +127,7 @@ export async function completeSigningAction(formData: FormData) {
   await admin.from("document_sign_values").upsert(valueRows, { onConflict: "envelope_id,field_id" });
 
   const method = signatureMethods.size === 1 ? Array.from(signatureMethods)[0] : signatureMethods.size > 1 ? "mixed" : null;
-  const { error: updateError } = await admin.from("document_sign_envelopes").update({
+  const { data: completedEnvelope, error: updateError } = await admin.from("document_sign_envelopes").update({
     status: "completed",
     signed_bucket: DOCUMENT_FILES_BUCKET,
     signed_path: signedPath,
@@ -128,8 +137,15 @@ export async function completeSigningAction(formData: FormData) {
     signed_timezone: timezone,
     consent_text: CONSENT_TEXT,
     updated_at: signedAt,
-  }).eq("id", envelope.id).neq("status", "completed");
-  if (updateError) redirect(`/sign/${encodeURIComponent(token)}?error=completion_failed`);
+  })
+    .eq("id", envelope.id)
+    .in("status", ["sent", "viewed", "started"])
+    .select("id")
+    .maybeSingle();
+  if (updateError || !completedEnvelope) {
+    await admin.storage.from(DOCUMENT_FILES_BUCKET).remove([signedPath]);
+    redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
+  }
 
   await admin.from("document_sign_events").insert({
     envelope_id: envelope.id,
@@ -149,10 +165,35 @@ export async function declineSigningAction(formData: FormData) {
   const reason = clean(formData.get("reason"), 500);
   const admin = createAdminClient();
   const tokenHash = hashSigningToken(token);
-  const { data: envelope } = await admin.from("document_sign_envelopes").select("id,signer_email,status").eq("token_hash", tokenHash).maybeSingle();
-  if (!envelope || envelope.status === "completed") redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
+  const ip = await serverActionIp();
+  const rateLimit = await consumePublicSigningRateLimit(admin, {
+    action: "decline",
+    tokenHash,
+    ip,
+  });
+  if (!rateLimit.allowed) redirect(`/sign/${encodeURIComponent(token)}?error=too_many_attempts`);
+
+  const { data: envelope } = await admin
+    .from("document_sign_envelopes")
+    .select("id,signer_email,status,expires_at")
+    .eq("token_hash", tokenHash)
+    .maybeSingle();
+  if (!envelope || !["sent", "viewed", "started"].includes(envelope.status)) {
+    redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
+  }
+  if (new Date(envelope.expires_at).getTime() <= Date.now()) {
+    await admin.from("document_sign_envelopes").update({ status: "expired", updated_at: new Date().toISOString() }).eq("id", envelope.id);
+    redirect(`/sign/${encodeURIComponent(token)}?error=link_expired`);
+  }
   const now = new Date().toISOString();
-  await admin.from("document_sign_envelopes").update({ status: "declined", declined_at: now, updated_at: now }).eq("id", envelope.id);
+  const { data: declinedEnvelope } = await admin
+    .from("document_sign_envelopes")
+    .update({ status: "declined", declined_at: now, updated_at: now })
+    .eq("id", envelope.id)
+    .in("status", ["sent", "viewed", "started"])
+    .select("id")
+    .maybeSingle();
+  if (!declinedEnvelope) redirect(`/sign/${encodeURIComponent(token)}?error=link_unavailable`);
   await admin.from("document_sign_events").insert({ envelope_id: envelope.id, event_type: "declined", actor_email: envelope.signer_email, summary: reason || "Signer declined the document." });
   redirect(`/sign/${encodeURIComponent(token)}?success=declined`);
 }

@@ -424,12 +424,17 @@ export async function assignDocumentToClientAction(formData: FormData) {
   }
 
   const signerName = [client.first_name, client.last_name].filter(Boolean).join(" ").trim() || signerEmail;
+  const admin = createAdminClient();
+  const branding = await loadStudioDocumentBranding(admin, owner.studioId);
   const pdfBytes = await renderTemplateVersionPdf({
     title: version.title || template.title,
     description: version.description ?? template.description,
     body: version.body || template.body,
     versionNumber: Number(version.version_number ?? template.current_version ?? 1),
     consentText: version.consent_text ?? template.default_consent_text,
+    studioName: branding.studioName,
+    studioLogoBytes: branding.studioLogoBytes,
+    studioLogoMimeType: branding.studioLogoMimeType,
   });
 
   const pageSizes = await getPdfPageSizes(pdfBytes);
@@ -438,7 +443,6 @@ export async function assignDocumentToClientAction(formData: FormData) {
   const sourcePath = sourceStoragePath(owner.studioId, envelopeId);
   const dueAt = dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null;
   const expiresAt = dueAt ?? new Date(Date.now() + 7 * 86400000).toISOString();
-  const admin = createAdminClient();
 
   const { error: uploadError } = await admin.storage
     .from(DOCUMENT_FILES_BUCKET)
@@ -747,6 +751,79 @@ export async function toggleDocumentTemplateStatusAction(formData: FormData) {
   redirect("/app/documents?success=status_updated");
 }
 
+async function loadStudioDocumentBranding(
+  admin: ReturnType<typeof createAdminClient>,
+  studioId: string,
+) {
+  const { data: studio } = await admin
+    .from("studios")
+    .select("name, public_name, public_logo_url")
+    .eq("id", studioId)
+    .maybeSingle();
+
+  const studioName =
+    String(studio?.public_name ?? studio?.name ?? "Your studio").trim() ||
+    "Your studio";
+  const logoUrl =
+    typeof studio?.public_logo_url === "string"
+      ? studio.public_logo_url.trim()
+      : "";
+
+  if (!logoUrl) {
+    return {
+      studioName,
+      studioLogoBytes: null,
+      studioLogoMimeType: null,
+    } as const;
+  }
+
+  try {
+    const response = await fetch(logoUrl, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!response.ok) {
+      throw new Error("Logo request failed.");
+    }
+
+    const contentType = response.headers
+      .get("content-type")
+      ?.split(";")[0]
+      ?.trim()
+      ?.toLowerCase();
+
+    if (contentType !== "image/png" && contentType !== "image/jpeg") {
+      return {
+        studioName,
+        studioLogoBytes: null,
+        studioLogoMimeType: null,
+      } as const;
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!bytes.length || bytes.length > 2 * 1024 * 1024) {
+      return {
+        studioName,
+        studioLogoBytes: null,
+        studioLogoMimeType: null,
+      } as const;
+    }
+
+    return {
+      studioName,
+      studioLogoBytes: bytes,
+      studioLogoMimeType: contentType,
+    } as const;
+  } catch {
+    return {
+      studioName,
+      studioLogoBytes: null,
+      studioLogoMimeType: null,
+    } as const;
+  }
+}
+
 function htmlEscape(value: string) {
   return value
     .replace(/&/g, "&amp;")
@@ -1015,3 +1092,4 @@ export async function voidDocumentAssignmentAction(formData: FormData) {
   revalidatePath("/app/documents");
   redirect("/app/documents?success=voided");
 }
+
