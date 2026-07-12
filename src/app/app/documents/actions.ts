@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireStudioFeature } from "@/lib/billing/access";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export type DocumentActionState = {
   error?: string;
@@ -417,7 +418,7 @@ export async function assignDocumentToClientAction(formData: FormData) {
 
   const dueAt = dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null;
 
-  const { error } = await owner.supabase.from("document_assignments").insert({
+  const { data: assignment, error } = await owner.supabase.from("document_assignments").insert({
     template_id: templateId,
     template_version_id: version?.id ?? null,
     studio_id: owner.studioId,
@@ -426,10 +427,21 @@ export async function assignDocumentToClientAction(formData: FormData) {
     status: "pending",
     due_at: dueAt,
     assigned_by: owner.userId,
-  });
+  }).select("id").single();
 
   if (error) {
     redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
+  }
+
+  if (assignment?.id) {
+    await queueDocumentAssignmentEmail({
+      assignmentId: assignment.id,
+      studioId: owner.studioId,
+      clientId,
+      recipientEmail: typeof client.email === "string" ? client.email : null,
+      templateId,
+      reason: "assignment",
+    });
   }
 
   const portalUserId =
@@ -648,4 +660,194 @@ export async function toggleDocumentTemplateStatusAction(formData: FormData) {
 
   revalidatePath("/app/documents");
   redirect("/app/documents?success=status_updated");
+}
+
+
+function htmlEscape(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+async function queueDocumentAssignmentEmail(params: {
+  assignmentId: string;
+  studioId: string;
+  clientId: string | null;
+  recipientEmail: string | null;
+  templateId: string;
+  reason: "assignment" | "manual_reminder";
+}) {
+  if (!params.recipientEmail?.trim()) return { queued: false, reason: "missing_email" as const };
+
+  const admin = createAdminClient();
+  const [{ data: studio }, { data: template }, { data: client }] = await Promise.all([
+    admin.from("studios").select("name, public_name, slug").eq("id", params.studioId).maybeSingle(),
+    admin.from("document_templates").select("title").eq("id", params.templateId).maybeSingle(),
+    params.clientId
+      ? admin.from("clients").select("first_name, last_name").eq("id", params.clientId).eq("studio_id", params.studioId).maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  const studioName = studio?.public_name || studio?.name || "Your studio";
+  const clientName = client
+    ? `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim()
+    : "there";
+  const documentTitle = template?.title || "a document";
+  const portalUrl = studio?.slug
+    ? `${process.env.NEXT_PUBLIC_APP_URL ?? "https://idanceflow.com"}/portal/${encodeURIComponent(studio.slug)}/documents`
+    : `${process.env.NEXT_PUBLIC_APP_URL ?? "https://idanceflow.com"}/app`;
+  const isReminder = params.reason === "manual_reminder";
+  const subject = isReminder
+    ? `Reminder: ${documentTitle} needs your signature`
+    : `${studioName} assigned a document for your review`;
+  const bodyText = `${clientName || "Hello"},\n\n${studioName} ${isReminder ? "is reminding you to review" : "assigned"} ${documentTitle}.\n\nOpen your DanceFlow portal to review and sign it: ${portalUrl}\n\nThank you,\n${studioName}`;
+  const bodyHtml = `<p>${htmlEscape(clientName || "Hello")},</p><p>${htmlEscape(studioName)} ${isReminder ? "is reminding you to review" : "assigned"} <strong>${htmlEscape(documentTitle)}</strong>.</p><p><a href="${htmlEscape(portalUrl)}">Open your DanceFlow portal</a> to review and sign it.</p><p>Thank you,<br>${htmlEscape(studioName)}</p>`;
+  const dedupeKey = isReminder
+    ? `document:${params.assignmentId}:manual-reminder:${new Date().toISOString().slice(0, 10)}`
+    : `document:${params.assignmentId}:assignment`;
+
+  const { error } = await admin.from("outbound_deliveries").insert({
+    studio_id: params.studioId,
+    channel: "email",
+    template_key: isReminder ? "document_signature_reminder" : "document_assignment",
+    recipient_email: params.recipientEmail.trim(),
+    recipient_phone: null,
+    subject,
+    body_text: bodyText,
+    body_html: bodyHtml,
+    related_table: "document_assignments",
+    related_id: params.assignmentId,
+    dedupe_key: dedupeKey,
+    status: "queued",
+    updated_at: new Date().toISOString(),
+  });
+
+  if (error && error.code !== "23505") {
+    console.error("Could not queue document email", error.message);
+    return { queued: false, reason: "delivery_error" as const };
+  }
+
+  await admin.from("document_operation_events").insert({
+    studio_id: params.studioId,
+    assignment_id: params.assignmentId,
+    event_type: isReminder ? "reminder_queued" : "assignment_delivery_queued",
+    summary: isReminder ? "Signature reminder queued." : "Document assignment email queued.",
+    metadata: { channel: "email", recipient: params.recipientEmail },
+  });
+
+  return { queued: true as const };
+}
+
+async function getManagedAssignment(
+  formData: FormData,
+): Promise<
+  | {
+      ok: true;
+      owner: {
+        supabase: Awaited<ReturnType<typeof createClient>>;
+        userId: string;
+        studioId: string;
+        scope: "studio";
+        organizerId: null;
+      };
+      assignment: {
+        id: string;
+        studio_id: string;
+        client_id: string | null;
+        template_id: string;
+        assigned_to_email: string | null;
+        status: string;
+      };
+    }
+  | {
+      ok: false;
+      error: string;
+    }
+> {
+  const owner = await resolveOwnerContext(formData);
+
+  if ("error" in owner || owner.scope !== "studio") {
+    return {
+      ok: false,
+      error: "You do not have permission to manage this assignment.",
+    };
+  }
+
+  const assignmentId = getString(formData, "assignmentId");
+
+  if (!assignmentId) {
+    return {
+      ok: false,
+      error: "Assignment not found.",
+    };
+  }
+
+  const { data, error } = await owner.supabase
+    .from("document_assignments")
+    .select(
+      "id, studio_id, client_id, template_id, assigned_to_email, status",
+    )
+    .eq("id", assignmentId)
+    .eq("studio_id", owner.studioId)
+    .maybeSingle();
+
+  if (error || !data) {
+    return {
+      ok: false,
+      error: "Assignment not found.",
+    };
+  }
+
+  return {
+    ok: true,
+    owner: {
+      ...owner,
+      scope: "studio",
+      organizerId: null,
+    },
+    assignment: data,
+  };
+}
+
+export async function sendDocumentReminderAction(formData: FormData) {
+  const result = await getManagedAssignment(formData);
+  if (!result.ok) redirect(`/app/documents?error=${encodeURIComponent(result.error)}`);
+  if (result.assignment.status !== "pending") redirect("/app/documents?error=Only pending documents can receive reminders.");
+  const queued = await queueDocumentAssignmentEmail({
+    assignmentId: result.assignment.id,
+    studioId: result.owner.studioId,
+    clientId: result.assignment.client_id,
+    recipientEmail: result.assignment.assigned_to_email,
+    templateId: result.assignment.template_id,
+    reason: "manual_reminder",
+  });
+  if (!queued.queued) redirect(`/app/documents?error=${queued.reason === "missing_email" ? "This client does not have an email address." : "Could not queue the reminder."}`);
+  revalidatePath("/app/documents");
+  redirect("/app/documents?success=reminder_queued");
+}
+
+export async function waiveDocumentAssignmentAction(formData: FormData) {
+  const result = await getManagedAssignment(formData);
+  if (!result.ok) redirect(`/app/documents?error=${encodeURIComponent(result.error)}`);
+  const now = new Date().toISOString();
+  const { error } = await result.owner.supabase.from("document_assignments").update({ status: "waived", completed_at: now }).eq("id", result.assignment.id).eq("studio_id", result.owner.studioId).eq("status", "pending");
+  if (error) redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
+  await createAdminClient().from("document_operation_events").insert({ studio_id: result.owner.studioId, assignment_id: result.assignment.id, event_type: "waived", summary: "Required document waived by studio staff.", actor_user_id: result.owner.userId });
+  revalidatePath("/app/documents");
+  redirect("/app/documents?success=waived");
+}
+
+export async function voidDocumentAssignmentAction(formData: FormData) {
+  const result = await getManagedAssignment(formData);
+  if (!result.ok) redirect(`/app/documents?error=${encodeURIComponent(result.error)}`);
+  const reason = cleanText(getString(formData, "reason"), 500) || "Voided by studio staff.";
+  const now = new Date().toISOString();
+  const { error } = await result.owner.supabase.from("document_assignments").update({ status: "void", voided_at: now, void_reason: reason }).eq("id", result.assignment.id).eq("studio_id", result.owner.studioId).eq("status", "pending");
+  if (error) redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
+  await createAdminClient().from("document_operation_events").insert({ studio_id: result.owner.studioId, assignment_id: result.assignment.id, event_type: "voided", summary: reason, actor_user_id: result.owner.userId });
+  revalidatePath("/app/documents");
+  redirect("/app/documents?success=voided");
 }

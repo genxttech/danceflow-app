@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { FileSignature, Plus, ShieldCheck, UserPlus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, FileSignature, Plus, Send, ShieldCheck, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireStudioFeature } from "@/lib/billing/access";
@@ -10,6 +10,9 @@ import {
   removeDocumentFromEventAction,
   toggleDocumentTemplateStatusAction,
   updateDocumentTemplateAction,
+  sendDocumentReminderAction,
+  waiveDocumentAssignmentAction,
+  voidDocumentAssignmentAction,
 } from "./actions";
 
 type SearchParams = {
@@ -55,7 +58,13 @@ type DocumentSignatureSummary = {
 type DocumentAssignmentSummary = {
   id: string;
   template_id: string;
+  client_id: string | null;
   status: string | null;
+  assigned_at: string | null;
+  due_at: string | null;
+  assigned_to_email: string | null;
+  document_templates: { title: string | null; is_required: boolean | null } | { title: string | null; is_required: boolean | null }[] | null;
+  clients: { first_name: string | null; last_name: string | null; email: string | null; portal_user_id: string | null } | { first_name: string | null; last_name: string | null; email: string | null; portal_user_id: string | null }[] | null;
 };
 
 type OrganizerOption = {
@@ -134,6 +143,9 @@ function statusMessage(searchParams: SearchParams) {
   if (searchParams.success === "event_attached")
     return "Event waiver attached.";
   if (searchParams.success === "event_removed") return "Event waiver removed.";
+  if (searchParams.success === "reminder_queued") return "Document reminder queued.";
+  if (searchParams.success === "waived") return "Document requirement waived.";
+  if (searchParams.success === "voided") return "Document assignment voided.";
   if (searchParams.error === "missing_title") return "Add a document title.";
   if (searchParams.error === "missing_body")
     return "Add the document text before saving.";
@@ -908,7 +920,7 @@ export default async function DocumentsPage({
           .limit(10000),
         supabase
           .from("document_assignments")
-          .select("id, template_id, status")
+          .select("id, template_id, client_id, status, assigned_at, due_at, assigned_to_email, document_templates(title, is_required), clients(first_name, last_name, email, portal_user_id)")
           .in("template_id", templateIds)
           .neq("status", "void")
           .limit(10000),
@@ -952,6 +964,27 @@ export default async function DocumentsPage({
     .order("first_name", { ascending: true })
     .order("last_name", { ascending: true });
 
+
+  const one = <T,>(value: T | T[] | null): T | null => Array.isArray(value) ? value[0] ?? null : value;
+  const now = Date.now();
+  const pendingAssignments = ((assignmentRows ?? []) as DocumentAssignmentSummary[])
+    .filter((assignment) => assignment.status === "pending")
+    .sort((a, b) => {
+      const aDue = a.due_at ? new Date(a.due_at).getTime() : Number.MAX_SAFE_INTEGER;
+      const bDue = b.due_at ? new Date(b.due_at).getTime() : Number.MAX_SAFE_INTEGER;
+      return aDue - bDue;
+    });
+  const overdueAssignments = pendingAssignments.filter((assignment) => assignment.due_at && new Date(assignment.due_at).getTime() < now);
+  const dueSoonAssignments = pendingAssignments.filter((assignment) => {
+    if (!assignment.due_at) return false;
+    const due = new Date(assignment.due_at).getTime();
+    return due >= now && due <= now + 3 * 24 * 60 * 60 * 1000;
+  });
+  const deliveryExceptions = pendingAssignments.filter((assignment) => {
+    const client = one(assignment.clients);
+    return !assignment.assigned_to_email && !client?.email;
+  });
+
   const message = statusMessage(resolvedSearchParams);
   const isError = Boolean(
     resolvedSearchParams.error ||
@@ -979,8 +1012,7 @@ export default async function DocumentsPage({
           </h1>
           <p className="mt-3 text-sm leading-7 text-white/85 sm:text-base">
             Create reusable waivers, policies, agreements, and releases for your
-            studio or organizer events. Signing and assignment workflows will
-            build from these templates.
+            studio or organizer events. DanceFlow sends, tracks, and follows up on documents so your team only handles exceptions and approval decisions.
           </p>
         </div>
       </section>
@@ -993,49 +1025,66 @@ export default async function DocumentsPage({
         </div>
       ) : null}
 
-      <section className="grid gap-4 md:grid-cols-4">
-        <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-[var(--brand-muted)]">
-            Active templates
-          </p>
-          <p className="mt-2 text-3xl font-bold text-[var(--brand-text)]">
-            {(templates ?? []).filter((template) => template.is_active).length}
-          </p>
+      <section className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--brand-primary)]">Daily document operations</p>
+            <h2 className="mt-2 text-2xl font-bold text-[var(--brand-text)]">What needs attention</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--brand-muted)]">DanceFlow tracks signatures and handles routine delivery. Review only overdue items, upcoming deadlines, and exceptions that need staff judgment.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:min-w-[430px]">
+            <div className="rounded-2xl bg-rose-50 p-3"><p className="text-xs font-semibold text-rose-700">Overdue</p><p className="mt-1 text-2xl font-bold text-rose-900">{overdueAssignments.length}</p></div>
+            <div className="rounded-2xl bg-amber-50 p-3"><p className="text-xs font-semibold text-amber-700">Due soon</p><p className="mt-1 text-2xl font-bold text-amber-900">{dueSoonAssignments.length}</p></div>
+            <div className="rounded-2xl bg-slate-100 p-3"><p className="text-xs font-semibold text-slate-600">Pending</p><p className="mt-1 text-2xl font-bold text-slate-900">{pendingAssignments.length}</p></div>
+            <div className="rounded-2xl bg-emerald-50 p-3"><p className="text-xs font-semibold text-emerald-700">Signed</p><p className="mt-1 text-2xl font-bold text-emerald-900">{totalSignedRecords}</p></div>
+          </div>
         </div>
-        <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-[var(--brand-muted)]">
-            Required documents
-          </p>
-          <p className="mt-2 text-3xl font-bold text-[var(--brand-text)]">
-            {
-              (templates ?? []).filter((template) => template.is_required)
-                .length
-            }
-          </p>
-        </div>
-        <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-[var(--brand-muted)]">
-            Organizer templates
-          </p>
-          <p className="mt-2 text-3xl font-bold text-[var(--brand-text)]">
-            {
-              (templates ?? []).filter(
-                (template) => template.scope === "organizer",
-              ).length
-            }
-          </p>
-        </div>
-        <div className="rounded-3xl border border-[var(--brand-border)] bg-white p-5 shadow-sm">
-          <p className="text-sm font-semibold text-[var(--brand-muted)]">
-            Signed records
-          </p>
-          <p className="mt-2 text-3xl font-bold text-[var(--brand-text)]">
-            {totalSignedRecords}
-          </p>
-        </div>
+
+        {pendingAssignments.length ? (
+          <div className="mt-6 space-y-3">
+            {pendingAssignments.slice(0, 20).map((assignment) => {
+              const client = one(assignment.clients);
+              const template = one(assignment.document_templates);
+              const clientName = [client?.first_name, client?.last_name].filter(Boolean).join(" ") || client?.email || assignment.assigned_to_email || "Client";
+              const overdue = Boolean(assignment.due_at && new Date(assignment.due_at).getTime() < now);
+              const missingEmail = !assignment.assigned_to_email && !client?.email;
+              return (
+                <div key={assignment.id} className={`rounded-2xl border p-4 ${overdue ? "border-rose-200 bg-rose-50/60" : missingEmail ? "border-amber-200 bg-amber-50/60" : "border-[var(--brand-border)] bg-[var(--brand-surface)]"}`}>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {overdue ? <AlertTriangle className="h-4 w-4 text-rose-600" /> : <Clock3 className="h-4 w-4 text-amber-600" />}
+                        <p className="font-bold text-[var(--brand-text)]">{clientName}</p>
+                        {template?.is_required ? <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">Required</span> : null}
+                        {missingEmail ? <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-800">No email</span> : null}
+                      </div>
+                      <p className="mt-1 text-sm text-[var(--brand-muted)]">{template?.title || "Document"}{assignment.due_at ? ` · ${overdue ? "Past due" : "Due"} ${formatDateTime(assignment.due_at)}` : " · No due date"}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {assignment.client_id ? <Link href={`/app/clients/${assignment.client_id}?tab=documents`} className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--brand-text)]">Open client</Link> : null}
+                      {!missingEmail ? <form action={sendDocumentReminderAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><button className="inline-flex items-center gap-1 rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white"><Send className="h-3.5 w-3.5"/>Send reminder</button></form> : null}
+                      <form action={waiveDocumentAssignmentAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><button className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-800">Waive</button></form>
+                      <form action={voidDocumentAssignmentAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><input type="hidden" name="reason" value="Voided from Document Operations Center."/><button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700">Void</button></form>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="mt-6 flex items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4"><CheckCircle2 className="mt-0.5 h-5 w-5 text-emerald-700"/><div><p className="font-bold text-emerald-900">Document follow-up is clear</p><p className="mt-1 text-sm text-emerald-800">There are no pending client document assignments requiring staff attention.</p></div></div>
+        )}
+
+        {deliveryExceptions.length ? <p className="mt-4 text-xs font-semibold text-rose-700">{deliveryExceptions.length} pending assignment{deliveryExceptions.length === 1 ? "" : "s"} cannot receive email until a client email address is added.</p> : null}
       </section>
 
-      <DocumentTemplateForm organizers={organizers} />
+      <details className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+        <summary className="cursor-pointer list-none">
+          <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold text-[var(--brand-text)]">Assign, configure, and manage templates</h2><p className="mt-1 text-sm text-[var(--brand-muted)]">Open this area when creating documents, attaching event waivers, or publishing a new version.</p></div><span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-bold text-[var(--brand-primary)]">{(templates ?? []).filter((template) => template.is_active).length} active</span></div>
+        </summary>
+        <div className="mt-6 space-y-6">
+          <DocumentTemplateForm organizers={organizers} />
+
 
       <section className="space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -1078,13 +1127,13 @@ export default async function DocumentsPage({
               No document templates yet
             </h3>
             <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-[var(--brand-muted)]">
-              Start with a waiver, policy, or agreement. You will use these
-              templates later for portal signing, event waivers, and
-              signed-document tracking.
+              Start with a waiver, policy, or agreement. DanceFlow can then assign it, track signatures, and surface exceptions that need attention.
             </p>
           </div>
         )}
       </section>
+        </div>
+      </details>
     </main>
   );
 }

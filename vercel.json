@@ -24,6 +24,10 @@
     {
       "path": "/api/cron/aria-operations",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/document-operations",
+      "schedule": "0 * * * *"
     }
   ]
 }
