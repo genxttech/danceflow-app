@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { router } from "expo-router";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { supabase } from "@/lib/supabase";
@@ -35,14 +36,35 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
 
 let notificationHandlerConfigured = false;
 
+function routeFromNotificationData(data: Record<string, unknown> | null | undefined) {
+  if (!data) return;
+
+  const screen = typeof data.screen === "string" ? data.screen : "";
+  const appointmentId =
+    typeof data.appointmentId === "string" ? data.appointmentId : "";
+  const documentId =
+    typeof data.documentId === "string" ? data.documentId : "";
+
+  if (screen === "appointment" && appointmentId) {
+    router.push({ pathname: "/appointments/[id]", params: { id: appointmentId } });
+    return;
+  }
+
+  if (screen === "documents" || documentId) {
+    router.push("/wallet/documents" as never);
+  }
+}
+
+
 function isExpoGo() {
   return Constants.appOwnership === "expo";
 }
 
-async function getNotificationsModule() {
+async function getNotificationsModule(): Promise<any | null> {
   if (isExpoGo()) return null;
 
-  const Notifications = await import("expo-notifications");
+  const notificationsModule = await import("expo-notifications");
+  const Notifications = notificationsModule as any;
 
   if (!notificationHandlerConfigured) {
     Notifications.setNotificationHandler({
@@ -204,6 +226,7 @@ export function usePushNotificationBootstrap(userId: string | null | undefined) 
 
     const activeUserId = userId;
     let cancelled = false;
+    let responseSubscription: { remove: () => void } | null = null;
 
     async function registerExistingPermission() {
       try {
@@ -219,8 +242,32 @@ export function usePushNotificationBootstrap(userId: string | null | undefined) 
 
     registerExistingPermission();
 
+    getNotificationsModule()
+      .then((Notifications) => {
+        if (!Notifications || cancelled) return;
+
+        responseSubscription =
+          Notifications.addNotificationResponseReceivedListener((response: any) => {
+            routeFromNotificationData(
+              (response.notification.request.content.data ?? {}) as Record<string, unknown>,
+            );
+          });
+
+        return Notifications.getLastNotificationResponseAsync();
+      })
+      .then((lastResponse) => {
+        if (!lastResponse || cancelled) return;
+        routeFromNotificationData(
+          (lastResponse.notification.request.content.data ?? {}) as Record<string, unknown>,
+        );
+      })
+      .catch(() => {
+        // Notification routing remains optional when the native module is unavailable.
+      });
+
     return () => {
       cancelled = true;
+      responseSubscription?.remove();
     };
   }, [userId]);
 }

@@ -8,6 +8,7 @@ import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess } from "@/lib/studentAccess";
+import { checkInForLesson, loadLessonCheckinStatus, type LessonCheckinStatus } from "@/lib/lessonCheckin";
 import {
   formatScheduleTimeRange,
   loadStudentScheduleOverview,
@@ -32,6 +33,9 @@ export default function AppointmentDetailScreen() {
   const [appointment, setAppointment] = useState<StudentScheduleItem | null>(null);
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState(false);
+  const [checkingIn, setCheckingIn] = useState(false);
+  const [checkinStatus, setCheckinStatus] = useState<LessonCheckinStatus | null>(null);
+  const [checkinMessage, setCheckinMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -57,7 +61,18 @@ export default function AppointmentDetailScreen() {
           null;
 
         setAppointment(match);
-        if (!match) setError("This lesson is not available in your app yet.");
+        if (!match) {
+          setError("This lesson is not available in your app yet.");
+          return;
+        }
+
+        loadLessonCheckinStatus(match.id)
+          .then((status) => {
+            if (mounted) setCheckinStatus(status);
+          })
+          .catch(() => {
+            if (mounted) setCheckinStatus(null);
+          });
       })
       .catch(() => {
         if (!mounted) return;
@@ -92,6 +107,29 @@ export default function AppointmentDetailScreen() {
     }
   }
 
+  async function checkIn() {
+    if (!appointment) return;
+
+    setCheckingIn(true);
+    setCheckinMessage(null);
+
+    try {
+      const status = await checkInForLesson(appointment.id);
+      setCheckinStatus(status);
+      setCheckinMessage(
+        status.instructorNotified
+          ? "You are checked in. Your instructor has been notified."
+          : "You are checked in."
+      );
+    } catch (nextError) {
+      setCheckinMessage(
+        nextError instanceof Error ? nextError.message : "Check-in could not be completed."
+      );
+    } finally {
+      setCheckingIn(false);
+    }
+  }
+
   return (
     <Screen>
       <AppButton label="Back" onPress={() => router.back()} variant="secondary" />
@@ -119,6 +157,25 @@ export default function AppointmentDetailScreen() {
             />
           </View>
 
+          {checkinStatus ? (
+            <View style={styles.checkinCard}>
+              <AppText variant="subtitle">
+                {checkinStatus.checkedIn ? "Checked in" : "Lesson check-in"}
+              </AppText>
+              <AppText variant="caption">
+                {checkinStatus.checkedIn
+                  ? `Checked in ${new Date(checkinStatus.checkedInAt ?? "").toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`
+                  : checkinStatus.canCheckIn
+                    ? "Let your instructor know you have arrived."
+                    : "Check-in becomes available shortly before your lesson."}
+              </AppText>
+              {!checkinStatus.checkedIn && checkinStatus.canCheckIn ? (
+                <AppButton label="Check in" loading={checkingIn} onPress={checkIn} />
+              ) : null}
+              {checkinMessage ? <AppText variant="caption">{checkinMessage}</AppText> : null}
+            </View>
+          ) : null}
+
           <View style={styles.actionRow}>
             <AppButton
               label="Request reschedule"
@@ -143,6 +200,14 @@ export default function AppointmentDetailScreen() {
 }
 
 const styles = StyleSheet.create({
+  checkinCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.primary,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 8,
+    padding: 16
+  },
   actionRow: {
     gap: 10
   },

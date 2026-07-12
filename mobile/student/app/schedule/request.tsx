@@ -1,14 +1,14 @@
-import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
+import { useAuth } from "@/lib/auth";
 import { danceflowApiFetch } from "@/lib/danceflowApi";
+import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import { formatScheduleDateTime } from "@/lib/studentSchedule";
-
-const selfServiceStudioSlug = process.env.EXPO_PUBLIC_DANCEFLOW_STUDIO_SLUG;
 
 type SelfServiceSlot = {
   date: string;
@@ -18,12 +18,10 @@ type SelfServiceSlot = {
   roomId: string | null;
 };
 
-type SelfServiceInstructor = {
-  id: string;
-  name: string;
-};
+type SelfServiceInstructor = { id: string; name: string };
 
 type SelfServiceSlotsResponse = {
+  studio?: { id: string; slug: string; name: string };
   slots: SelfServiceSlot[];
   instructors?: SelfServiceInstructor[];
   bookingDecision?: {
@@ -33,128 +31,108 @@ type SelfServiceSlotsResponse = {
   };
 };
 
-type SelfServiceActionRequest = {
-  id: string;
-  action_type: string;
-  mode: string;
-  status: string;
-  requested_starts_at: string | null;
-  previous_starts_at: string | null;
-  staff_note: string | null;
-  failure_reason: string | null;
-};
-
-type SelfServiceRequestsResponse = {
-  timezone: string;
-  requests: SelfServiceActionRequest[];
-};
-
-function formatSelfServiceDate(dateKey: string, timeZone: string) {
+function dateParts(dateKey: string) {
   const [year, month, day] = dateKey.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
-
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone,
-    weekday: "short",
-    month: "short",
-    day: "numeric"
-  }).format(date);
+  return { year, month, day };
 }
 
-function actionLabel(value: string) {
-  if (value === "book") return "Booking";
-  if (value === "reschedule") return "Reschedule";
-  if (value === "cancel") return "Cancellation";
-  return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+function monthLabel(dateKey: string) {
+  const { year, month } = dateParts(dateKey);
+  return new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric", timeZone: "UTC" })
+    .format(new Date(Date.UTC(year, month - 1, 1)));
 }
 
-function RequestStatusCard({
-  request,
-  timeZone
-}: {
-  request: SelfServiceActionRequest;
-  timeZone: string;
-}) {
-  const startsAt =
-    request.action_type === "cancel"
-      ? request.previous_starts_at
-      : request.requested_starts_at;
+function dayLabel(dateKey: string) {
+  const { year, month, day } = dateParts(dateKey);
+  return new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "UTC" })
+    .format(new Date(Date.UTC(year, month - 1, day)));
+}
 
-  return (
-    <View style={styles.requestCard}>
-      <View style={styles.rowBetween}>
-        <AppText variant="eyebrow">{request.status.replaceAll("_", " ")}</AppText>
-        <AppText variant="caption">{request.mode.replaceAll("_", " ")}</AppText>
-      </View>
-      <AppText variant="subtitle">{actionLabel(request.action_type)} request</AppText>
-      <AppText variant="caption">
-        {startsAt ? formatScheduleDateTime(startsAt, timeZone) : "Studio will review your request."}
-      </AppText>
-      {request.staff_note ? <AppText variant="caption">Studio note: {request.staff_note}</AppText> : null}
-      {request.failure_reason ? <AppText variant="caption">{request.failure_reason}</AppText> : null}
-    </View>
-  );
+function calendarCells(monthKey: string, availableDates: Set<string>) {
+  const { year, month } = dateParts(`${monthKey}-01`);
+  const firstWeekday = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const cells: Array<{ key: string; day: number; available: boolean } | null> = [];
+
+  for (let index = 0; index < firstWeekday; index += 1) cells.push(null);
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const key = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    cells.push({ key, day, available: availableDates.has(key) });
+  }
+
+  return cells;
 }
 
 export default function ScheduleRequestScreen() {
-  const [loading, setLoading] = useState(true);
+  const { session } = useAuth();
+  const [studios, setStudios] = useState<LinkedStudioAccess[]>([]);
+  const [selectedStudioSlug, setSelectedStudioSlug] = useState("");
   const [slots, setSlots] = useState<SelfServiceSlot[]>([]);
   const [instructors, setInstructors] = useState<SelfServiceInstructor[]>([]);
   const [selectedInstructorId, setSelectedInstructorId] = useState("");
   const [selectedDate, setSelectedDate] = useState("");
-  const [decision, setDecision] = useState<SelfServiceSlotsResponse["bookingDecision"]>(undefined);
-  const [requests, setRequests] = useState<SelfServiceRequestsResponse | null>(null);
+  const [monthKey, setMonthKey] = useState("");
+  const [decision, setDecision] = useState<SelfServiceSlotsResponse["bookingDecision"]>();
+  const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [submittingSlotKey, setSubmittingSlotKey] = useState<string | null>(null);
 
-  async function loadRequestOptions() {
-    setLoading(true);
-    setMessage(null);
+  useEffect(() => {
+    if (!session?.user.id) return;
 
-    if (!selfServiceStudioSlug) {
-      setSlots([]);
-      setInstructors([]);
-      setRequests(null);
+    getStudentAccess(session.user.id)
+      .then((access) => {
+        setStudios(access.linkedStudios);
+        setSelectedStudioSlug((current) => current || access.linkedStudios[0]?.studioSlug || "");
+      })
+      .catch(() => setMessage("Connected studios could not be loaded."));
+  }, [session?.user.id]);
+
+  async function loadSlots() {
+    if (!selectedStudioSlug) {
       setLoading(false);
       return;
     }
 
-    try {
-      const [slotsResponse, requestsResponse] = await Promise.all([
-        danceflowApiFetch<SelfServiceSlotsResponse>("/api/student/self-service/slots", {
-          params: {
-            studioSlug: selfServiceStudioSlug,
-            lessonType: "private_lesson",
-            instructorId: selectedInstructorId || null
-          }
-        }),
-        danceflowApiFetch<SelfServiceRequestsResponse>("/api/student/self-service/requests", {
-          params: {
-            studioSlug: selfServiceStudioSlug
-          }
-        })
-      ]);
+    setLoading(true);
+    setMessage(null);
 
-      setSlots(slotsResponse.slots ?? []);
-      setInstructors(slotsResponse.instructors ?? []);
-      setDecision(slotsResponse.bookingDecision);
-      setRequests(requestsResponse);
+    try {
+      const response = await danceflowApiFetch<SelfServiceSlotsResponse>(
+        "/api/student/self-service/slots",
+        {
+          params: {
+            studioSlug: selectedStudioSlug,
+            lessonType: "private_lesson",
+            instructorId: selectedInstructorId || null,
+          },
+        },
+      );
+
+      setSlots(response.slots ?? []);
+      setInstructors(response.instructors ?? []);
+      setDecision(response.bookingDecision);
+
+      const firstDate = response.slots?.[0]?.date ?? "";
+      setMonthKey((current) => current || firstDate.slice(0, 7));
+      if (selectedDate && !response.slots.some((slot) => slot.date === selectedDate)) {
+        setSelectedDate("");
+      }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Lesson requests could not be loaded.");
+      setMessage(error instanceof Error ? error.message : "Lesson times could not be loaded.");
       setSlots([]);
       setInstructors([]);
-      setRequests(null);
     } finally {
       setLoading(false);
     }
   }
 
-  async function submitSlot(slot: SelfServiceSlot) {
-    if (!selfServiceStudioSlug) {
-      setMessage("Lesson requests are not configured yet.");
-      return;
-    }
+  useEffect(() => {
+    loadSlots();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStudioSlug, selectedInstructorId]);
 
+  async function submitSlot(slot: SelfServiceSlot) {
     const slotKey = `${slot.startsAt}|${slot.endsAt}`;
     setSubmittingSlotKey(slotKey);
     setMessage(null);
@@ -165,23 +143,19 @@ export default function ScheduleRequestScreen() {
         {
           method: "POST",
           body: JSON.stringify({
-            studioSlug: selfServiceStudioSlug,
+            studioSlug: selectedStudioSlug,
             actionType: "book",
             lessonType: "private_lesson",
             startsAt: slot.startsAt,
             endsAt: slot.endsAt,
             instructorId: slot.instructorId,
-            roomId: slot.roomId
-          })
-        }
+            roomId: slot.roomId,
+          }),
+        },
       );
 
-      setMessage(
-        response.bookingDecision?.mode === "instant"
-          ? "Lesson booked."
-          : "Request sent to the studio."
-      );
-      await loadRequestOptions();
+      setMessage(response.bookingDecision?.mode === "instant" ? "Lesson booked." : "Request sent to the studio.");
+      await loadSlots();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Could not submit the request.");
     } finally {
@@ -189,121 +163,120 @@ export default function ScheduleRequestScreen() {
     }
   }
 
-  useEffect(() => {
-    loadRequestOptions();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedInstructorId]);
-
-  const timeZone = requests?.timezone ?? "America/New_York";
-  const dates = Array.from(new Set(slots.map((slot) => slot.date)));
+  const availableDates = useMemo(() => new Set(slots.map((slot) => slot.date)), [slots]);
+  const resolvedMonthKey = monthKey || Array.from(availableDates)[0]?.slice(0, 7) || new Date().toISOString().slice(0, 7);
+  const cells = calendarCells(resolvedMonthKey, availableDates);
   const visibleSlots = selectedDate ? slots.filter((slot) => slot.date === selectedDate) : [];
-  const activeRequests =
-    requests?.requests.filter((request) =>
-      ["pending", "approved", "executed", "declined", "failed"].includes(request.status)
-    ) ?? [];
 
   return (
     <Screen>
       <AppText variant="eyebrow">Schedule</AppText>
-      <AppText variant="title">Private Lesson Request</AppText>
+      <AppText variant="title">Book a private lesson</AppText>
       <AppText variant="caption">
-        Choose an available private lesson time and send the request to your studio.
+        Choose your studio, instructor, day, and available time.
       </AppText>
 
-      {loading ? <FeatureCard title="Loading request options" detail="Checking available lesson times." /> : null}
-      {message ? <FeatureCard title="Request update" detail={message} /> : null}
+      {message ? <FeatureCard title="Booking update" detail={message} /> : null}
 
-      {!selfServiceStudioSlug ? (
-        <FeatureCard
-          title="Lesson requests are not configured"
-          detail="Add EXPO_PUBLIC_DANCEFLOW_STUDIO_SLUG to enable in-app booking requests."
-        />
-      ) : decision?.allowed === false ? (
-        <FeatureCard
-          title="Lesson requests unavailable"
-          detail={decision.reason ?? "This studio is not accepting self-service requests right now."}
-        />
-      ) : (
-        <>
-          <View style={styles.section}>
-            <AppText variant="subtitle">Choose an instructor</AppText>
-            <View style={styles.pillList}>
-              {instructors.length ? (
-                instructors.map((instructor) => (
-                  <AppButton
-                    key={instructor.id}
-                    label={instructor.name}
-                    onPress={() => {
-                      setSelectedDate("");
-                      setSelectedInstructorId(instructor.id);
-                    }}
-                    variant={selectedInstructorId === instructor.id ? "primary" : "secondary"}
-                  />
-                ))
-              ) : (
-                <FeatureCard
-                  title="No instructors available"
-                  detail="The studio has not opened instructor booking for self-service yet."
-                />
-              )}
-            </View>
+      <View style={styles.section}>
+        <AppText variant="subtitle">1. Choose a studio</AppText>
+        <View style={styles.pillList}>
+          {studios.map((studio) => (
+            <AppButton
+              key={studio.studioId}
+              label={studio.studioPublicName || studio.studioName || "Studio"}
+              onPress={() => {
+                setSelectedStudioSlug(studio.studioSlug);
+                setSelectedInstructorId("");
+                setSelectedDate("");
+                setMonthKey("");
+              }}
+              variant={selectedStudioSlug === studio.studioSlug ? "primary" : "secondary"}
+            />
+          ))}
+        </View>
+      </View>
+
+      {selectedStudioSlug ? (
+        <View style={styles.section}>
+          <AppText variant="subtitle">2. Choose an instructor</AppText>
+          <View style={styles.pillList}>
+            {instructors.map((instructor) => (
+              <AppButton
+                key={instructor.id}
+                label={instructor.name}
+                onPress={() => {
+                  setSelectedInstructorId(instructor.id);
+                  setSelectedDate("");
+                  setMonthKey("");
+                }}
+                variant={selectedInstructorId === instructor.id ? "primary" : "secondary"}
+              />
+            ))}
+          </View>
+        </View>
+      ) : null}
+
+      {loading ? <FeatureCard title="Loading calendar" detail="Checking available lesson times." /> : null}
+
+      {decision?.allowed === false ? (
+        <FeatureCard title="Booking unavailable" detail={decision.reason ?? "This studio is not accepting self-service bookings."} />
+      ) : null}
+
+      {selectedInstructorId && !loading ? (
+        <View style={styles.section}>
+          <AppText variant="subtitle">3. Choose a day</AppText>
+          <AppText variant="caption">{monthLabel(`${resolvedMonthKey}-01`)}</AppText>
+
+          <View style={styles.weekRow}>
+            {["S", "M", "T", "W", "T", "F", "S"].map((label, index) => (
+              <AppText key={`${label}-${index}`} style={styles.weekLabel}>{label}</AppText>
+            ))}
           </View>
 
-          {selectedInstructorId ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Choose a day</AppText>
-              <View style={styles.pillList}>
-                {dates.map((dateKey) => (
-                  <AppButton
-                    key={dateKey}
-                    label={formatSelfServiceDate(dateKey, timeZone)}
-                    onPress={() => setSelectedDate(dateKey)}
-                    variant={selectedDate === dateKey ? "primary" : "secondary"}
-                  />
-                ))}
-              </View>
-            </View>
-          ) : null}
-
-          {selectedDate ? (
-            <View style={styles.section}>
-              <AppText variant="subtitle">Available times</AppText>
-              {visibleSlots.length ? (
-                visibleSlots.map((slot) => {
-                  const slotKey = `${slot.startsAt}|${slot.endsAt}`;
-                  return (
-                    <View key={slotKey} style={styles.slotCard}>
-                      <AppText variant="subtitle">{formatScheduleDateTime(slot.startsAt, timeZone)}</AppText>
-                      <AppText variant="caption">
-                        {submittingSlotKey === slotKey
-                          ? "Submitting..."
-                          : "Tap request to send this time to the studio."}
-                      </AppText>
-                      <AppButton
-                        label={submittingSlotKey === slotKey ? "Submitting..." : "Request this time"}
-                        onPress={() => submitSlot(slot)}
-                        variant="secondary"
-                      />
-                    </View>
-                  );
-                })
+          <View style={styles.calendarGrid}>
+            {cells.map((cell, index) =>
+              cell ? (
+                <Pressable
+                  key={cell.key}
+                  disabled={!cell.available}
+                  onPress={() => setSelectedDate(cell.key)}
+                  style={[
+                    styles.dayCell,
+                    cell.available && styles.dayAvailable,
+                    selectedDate === cell.key && styles.daySelected,
+                  ]}
+                >
+                  <AppText style={selectedDate === cell.key ? styles.daySelectedText : styles.dayText}>
+                    {cell.day}
+                  </AppText>
+                  {cell.available ? <View style={styles.dot} /> : null}
+                </Pressable>
               ) : (
-                <FeatureCard
-                  title="No times for this day"
-                  detail="Choose a different day or instructor."
-                />
-              )}
-            </View>
-          ) : null}
-        </>
-      )}
+                <View key={`blank-${index}`} style={styles.dayCell} />
+              ),
+            )}
+          </View>
+        </View>
+      ) : null}
 
-      {activeRequests.length ? (
+      {selectedDate ? (
         <View style={styles.section}>
-          <AppText variant="subtitle">Recent requests</AppText>
-          {activeRequests.slice(0, 6).map((request) => (
-            <RequestStatusCard key={request.id} request={request} timeZone={timeZone} />
-          ))}
+          <AppText variant="subtitle">4. Choose a time</AppText>
+          <AppText variant="caption">{dayLabel(selectedDate)}</AppText>
+          {visibleSlots.map((slot) => {
+            const slotKey = `${slot.startsAt}|${slot.endsAt}`;
+            return (
+              <View key={slotKey} style={styles.slotCard}>
+                <AppText variant="subtitle">{formatScheduleDateTime(slot.startsAt)}</AppText>
+                <AppButton
+                  label={decision?.mode === "instant" ? "Book this time" : "Request this time"}
+                  loading={submittingSlotKey === slotKey}
+                  onPress={() => submitSlot(slot)}
+                />
+              </View>
+            );
+          })}
         </View>
       ) : null}
     </Screen>
@@ -311,32 +284,67 @@ export default function ScheduleRequestScreen() {
 }
 
 const styles = StyleSheet.create({
-  pillList: {
-    gap: 8
+  calendarGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
   },
-  requestCard: {
+  dayAvailable: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.primary,
+  },
+  dayCell: {
+    alignItems: "center",
+    borderColor: "transparent",
+    borderRadius: 12,
+    borderWidth: 1,
+    height: 48,
+    justifyContent: "center",
+    width: "14.2857%",
+  },
+  daySelected: {
+    backgroundColor: colors.primary,
+  },
+  daySelectedText: {
+    color: "#fff",
+    fontWeight: "900",
+  },
+  dayText: {
+    color: colors.text,
+    fontWeight: "700",
+  },
+  dot: {
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+    height: 4,
+    marginTop: 3,
+    width: 4,
+  },
+  pillList: {
+    gap: 8,
+  },
+  section: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,
-    gap: 7,
-    padding: 16
-  },
-  rowBetween: {
-    alignItems: "center",
-    flexDirection: "row",
     gap: 10,
-    justifyContent: "space-between"
-  },
-  section: {
-    gap: 10
+    padding: 16,
   },
   slotCard: {
-    backgroundColor: colors.surface,
-    borderColor: colors.primary,
-    borderRadius: 18,
+    borderColor: colors.border,
+    borderRadius: 16,
     borderWidth: 1,
     gap: 8,
-    padding: 16
-  }
+    padding: 14,
+  },
+  weekLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    textAlign: "center",
+    width: "14.2857%",
+  },
+  weekRow: {
+    flexDirection: "row",
+  },
 });

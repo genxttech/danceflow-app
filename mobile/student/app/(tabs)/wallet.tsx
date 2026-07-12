@@ -413,6 +413,14 @@ export default function WalletScreen() {
         Wallet keeps your event tickets, QR codes, studio pass, memberships, and lesson package balances handy as your DanceFlow account grows.
       </AppText>
 
+      {isSignedIn ? (
+        <AppButton
+          label="Documents"
+          onPress={() => router.push("/wallet/documents" as never)}
+          variant="secondary"
+        />
+      ) : null}
+
       {!isSignedIn || !hasPortalAccess ? (
         <View style={styles.valueList}>
           <FeatureCard

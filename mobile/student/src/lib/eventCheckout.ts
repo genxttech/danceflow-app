@@ -49,6 +49,8 @@ export type CreateEventCheckoutResult = {
   clientSecret?: string;
   checkoutUrl?: string;
   completed?: boolean;
+  requiresSignature?: boolean;
+  signingUrl?: string;
   orderId: string;
   publishableKey?: string;
   registrationIds: string[];
