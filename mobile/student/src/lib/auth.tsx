@@ -8,6 +8,8 @@ import {
   useState
 } from "react";
 import * as Linking from "expo-linking";
+import { router } from "expo-router";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 
@@ -50,6 +52,20 @@ function extractAuthParams(url: string) {
       accessToken: null,
       refreshToken: null
     };
+  }
+}
+
+
+async function clearPersistedSupabaseSessions() {
+  const keys = await AsyncStorage.getAllKeys();
+  const authKeys = keys.filter(
+    (key) =>
+      key.startsWith("sb-") &&
+      (key.endsWith("-auth-token") || key.includes("-auth-token-"))
+  );
+
+  if (authKeys.length) {
+    await AsyncStorage.multiRemove(authKeys);
   }
 }
 
@@ -99,6 +115,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const { data } = await supabase.auth.getSession();
         if (!mounted) return;
+
+        if (!data.session?.access_token) {
+          setSession(null);
+          return;
+        }
+
+        const { data: userData, error: userError } = await supabase.auth.getUser(
+          data.session.access_token
+        );
+
+        if (userError || !userData.user) {
+          await supabase.auth.signOut({ scope: "local" }).catch(() => undefined);
+          await clearPersistedSupabaseSessions().catch(() => undefined);
+          setSession(null);
+          return;
+        }
+
         setSession(data.session);
       } finally {
         if (mounted) setLoading(false);
@@ -145,8 +178,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    setLoading(true);
+    setSession(null);
+
+    try {
+      const { error } = await supabase.auth.signOut({ scope: "local" });
+      if (error) {
+        console.warn("Supabase local sign-out returned an error:", error.message);
+      }
+    } finally {
+      await clearPersistedSupabaseSessions().catch(() => undefined);
+      setSession(null);
+      setLoading(false);
+      router.replace("/(auth)/sign-in");
+    }
   }, []);
 
   const value = useMemo(

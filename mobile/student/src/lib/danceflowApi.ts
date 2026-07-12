@@ -17,9 +17,40 @@ function buildUrl(path: string, params?: Record<string, string | null | undefine
 }
 
 async function getAccessToken() {
-  const { data, error } = await supabase.auth.getSession();
+  const {
+    data: { session },
+    error,
+  } = await supabase.auth.getSession();
+
   if (error) throw error;
-  return data.session?.access_token ?? null;
+
+  if (session?.access_token) {
+    const { data: userData, error: userError } = await supabase.auth.getUser(
+      session.access_token
+    );
+
+    if (!userError && userData.user) {
+      return session.access_token;
+    }
+  }
+
+  const {
+    data: { session: refreshedSession },
+    error: refreshError,
+  } = await supabase.auth.refreshSession();
+
+  if (refreshError || !refreshedSession?.access_token) {
+    throw new Error("Your session has expired. Please sign out and sign back in.");
+  }
+
+  const { data: refreshedUserData, error: refreshedUserError } =
+    await supabase.auth.getUser(refreshedSession.access_token);
+
+  if (refreshedUserError || !refreshedUserData.user) {
+    throw new Error("Your session is no longer valid. Please sign out and sign back in.");
+  }
+
+  return refreshedSession.access_token;
 }
 
 export async function danceflowApiFetch<T>(
@@ -31,7 +62,7 @@ export async function danceflowApiFetch<T>(
     ...options,
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      Authorization: `Bearer ${token}`,
       ...options?.headers,
     },
   });
