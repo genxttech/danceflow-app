@@ -50,6 +50,18 @@ export async function GET(request: Request) {
   }
 
   try {
+    console.info("Self-service slot request", {
+      studioSlug,
+      lessonType: normalizeLessonType(url.searchParams.get("lessonType")),
+      instructorId: normalizeOptionalUuid(url.searchParams.get("instructorId")),
+      roomId: normalizeOptionalUuid(url.searchParams.get("roomId")),
+      action:
+        cleanInput(url.searchParams.get("action"), 20) === "reschedule"
+          ? "reschedule"
+          : "book",
+      portalUserIdPresent: Boolean(user.id),
+    });
+
     const result = await loadStudentSelfServiceSlots({
       supabase: createAdminClient() as unknown as SupabaseQueryClient,
       studioSlug,
@@ -71,6 +83,14 @@ export async function GET(request: Request) {
       slots: result.slots,
     });
   } catch (error) {
+    console.error("Self-service slot request failed", {
+      studioSlug,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Could not load self-service booking slots.",
+    });
+
     return NextResponse.json(
       {
         error:
