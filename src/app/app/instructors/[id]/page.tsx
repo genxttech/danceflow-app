@@ -32,6 +32,7 @@ type InstructorRow = {
   public_specialties?: string | null;
   years_experience?: number | null;
   display_order?: number | null;
+  user_id?: string | null;
 };
 
 function formatStatus(active: boolean) {
@@ -129,6 +130,19 @@ export default async function InstructorDetailPage({
           </div>
         </div>
       </section>
+
+      {typedInstructor.user_id === context.userId ? (
+        <section className="rounded-3xl border border-fuchsia-200 bg-gradient-to-br from-fuchsia-50 via-white to-violet-50 p-6 shadow-sm">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#BE185D]">My Teaching Calendar</p>
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">Sync only your assigned schedule.</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
+            Connect your personal Google Calendar without changing the shared studio calendar. This is available even when you are also the studio owner or manager.
+          </p>
+          <Link href="/app/settings/integrations/google-calendar/personal" className="mt-4 inline-flex rounded-2xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#46115E]">
+            Manage My Teaching Calendar
+          </Link>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-3">
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

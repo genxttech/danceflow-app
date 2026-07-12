@@ -157,12 +157,15 @@ export default async function GoogleCalendarIntegrationPage({ searchParams }: { 
           <Link href="/app/settings/integrations" className="inline-flex items-center gap-2 text-sm font-semibold text-fuchsia-100 hover:text-white">
             <ArrowLeft className="h-4 w-4" /> Integration Hub
           </Link>
+          <Link href="/app/settings/integrations/google-calendar/personal" className="ml-4 inline-flex items-center gap-2 text-sm font-semibold text-fuchsia-100 hover:text-white">
+            My Teaching Calendar
+          </Link>
           <div className="mt-5 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.24em] text-fuchsia-100">Google Calendar</p>
               <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">Sync DanceFlow to your studio calendar.</h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-fuchsia-50">
-                Start with safe one-way outbound sync from DanceFlow to Google Calendar. DanceFlow remains the source of truth for bookings, payments, attendance, rooms, and student notifications.
+                DanceFlow automatically syncs eligible studio schedule changes to Google Calendar every 30 minutes. DanceFlow remains the source of truth for bookings, payments, attendance, rooms, and student notifications.
               </p>
             </div>
             <Badge value={connection?.status ?? "not_connected"} />
@@ -192,20 +195,21 @@ export default async function GoogleCalendarIntegrationPage({ searchParams }: { 
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Connection</p>
               <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">Connect and choose what syncs.</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600">Google Calendar sync is one-way outbound in this phase. Make schedule changes in DanceFlow, then sync.</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">Google Calendar sync is one-way outbound and runs automatically every 30 minutes. Use Sync now only when you need an immediate update.</p>
             </div>
           </div>
 
           {!isConnected ? (
             <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
               <p className="text-sm text-slate-600">Connect Google Calendar to select a target calendar and enable outbound schedule sync.</p>
-              <a href="/api/integrations/google-calendar/connect" className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#46115E]">
+              <a href="/api/integrations/google-calendar/connect?scope=studio" className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#46115E]">
                 Connect Google Calendar <ExternalLink className="h-4 w-4" />
               </a>
             </div>
           ) : (
             <form action={updateGoogleCalendarSettingsAction} className="mt-6 space-y-5">
               <input type="hidden" name="returnTo" value={returnTo} />
+              <input type="hidden" name="connectionScope" value="studio" />
               <input type="hidden" name="calendarSummary" value={calendars.find((calendar) => calendar.id === connection.calendar_id)?.summary ?? connection.calendar_summary ?? ""} />
 
               <label className="block">
@@ -259,14 +263,17 @@ export default async function GoogleCalendarIntegrationPage({ searchParams }: { 
               <div className="mt-5 flex flex-col gap-3">
                 <form action={syncGoogleCalendarNowAction}>
                   <input type="hidden" name="returnTo" value={returnTo} />
+              <input type="hidden" name="connectionScope" value="studio" />
                   <button type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-[#46115E]"><RefreshCw className="h-4 w-4" /> Sync next 90 days</button>
                 </form>
                 <form action={refreshGoogleCalendarsAction}>
                   <input type="hidden" name="returnTo" value={returnTo} />
+              <input type="hidden" name="connectionScope" value="studio" />
                   <button type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-50">Refresh calendar access</button>
                 </form>
                 <form action={disconnectGoogleCalendarAction}>
                   <input type="hidden" name="returnTo" value={returnTo} />
+              <input type="hidden" name="connectionScope" value="studio" />
                   <button type="submit" className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-100">Disconnect Google Calendar</button>
                 </form>
               </div>

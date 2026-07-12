@@ -2,10 +2,14 @@ import "server-only";
 
 import { randomBytes, timingSafeEqual } from "node:crypto";
 
+export type OAuthConnectionScope = "studio" | "instructor";
+
 export type OAuthStateCookieValue = {
   state: string;
   studioId: string;
   userId: string;
+  connectionScope: OAuthConnectionScope;
+  instructorId: string | null;
   createdAt: number;
 };
 
@@ -46,9 +50,26 @@ export function oauthStateCookieOptions() {
   };
 }
 
-export function createOAuthStateCookieValue(params: { studioId: string; userId: string }) {
+export function createOAuthStateCookieValue(params: {
+  studioId: string;
+  userId: string;
+  connectionScope?: OAuthConnectionScope;
+  instructorId?: string | null;
+}) {
   if (!isSafeId(params.studioId) || !isSafeId(params.userId)) {
     throw new Error("OAuth state could not be created for this workspace.");
+  }
+
+  const connectionScope = params.connectionScope ?? "studio";
+  const instructorId = params.instructorId ?? null;
+
+  if (
+    connectionScope === "instructor" &&
+    (!instructorId || !isSafeId(instructorId))
+  ) {
+    throw new Error(
+      "OAuth state could not be created for this instructor connection.",
+    );
   }
 
   const state = randomBytes(32).toString("base64url");
@@ -56,6 +77,8 @@ export function createOAuthStateCookieValue(params: { studioId: string; userId: 
     state,
     studioId: params.studioId,
     userId: params.userId,
+    connectionScope,
+    instructorId: connectionScope === "instructor" ? instructorId : null,
     createdAt: Date.now(),
   } satisfies OAuthStateCookieValue);
 
@@ -70,12 +93,39 @@ export function parseOAuthStateCookie(value: string | null | undefined) {
     const state = safeString(parsed.state, 256);
     const studioId = safeString(parsed.studioId, 64);
     const userId = safeString(parsed.userId, 64);
+    const connectionScope =
+      parsed.connectionScope === "instructor" ? "instructor" : "studio";
+    const instructorId =
+      connectionScope === "instructor"
+        ? safeString(parsed.instructorId, 64)
+        : null;
     const createdAt = Number(parsed.createdAt);
 
-    if (!TOKEN_PATTERN.test(state) || !isSafeId(studioId) || !isSafeId(userId)) return null;
+    if (
+      !TOKEN_PATTERN.test(state) ||
+      !isSafeId(studioId) ||
+      !isSafeId(userId)
+    ) {
+      return null;
+    }
+
+    if (
+      connectionScope === "instructor" &&
+      (!instructorId || !isSafeId(instructorId))
+    ) {
+      return null;
+    }
+
     if (!Number.isFinite(createdAt) || createdAt <= 0) return null;
 
-    return { state, studioId, userId, createdAt } satisfies OAuthStateCookieValue;
+    return {
+      state,
+      studioId,
+      userId,
+      connectionScope,
+      instructorId,
+      createdAt,
+    } satisfies OAuthStateCookieValue;
   } catch {
     return null;
   }
