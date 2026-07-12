@@ -6,7 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { applySigningFields, type AppliedSignature, type SigningField, type SigningValue } from "@/lib/documents/pdf";
 import { DOCUMENT_FILES_BUCKET, hashSigningToken, signedStoragePath } from "@/lib/documents/signing";
 import { consumePublicSigningRateLimit, serverActionIp } from "@/lib/documents/public-signing-security";
-import { normalizeSigningReturnUrl } from "@/lib/documents/event-signing";
+import { advanceEventSigningCheckpoint, normalizeSigningReturnUrl } from "@/lib/documents/event-signing";
 
 const CONSENT_TEXT = "I have reviewed this document, agree to use electronic records and signatures, and confirm that the signature I apply is my own.";
 
@@ -47,7 +47,7 @@ export async function completeSigningAction(formData: FormData) {
   }
   const { data: envelope } = await admin
     .from("document_sign_envelopes")
-    .select("id,studio_id,title,signer_name,signer_email,status,expires_at,source_bucket,source_path,return_url,context_type,context_id,sequence_group_id,sequence_position,sequence_total")
+    .select("id,studio_id,title,signer_name,signer_email,status,expires_at,source_bucket,source_path,return_url,context_type,context_id,sequence_group_id,sequence_position,sequence_total,event_signing_checkpoint_id")
     .eq("token_hash", tokenHash)
     .maybeSingle();
 
@@ -157,6 +157,19 @@ export async function completeSigningAction(formData: FormData) {
     summary: "Signer completed the document with an electronic signature.",
     metadata: { consent_text: CONSENT_TEXT, signature_method: method, signed_timezone: timezone, signed_at: signedAt },
   });
+
+  if (envelope.context_type === "event_checkout" && envelope.event_signing_checkpoint_id) {
+    try {
+      const next = await advanceEventSigningCheckpoint(envelope.id);
+      if (next?.url) redirect(next.url);
+    } catch (error) {
+      console.error(
+        "Event signing continuation failed",
+        error instanceof Error ? error.message : error,
+      );
+      redirect(`/sign/${encodeURIComponent(token)}?error=event_checkout_continuation_failed`);
+    }
+  }
 
   const safeReturnUrl = normalizeSigningReturnUrl(envelope.return_url);
   if (safeReturnUrl) {

@@ -4,6 +4,7 @@ import {
   SupabaseClient,
 } from "@supabase/supabase-js";
 import { randomUUID } from "crypto";
+import { beginEventSigningCheckpoint } from "@/lib/documents/event-signing";
 import { getStripe } from "@/lib/payments/stripe";
 import {
   cleanFormText,
@@ -398,16 +399,6 @@ export async function POST(request: NextRequest) {
     120,
     100
   );
-  const submittedDocumentRequirementIdsResult = getSafeUuidList(
-    formData,
-    "documentRequirementIds",
-    "Document requirements",
-    25
-  );
-  const documentSignatureNameResult = cleanFormText(formData, "documentSignatureName", {
-    fieldLabel: "Signature name",
-    maxLength: 120,
-  });
   const slotIdsResult = getSafeUuidList(formData, "slotIds", "Coach slots", 50);
   const slotIdResult = getSafeUuidList(formData, "slotId", "Coach slots", 50);
 
@@ -426,8 +417,6 @@ export async function POST(request: NextRequest) {
     ticketTypeIdsResult,
     ticketQuantitiesResult,
     additionalAttendeeNamesResult,
-    submittedDocumentRequirementIdsResult,
-    documentSignatureNameResult,
     slotIdsResult,
     slotIdResult,
   ]);
@@ -458,10 +447,6 @@ export async function POST(request: NextRequest) {
   const ticketTypeIds = getValidatedValue(ticketTypeIdsResult);
   const ticketQuantities = getValidatedValue(ticketQuantitiesResult);
   const additionalAttendeeNames = getValidatedValue(additionalAttendeeNamesResult);
-  const submittedDocumentRequirementIds = getValidatedValue(submittedDocumentRequirementIdsResult);
-  const documentSignatureName = getValidatedValue(documentSignatureNameResult);
-  const documentConsentAccepted =
-    getString(formData, "documentConsentAccepted") === "on";
   const slotIds = Array.from(
     new Set(getValidatedValue(slotIdsResult).concat(getValidatedValue(slotIdResult))),
   );
@@ -629,22 +614,6 @@ export async function POST(request: NextRequest) {
     []) as EventDocumentRequirementRow[];
   const requiredDocumentIds = requiredDocuments.map((document) => document.id);
 
-  if (requiredDocuments.length > 0) {
-    const submittedIdSet = new Set(submittedDocumentRequirementIds);
-    const allSubmitted = requiredDocumentIds.every((id) =>
-      submittedIdSet.has(id),
-    );
-
-    if (
-      !allSubmitted ||
-      !documentConsentAccepted ||
-      documentSignatureName.length < 2
-    ) {
-      return NextResponse.redirect(
-        absoluteEventUrl(request, eventSlug, "?error=waiver_required"),
-      );
-    }
-  }
 
   const ticketSelections: TicketSelection[] = [];
   let ticketTotal = 0;
@@ -794,7 +763,7 @@ export async function POST(request: NextRequest) {
 
   let slots: SlotRow[] = [];
   const holdToken = randomUUID();
-  const holdUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const holdUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
 
   if (slotIds.length > 0) {
     const { data: slotRows, error: slotsError } = await supabase
@@ -985,69 +954,6 @@ export async function POST(request: NextRequest) {
         throw new Error(attendeeError.message);
       }
 
-      if (requiredDocuments.length > 0) {
-        const signerIp =
-          request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-          request.headers.get("x-real-ip") ||
-          null;
-        const userAgent = request.headers.get("user-agent") || null;
-        const consentText =
-          "I have reviewed the required event document(s), agree to sign electronically, and confirm that my typed name is my signature.";
-
-        for (const requiredDocument of requiredDocuments) {
-          const template = Array.isArray(requiredDocument.document_templates)
-            ? requiredDocument.document_templates[0]
-            : requiredDocument.document_templates;
-
-          if (!template) continue;
-
-          const { data: assignment, error: assignmentError } = await supabase
-            .from("document_assignments")
-            .insert({
-              template_id: requiredDocument.template_id,
-              template_version_id: requiredDocument.template_version_id,
-              studio_id: event.studio_id,
-              organizer_id: event.organizer_id,
-              event_id: event.id,
-              event_registration_id: registration.id,
-              assigned_to_email: buyerEmail,
-              status: "signed",
-              signed_at: new Date().toISOString(),
-            })
-            .select("id")
-            .single();
-
-          if (assignmentError || !assignment) {
-            throw new Error(
-              assignmentError?.message ??
-                "Could not save event waiver assignment.",
-            );
-          }
-
-          const { error: signatureError } = await supabase
-            .from("document_signatures")
-            .insert({
-              assignment_id: assignment.id,
-              template_id: requiredDocument.template_id,
-              template_version_id: requiredDocument.template_version_id,
-              studio_id: event.studio_id,
-              organizer_id: event.organizer_id,
-              event_id: event.id,
-              event_registration_id: registration.id,
-              signer_name: documentSignatureName,
-              signer_email: buyerEmail,
-              signed_body: template.body,
-              signature_text: documentSignatureName,
-              consent_text: consentText,
-              ip_address: signerIp,
-              user_agent: userAgent,
-            });
-
-          if (signatureError) {
-            throw new Error(signatureError.message);
-          }
-        }
-      }
 
       orderItems.push({
         order_id: order.id,
@@ -1125,6 +1031,26 @@ export async function POST(request: NextRequest) {
 
     if (orderItemsError) {
       throw new Error(orderItemsError.message);
+    }
+
+    if (requiredDocuments.length > 0) {
+      const checkpoint = await beginEventSigningCheckpoint({
+        orderId: order.id,
+        eventId: event.id,
+        studioId: event.studio_id,
+        organizerId: event.organizer_id,
+        buyerEmail,
+        requirementIds: requiredDocumentIds,
+        registrationIds,
+        surface: "web",
+        paymentMode: "checkout",
+      });
+
+      if (!checkpoint?.signingUrl) {
+        throw new Error("Required event documents could not be started.");
+      }
+
+      return NextResponse.redirect(checkpoint.signingUrl, { status: 303 });
     }
 
     const applicationFeeAmount = calculateApplicationFeeAmount(

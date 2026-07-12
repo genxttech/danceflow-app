@@ -35,9 +35,6 @@ export type CreateEventCheckoutInput = {
   buyerFirstName: string;
   buyerLastName: string;
   buyerPhone?: string;
-  documentConsentAccepted?: boolean;
-  documentRequirementIds?: string[];
-  documentSignatureName?: string;
   eventId: string;
   notes?: string;
   paymentMode?: "checkout" | "payment_sheet";
@@ -107,9 +104,6 @@ export async function createStudentEventCheckout(input: CreateEventCheckoutInput
             buyerFirstName: input.buyerFirstName,
             buyerLastName: input.buyerLastName,
             buyerPhone: input.buyerPhone,
-            documentConsentAccepted: input.documentConsentAccepted,
-            documentRequirementIds: input.documentRequirementIds,
-            documentSignatureName: input.documentSignatureName,
             notes: input.notes,
             paymentMode: input.paymentMode,
             returnUrl: input.returnUrl,
@@ -146,5 +140,17 @@ export async function getStudentEventOrderStatus(orderId: string) {
         `/api/student/events/orders/${encodeURIComponent(orderId)}`,
         { signal }
       )
+  );
+}
+
+export async function resumeStudentEventCheckout(orderId: string) {
+  return withTimeout(
+    CHECKOUT_CREATE_TIMEOUT_MS,
+    "Checkout is taking too long. Please check your connection and try again.",
+    (signal) =>
+      danceflowApiFetch<CreateEventCheckoutResult>(
+        `/api/student/events/orders/${encodeURIComponent(orderId)}/resume-after-signing`,
+        { method: "POST", signal },
+      ),
   );
 }

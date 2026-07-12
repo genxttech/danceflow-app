@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { beginEventSigningCheckpoint } from "@/lib/documents/event-signing";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient as createSupabaseClient, SupabaseClient } from "@supabase/supabase-js";
 import { getStripe } from "@/lib/payments/stripe";
@@ -28,9 +29,6 @@ type CheckoutBody = {
   buyerFirstName?: string;
   buyerLastName?: string;
   buyerPhone?: string;
-  documentConsentAccepted?: boolean;
-  documentRequirementIds?: string[];
-  documentSignatureName?: string;
   notes?: string;
   paymentMode?: "checkout" | "payment_sheet";
   returnUrl?: string;
@@ -448,17 +446,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     120,
     100
   );
-  const documentRequirementIdsResult = normalizeTextList(
-    Array.isArray(body.documentRequirementIds)
-      ? body.documentRequirementIds.map((item) => (typeof item === "string" ? item : ""))
-      : [],
-    { fieldLabel: "Document requirements", maxItemLength: 36, maxItems: 25 }
-  );
-  const documentSignatureNameResult = getJsonText(
-    body.documentSignatureName,
-    "Signature name",
-    120
-  );
 
   const validationError = getValidationError([
     selectionsResult,
@@ -467,8 +454,6 @@ export async function POST(request: NextRequest, { params }: Params) {
     buyerPhoneResult,
     notesResult,
     additionalAttendeeNamesResult,
-    documentRequirementIdsResult,
-    documentSignatureNameResult,
   ]);
 
   if (validationError) {
@@ -485,8 +470,6 @@ export async function POST(request: NextRequest, { params }: Params) {
   const buyerLastName = getValidatedValue(buyerLastNameResult);
   const buyerPhone = getValidatedValue(buyerPhoneResult);
   const buyerNotes = getValidatedValue(notesResult);
-  const submittedDocumentRequirementIds = getValidatedValue(documentRequirementIdsResult);
-  const documentSignatureName = getValidatedValue(documentSignatureNameResult);
   const buyerName = [buyerFirstName, buyerLastName].filter(Boolean).join(" ").trim();
 
   if (!buyerName) {
@@ -494,9 +477,6 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const buyerEmail = user.email.toLowerCase();
-  const signerIpAddress = requestIpAddress(request);
-  const signerUserAgent = request.headers.get("user-agent") || null;
-  const signerDeviceMetadata = requestDeviceMetadata(request);
 
   const { data: event, error: eventError } = await supabase
     .from("events")
@@ -566,14 +546,6 @@ export async function POST(request: NextRequest, { params }: Params) {
   }
 
   const requiredDocumentRows = (requiredDocuments ?? []) as EventDocumentRequirementRow[];
-  if (requiredDocumentRows.length > 0) {
-    const submittedIds = new Set(submittedDocumentRequirementIds);
-    const allSubmitted = requiredDocumentRows.every((document) => submittedIds.has(document.id));
-
-    if (!allSubmitted || !body.documentConsentAccepted || documentSignatureName.length < 2) {
-      return jsonError("Review and sign the required event documents before checkout.");
-    }
-  }
 
   const requestedTicketIds = selections.map((selection) => selection.ticketTypeId);
   const { data: tickets, error: ticketsError } = await supabase
@@ -606,7 +578,7 @@ export async function POST(request: NextRequest, { params }: Params) {
   let additionalAttendeeCursor = 0;
   let totalAmount = 0;
   let currency = "USD";
-  const holdUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const holdUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   const orderHoldToken = randomUUID();
   const registrationIds: string[] = [];
   const orderItems: Record<string, unknown>[] = [];
@@ -758,95 +730,6 @@ export async function POST(request: NextRequest, { params }: Params) {
       const { error: attendeeError } = await supabase.from("event_registration_attendees").insert(attendeeRows);
       if (attendeeError) throw new Error(attendeeError.message);
 
-      for (const requiredDocument of requiredDocumentRows) {
-        const template = pickOne(requiredDocument.document_templates);
-        if (!template) continue;
-        const signedAt = new Date().toISOString();
-
-        const { data: assignment, error: assignmentError } = await supabase
-          .from("document_assignments")
-          .insert({
-            template_id: requiredDocument.template_id,
-            template_version_id: requiredDocument.template_version_id,
-            studio_id: event.studio_id,
-            organizer_id: event.organizer_id,
-            event_id: event.id,
-            event_registration_id: registration.id,
-            assigned_to_email: buyerEmail,
-            status: "signed",
-            signer_user_id: user.id,
-            signed_at: signedAt,
-            completed_at: signedAt,
-          })
-          .select("id")
-          .single();
-
-        if (assignmentError || !assignment) {
-          throw new Error(assignmentError?.message ?? "Could not save event document signature.");
-        }
-
-        const consentText =
-          "I have reviewed the required event document(s), agree to sign electronically, and confirm that my typed name is my signature.";
-
-        const { data: signature, error: signatureError } = await supabase
-          .from("document_signatures")
-          .insert({
-            assignment_id: assignment.id,
-            template_id: requiredDocument.template_id,
-            template_version_id: requiredDocument.template_version_id,
-            studio_id: event.studio_id,
-            organizer_id: event.organizer_id,
-            event_id: event.id,
-            event_registration_id: registration.id,
-            signer_user_id: user.id,
-            signer_name: documentSignatureName,
-            signer_email: buyerEmail,
-            signed_at: signedAt,
-            signed_body: template.body,
-            signature_method: "typed",
-            signature_text: documentSignatureName,
-            consent_text: consentText,
-            ip_address: signerIpAddress,
-            user_agent: signerUserAgent,
-            device_metadata: signerDeviceMetadata,
-            metadata: {
-              source: "student_app_event_checkout",
-              order_id: order.id,
-              registration_id: registration.id,
-            },
-          })
-          .select("id")
-          .single();
-
-        if (signatureError || !signature) {
-          throw new Error(signatureError?.message ?? "Could not save document signature.");
-        }
-
-        const { error: auditError } = await supabase.from("document_signature_audit_events").insert({
-          signature_id: signature.id,
-          assignment_id: assignment.id,
-          template_id: requiredDocument.template_id,
-          template_version_id: requiredDocument.template_version_id,
-          studio_id: event.studio_id,
-          organizer_id: event.organizer_id,
-          event_id: event.id,
-          event_registration_id: registration.id,
-          actor_user_id: user.id,
-          actor_email: buyerEmail,
-          event_type: "signed",
-          event_summary: "Student signed required event document during mobile checkout.",
-          ip_address: signerIpAddress,
-          user_agent: signerUserAgent,
-          metadata: {
-            consent_text: consentText,
-            signature_method: "typed",
-            source: "student_app_event_checkout",
-            order_id: order.id,
-          },
-        });
-
-        if (auditError) throw new Error(auditError.message);
-      }
 
       orderItems.push({
         order_id: order.id,
@@ -881,6 +764,33 @@ export async function POST(request: NextRequest, { params }: Params) {
       .eq("id", order.id);
 
     if (orderAmountError) throw new Error(orderAmountError.message);
+
+    if (requiredDocumentRows.length > 0) {
+      const checkpoint = await beginEventSigningCheckpoint({
+        orderId: order.id,
+        eventId: event.id,
+        studioId: event.studio_id,
+        organizerId: event.organizer_id,
+        userId: user.id,
+        buyerEmail,
+        requirementIds: requiredDocumentRows.map((document) => document.id),
+        registrationIds,
+        surface: "student_app",
+        paymentMode: body.paymentMode === "payment_sheet" ? "payment_sheet" : "checkout",
+        mobileReturnUrl: body.returnUrl,
+      });
+
+      if (!checkpoint?.signingUrl) {
+        throw new Error("Required event documents could not be started.");
+      }
+
+      return NextResponse.json({
+        orderId: order.id,
+        registrationIds,
+        requiresSignature: true,
+        signingUrl: checkpoint.signingUrl,
+      });
+    }
 
     if (totalAmount <= 0) {
       const now = new Date().toISOString();

@@ -157,7 +157,6 @@ export default function RegistrationForm({
 }: RegistrationFormProps) {
   const [ticketQuantities, setTicketQuantities] = useState<Record<string, number>>({});
   const botStartedAt = useMemo(() => String(Date.now()), []);
-  const [waiversAccepted, setWaiversAccepted] = useState(false);
 
   const ticketOptions = useMemo(() => {
     return ticketTypes.map((ticket) => ({
@@ -458,65 +457,29 @@ export default function RegistrationForm({
 
       {requiredEventDocuments.length ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-          <div className="flex flex-col gap-1">
-            <p className="text-sm font-semibold text-amber-950">
-              Required event documents
-            </p>
-            <p className="text-sm leading-6 text-amber-900">
-              Review and acknowledge these documents before checkout. Your typed name will be saved with the registration record.
-            </p>
-          </div>
-
-          <div className="mt-4 space-y-3">
-            {requiredEventDocuments.map((document) => (
-              <details
+          <p className="text-sm font-semibold text-amber-950">
+            Required event documents
+          </p>
+          <p className="mt-1 text-sm leading-6 text-amber-900">
+            After you enter attendee details, DanceFlow Sign will guide you through
+            each required document before payment begins.
+          </p>
+          <div className="mt-3 space-y-2">
+            {requiredEventDocuments.map((document, index) => (
+              <div
                 key={document.id}
-                className="rounded-2xl border border-amber-200 bg-white p-4"
+                className="rounded-xl border border-amber-200 bg-white px-3 py-2"
               >
-                <summary className="cursor-pointer list-none text-sm font-bold text-slate-900">
-                  {document.title}
-                  {document.description ? (
-                    <span className="mt-1 block text-sm font-normal leading-6 text-slate-600">
-                      {document.description}
-                    </span>
-                  ) : null}
-                </summary>
-                <div className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm leading-6 text-slate-700">
-                  {document.body}
-                </div>
-                <input type="hidden" name="documentRequirementIds" value={document.id} />
-              </details>
+                <p className="text-sm font-medium text-slate-900">
+                  {index + 1}. {document.title}
+                </p>
+                {document.description ? (
+                  <p className="mt-1 text-sm text-slate-600">
+                    {document.description}
+                  </p>
+                ) : null}
+              </div>
             ))}
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            <label className="space-y-2 text-sm font-semibold text-slate-900">
-              Type your full name to sign
-              <input
-                name="documentSignatureName"
-                required
-                maxLength={120}
-                autoComplete="name"
-                disabled={!allowSubmission}
-                className="w-full rounded-xl border border-amber-200 bg-white px-3 py-2 disabled:bg-slate-100"
-                placeholder="Full legal name"
-              />
-            </label>
-
-            <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-white p-3 text-sm text-slate-700">
-              <input
-                name="documentConsentAccepted"
-                type="checkbox"
-                required
-                checked={waiversAccepted}
-                disabled={!allowSubmission}
-                onChange={(event) => setWaiversAccepted(event.target.checked)}
-                className="mt-1"
-              />
-              <span>
-                I have reviewed the required document(s), agree to sign electronically, and confirm that my typed name is my signature.
-              </span>
-            </label>
           </div>
         </div>
       ) : null}
@@ -729,4 +692,3 @@ export default function RegistrationForm({
     </form>
   );
 }
-
