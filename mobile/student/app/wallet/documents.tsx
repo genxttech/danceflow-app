@@ -61,8 +61,19 @@ export default function StudentDocumentsScreen() {
     }
   }
 
-  const pending = documents.filter((document) => document.status !== "signed" && !document.signedAt);
-  const completed = documents.filter((document) => document.status === "signed" || document.signedAt);
+  const pending = documents.filter(
+    (document) =>
+      document.status !== "signed" &&
+      document.status !== "expired" &&
+      document.status !== "void" &&
+      !document.signedAt,
+  );
+  const completed = documents.filter(
+    (document) => document.status === "signed" || Boolean(document.signedAt),
+  );
+  const closed = documents.filter(
+    (document) => document.status === "expired" || document.status === "void",
+  );
 
   return (
     <Screen>
@@ -94,11 +105,15 @@ export default function StudentDocumentsScreen() {
               <AppText variant="subtitle">{document.title}</AppText>
               {document.description ? <AppText variant="caption">{document.description}</AppText> : null}
               {document.dueAt ? <AppText variant="caption">Due {formatDate(document.dueAt)}</AppText> : null}
-              <AppButton
-                label={document.requiresSignature ? "Review and sign" : "Review document"}
-                loading={openingId === document.id}
-                onPress={() => openDocument(document)}
-              />
+              {document.actionUrl ? (
+                <AppButton
+                  label={document.requiresSignature ? "Review and sign" : "Review document"}
+                  loading={openingId === document.id}
+                  onPress={() => openDocument(document)}
+                />
+              ) : (
+                <AppText variant="caption">Contact the studio if you still need access.</AppText>
+              )}
             </View>
           ))}
         </View>
@@ -115,12 +130,32 @@ export default function StudentDocumentsScreen() {
               </View>
               <AppText variant="subtitle">{document.title}</AppText>
               {document.signedAt ? <AppText variant="caption">Signed {formatDate(document.signedAt)}</AppText> : null}
-              <AppButton
-                label="View document"
-                loading={openingId === document.id}
-                onPress={() => openDocument(document)}
-                variant="secondary"
-              />
+              {document.actionUrl ? (
+                <AppButton
+                  label="View document"
+                  loading={openingId === document.id}
+                  onPress={() => openDocument(document)}
+                  variant="secondary"
+                />
+              ) : null}
+            </View>
+          ))}
+        </View>
+      ) : null}
+
+      {closed.length ? (
+        <View style={styles.section}>
+          <AppText variant="subtitle">Closed</AppText>
+          {closed.map((document) => (
+            <View key={document.id} style={styles.card}>
+              <View style={styles.row}>
+                <AppText variant="eyebrow">{statusLabel(document)}</AppText>
+                <AppText variant="caption">{document.studioName}</AppText>
+              </View>
+              <AppText variant="subtitle">{document.title}</AppText>
+              <AppText variant="caption">
+                This request is no longer active. Contact the studio if you need a new copy.
+              </AppText>
             </View>
           ))}
         </View>

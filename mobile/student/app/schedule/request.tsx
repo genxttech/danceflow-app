@@ -63,6 +63,12 @@ function calendarCells(monthKey: string, availableDates: Set<string>) {
   return cells;
 }
 
+function shiftMonth(monthKey: string, offset: number) {
+  const { year, month } = dateParts(`${monthKey}-01`);
+  const next = new Date(Date.UTC(year, month - 1 + offset, 1));
+  return `${next.getUTCFullYear()}-${String(next.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function ScheduleRequestScreen() {
   const { session } = useAuth();
   const [studios, setStudios] = useState<LinkedStudioAccess[]>([]);
@@ -109,13 +115,27 @@ export default function ScheduleRequestScreen() {
         },
       );
 
-      setSlots(response.slots ?? []);
-      setInstructors(response.instructors ?? []);
+      const nextSlots = response.slots ?? [];
+      const nextInstructors = response.instructors ?? [];
+      const availableMonths = Array.from(
+        new Set(nextSlots.map((slot) => slot.date.slice(0, 7))),
+      ).sort();
+
+      setSlots(nextSlots);
+      setInstructors(nextInstructors);
       setDecision(response.bookingDecision);
 
-      const firstDate = response.slots?.[0]?.date ?? "";
-      setMonthKey((current) => current || firstDate.slice(0, 7));
-      if (selectedDate && !response.slots.some((slot) => slot.date === selectedDate)) {
+      if (!selectedInstructorId && nextInstructors.length === 1) {
+        setSelectedInstructorId(nextInstructors[0].id);
+      }
+
+      setMonthKey((current) =>
+        current && availableMonths.includes(current)
+          ? current
+          : availableMonths[0] ?? new Date().toISOString().slice(0, 7),
+      );
+
+      if (selectedDate && !nextSlots.some((slot) => slot.date === selectedDate)) {
         setSelectedDate("");
       }
     } catch (error) {
@@ -164,9 +184,21 @@ export default function ScheduleRequestScreen() {
   }
 
   const availableDates = useMemo(() => new Set(slots.map((slot) => slot.date)), [slots]);
-  const resolvedMonthKey = monthKey || Array.from(availableDates)[0]?.slice(0, 7) || new Date().toISOString().slice(0, 7);
+  const availableMonths = useMemo(
+    () => Array.from(new Set(slots.map((slot) => slot.date.slice(0, 7)))).sort(),
+    [slots],
+  );
+  const resolvedMonthKey =
+    monthKey || availableMonths[0] || new Date().toISOString().slice(0, 7);
+  const currentMonthIndex = availableMonths.indexOf(resolvedMonthKey);
+  const canGoPrevious = currentMonthIndex > 0;
+  const canGoNext =
+    currentMonthIndex >= 0 && currentMonthIndex < availableMonths.length - 1;
   const cells = calendarCells(resolvedMonthKey, availableDates);
-  const visibleSlots = selectedDate ? slots.filter((slot) => slot.date === selectedDate) : [];
+  const visibleSlots = selectedDate
+    ? slots.filter((slot) => slot.date === selectedDate)
+    : [];
+  const instructorResolved = Boolean(selectedInstructorId) || instructors.length === 1;
 
   return (
     <Screen>
@@ -233,16 +265,69 @@ export default function ScheduleRequestScreen() {
         </View>
       ) : null}
 
+      {selectedStudioSlug && instructors.length > 1 && !selectedInstructorId && !loading ? (
+        <FeatureCard
+          title="Choose an instructor"
+          detail="Select an instructor to see their available lesson times."
+        />
+      ) : null}
+
+      {selectedStudioSlug && instructors.length === 0 && !loading && decision?.allowed !== false ? (
+        <FeatureCard
+          title="No instructors available"
+          detail="This studio has not made an instructor available for online booking yet."
+        />
+      ) : null}
+
       {loading ? <FeatureCard title="Loading calendar" detail="Checking available lesson times." /> : null}
 
       {decision?.allowed === false ? (
         <FeatureCard title="Booking unavailable" detail={decision.reason ?? "This studio is not accepting self-service bookings."} />
       ) : null}
 
-      {selectedInstructorId && !loading ? (
+      {instructorResolved && !loading && decision?.allowed !== false ? (
         <View style={styles.section}>
           <AppText variant="subtitle">3. Choose a day</AppText>
-          <AppText variant="caption">{monthLabel(`${resolvedMonthKey}-01`)}</AppText>
+          <View style={styles.monthNavigation}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={!canGoPrevious}
+              onPress={() => {
+                setMonthKey(shiftMonth(resolvedMonthKey, -1));
+                setSelectedDate("");
+              }}
+              style={({ pressed }) => [
+                styles.monthButton,
+                !canGoPrevious && styles.monthButtonDisabled,
+                pressed && canGoPrevious && styles.pressed,
+              ]}
+            >
+              <AppText style={styles.monthButtonText}>Previous</AppText>
+            </Pressable>
+            <AppText variant="caption">{monthLabel(`${resolvedMonthKey}-01`)}</AppText>
+            <Pressable
+              accessibilityRole="button"
+              disabled={!canGoNext}
+              onPress={() => {
+                setMonthKey(shiftMonth(resolvedMonthKey, 1));
+                setSelectedDate("");
+              }}
+              style={({ pressed }) => [
+                styles.monthButton,
+                !canGoNext && styles.monthButtonDisabled,
+                pressed && canGoNext && styles.pressed,
+              ]}
+            >
+              <AppText style={styles.monthButtonText}>Next</AppText>
+            </Pressable>
+          </View>
+
+          {slots.length === 0 ? (
+            <FeatureCard
+              title="No lesson times available"
+              detail="Try another instructor or check again later."
+            />
+          ) : null}
 
           <View style={styles.weekRow}>
             {["S", "M", "T", "W", "T", "F", "S"].map((label, index) => (
@@ -375,6 +460,28 @@ const styles = StyleSheet.create({
     height: 4,
     marginTop: 3,
     width: 4,
+  },
+  monthButton: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  monthButtonDisabled: {
+    opacity: 0.35,
+  },
+  monthButtonText: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  monthNavigation: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "space-between",
   },
   pillList: {
     gap: 8,

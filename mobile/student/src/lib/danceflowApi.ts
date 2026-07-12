@@ -24,7 +24,10 @@ async function getAccessToken() {
 
   if (error) throw error;
 
-  if (session?.access_token) {
+  const expiresSoon =
+    !session?.expires_at || session.expires_at * 1000 <= Date.now() + 60_000;
+
+  if (session?.access_token && !expiresSoon) {
     return session.access_token;
   }
 
@@ -42,23 +45,41 @@ async function getAccessToken() {
 
 export async function danceflowApiFetch<T>(
   path: string,
-  options?: RequestInit & { params?: Record<string, string | null | undefined> }
+  options?: RequestInit & { params?: Record<string, string | null | undefined> },
 ) {
   const token = await getAccessToken();
+  const headers = new Headers(options?.headers);
+
+  if (options?.body && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  headers.set("Accept", "application/json");
+  headers.set("Authorization", `Bearer ${token}`);
+  headers.set("X-DanceFlow-Access-Token", token);
+
   const response = await fetch(buildUrl(path, options?.params), {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-      "X-DanceFlow-Access-Token": token,
-      ...options?.headers,
-    },
+    headers,
   });
 
-  const payload = (await response.json()) as T & { error?: string };
+  const responseText = await response.text();
+  let payload: (T & { error?: string }) | null = null;
+
+  if (responseText) {
+    try {
+      payload = JSON.parse(responseText) as T & { error?: string };
+    } catch {
+      payload = null;
+    }
+  }
 
   if (!response.ok) {
-    throw new Error(payload.error ?? "DanceFlow request failed.");
+    throw new Error(payload?.error ?? "DanceFlow request failed. Please try again.");
+  }
+
+  if (!payload) {
+    throw new Error("DanceFlow returned an unexpected response. Please try again.");
   }
 
   return payload;

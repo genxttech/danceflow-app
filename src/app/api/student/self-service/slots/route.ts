@@ -6,10 +6,15 @@ import {
 } from "@/lib/booking/selfServiceQueries";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
-const LESSON_TYPES = ["private_lesson", "group_class", "coaching", "floor_rental"] as const;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const LESSON_TYPES = [
+  "private_lesson",
+  "group_class",
+  "coaching",
+  "floor_rental",
+] as const;
 
 function cleanInput(value: string | null | undefined, maxLength = 120) {
   return (value ?? "")
@@ -31,9 +36,10 @@ function normalizeOptionalUuid(value: string | null | undefined) {
 
 function normalizeLessonType(value: string | null | undefined) {
   const type = cleanInput(value, 80);
-  return LESSON_TYPES.includes(type as (typeof LESSON_TYPES)[number]) ? type : "private_lesson";
+  return LESSON_TYPES.includes(type as (typeof LESSON_TYPES)[number])
+    ? type
+    : "private_lesson";
 }
-
 
 export async function GET(request: Request) {
   const user = await getStudentApiUser(request);
@@ -50,18 +56,6 @@ export async function GET(request: Request) {
   }
 
   try {
-    console.info("Self-service slot request", {
-      studioSlug,
-      lessonType: normalizeLessonType(url.searchParams.get("lessonType")),
-      instructorId: normalizeOptionalUuid(url.searchParams.get("instructorId")),
-      roomId: normalizeOptionalUuid(url.searchParams.get("roomId")),
-      action:
-        cleanInput(url.searchParams.get("action"), 20) === "reschedule"
-          ? "reschedule"
-          : "book",
-      portalUserIdPresent: Boolean(user.id),
-    });
-
     const result = await loadStudentSelfServiceSlots({
       supabase: createAdminClient() as unknown as SupabaseQueryClient,
       studioSlug,
@@ -92,13 +86,8 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Could not load self-service booking slots.",
-      },
-      { status: 400 }
+      { error: "Lesson times could not be loaded. Please try again." },
+      { status: 400 },
     );
   }
 }

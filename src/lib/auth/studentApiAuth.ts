@@ -27,7 +27,10 @@ export function studentApiJsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-export function sameStudentEmail(user: Pick<User, "email"> | null | undefined, email: string | null | undefined) {
+export function sameStudentEmail(
+  user: Pick<User, "email"> | null | undefined,
+  email: string | null | undefined,
+) {
   const userEmail = user?.email?.trim().toLowerCase() ?? "";
   const candidate = email?.trim().toLowerCase() ?? "";
   return Boolean(userEmail && candidate && userEmail === candidate);
@@ -35,14 +38,7 @@ export function sameStudentEmail(user: Pick<User, "email"> | null | undefined, e
 
 export async function getStudentApiUser(request: Request) {
   const bearerToken = extractStudentBearerToken(request);
-
-  if (!bearerToken) {
-    console.error("Student API request arrived without an auth token", {
-      hasAuthorizationHeader: request.headers.has("authorization"),
-      hasDanceFlowTokenHeader: request.headers.has("x-danceflow-access-token"),
-      path: new URL(request.url).pathname,
-    });
-  }
+  const path = new URL(request.url).pathname;
 
   if (bearerToken) {
     const adminClient = createAdminClient();
@@ -51,7 +47,14 @@ export async function getStudentApiUser(request: Request) {
       error: bearerError,
     } = await adminClient.auth.getUser(bearerToken);
 
-    if (bearerError || !bearerUser) return null;
+    if (bearerError || !bearerUser) {
+      console.warn("Student API bearer authentication failed", {
+        path,
+        code: bearerError?.code ?? null,
+      });
+      return null;
+    }
+
     return bearerUser;
   }
 
@@ -61,7 +64,17 @@ export async function getStudentApiUser(request: Request) {
     error,
   } = await authClient.auth.getUser();
 
-  if (error || !user) return null;
+  if (error || !user) {
+    console.warn("Student API authentication failed", {
+      path,
+      hasAuthorizationHeader: request.headers.has("authorization"),
+      hasDanceFlowTokenHeader: request.headers.has("x-danceflow-access-token"),
+      hasCookieHeader: request.headers.has("cookie"),
+      code: error?.code ?? null,
+    });
+    return null;
+  }
+
   return user;
 }
 
