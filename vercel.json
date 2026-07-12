@@ -20,6 +20,10 @@
     {
       "path": "/api/cron/aria-digest",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/aria-operations",
+      "schedule": "*/30 * * * *"
     }
   ]
 }

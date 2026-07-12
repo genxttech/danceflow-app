@@ -4694,6 +4694,305 @@ export async function saveAutomationEmailTemplateAction(formData: FormData) {
   redirect("/app/automations?success=template-saved");
 }
 
+
+export type ScheduledAriaOperationsResult = {
+  candidatesCount: number;
+  createdCount: number;
+  updatedCount: number;
+  queuedCount: number;
+  skippedCount: number;
+  failedCount: number;
+};
+
+export async function runScheduledAriaOperationsForStudio(params: {
+  studioId: string;
+  actorUserId: string;
+  includeStudioSignals: boolean;
+  includeOrganizerSignals: boolean;
+}): Promise<ScheduledAriaOperationsResult> {
+  const {
+    studioId,
+    actorUserId,
+    includeStudioSignals,
+    includeOrganizerSignals,
+  } = params;
+  const adminSupabase = createAdminClient();
+  const supabase =
+    adminSupabase as unknown as Awaited<ReturnType<typeof createClient>>;
+
+  const candidateGroups = await Promise.all([
+    includeStudioSignals
+      ? buildStudioAriaOperationalCandidates({ supabase, studioId })
+      : Promise.resolve([]),
+    includeOrganizerSignals
+      ? buildOrganizerAriaOperationalCandidates({ supabase, studioId })
+      : Promise.resolve([]),
+  ]);
+  const candidates = candidateGroups.flat();
+
+  const generationResult = await insertAriaOperationalActions({
+    supabase,
+    studioId,
+    userId: actorUserId,
+    candidates,
+  });
+
+  const { data: approvedActions, error: actionsError } = await adminSupabase
+    .from("automation_actions")
+    .select(
+      "id, studio_id, rule_key, title, body, status, related_table, related_id, client_id",
+    )
+    .eq("studio_id", studioId)
+    .eq("status", "approved")
+    .in("rule_key", [...ARIA_EMAIL_EXECUTABLE_RULE_KEYS])
+    .order("created_at", { ascending: true })
+    .limit(50);
+
+  if (actionsError) {
+    throw new Error(actionsError.message);
+  }
+
+  const actions = (approvedActions ?? []) as AriaApprovedExecutionActionRow[];
+
+  if (!actions.length) {
+    return {
+      ...generationResult,
+      queuedCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+    };
+  }
+
+  const { data: studio, error: studioError } = await adminSupabase
+    .from("studios")
+    .select("id, name, public_name, slug")
+    .eq("id", studioId)
+    .maybeSingle();
+
+  if (studioError) {
+    throw new Error(studioError.message);
+  }
+
+  const typedStudio = (studio ?? null) as AriaExecutionStudioRow | null;
+  const clientIds = Array.from(
+    new Set(
+      actions
+        .map((action) => getAriaExecutionClientId(action))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+
+  const { data: clients, error: clientsError } = clientIds.length
+    ? await adminSupabase
+        .from("clients")
+        .select("id, first_name, last_name, email")
+        .eq("studio_id", studioId)
+        .in("id", clientIds)
+    : { data: [], error: null };
+
+  if (clientsError) {
+    throw new Error(clientsError.message);
+  }
+
+  const clientById = new Map(
+    ((clients ?? []) as AriaExecutionClientRow[]).map((client) => [
+      client.id,
+      client,
+    ]),
+  );
+
+  let queuedCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
+
+  for (const action of actions) {
+    const clientId = getAriaExecutionClientId(action);
+    const client = clientId ? clientById.get(clientId) : null;
+
+    if (!client?.email?.trim()) {
+      skippedCount += 1;
+      await adminSupabase.from("automation_action_events").insert({
+        studio_id: studioId,
+        automation_action_id: action.id,
+        event_type: "execution_skipped",
+        previous_status: action.status,
+        new_status: action.status,
+        note: "ARIA execution skipped because no client email was available.",
+        metadata: { rule_key: action.rule_key, reason: "missing_client_email" },
+        created_by: actorUserId,
+      });
+      continue;
+    }
+
+    const studioName = getStudioDisplayName(typedStudio);
+    const subject = getAriaExecutionSubject({ action, studioName });
+    const bodyText = getAriaExecutionBody({
+      action,
+      client,
+      studio: typedStudio,
+    });
+    const now = new Date().toISOString();
+
+    try {
+      const { data: existingDelivery, error: existingDeliveryError } =
+        await adminSupabase
+          .from("outbound_deliveries")
+          .select("id, status")
+          .eq("studio_id", studioId)
+          .eq("related_table", "automation_actions")
+          .eq("related_id", action.id)
+          .eq("dedupe_key", `aria-execution:${action.id}:email`)
+          .in("status", ["draft", "queued", "sent"])
+          .maybeSingle<{ id: string; status: string | null }>();
+
+      if (existingDeliveryError) {
+        throw new Error(existingDeliveryError.message);
+      }
+
+      let deliveryId = existingDelivery?.id ?? null;
+
+      if (existingDelivery?.status === "draft") {
+        const { data: updatedDelivery, error: deliveryUpdateError } =
+          await adminSupabase
+            .from("outbound_deliveries")
+            .update({
+              status: "queued",
+              subject,
+              body_text: bodyText,
+              body_html: renderPlainTextAsHtml(bodyText),
+              updated_at: now,
+            })
+            .eq("id", existingDelivery.id)
+            .eq("studio_id", studioId)
+            .eq("status", "draft")
+            .select("id")
+            .maybeSingle<{ id: string }>();
+
+        if (deliveryUpdateError) {
+          throw new Error(deliveryUpdateError.message);
+        }
+
+        deliveryId = updatedDelivery?.id ?? existingDelivery.id;
+      } else if (!existingDelivery) {
+        const { data: insertedDelivery, error: deliveryInsertError } =
+          await adminSupabase
+            .from("outbound_deliveries")
+            .insert({
+              studio_id: studioId,
+              channel: "email",
+              template_key: `aria_execution_${action.rule_key}`,
+              recipient_email: client.email.trim(),
+              recipient_phone: null,
+              subject,
+              body_text: bodyText,
+              body_html: renderPlainTextAsHtml(bodyText),
+              related_table: "automation_actions",
+              related_id: action.id,
+              dedupe_key: `aria-execution:${action.id}:email`,
+              status: "queued",
+              updated_at: now,
+            })
+            .select("id")
+            .single<{ id: string }>();
+
+        if (deliveryInsertError) {
+          if (deliveryInsertError.code === "23505") {
+            skippedCount += 1;
+            continue;
+          }
+          throw new Error(deliveryInsertError.message);
+        }
+
+        deliveryId = insertedDelivery.id;
+      }
+
+      const { data: updatedAction, error: actionUpdateError } =
+        await adminSupabase
+          .from("automation_actions")
+          .update({
+            status: "queued",
+            reviewed_at: now,
+            reviewed_by: actorUserId,
+            updated_at: now,
+            review_note:
+              "ARIA queued an approved email follow-up automatically.",
+          })
+          .eq("id", action.id)
+          .eq("studio_id", studioId)
+          .eq("status", "approved")
+          .select("id")
+          .maybeSingle<{ id: string }>();
+
+      if (actionUpdateError) {
+        throw new Error(actionUpdateError.message);
+      }
+
+      if (!updatedAction) {
+        skippedCount += 1;
+        continue;
+      }
+
+      const { error: eventError } = await adminSupabase
+        .from("automation_action_events")
+        .insert({
+          studio_id: studioId,
+          automation_action_id: action.id,
+          event_type: "execution_queued",
+          previous_status: "approved",
+          new_status: "queued",
+          note: "ARIA queued an approved email follow-up automatically.",
+          metadata: {
+            rule_key: action.rule_key,
+            delivery_id: deliveryId,
+            recipient_email: client.email.trim(),
+            source: "scheduled_aria_operations",
+          },
+          created_by: actorUserId,
+        });
+
+      if (eventError) {
+        console.warn("Scheduled ARIA execution event insert failed", eventError);
+      }
+
+      queuedCount += 1;
+    } catch (error) {
+      failedCount += 1;
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unknown scheduled ARIA execution error";
+
+      console.error("Scheduled ARIA action execution failed", {
+        error,
+        studioId,
+        actionId: action.id,
+      });
+
+      await adminSupabase.from("automation_action_events").insert({
+        studio_id: studioId,
+        automation_action_id: action.id,
+        event_type: "execution_failed",
+        previous_status: action.status,
+        new_status: action.status,
+        note: message.slice(0, 1000),
+        metadata: {
+          rule_key: action.rule_key,
+          source: "scheduled_aria_operations",
+        },
+        created_by: actorUserId,
+      });
+    }
+  }
+
+  return {
+    ...generationResult,
+    queuedCount,
+    skippedCount,
+    failedCount,
+  };
+}
+
+
 export async function getAutomationDefinitions() {
   return AUTOMATION_DEFINITIONS;
 }
