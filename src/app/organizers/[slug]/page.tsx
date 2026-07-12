@@ -28,6 +28,22 @@ function safeExternalUrl(value: string | null) {
 }
 
 
+function hasActivePublicAccess(studio: {
+  billing_plan?: string | null;
+  subscription_status?: string | null;
+} | null | undefined) {
+  if (!studio) return false;
+
+  const status = (studio.subscription_status ?? "").trim().toLowerCase();
+  return status === "active" || status === "trialing";
+}
+
+function getStudio(value: EventRow["studios"]) {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+
 type OrganizerRow = {
   id: string;
   name: string;
@@ -43,19 +59,25 @@ type OrganizerRow = {
   active: boolean;
 };
 
+type StudioAccessRow = {
+  billing_plan: string | null;
+  subscription_status: string | null;
+};
+
 type EventRow = {
   id: string;
   name: string;
   slug: string;
   event_type: string;
-  short_description: string | null;
+  public_summary: string | null;
   city: string | null;
   state: string | null;
   start_date: string;
   end_date: string;
   featured: boolean;
-  cover_image_url: string | null;
+  public_cover_image_url: string | null;
   registration_required: boolean | null;
+  studios: StudioAccessRow | StudioAccessRow[] | null;
 };
 
 type EventTagRow = {
@@ -134,18 +156,23 @@ export default async function PublicOrganizerProfilePage({
       name,
       slug,
       event_type,
-      short_description,
+      public_summary,
       city,
       state,
       start_date,
       end_date,
       featured,
-      cover_image_url,
-      registration_required
+      public_cover_image_url,
+      registration_required,
+      studios (
+        billing_plan,
+        subscription_status
+      )
     `)
     .eq("organizer_id", typedOrganizer.id)
     .eq("status", "published")
-    .in("visibility", ["public", "unlisted"])
+    .eq("visibility", "public")
+    .eq("public_directory_enabled", true)
     .order("featured", { ascending: false })
     .order("start_date", { ascending: true })
     .order("name", { ascending: true });
@@ -154,7 +181,9 @@ export default async function PublicOrganizerProfilePage({
     throw new Error(`Failed to load organizer events: ${eventsError.message}`);
   }
 
-  const typedEvents = (events ?? []) as EventRow[];
+  const typedEvents = ((events ?? []) as EventRow[]).filter((event) =>
+    hasActivePublicAccess(getStudio(event.studios)),
+  );
   const eventIds = typedEvents.map((event) => event.id);
 
   const { data: tagsRows, error: tagsError } = eventIds.length
@@ -302,10 +331,10 @@ export default async function PublicOrganizerProfilePage({
                     >
                       <div className="flex flex-col gap-0 md:flex-row">
                         <div className="h-48 w-full bg-slate-100 md:h-auto md:w-64 md:flex-none">
-                          {event.cover_image_url ? (
+                          {event.public_cover_image_url ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img
-                              src={event.cover_image_url}
+                              src={event.public_cover_image_url}
                               alt={event.name}
                               className="h-full w-full object-cover"
                             />
@@ -352,7 +381,7 @@ export default async function PublicOrganizerProfilePage({
                           </div>
 
                           <p className="mt-4 line-clamp-3 text-sm text-slate-600">
-                            {event.short_description || "No description provided."}
+                            {event.public_summary || "No description provided."}
                           </p>
 
                           {eventTags.length > 0 ? (

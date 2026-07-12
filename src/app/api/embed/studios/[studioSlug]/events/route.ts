@@ -23,10 +23,7 @@ type EventRow = {
   event_type: string | null;
   public_summary: string | null;
   public_description: string | null;
-  short_description: string | null;
-  description: string | null;
   public_cover_image_url: string | null;
-  cover_image_url: string | null;
   venue_name: string | null;
   city: string | null;
   state: string | null;
@@ -133,11 +130,9 @@ function mapEvent(event: EventRow, hostName: string) {
     eventTypeLabel: eventTypeLabel(event.event_type),
     summary:
       event.public_summary ||
-      event.short_description ||
       event.public_description ||
-      event.description ||
       "Public event details coming soon.",
-    imageUrl: event.public_cover_image_url || event.cover_image_url || null,
+    imageUrl: event.public_cover_image_url || null,
     url: eventUrl,
     dateLabel: formatDateRange(event.start_date, event.end_date),
     timeLabel: formatTimeRange(event.start_time, event.end_time),
@@ -211,10 +206,7 @@ export async function GET(
         event_type,
         public_summary,
         public_description,
-        short_description,
-        description,
         public_cover_image_url,
-        cover_image_url,
         venue_name,
         city,
         state,

@@ -21,8 +21,8 @@ type EventRow = {
   name: string;
   slug: string | null;
   event_type: string | null;
-  short_description: string | null;
-  description: string | null;
+  public_summary: string | null;
+  public_description: string | null;
   venue_name: string | null;
   address_line_1: string | null;
   address_line_2: string | null;
@@ -140,7 +140,7 @@ function eventDescription(event: EventRow, organizerName: string) {
   const eventUrl = event.slug ? `${siteUrl}/events/${event.slug}` : siteUrl;
 
   return [
-    event.short_description || event.description || "",
+    event.public_summary || event.public_description || "",
     "",
     `Event type: ${eventTypeLabel(event.event_type)}`,
     `Hosted by: ${organizerName}`,
@@ -250,8 +250,8 @@ export async function GET(
         name,
         slug,
         event_type,
-        short_description,
-        description,
+        public_summary,
+        public_description,
         venue_name,
         address_line_1,
         address_line_2,
