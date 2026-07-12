@@ -201,18 +201,34 @@ export default function ScheduleRequestScreen() {
         <View style={styles.section}>
           <AppText variant="subtitle">2. Choose an instructor</AppText>
           <View style={styles.pillList}>
-            {instructors.map((instructor) => (
-              <AppButton
-                key={instructor.id}
-                label={instructor.name}
-                onPress={() => {
-                  setSelectedInstructorId(instructor.id);
-                  setSelectedDate("");
-                  setMonthKey("");
-                }}
-                variant={selectedInstructorId === instructor.id ? "primary" : "secondary"}
-              />
-            ))}
+            {instructors.map((instructor) => {
+              const selected = selectedInstructorId === instructor.id;
+
+              return (
+                <Pressable
+                  key={instructor.id}
+                  onPress={() => {
+                    setSelectedInstructorId(instructor.id);
+                    setSelectedDate("");
+                    setMonthKey("");
+                  }}
+                  style={({ pressed }) => [
+                    styles.instructorPill,
+                    selected && styles.instructorPillSelected,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <AppText
+                    style={[
+                      styles.instructorPillText,
+                      selected && styles.instructorPillTextSelected,
+                    ]}
+                  >
+                    {instructor.name}
+                  </AppText>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
       ) : null}
@@ -240,14 +256,24 @@ export default function ScheduleRequestScreen() {
                 <Pressable
                   key={cell.key}
                   disabled={!cell.available}
-                  onPress={() => setSelectedDate(cell.key)}
-                  style={[
+                  onPress={() => {
+                    if (!cell.available) return;
+                    setSelectedDate(cell.key);
+                  }}
+                  style={({ pressed }) => [
                     styles.dayCell,
-                    cell.available && styles.dayAvailable,
+                    cell.available ? styles.dayAvailable : styles.dayUnavailable,
                     selectedDate === cell.key && styles.daySelected,
+                    pressed && cell.available && styles.pressed,
                   ]}
                 >
-                  <AppText style={selectedDate === cell.key ? styles.daySelectedText : styles.dayText}>
+                  <AppText
+                    style={[
+                      styles.dayText,
+                      !cell.available && styles.dayUnavailableText,
+                      selectedDate === cell.key && styles.daySelectedText,
+                    ]}
+                  >
                     {cell.day}
                   </AppText>
                   {cell.available ? <View style={styles.dot} /> : null}
@@ -263,7 +289,9 @@ export default function ScheduleRequestScreen() {
       {selectedDate ? (
         <View style={styles.section}>
           <AppText variant="subtitle">4. Choose a time</AppText>
-          <AppText variant="caption">{dayLabel(selectedDate)}</AppText>
+          <AppText variant="caption">
+            {dayLabel(selectedDate)} · {selectedDate}
+          </AppText>
           {visibleSlots.map((slot) => {
             const slotKey = `${slot.startsAt}|${slot.endsAt}`;
             return (
@@ -284,6 +312,35 @@ export default function ScheduleRequestScreen() {
 }
 
 const styles = StyleSheet.create({
+  dayUnavailable: {
+    opacity: 0.32,
+  },
+  dayUnavailableText: {
+    color: colors.muted,
+  },
+  instructorPill: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  instructorPillSelected: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  instructorPillText: {
+    color: colors.text,
+    fontWeight: "800",
+  },
+  instructorPillTextSelected: {
+    color: "#fff",
+  },
+  pressed: {
+    opacity: 0.72,
+  },
   calendarGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
