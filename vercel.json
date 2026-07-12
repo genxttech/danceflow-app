@@ -16,6 +16,10 @@
     {
       "path": "/api/cron/google-calendar-sync",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/aria-digest",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

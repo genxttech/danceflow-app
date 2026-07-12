@@ -29,6 +29,7 @@ type DigestStudioRow = {
   id: string;
   name: string | null;
   public_name: string | null;
+  timezone: string | null;
 };
 
 type DigestProfileRow = {
@@ -45,12 +46,47 @@ const ACTIVE_ACTION_STATUSES = [
   "snoozed",
 ] as const;
 
-function currentDateKey(now: Date) {
-  return now.toISOString().slice(0, 10);
-}
+function getLocalDateTimeParts(now: Date, timezone: string) {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(now);
 
-function currentTimeValue(now: Date) {
-  return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
+    const valueByType = new Map(
+      parts.map((part) => [part.type, part.value]),
+    );
+    const year = valueByType.get("year");
+    const month = valueByType.get("month");
+    const day = valueByType.get("day");
+    const hour = valueByType.get("hour");
+    const minute = valueByType.get("minute");
+
+    if (!year || !month || !day || !hour || !minute) {
+      throw new Error("Timezone parts were incomplete.");
+    }
+
+    return {
+      dateKey: `${year}-${month}-${day}`,
+      timeValue: `${hour}:${minute}`,
+    };
+  } catch {
+    const utcYear = now.getUTCFullYear();
+    const utcMonth = String(now.getUTCMonth() + 1).padStart(2, "0");
+    const utcDay = String(now.getUTCDate()).padStart(2, "0");
+    const utcHour = String(now.getUTCHours()).padStart(2, "0");
+    const utcMinute = String(now.getUTCMinutes()).padStart(2, "0");
+
+    return {
+      dateKey: `${utcYear}-${utcMonth}-${utcDay}`,
+      timeValue: `${utcHour}:${utcMinute}`,
+    };
+  }
 }
 
 function timeToMinutes(value: string | null | undefined) {
@@ -62,10 +98,10 @@ function timeToMinutes(value: string | null | undefined) {
 function isDigestDue(params: {
   preference: DigestPreferenceRow;
   digestType: DigestType;
-  now: Date;
+  localTimeValue: string;
   forceDigestType: DigestType | null;
 }) {
-  const { preference, digestType, now, forceDigestType } = params;
+  const { preference, digestType, localTimeValue, forceDigestType } = params;
 
   if (forceDigestType) {
     return forceDigestType === digestType;
@@ -73,8 +109,8 @@ function isDigestDue(params: {
 
   const enabled =
     digestType === "morning"
-      ? preference.morning_digest_enabled !== false
-      : preference.end_of_day_digest_enabled !== false;
+      ? preference.morning_digest_enabled === true
+      : preference.end_of_day_digest_enabled === true;
 
   if (!enabled) return false;
 
@@ -83,7 +119,7 @@ function isDigestDue(params: {
       ? preference.morning_digest_time ?? "08:00"
       : preference.end_of_day_digest_time ?? "17:00";
   const targetMinutes = timeToMinutes(configuredTime);
-  const currentMinutes = timeToMinutes(currentTimeValue(now));
+  const currentMinutes = timeToMinutes(localTimeValue);
 
   if (targetMinutes === null || currentMinutes === null) return false;
 
@@ -228,7 +264,7 @@ async function processDigestRun(params: {
     const [{ data: studio }, { data: actions, error: actionsError }, { data: profile }] = await Promise.all([
       adminSupabase
         .from("studios")
-        .select("id, name, public_name")
+        .select("id, name, public_name, timezone")
         .eq("id", preference.studio_id)
         .maybeSingle<DigestStudioRow>(),
       adminSupabase
@@ -352,32 +388,84 @@ async function handleDigestRequest(request: NextRequest) {
   const forceDigestType: DigestType | null =
     forceParam === "morning" || forceParam === "end_of_day" ? forceParam : null;
   const now = new Date();
-  const digestDate = currentDateKey(now);
   const adminSupabase = createAdminClient();
 
-  const { data: preferences, error } = await adminSupabase
-    .from("aria_digest_preferences")
-    .select(
-      "studio_id, morning_digest_enabled, end_of_day_digest_enabled, delivery_channel, default_recipient_user_id, morning_digest_time, end_of_day_digest_time",
-    );
+  const [
+    { data: preferences, error: preferencesError },
+    { data: studios, error: studiosError },
+  ] = await Promise.all([
+    adminSupabase
+      .from("aria_digest_preferences")
+      .select(
+        "studio_id, morning_digest_enabled, end_of_day_digest_enabled, delivery_channel, default_recipient_user_id, morning_digest_time, end_of_day_digest_time",
+      ),
+    adminSupabase.from("studios").select("id, timezone"),
+  ]);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (preferencesError || studiosError) {
+    return NextResponse.json(
+      {
+        error:
+          preferencesError?.message ||
+          studiosError?.message ||
+          "Failed to load ARIA digest schedule inputs.",
+      },
+      { status: 500 },
+    );
   }
 
-  const dueJobs = ((preferences ?? []) as DigestPreferenceRow[]).flatMap((preference) => {
-    const jobs: Array<{ preference: DigestPreferenceRow; digestType: DigestType }> = [];
+  const timezoneByStudioId = new Map(
+    ((studios ?? []) as Array<{ id: string; timezone: string | null }>).map(
+      (studio) => [studio.id, studio.timezone || "UTC"],
+    ),
+  );
 
-    if (isDigestDue({ preference, digestType: "morning", now, forceDigestType })) {
-      jobs.push({ preference, digestType: "morning" });
-    }
+  const dueJobs = ((preferences ?? []) as DigestPreferenceRow[]).flatMap(
+    (preference) => {
+      const timezone = timezoneByStudioId.get(preference.studio_id) || "UTC";
+      const local = getLocalDateTimeParts(now, timezone);
+      const jobs: Array<{
+        preference: DigestPreferenceRow;
+        digestType: DigestType;
+        digestDate: string;
+        timezone: string;
+      }> = [];
 
-    if (isDigestDue({ preference, digestType: "end_of_day", now, forceDigestType })) {
-      jobs.push({ preference, digestType: "end_of_day" });
-    }
+      if (
+        isDigestDue({
+          preference,
+          digestType: "morning",
+          localTimeValue: local.timeValue,
+          forceDigestType,
+        })
+      ) {
+        jobs.push({
+          preference,
+          digestType: "morning",
+          digestDate: local.dateKey,
+          timezone,
+        });
+      }
 
-    return jobs;
-  });
+      if (
+        isDigestDue({
+          preference,
+          digestType: "end_of_day",
+          localTimeValue: local.timeValue,
+          forceDigestType,
+        })
+      ) {
+        jobs.push({
+          preference,
+          digestType: "end_of_day",
+          digestDate: local.dateKey,
+          timezone,
+        });
+      }
+
+      return jobs;
+    },
+  );
 
   const totals = {
     due: dueJobs.length,
@@ -393,7 +481,7 @@ async function handleDigestRequest(request: NextRequest) {
       const result = await processDigestRun({
         preference: job.preference,
         digestType: job.digestType,
-        digestDate,
+        digestDate: job.digestDate,
         now,
       });
 
@@ -403,11 +491,22 @@ async function handleDigestRequest(request: NextRequest) {
       if (result.status === "duplicate") totals.duplicates += 1;
     } catch (error) {
       totals.failed += 1;
-      console.error("ARIA digest delivery failed", error);
+      console.error("ARIA digest delivery failed", {
+        error,
+        studioId: job.preference.studio_id,
+        digestType: job.digestType,
+        digestDate: job.digestDate,
+        timezone: job.timezone,
+      });
     }
   }
 
-  return NextResponse.json({ ok: true, digestDate, force: forceDigestType, totals });
+  return NextResponse.json({
+    ok: true,
+    force: forceDigestType,
+    evaluatedAt: now.toISOString(),
+    totals,
+  });
 }
 
 export async function GET(request: NextRequest) {
