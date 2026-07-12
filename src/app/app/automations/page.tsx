@@ -123,7 +123,7 @@ function formatDateTime(value: string | null | undefined) {
 
 function modeLabel(mode: string) {
   if (mode === "draft") return "Draft before send";
-  if (mode === "auto_send") return "Auto-send later";
+  if (mode === "auto_send") return "Send automatically";
   return "Suggestion only";
 }
 
@@ -316,15 +316,13 @@ export default async function AutomationsPage({
             <div>
               <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-pink-100">
                 <WandSparkles className="h-3.5 w-3.5" />
-                Automation foundation
+                Studio follow-up
               </div>
               <h1 className="mt-4 max-w-3xl text-3xl font-bold tracking-tight sm:text-4xl">
                 Let DanceFlow handle more of the everyday follow-up.
               </h1>
               <p className="mt-3 max-w-3xl text-sm leading-6 text-pink-50 sm:text-base">
-                Start with studio-controlled automation rules that create suggested actions.
-                Auto-send is intentionally held for later so your team can review templates,
-                consent, and timing first.
+                Choose how DanceFlow handles routine follow-up: flag it for review, prepare an editable draft, or send the approved message automatically.
               </p>
             </div>
 
@@ -345,6 +343,41 @@ export default async function AutomationsPage({
               </Link>
             </div>
           </div>
+        </section>
+
+        <section className="grid gap-3 md:grid-cols-3">
+          {[
+            {
+              step: "1",
+              title: "Choose the follow-up",
+              detail: "Turn on only the client situations your studio wants DanceFlow to watch.",
+            },
+            {
+              step: "2",
+              title: "Choose the level of control",
+              detail: "Keep a suggestion, prepare a draft, or send your approved template automatically.",
+            },
+            {
+              step: "3",
+              title: "Review the outcome",
+              detail: "Use the activity and delivery sections to catch failures and see what was completed.",
+            },
+          ].map((item) => (
+            <div
+              key={item.step}
+              className="rounded-3xl border border-violet-100 bg-white p-5 shadow-sm"
+            >
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#6B21A8] text-sm font-bold text-white">
+                {item.step}
+              </span>
+              <h2 className="mt-3 text-base font-semibold text-slate-950">
+                {item.title}
+              </h2>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                {item.detail}
+              </p>
+            </div>
+          ))}
         </section>
 
         {query.success === "updated" ? (
@@ -386,7 +419,7 @@ export default async function AutomationsPage({
             </p>
             <p className="mt-2 text-xl font-semibold">{formatDateTime(latestRun?.started_at)}</p>
             <p className="mt-1 text-sm text-slate-600">
-              Run enabled rules manually now. Scheduled evaluations can be added later.
+              See when DanceFlow last checked your enabled follow-up rules.
             </p>
           </div>
         </section>
@@ -514,10 +547,9 @@ export default async function AutomationsPage({
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
                 Rules
               </p>
-              <h2 className="mt-2 text-2xl font-semibold">Available automations</h2>
+              <h2 className="mt-2 text-2xl font-semibold">Choose what DanceFlow should handle</h2>
               <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
-                Turn on the workflows your studio wants DanceFlow to watch. V1 creates
-                controlled suggestions; auto-send is shown as a future mode.
+                Turn on the client follow-ups your studio wants DanceFlow to watch, then choose how much review each one needs.
               </p>
             </div>
           </div>
@@ -574,10 +606,12 @@ export default async function AutomationsPage({
                       >
                         <option value="suggestion">Suggestion only</option>
                         <option value="draft">Draft before send</option>
-                        <option value="auto_send" disabled>
-                          Auto-send later
-                        </option>
+                        <option value="auto_send">Send automatically</option>
                       </select>
+                      <span className="mt-2 block text-xs leading-5 text-slate-500">
+                        Automatic sends use the saved template and only run when
+                        a valid recipient email is available.
+                      </span>
                     </label>
 
                     <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm">
@@ -641,7 +675,7 @@ export default async function AutomationsPage({
                 Customize automation draft language
               </h2>
               <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
-                These defaults are used when an automation action creates an email draft. Staff can still edit each draft before queueing it for send.
+                These messages are used for editable drafts and automatic sends. Review the wording before enabling automatic delivery.
               </p>
             </div>
             <Mail className="h-6 w-6 text-[#DB2777]" />
@@ -776,7 +810,7 @@ export default async function AutomationsPage({
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
                   Suggested actions
                 </p>
-                <h2 className="mt-2 text-2xl font-semibold">Automation activity</h2>
+                <h2 className="mt-2 text-2xl font-semibold">3. Review and results</h2>
                 <p className="mt-1 text-sm text-slate-600">
                   Review suggested actions here, or use the draft inbox for a focused send-review workflow.
                 </p>
@@ -993,7 +1027,7 @@ export default async function AutomationsPage({
             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
               Run history
             </p>
-            <h2 className="mt-2 text-2xl font-semibold">Recent evaluations</h2>
+            <h2 className="mt-2 text-2xl font-semibold">Recent checks</h2>
 
             <div className="mt-5 space-y-3">
               {typedRuns.length > 0 ? (

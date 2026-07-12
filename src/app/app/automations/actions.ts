@@ -4154,6 +4154,183 @@ async function evaluateFirstLessonFollowUpAutomation(params: {
   return { candidatesCount, createdCount: actionsToCreate.length };
 }
 
+
+async function queueAutomaticAutomationEmailsForRun(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  runId: string;
+  ruleKey: string;
+}) {
+  const { supabase, studioId, runId, ruleKey } = params;
+
+  const { data: actions, error: actionsError } = await supabase
+    .from("automation_actions")
+    .select(
+      "id, studio_id, rule_key, title, body, status, related_table, related_id, client_id",
+    )
+    .eq("studio_id", studioId)
+    .eq("created_by_run_id", runId)
+    .eq("rule_key", ruleKey)
+    .eq("status", "suggested");
+
+  if (actionsError) {
+    throw new Error(actionsError.message);
+  }
+
+  const typedActions = (actions ?? []) as AutomationActionDraftRow[];
+  if (typedActions.length === 0) {
+    return { queuedCount: 0, skippedCount: 0 };
+  }
+
+  const clientIds = Array.from(
+    new Set(
+      typedActions
+        .map((action) => action.client_id)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
+  const bookingRequestIds = Array.from(
+    new Set(
+      typedActions
+        .filter(
+          (action) =>
+            action.related_table === "booking_requests" && action.related_id,
+        )
+        .map((action) => action.related_id as string),
+    ),
+  );
+
+  const [
+    { data: studio, error: studioError },
+    { data: clients, error: clientsError },
+    { data: bookingRequests, error: bookingRequestsError },
+    { data: template, error: templateError },
+  ] = await Promise.all([
+    supabase
+      .from("studios")
+      .select("id, name, public_name, slug")
+      .eq("id", studioId)
+      .maybeSingle(),
+    clientIds.length
+      ? supabase
+          .from("clients")
+          .select("id, first_name, last_name, email")
+          .eq("studio_id", studioId)
+          .in("id", clientIds)
+      : Promise.resolve({ data: [], error: null }),
+    bookingRequestIds.length
+      ? supabase
+          .from("booking_requests")
+          .select(
+            "id, customer_first_name, customer_last_name, customer_email, requested_starts_at",
+          )
+          .eq("studio_id", studioId)
+          .in("id", bookingRequestIds)
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("automation_email_templates")
+      .select("rule_key, subject, body_text")
+      .eq("studio_id", studioId)
+      .eq("rule_key", ruleKey)
+      .maybeSingle(),
+  ]);
+
+  if (studioError || clientsError || bookingRequestsError || templateError) {
+    throw new Error(
+      studioError?.message ||
+        clientsError?.message ||
+        bookingRequestsError?.message ||
+        templateError?.message ||
+        "Automatic follow-up data could not be loaded.",
+    );
+  }
+
+  const clientById = new Map(
+    ((clients ?? []) as DraftClientRow[]).map((client) => [client.id, client]),
+  );
+  const bookingRequestById = new Map(
+    ((bookingRequests ?? []) as DraftBookingRequestRow[]).map((request) => [
+      request.id,
+      request,
+    ]),
+  );
+  const typedStudio = (studio ?? null) as DraftStudioRow | null;
+  const typedTemplate = (template ??
+    null) as AutomationEmailTemplateRow | null;
+
+  let queuedCount = 0;
+  let skippedCount = 0;
+
+  for (const action of typedActions) {
+    const client = action.client_id
+      ? clientById.get(action.client_id) ?? null
+      : null;
+    const bookingRequest =
+      action.related_table === "booking_requests" && action.related_id
+        ? bookingRequestById.get(action.related_id) ?? null
+        : null;
+    const recipientEmail =
+      client?.email?.trim() || bookingRequest?.customer_email?.trim() || null;
+
+    if (!recipientEmail) {
+      skippedCount += 1;
+      continue;
+    }
+
+    const rendered = renderAutomationEmailDraft({
+      action,
+      client,
+      studio: typedStudio,
+      bookingRequest,
+      template: typedTemplate,
+    });
+    const now = new Date().toISOString();
+
+    const { error: deliveryError } = await supabase
+      .from("outbound_deliveries")
+      .insert({
+        studio_id: studioId,
+        channel: "email",
+        template_key: `automation_${action.rule_key}`,
+        recipient_email: recipientEmail,
+        recipient_phone: null,
+        subject: rendered.subject,
+        body_text: rendered.bodyText,
+        body_html: rendered.bodyHtml,
+        related_table: "automation_actions",
+        related_id: action.id,
+        dedupe_key: `automation:${action.id}:email-auto-send`,
+        status: "queued",
+        updated_at: now,
+      });
+
+    if (deliveryError && deliveryError.code !== "23505") {
+      throw new Error(deliveryError.message);
+    }
+
+    const { error: updateError } = await supabase
+      .from("automation_actions")
+      .update({
+        status: "queued",
+        reviewed_at: now,
+        reviewed_by: null,
+        review_note: "Queued automatically by the studio automation rule.",
+        updated_at: now,
+      })
+      .eq("id", action.id)
+      .eq("studio_id", studioId)
+      .eq("status", "suggested");
+
+    if (updateError) {
+      throw new Error(updateError.message);
+    }
+
+    queuedCount += 1;
+  }
+
+  return { queuedCount, skippedCount };
+}
+
 export async function evaluateAutomationRuleAction(formData: FormData) {
   const rateLimit = checkRateLimit(
     await getServerActionRateLimitKey("automation:evaluate-rule", [String(formData.get("ruleKey") ?? "")]),
@@ -4283,6 +4460,15 @@ export async function evaluateAutomationRuleAction(formData: FormData) {
     candidatesCount = result.candidatesCount;
     createdCount = result.createdCount;
     updatedCount = result.updatedCount ?? 0;
+
+    if (rule.mode === "auto_send" && createdCount > 0) {
+      await queueAutomaticAutomationEmailsForRun({
+        supabase,
+        studioId: context.studioId,
+        runId: run.id,
+        ruleKey,
+      });
+    }
 
     const finishedAt = new Date().toISOString();
 

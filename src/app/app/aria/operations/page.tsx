@@ -1022,22 +1022,22 @@ function getAriaRecommendationExplanation(
     : "Related source record was not attached.";
 
   const policyDecision = autoApproved
-    ? "Policy result: auto-approved because the rule policy and priority threshold allowed it."
+    ? "Your studio settings approved this item automatically."
     : action.status === "approved"
-      ? "Policy result: approved by staff or already approved before execution."
+      ? "This item has been approved by a team member."
       : action.status === "suggested" || action.status === "drafted"
-        ? "Policy result: manual review is required before ARIA can queue or execute anything."
+        ? "A team member needs to review this item before anything is sent."
         : queued
-          ? "Policy result: approved action was queued for outbound follow-up."
+          ? "The approved follow-up has been queued."
           : `Policy result: current lifecycle status is ${automationStatusLabel(action.status)}.`;
 
   const executionReadiness = details?.emailExecutable
     ? queued
-      ? "Execution: ARIA has queued the safe email follow-up for delivery processing."
+      ? "The approved follow-up is queued to send."
       : action.status === "approved"
-        ? "Execution: eligible for ARIA email queueing when Execute approved actions runs."
-        : "Execution: email-safe, but waiting for approval first."
-    : "Execution: staff-review only. ARIA will not execute this action automatically.";
+        ? "The approved follow-up is ready to be queued."
+        : "The follow-up can be sent after approval."
+    : "This item requires a staff decision and will not be handled automatically.";
 
   return {
     sourceSignal: details?.sourceSignal ?? action.rule_key.replaceAll("_", " "),
@@ -1084,7 +1084,7 @@ function AriaRecommendationExplanationBox({
           <p className="mt-1 leading-5">{explanation.policyDecision}</p>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-violet-100">
-          <p className="font-semibold text-slate-950">Execution readiness</p>
+          <p className="font-semibold text-slate-950">What happens next</p>
           <p className="mt-1 leading-5">{explanation.executionReadiness}</p>
         </div>
         <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-violet-100 sm:col-span-2">
@@ -1434,7 +1434,7 @@ function AriaActionSourceExpansionPanel({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#BE185D]">
-            ARIA action source expansion
+            Refresh ARIA recommendations
           </p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-950">
             Turn live operations signals into reviewable work
@@ -1492,7 +1492,7 @@ function AriaExecutionPanel({ actions }: { actions: AutomationActionRow[] }) {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
-            ARIA execution engine
+            Send approved follow-ups
           </p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-950">
             Execute approved safe actions
@@ -2599,9 +2599,9 @@ export default async function AriaOperationsCenterPage() {
         />
 
         <CollapsibleOperationsBlock
-          eyebrow="ARIA settings"
-          title="Automation controls and delivery settings"
-          description="Generate new ARIA work, tune auto-approval policies, and manage digest delivery without keeping setup controls at the top of the daily workflow."
+          eyebrow="4. Preferences and safeguards"
+          title="Choose what ARIA may handle and how you receive updates"
+          description="Adjust recommendation policies, team ownership, approval limits, and daily summaries. These settings stay out of the way of your day-to-day action list."
         >
           <AriaActionSourceExpansionPanel signalCount={organizerSignalCount} />
 
@@ -3117,58 +3117,77 @@ export default async function AriaOperationsCenterPage() {
         />
       </section>
 
-      <AriaDailyOpsReview
-        actions={automationActions}
-        teamMembers={teamMembers}
-        currentUserId={context.userId}
-        urgentCount={urgentCount}
-        warningCount={warningCount}
-        revenueRecoveryCount={revenueRecoveryCount}
-        retentionRiskCount={retentionRiskCount}
-      />
-
-      <AriaStaffOwnershipDashboard
-        actions={automationActions}
-        teamMembers={teamMembers}
-        currentUserId={context.userId}
-      />
-
-      <AriaActionReviewQueue
-        actions={automationActions}
-        teamMembers={teamMembers}
-        currentUserId={context.userId}
-      />
-
-      <AriaExecutionPanel actions={automationActions} />
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {operations.map((item) => (
-          <OperationCard key={item.key} item={item} />
-        ))}
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-3">
-        <MiniList
-          title="Payment exceptions"
-          empty="No pending or failed payments found."
-          items={paymentList}
+      <CollapsibleOperationsBlock
+        eyebrow="1. Today’s work"
+        title="Review and handle what needs attention"
+        description="Start here each day. Review ARIA’s prioritized work, approve the right next step, and clear or snooze anything that does not need action yet."
+        defaultOpen
+      >
+        <AriaDailyOpsReview
+          actions={automationActions}
+          teamMembers={teamMembers}
+          currentUserId={context.userId}
+          urgentCount={urgentCount}
+          warningCount={warningCount}
+          revenueRecoveryCount={revenueRecoveryCount}
+          retentionRiskCount={retentionRiskCount}
         />
-        <MiniList
-          title="Package renewal list"
-          empty="No low-balance packages found."
-          items={packageList}
+
+        <AriaActionReviewQueue
+          actions={automationActions}
+          teamMembers={teamMembers}
+          currentUserId={context.userId}
         />
-        <MiniList
-          title="Rebooking list"
-          empty="No rebooking risks found."
-          items={retentionList}
-        />
-      </section>
+      </CollapsibleOperationsBlock>
 
       <CollapsibleOperationsBlock
-        eyebrow="ARIA settings"
-        title="Automation controls and delivery settings"
-        description="Generate new ARIA work, tune auto-approval policies, and manage digest delivery without keeping setup controls at the top of the daily workflow."
+        eyebrow="2. Team follow-through"
+        title="Assign work and send approved follow-ups"
+        description="Give each action a clear owner, then queue the client follow-ups your team has approved."
+      >
+        <AriaStaffOwnershipDashboard
+          actions={automationActions}
+          teamMembers={teamMembers}
+          currentUserId={context.userId}
+        />
+
+        <AriaExecutionPanel actions={automationActions} />
+      </CollapsibleOperationsBlock>
+
+      <CollapsibleOperationsBlock
+        eyebrow="3. Business details"
+        title="Explore the issues behind today’s priorities"
+        description="Open this section when you need the underlying payment, package, membership, booking, or retention details."
+      >
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {operations.map((item) => (
+            <OperationCard key={item.key} item={item} />
+          ))}
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-3">
+          <MiniList
+            title="Payment exceptions"
+            empty="No pending or failed payments found."
+            items={paymentList}
+          />
+          <MiniList
+            title="Package renewal list"
+            empty="No low-balance packages found."
+            items={packageList}
+          />
+          <MiniList
+            title="Rebooking list"
+            empty="No rebooking risks found."
+            items={retentionList}
+          />
+        </section>
+      </CollapsibleOperationsBlock>
+
+      <CollapsibleOperationsBlock
+        eyebrow="4. Preferences and safeguards"
+        title="Choose what ARIA may handle and how you receive updates"
+        description="Adjust recommendation policies, team ownership, approval limits, and daily summaries. These settings stay out of the way of your day-to-day action list."
       >
         <AriaActionSourceExpansionPanel
           signalCount={
@@ -3192,27 +3211,26 @@ export default async function AriaOperationsCenterPage() {
         />
       </CollapsibleOperationsBlock>
 
-      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <section className="rounded-[28px] border border-violet-200 bg-violet-50/70 p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#BE185D]">
-              Next phase
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#6B21A8]">
+              Studio follow-up
             </p>
             <h2 className="mt-2 text-xl font-semibold text-slate-950">
-              Persistent ARIA actions
+              Set recurring follow-up once, then monitor the results
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              The Operations Center now prioritizes daily work first, then
-              keeps setup and automation controls in collapsible sections to
-              reduce scrolling on mobile. Final QA should now focus on workflow
-              order, empty states, and production smoke testing.
+              Use Automations to choose which routine client follow-ups should
+              remain suggestions, become editable drafts, or send automatically
+              using your studio’s approved message templates.
             </p>
           </div>
           <Link
             href="/app/automations"
-            className="inline-flex items-center justify-center rounded-2xl bg-[#BE185D] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#9D174D]"
+            className="inline-flex items-center justify-center rounded-2xl bg-[#6B21A8] px-4 py-3 text-sm font-semibold text-white shadow-sm hover:bg-[#581C87]"
           >
-            Automation settings
+            Manage automations
           </Link>
         </div>
       </section>
