@@ -1,4 +1,4 @@
-export type UploadValidationKind = "image" | "video" | "csv" | "generic";
+export type UploadValidationKind = "image" | "video" | "csv" | "pdf" | "generic";
 
 type UploadValidationOptions = {
   fieldLabel: string;
@@ -26,11 +26,13 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   "text/plain": "csv",
   "application/csv": "csv",
   "application/vnd.ms-excel": "csv",
+  "application/pdf": "pdf",
 };
 
 export const IMAGE_UPLOAD_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export const CSV_UPLOAD_MIME_TYPES = ["text/csv", "application/csv", "application/vnd.ms-excel", "text/plain"] as const;
 export const VIDEO_UPLOAD_MIME_TYPES = ["video/mp4", "video/quicktime", "video/webm"] as const;
+export const PDF_UPLOAD_MIME_TYPES = ["application/pdf"] as const;
 
 function normalizeMimeType(value: string | null | undefined) {
   return (value ?? "").trim().toLowerCase();
@@ -112,6 +114,11 @@ function isWebm(header: Uint8Array) {
   return header.length >= 4 && header[0] === 0x1a && header[1] === 0x45 && header[2] === 0xdf && header[3] === 0xa3;
 }
 
+function isPdf(header: Uint8Array) {
+  if (header.length < 5) return false;
+  return String.fromCharCode(...header.slice(0, 5)) === "%PDF-";
+}
+
 function hasNullByte(header: Uint8Array) {
   return header.some((byte) => byte === 0x00);
 }
@@ -134,6 +141,10 @@ function matchesExpectedSignature(kind: UploadValidationKind, mimeType: string, 
 
   if (kind === "csv") {
     return !hasNullByte(header);
+  }
+
+  if (kind === "pdf") {
+    return mimeType === "application/pdf" && isPdf(header);
   }
 
   return true;
