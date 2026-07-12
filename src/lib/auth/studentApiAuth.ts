@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
-import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 const UUID_PATTERN =
@@ -9,7 +9,13 @@ const UUID_PATTERN =
 export function extractStudentBearerToken(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";
   const match = authorization.match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim() || "";
+  const bearerToken = match?.[1]?.trim() || "";
+
+  if (bearerToken) {
+    return bearerToken;
+  }
+
+  return request.headers.get("x-danceflow-access-token")?.trim() || "";
 }
 
 export function normalizeStudentApiUuid(value: string | null | undefined) {
@@ -21,54 +27,31 @@ export function studentApiJsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-export function sameStudentEmail(
-  user: Pick<User, "email"> | null | undefined,
-  email: string | null | undefined,
-) {
+export function sameStudentEmail(user: Pick<User, "email"> | null | undefined, email: string | null | undefined) {
   const userEmail = user?.email?.trim().toLowerCase() ?? "";
   const candidate = email?.trim().toLowerCase() ?? "";
   return Boolean(userEmail && candidate && userEmail === candidate);
 }
 
-function createStudentTokenValidationClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !anonKey) {
-    throw new Error(
-      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.",
-    );
-  }
-
-  return createSupabaseClient(url, anonKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-      detectSessionInUrl: false,
-    },
-  });
-}
-
 export async function getStudentApiUser(request: Request) {
   const bearerToken = extractStudentBearerToken(request);
 
+  if (!bearerToken) {
+    console.error("Student API request arrived without an auth token", {
+      hasAuthorizationHeader: request.headers.has("authorization"),
+      hasDanceFlowTokenHeader: request.headers.has("x-danceflow-access-token"),
+      path: new URL(request.url).pathname,
+    });
+  }
+
   if (bearerToken) {
-    const authClient = createStudentTokenValidationClient();
+    const adminClient = createAdminClient();
     const {
       data: { user: bearerUser },
       error: bearerError,
-    } = await authClient.auth.getUser(bearerToken);
+    } = await adminClient.auth.getUser(bearerToken);
 
-    if (bearerError || !bearerUser) {
-      console.error("Student bearer-token validation failed", {
-        code: bearerError?.code ?? null,
-        status: bearerError?.status ?? null,
-        message: bearerError?.message ?? "No user returned.",
-        hasAuthorizationHeader: true,
-      });
-      return null;
-    }
-
+    if (bearerError || !bearerUser) return null;
     return bearerUser;
   }
 
