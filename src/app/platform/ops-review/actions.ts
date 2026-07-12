@@ -4,6 +4,13 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { createClient } from "@/lib/supabase/server";
+import {
+  cleanTextValue,
+  getValidatedValue,
+  normalizeOptionalUuid,
+  rawFormString,
+  safeLocalRedirectPath,
+} from "@/lib/validation/forms";
 
 const DISMISSAL_STATUSES = new Set(["reviewed", "skipped"]);
 const FOLLOW_UP_CATEGORIES = new Set([
@@ -17,9 +24,30 @@ const FOLLOW_UP_CATEGORIES = new Set([
 const FOLLOW_UP_PRIORITIES = new Set(["low", "medium", "high"]);
 
 function safeReturnPath(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/platform/ops-review";
-  return raw;
+  const path = safeLocalRedirectPath(typeof value === "string" ? value : "", "/platform/ops-review");
+  return path.startsWith("/platform") ? path : "/platform/ops-review";
+}
+
+function normalizeUuid(value: FormDataEntryValue | null, fieldLabel: string) {
+  const result = normalizeOptionalUuid(typeof value === "string" ? value : "", fieldLabel);
+  return result.ok ? result.value : null;
+}
+
+function cleanLimitedText(value: FormDataEntryValue | null, fieldLabel: string, maxLength: number) {
+  const result = cleanTextValue(typeof value === "string" ? value : "", {
+    fieldLabel,
+    maxLength,
+    allowNewlines: true,
+  });
+
+  return result.ok ? getValidatedValue(result) || null : null;
+}
+
+function normalizeSignalKey(value: FormDataEntryValue | null) {
+  const raw = rawFormString({ get: () => value } as unknown as FormData, "signalKey");
+  const normalized = raw.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9:_-]{0,120}$/.test(normalized)) return "";
+  return normalized;
 }
 
 function normalizeSetValue(value: FormDataEntryValue | null, allowed: Set<string>, fallback: string) {
@@ -28,8 +56,7 @@ function normalizeSetValue(value: FormDataEntryValue | null, allowed: Set<string
 }
 
 function nullableText(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  return raw || null;
+  return cleanLimitedText(value, "Note", 1200);
 }
 
 function nullableDate(value: FormDataEntryValue | null) {
@@ -53,8 +80,8 @@ export async function markPlatformOpsReviewSignalAction(formData: FormData) {
   await requirePlatformAdmin();
 
   const returnTo = safeReturnPath(formData.get("returnTo"));
-  const studioId = String(formData.get("studioId") ?? "").trim();
-  const signalKey = String(formData.get("signalKey") ?? "").trim();
+  const studioId = normalizeUuid(formData.get("studioId"), "Studio");
+  const signalKey = normalizeSignalKey(formData.get("signalKey"));
   const status = normalizeSetValue(formData.get("status"), DISMISSAL_STATUSES, "reviewed");
   const reason = nullableText(formData.get("reason"));
 
@@ -93,8 +120,8 @@ export async function createOpsReviewFollowUpAction(formData: FormData) {
   await requirePlatformAdmin();
 
   const returnTo = safeReturnPath(formData.get("returnTo"));
-  const studioId = String(formData.get("studioId") ?? "").trim();
-  const signalKey = String(formData.get("signalKey") ?? "").trim();
+  const studioId = normalizeUuid(formData.get("studioId"), "Studio");
+  const signalKey = normalizeSignalKey(formData.get("signalKey"));
   const category = normalizeSetValue(formData.get("category"), FOLLOW_UP_CATEGORIES, "onboarding_nudge");
   const priority = normalizeSetValue(formData.get("priority"), FOLLOW_UP_PRIORITIES, "medium");
   const note = nullableText(formData.get("note"));

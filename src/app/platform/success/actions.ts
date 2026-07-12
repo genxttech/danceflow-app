@@ -4,6 +4,12 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
 import { createClient } from "@/lib/supabase/server";
+import {
+  cleanTextValue,
+  getValidatedValue,
+  normalizeOptionalUuid,
+  safeLocalRedirectPath,
+} from "@/lib/validation/forms";
 
 const FOLLOW_UP_CATEGORIES = new Set([
   "onboarding_nudge",
@@ -26,9 +32,23 @@ const FOLLOW_UP_OUTCOMES = new Set([
 ]);
 
 function safeReturnPath(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  if (!raw || !raw.startsWith("/") || raw.startsWith("//")) return "/platform/success";
-  return raw;
+  const path = safeLocalRedirectPath(typeof value === "string" ? value : "", "/platform/success");
+  return path.startsWith("/platform") ? path : "/platform/success";
+}
+
+function normalizeUuid(value: FormDataEntryValue | null, fieldLabel: string) {
+  const result = normalizeOptionalUuid(typeof value === "string" ? value : "", fieldLabel);
+  return result.ok ? result.value : null;
+}
+
+function cleanLimitedText(value: FormDataEntryValue | null, fieldLabel: string, maxLength: number) {
+  const result = cleanTextValue(typeof value === "string" ? value : "", {
+    fieldLabel,
+    maxLength,
+    allowNewlines: true,
+  });
+
+  return result.ok ? getValidatedValue(result) || null : null;
 }
 
 function normalizeSetValue(value: FormDataEntryValue | null, allowed: Set<string>, fallback: string) {
@@ -37,8 +57,7 @@ function normalizeSetValue(value: FormDataEntryValue | null, allowed: Set<string
 }
 
 function nullableText(value: FormDataEntryValue | null) {
-  const raw = String(value ?? "").trim();
-  return raw || null;
+  return cleanLimitedText(value, "Note", 1200);
 }
 
 function nullableDate(value: FormDataEntryValue | null) {
@@ -52,7 +71,7 @@ function nullableDate(value: FormDataEntryValue | null) {
 export async function createPlatformSuccessFollowUpAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const studioId = String(formData.get("studioId") ?? "").trim();
+  const studioId = normalizeUuid(formData.get("studioId"), "Studio");
   const returnTo = safeReturnPath(formData.get("returnTo"));
 
   if (!studioId) {
@@ -93,7 +112,7 @@ export async function createPlatformSuccessFollowUpAction(formData: FormData) {
 export async function completePlatformSuccessFollowUpAction(formData: FormData) {
   await requirePlatformAdmin();
 
-  const followUpId = String(formData.get("followUpId") ?? "").trim();
+  const followUpId = normalizeUuid(formData.get("followUpId"), "Follow-up");
   const returnTo = safeReturnPath(formData.get("returnTo"));
   const outcome = normalizeSetValue(formData.get("outcome"), FOLLOW_UP_OUTCOMES, "contacted");
   const completionNote = nullableText(formData.get("completionNote"));

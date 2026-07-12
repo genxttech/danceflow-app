@@ -89,8 +89,15 @@ export async function clearStudioContextAction() {
 }
 
 export async function getPlatformSelectedStudioId() {
+  await requirePlatformAdmin();
+
   const cookieStore = await cookies();
-  return cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value ?? null;
+  const selectedStudioIdResult = normalizeOptionalUuid(
+    cookieStore.get(PLATFORM_STUDIO_COOKIE)?.value ?? "",
+    "Selected studio",
+  );
+
+  return selectedStudioIdResult.ok ? selectedStudioIdResult.value : null;
 }
 function normalizePlatformAlertType(value: FormDataEntryValue | null) {
   const normalized = String(value ?? "info").trim().toLowerCase();
