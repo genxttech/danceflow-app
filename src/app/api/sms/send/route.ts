@@ -194,8 +194,14 @@ export async function POST(request: Request) {
         .eq("id", logRow.id)
         .eq("studio_id", studioId);
 
+      console.error(
+        "Twilio SMS send failed",
+        sendResult.errorCode ?? "",
+        sendResult.error ?? "The text could not be sent.",
+      );
+
       return NextResponse.json(
-        { ok: false, error: sendResult.error ?? "The text could not be sent." },
+        { ok: false, error: "The text could not be sent. Please try again." },
         { status: 500 },
       );
     }

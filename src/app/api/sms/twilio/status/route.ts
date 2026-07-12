@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   });
 
   if (!messageSidResult.ok) {
-    return NextResponse.json({ ok: false, error: messageSidResult.error }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Invalid status payload." }, { status: 400 });
   }
 
   if (!messageStatusResult.ok || !errorCodeResult.ok || !errorMessageResult.ok) {
@@ -72,7 +72,8 @@ export async function POST(request: Request) {
   const supabase = getServiceSupabase();
 
   if (!supabase) {
-    return NextResponse.json({ ok: false, error: "Supabase service client is not configured." }, { status: 500 });
+    console.error("Twilio status callback service client is not configured.");
+    return NextResponse.json({ ok: false, error: "Status callback is temporarily unavailable." }, { status: 503 });
   }
 
   const mappedStatus = mapTwilioStatusToSmsLogStatus(messageStatus);
@@ -100,7 +101,8 @@ export async function POST(request: Request) {
     .eq("provider_message_id", messageSid);
 
   if (error) {
-    return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
+    console.error("Twilio status callback update failed", error.message);
+    return NextResponse.json({ ok: false, error: "Status callback could not be processed." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

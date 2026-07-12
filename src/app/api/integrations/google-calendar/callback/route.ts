@@ -63,43 +63,51 @@ export async function GET(request: NextRequest) {
     return redirectWithClearedState(request, "/app/settings/integrations/google-calendar?error=state_mismatch");
   }
 
-  const tokens = await exchangeGoogleCalendarCode({ code, redirectUri: callbackUrl(request) });
-  const accountEmail = await getGoogleAccountEmail(tokens.access_token);
-  const calendars = await listGoogleCalendars(tokens.access_token);
-  const primaryCalendar = calendars.find((calendar) => calendar.primary) ?? calendars[0] ?? null;
+  try {
+    const tokens = await exchangeGoogleCalendarCode({ code, redirectUri: callbackUrl(request) });
+    const accountEmail = await getGoogleAccountEmail(tokens.access_token);
+    const calendars = await listGoogleCalendars(tokens.access_token);
+    const primaryCalendar = calendars.find((calendar) => calendar.primary) ?? calendars[0] ?? null;
 
-  const scopes = tokens.scope ? tokens.scope.split(" ").filter(Boolean) : [];
-  const tokenExpiresAt = tokens.expires_in
-    ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
-    : null;
+    const scopes = tokens.scope ? tokens.scope.split(" ").filter(Boolean) : [];
+    const tokenExpiresAt = tokens.expires_in
+      ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+      : null;
 
-  const payload: Record<string, unknown> = {
-    studio_id: context.studioId,
-    status: "connected",
-    google_account_email: accountEmail,
-    calendar_id: primaryCalendar?.id ?? "primary",
-    calendar_summary: primaryCalendar?.summary ?? "Primary calendar",
-    scopes,
-    encrypted_access_token: encryptIntegrationSecret(tokens.access_token),
-    token_expires_at: tokenExpiresAt,
-    updated_by: user.id,
-    created_by: user.id,
-    last_sync_error: null,
-    updated_at: new Date().toISOString(),
-  };
+    const payload: Record<string, unknown> = {
+      studio_id: context.studioId,
+      status: "connected",
+      google_account_email: accountEmail,
+      calendar_id: primaryCalendar?.id ?? "primary",
+      calendar_summary: primaryCalendar?.summary ?? "Primary calendar",
+      scopes,
+      encrypted_access_token: encryptIntegrationSecret(tokens.access_token),
+      token_expires_at: tokenExpiresAt,
+      updated_by: user.id,
+      created_by: user.id,
+      last_sync_error: null,
+      updated_at: new Date().toISOString(),
+    };
 
-  if (tokens.refresh_token) {
-    payload.encrypted_refresh_token = encryptIntegrationSecret(tokens.refresh_token);
+    if (tokens.refresh_token) {
+      payload.encrypted_refresh_token = encryptIntegrationSecret(tokens.refresh_token);
+    }
+
+    const { error: upsertError } = await supabase.from("studio_google_calendar_connections").upsert(
+      payload,
+      { onConflict: "studio_id" },
+    );
+
+    if (upsertError) {
+      throw new Error(upsertError.message);
+    }
+
+    return redirectWithClearedState(request, "/app/settings/integrations/google-calendar?connected=1");
+  } catch (caught) {
+    console.error(
+      "Google Calendar OAuth callback failed",
+      caught instanceof Error ? caught.message : caught,
+    );
+    return redirectWithClearedState(request, "/app/settings/integrations/google-calendar?error=connection_failed");
   }
-
-  const { error: upsertError } = await supabase.from("studio_google_calendar_connections").upsert(
-    payload,
-    { onConflict: "studio_id" },
-  );
-
-  if (upsertError) {
-    throw new Error(`Failed to save Google Calendar connection: ${upsertError.message}`);
-  }
-
-  return redirectWithClearedState(request, "/app/settings/integrations/google-calendar?connected=1");
 }

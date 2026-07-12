@@ -48,6 +48,13 @@ function jsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
+function logServerError(message: string, error: unknown) {
+  console.error(
+    message,
+    error instanceof Error ? error.message : error,
+  );
+}
+
 export async function POST(request: NextRequest, { params }: Params) {
   const { orderId } = await params;
   const normalizedOrderId = normalizeStudentApiUuid(orderId);
@@ -126,7 +133,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     .eq("id", orderRow.id);
 
   if (orderUpdateError) {
-    return jsonError(orderUpdateError.message, 500);
+    logServerError("Student order confirmation update failed", orderUpdateError);
+    return jsonError("Event order could not be confirmed.", 500);
   }
 
   const { data: registrations, error: registrationsError } = await supabase
@@ -135,7 +143,8 @@ export async function POST(request: NextRequest, { params }: Params) {
     .eq("order_id", orderRow.id);
 
   if (registrationsError) {
-    return jsonError(registrationsError.message, 500);
+    logServerError("Student order registrations lookup failed", registrationsError);
+    return jsonError("Event order could not be confirmed.", 500);
   }
 
   const registrationRows = (registrations ?? []) as unknown as RegistrationRow[];
@@ -152,7 +161,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       .in("id", registrationIds);
 
     if (registrationUpdateError) {
-      return jsonError(registrationUpdateError.message, 500);
+      logServerError("Student order registration update failed", registrationUpdateError);
+      return jsonError("Event order could not be confirmed.", 500);
     }
   }
 
@@ -165,7 +175,8 @@ export async function POST(request: NextRequest, { params }: Params) {
       .maybeSingle();
 
     if (existingPaymentError) {
-      return jsonError(existingPaymentError.message, 500);
+      logServerError("Student order payment lookup failed", existingPaymentError);
+      return jsonError("Event order could not be confirmed.", 500);
     }
 
     if (!existingPayment) {
@@ -184,7 +195,8 @@ export async function POST(request: NextRequest, { params }: Params) {
         });
 
       if (paymentInsertError) {
-        return jsonError(paymentInsertError.message, 500);
+        logServerError("Student order payment insert failed", paymentInsertError);
+        return jsonError("Event order could not be confirmed.", 500);
       }
     }
   }

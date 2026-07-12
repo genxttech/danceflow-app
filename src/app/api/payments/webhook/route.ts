@@ -3784,6 +3784,17 @@ async function syncStripePayoutItems(params: {
   }
 }
 
+function webhookResponse(message: string, status = 200) {
+  return new Response(message, { status });
+}
+
+function logWebhookError(message: string, error: unknown) {
+  console.error(
+    message,
+    error instanceof Error ? error.message : error,
+  );
+}
+
 export async function POST(request: Request) {
   const stripe = getStripe();
   const body = await request.text();
@@ -3797,14 +3808,12 @@ export async function POST(request: Request) {
   );
 
   if (webhookSecrets.length === 0) {
-    return new Response(
-      "Missing STRIPE_WEBHOOK_SECRET or STRIPE_CONNECT_WEBHOOK_SECRET",
-      { status: 400 },
-    );
+    console.error("Stripe webhook secret is not configured.");
+    return webhookResponse("Webhook is not configured.", 503);
   }
 
   if (!signature) {
-    return new Response("Missing stripe-signature header", { status: 400 });
+    return webhookResponse("Invalid webhook request.", 400);
   }
 
   let event: Stripe.Event | null = null;
@@ -3820,11 +3829,8 @@ export async function POST(request: Request) {
   }
 
   if (!event) {
-    const message =
-      lastSignatureError instanceof Error
-        ? lastSignatureError.message
-        : "Unknown signature error";
-    return new Response(`Invalid signature: ${message}`, { status: 400 });
+    logWebhookError("Stripe webhook signature verification failed", lastSignatureError);
+    return webhookResponse("Invalid webhook signature.", 400);
   }
 
   const supabase = getSupabaseAdmin();
@@ -3838,7 +3844,8 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   if (existingEventError) {
-    return new Response("Event lookup failed", { status: 500 });
+    logWebhookError("Stripe webhook event lookup failed", existingEventError);
+    return webhookResponse("Webhook event lookup failed.", 500);
   }
 
   if (existingEvent?.status === "processed") {
@@ -3859,12 +3866,8 @@ export async function POST(request: Request) {
       .eq("provider_event_id", event.id);
 
     if (retryEventError) {
-      return new Response(
-        `Event retry logging failed: ${retryEventError.message}`,
-        {
-          status: 500,
-        },
-      );
+      logWebhookError("Stripe webhook retry logging failed", retryEventError);
+      return webhookResponse("Webhook event logging failed.", 500);
     }
   } else {
     const { error: insertEventError } = await supabase
@@ -3878,9 +3881,8 @@ export async function POST(request: Request) {
       });
 
     if (insertEventError) {
-      return new Response(`Event logging failed: ${insertEventError.message}`, {
-        status: 500,
-      });
+      logWebhookError("Stripe webhook event logging failed", insertEventError);
+      return webhookResponse("Webhook event logging failed.", 500);
     }
   }
 
@@ -4034,15 +4036,11 @@ export async function POST(request: Request) {
       .eq("provider_event_id", event.id);
 
     if (processedError) {
-      return new Response(
-        `Event finalization failed: ${processedError.message}`,
-        {
-          status: 500,
-        },
-      );
+      logWebhookError("Stripe webhook event finalization failed", processedError);
+      return webhookResponse("Webhook event finalization failed.", 500);
     }
 
-    return new Response(`Webhook processed: ${event.type}`, { status: 200 });
+    return webhookResponse("Webhook processed.", 200);
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown webhook error";
@@ -4056,8 +4054,7 @@ export async function POST(request: Request) {
       .eq("provider", "stripe")
       .eq("provider_event_id", event.id);
 
-    return new Response(`Webhook processing failed: ${errorMessage}`, {
-      status: 500,
-    });
+    logWebhookError("Stripe webhook processing failed", error);
+    return webhookResponse("Webhook processing failed.", 500);
   }
 }

@@ -1073,6 +1073,11 @@ export async function POST(request: NextRequest, { params }: Params) {
       registrationIds,
     });
   } catch (error) {
+    console.error(
+      "Student event checkout failed",
+      error instanceof Error ? error.message : error,
+    );
+
     await supabase
       .from("event_registrations")
       .update({
@@ -1092,6 +1097,6 @@ export async function POST(request: NextRequest, { params }: Params) {
       })
       .eq("id", order.id);
 
-    return jsonError(error instanceof Error ? error.message : "Checkout could not be started.");
+    return jsonError("Checkout could not be started. Please try again.");
   }
 }
