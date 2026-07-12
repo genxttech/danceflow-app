@@ -258,7 +258,9 @@ export async function loadStudentSelfServiceSlots(
     name: formatInstructorName(instructor),
   }));
 
-  const selectedInstructorId = params.instructorId?.trim() || null;
+  const requestedInstructorId = params.instructorId?.trim() || null;
+  const selectedInstructorId =
+    requestedInstructorId || (instructors.length === 1 ? instructors[0].id : null);
 
   if (
     selectedInstructorId &&
@@ -332,50 +334,6 @@ export async function loadStudentSelfServiceSlots(
     queryList<SelfServiceAppointmentHold>(appointmentsQuery, "Appointment lookup failed"),
   ]);
 
-  const slots = buildSelfServiceSlots({
-    settings,
-    windows,
-    blackouts,
-    appointmentHolds,
-    lessonType: params.lessonType ?? "private_lesson",
-    instructorId: selectedInstructorId,
-    roomId: params.roomId,
-    now,
-  });
-
-  console.info("Self-service slot diagnostics", {
-    studioId: studio.id,
-    studioSlug: studio.slug,
-    selectedInstructorId,
-    lessonType: params.lessonType ?? "private_lesson",
-    roomId: params.roomId ?? null,
-    timezone: settings.timezone,
-    windowDays: settings.portal_self_scheduling_window_days,
-    minNoticeHours: settings.portal_self_scheduling_min_notice_hours,
-    slotIntervalMinutes: settings.portal_self_scheduling_slot_interval_minutes,
-    defaultDurationMinutes: settings.portal_self_scheduling_default_duration_minutes,
-    availabilityWindowCount: windows.length,
-    blackoutCount: blackouts.length,
-    appointmentHoldCount: appointmentHolds.length,
-    generatedSlotCount: slots.length,
-    firstAvailabilityWindow: windows[0]
-      ? {
-          id: windows[0].id ?? null,
-          instructorId: windows[0].instructor_id,
-          roomId: windows[0].room_id,
-          lessonType: windows[0].lesson_type,
-          weekday: windows[0].weekday,
-          weekdayType: typeof windows[0].weekday,
-          startTime: windows[0].start_time,
-          endTime: windows[0].end_time,
-          effectiveStartDate: windows[0].effective_start_date,
-          effectiveEndDate: windows[0].effective_end_date,
-          active: windows[0].active,
-        }
-      : null,
-    firstGeneratedSlot: slots[0] ?? null,
-  });
-
   return {
     studio,
     client,
@@ -383,6 +341,15 @@ export async function loadStudentSelfServiceSlots(
     eligibility,
     bookingDecision,
     instructors,
-    slots,
+    slots: buildSelfServiceSlots({
+      settings,
+      windows,
+      blackouts,
+      appointmentHolds,
+      lessonType: params.lessonType ?? "private_lesson",
+      instructorId: selectedInstructorId,
+      roomId: params.roomId,
+      now,
+    }),
   };
 }
