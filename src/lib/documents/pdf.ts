@@ -11,7 +11,11 @@ export type SigningField = {
   height: number;
   label: string;
   required: boolean;
+  placeholder_text?: string | null;
+  default_value?: string | null;
 };
+
+export type PdfPageSize = { pageNumber: number; width: number; height: number };
 
 export function sha256Hex(bytes: Uint8Array) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -22,10 +26,17 @@ export async function getPdfPageCount(bytes: Uint8Array) {
   return pdf.getPageCount();
 }
 
+export async function getPdfPageSizes(bytes: Uint8Array): Promise<PdfPageSize[]> {
+  const pdf = await PDFDocument.load(bytes, { ignoreEncryption: false });
+  return pdf.getPages().map((page, index) => {
+    const { width, height } = page.getSize();
+    return { pageNumber: index + 1, width, height };
+  });
+}
+
 function fitTextSize(value: string, width: number, height: number) {
   const byHeight = Math.max(8, Math.min(18, height * 0.55));
-  const byWidth = Math.max(8, Math.min(byHeight, width / Math.max(1, value.length * 0.55)));
-  return byWidth;
+  return Math.max(8, Math.min(byHeight, width / Math.max(1, value.length * 0.55)));
 }
 
 export async function applySigningFields(params: {
@@ -52,12 +63,14 @@ export async function applySigningFields(params: {
 
     if (field.field_type === "checkbox") {
       if (raw === true || raw === "true" || raw === "on") {
+        page.drawRectangle({ x, y, width, height, borderWidth: 0.8, borderColor: rgb(0.15, 0.15, 0.15) });
         page.drawText("X", { x: x + 3, y: y + 2, size: Math.max(10, height * 0.75), font });
       }
       continue;
     }
 
     let value = typeof raw === "string" ? raw.trim() : "";
+    if (!value) value = field.default_value?.trim() ?? "";
     if (field.field_type === "date" && !value) value = new Date(params.signedAt).toLocaleDateString("en-US");
     if (field.field_type === "signature" && !value) value = params.signerName;
     if (field.field_type === "printed_name" && !value) value = params.signerName;
@@ -68,7 +81,7 @@ export async function applySigningFields(params: {
       x: x + 3,
       y: y + Math.max(2, (height - size) / 2),
       size,
-      font: field.field_type === "signature" ? italic : font,
+      font: field.field_type === "signature" || field.field_type === "initials" ? italic : font,
       color: rgb(0.08, 0.08, 0.08),
       maxWidth: Math.max(10, width - 6),
     });

@@ -1014,6 +1014,15 @@ export default async function DocumentsPage({
             Create reusable waivers, policies, agreements, and releases for your
             studio or organizer events. DanceFlow sends, tracks, and follows up on documents so your team only handles exceptions and approval decisions.
           </p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link
+              href="/app/documents/sign"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-[var(--brand-primary)] shadow-sm transition hover:bg-white/90"
+            >
+              <FileSignature className="h-4 w-4" />
+              Send PDF for signature
+            </Link>
+          </div>
         </div>
       </section>
 

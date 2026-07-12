@@ -34,7 +34,7 @@ export async function completeSigningAction(formData: FormData) {
 
   const { data: fields, error: fieldsError } = await admin
     .from("document_sign_fields")
-    .select("id,field_type,page_number,x,y,width,height,label,required")
+    .select("id,field_type,page_number,x,y,width,height,label,required,placeholder_text,default_value")
     .eq("envelope_id", envelope.id)
     .order("sort_order");
   if (fieldsError || !fields?.length) redirect(`/sign/${encodeURIComponent(token)}?error=fields_unavailable`);
@@ -42,11 +42,17 @@ export async function completeSigningAction(formData: FormData) {
   const values: Record<string, string | boolean> = {};
   for (const field of fields as SigningField[]) {
     const key = `field_${field.id}`;
-    if (field.field_type === "checkbox") values[field.id] = formData.get(key) === "on";
-    else values[field.id] = clean(formData.get(key), 500);
-    if (field.required && field.field_type !== "date" && field.field_type !== "signature" && field.field_type !== "printed_name" && !values[field.id]) {
-      redirect(`/sign/${encodeURIComponent(token)}?error=missing_required_fields`);
+    if (field.field_type === "checkbox") {
+      values[field.id] = formData.get(key) === "on";
+      if (field.required && values[field.id] !== true) redirect(`/sign/${encodeURIComponent(token)}?error=missing_required_fields`);
+      continue;
     }
+    let value = clean(formData.get(key), 500);
+    if (!value) value = field.default_value?.trim() ?? "";
+    if (!value && field.field_type === "date") value = new Date().toLocaleDateString("en-US");
+    if (!value && ["signature", "printed_name"].includes(field.field_type)) value = signerName;
+    values[field.id] = value;
+    if (field.required && !value) redirect(`/sign/${encodeURIComponent(token)}?error=missing_required_fields`);
   }
 
   const { data: sourceBlob, error: sourceError } = await admin.storage.from(envelope.source_bucket).download(envelope.source_path);

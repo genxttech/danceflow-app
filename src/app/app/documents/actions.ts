@@ -6,7 +6,11 @@ import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireStudioFeature } from "@/lib/billing/access";
 import { sendMobilePushToUser } from "@/lib/notifications/expoPush";
+import { randomUUID } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { DOCUMENT_FILES_BUCKET, sourceStoragePath } from "@/lib/documents/signing";
+import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
+import { renderTemplateVersionPdf } from "@/lib/documents/template-pdf";
 
 export type DocumentActionState = {
   error?: string;
@@ -352,7 +356,7 @@ export async function assignDocumentToClientAction(formData: FormData) {
 
   if (owner.scope !== "studio") {
     redirect(
-      "/app/documents?error=Client document assignment is available for studio documents. Organizer event waivers will be handled from the event workflow.",
+      "/app/documents?error=Client document assignment is available for studio documents. Organizer event waivers remain in the event workflow.",
     );
   }
 
@@ -368,7 +372,7 @@ export async function assignDocumentToClientAction(formData: FormData) {
 
   const { data: template, error: templateError } = await owner.supabase
     .from("document_templates")
-    .select("id, studio_id, is_active, current_version")
+    .select("id,studio_id,is_active,current_version,current_version_id,title,description,body,default_consent_text")
     .eq("id", templateId)
     .eq("studio_id", owner.studioId)
     .maybeSingle();
@@ -377,16 +381,20 @@ export async function assignDocumentToClientAction(formData: FormData) {
     redirect("/app/documents?error=Document template not found or inactive.");
   }
 
-  const { data: version } = await owner.supabase
+  const { data: version, error: versionError } = await owner.supabase
     .from("document_template_versions")
-    .select("id")
+    .select("id,version_number,title,description,body,consent_text")
+    .eq("id", template.current_version_id)
     .eq("template_id", templateId)
-    .eq("version_number", Number(template.current_version ?? 1))
     .maybeSingle();
+
+  if (versionError || !version) {
+    redirect("/app/documents?error=The current document version could not be loaded.");
+  }
 
   const { data: client, error: clientError } = await owner.supabase
     .from("clients")
-    .select("id, email, portal_user_id")
+    .select("id,first_name,last_name,email,portal_user_id")
     .eq("id", clientId)
     .eq("studio_id", owner.studioId)
     .maybeSingle();
@@ -395,20 +403,19 @@ export async function assignDocumentToClientAction(formData: FormData) {
     redirect("/app/documents?error=Client not found.");
   }
 
-  const { data: existing, error: existingError } = await owner.supabase
+  const signerEmail = typeof client.email === "string" ? client.email.trim().toLowerCase() : "";
+  if (!signerEmail || !signerEmail.includes("@")) {
+    redirect("/app/documents?error=Add a valid client email before sending a document for signature.");
+  }
+
+  const { data: existing } = await owner.supabase
     .from("document_assignments")
-    .select("id")
+    .select("id,sign_envelope_id")
     .eq("template_id", templateId)
     .eq("client_id", clientId)
     .eq("status", "pending")
     .limit(1)
     .maybeSingle();
-
-  if (existingError) {
-    redirect(
-      `/app/documents?error=${encodeURIComponent(existingError.message)}`,
-    );
-  }
 
   if (existing) {
     redirect(
@@ -416,33 +423,97 @@ export async function assignDocumentToClientAction(formData: FormData) {
     );
   }
 
+  const signerName = [client.first_name, client.last_name].filter(Boolean).join(" ").trim() || signerEmail;
+  const pdfBytes = await renderTemplateVersionPdf({
+    title: version.title || template.title,
+    description: version.description ?? template.description,
+    body: version.body || template.body,
+    versionNumber: Number(version.version_number ?? template.current_version ?? 1),
+    consentText: version.consent_text ?? template.default_consent_text,
+  });
+
+  const pageSizes = await getPdfPageSizes(pdfBytes);
+  const envelopeId = randomUUID();
+  const assignmentId = randomUUID();
+  const sourcePath = sourceStoragePath(owner.studioId, envelopeId);
   const dueAt = dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : null;
+  const expiresAt = dueAt ?? new Date(Date.now() + 7 * 86400000).toISOString();
+  const admin = createAdminClient();
 
-  const { data: assignment, error } = await owner.supabase.from("document_assignments").insert({
-    template_id: templateId,
-    template_version_id: version?.id ?? null,
-    studio_id: owner.studioId,
-    client_id: clientId,
-    assigned_to_email: typeof client.email === "string" ? client.email : null,
-    status: "pending",
-    due_at: dueAt,
-    assigned_by: owner.userId,
-  }).select("id").single();
-
-  if (error) {
-    redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
-  }
-
-  if (assignment?.id) {
-    await queueDocumentAssignmentEmail({
-      assignmentId: assignment.id,
-      studioId: owner.studioId,
-      clientId,
-      recipientEmail: typeof client.email === "string" ? client.email : null,
-      templateId,
-      reason: "assignment",
+  const { error: uploadError } = await admin.storage
+    .from(DOCUMENT_FILES_BUCKET)
+    .upload(sourcePath, pdfBytes, {
+      contentType: "application/pdf",
+      upsert: false,
+      cacheControl: "0",
     });
+
+  if (uploadError) {
+    redirect("/app/documents?error=Could not create the signing PDF.");
   }
+
+  const { error: envelopeError } = await admin
+    .from("document_sign_envelopes")
+    .insert({
+      id: envelopeId,
+      studio_id: owner.studioId,
+      template_id: templateId,
+      template_version_id: version.id,
+      client_id: clientId,
+      assignment_id: assignmentId,
+      source_kind: "template_version",
+      title: version.title || template.title,
+      signer_name: signerName,
+      signer_email: signerEmail,
+      status: "draft",
+      token_hash: null,
+      source_bucket: DOCUMENT_FILES_BUCKET,
+      source_path: sourcePath,
+      source_sha256: sha256Hex(pdfBytes),
+      page_count: pageSizes.length,
+      page_sizes: pageSizes,
+      expires_at: expiresAt,
+      created_by: owner.userId,
+    });
+
+  if (envelopeError) {
+    await admin.storage.from(DOCUMENT_FILES_BUCKET).remove([sourcePath]);
+    redirect("/app/documents?error=Could not create the signing request.");
+  }
+
+  const { error: assignmentError } = await admin
+    .from("document_assignments")
+    .insert({
+      id: assignmentId,
+      template_id: templateId,
+      template_version_id: version.id,
+      studio_id: owner.studioId,
+      client_id: clientId,
+      assigned_to_email: signerEmail,
+      status: "pending",
+      due_at: dueAt,
+      assigned_by: owner.userId,
+      sign_envelope_id: envelopeId,
+    });
+
+  if (assignmentError) {
+    await admin.from("document_sign_envelopes").delete().eq("id", envelopeId);
+    await admin.storage.from(DOCUMENT_FILES_BUCKET).remove([sourcePath]);
+    redirect("/app/documents?error=Could not create the client assignment.");
+  }
+
+  await admin.from("document_sign_events").insert({
+    envelope_id: envelopeId,
+    event_type: "created",
+    actor_user_id: owner.userId,
+    summary: "Signing draft created from a document template version.",
+    metadata: {
+      template_id: templateId,
+      template_version_id: version.id,
+      client_id: clientId,
+      assignment_id: assignmentId,
+    },
+  });
 
   const portalUserId =
     typeof client.portal_user_id === "string" ? client.portal_user_id : null;
@@ -451,20 +522,21 @@ export async function assignDocumentToClientAction(formData: FormData) {
     await sendMobilePushToUser({
       userId: portalUserId,
       category: "account",
-      title: "Document needs review",
-      body: "Your studio assigned a document for you to review and sign.",
+      title: "Document is being prepared",
+      body: "Your studio is preparing a document for your signature.",
       data: {
-        source: "document_assignment_created",
+        source: "document_sign_draft_created",
         templateId,
+        envelopeId,
       },
     }).catch((pushError) => {
-      console.error("Failed to send document assignment mobile push", pushError);
+      console.error("Failed to send document draft mobile push", pushError);
     });
   }
 
   revalidatePath("/app/documents");
   revalidatePath(`/app/clients/${clientId}`);
-  redirect("/app/documents?success=assigned");
+  redirect(`/app/documents/sign/${envelopeId}/edit?source=template`);
 }
 
 export async function assignDocumentToEventAction(formData: FormData) {
@@ -662,13 +734,12 @@ export async function toggleDocumentTemplateStatusAction(formData: FormData) {
   redirect("/app/documents?success=status_updated");
 }
 
-
 function htmlEscape(value: string) {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
+    .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
 
@@ -680,16 +751,32 @@ async function queueDocumentAssignmentEmail(params: {
   templateId: string;
   reason: "assignment" | "manual_reminder";
 }) {
-  if (!params.recipientEmail?.trim()) return { queued: false, reason: "missing_email" as const };
+  if (!params.recipientEmail?.trim()) {
+    return { queued: false, reason: "missing_email" as const };
+  }
 
   const admin = createAdminClient();
-  const [{ data: studio }, { data: template }, { data: client }] = await Promise.all([
-    admin.from("studios").select("name, public_name, slug").eq("id", params.studioId).maybeSingle(),
-    admin.from("document_templates").select("title").eq("id", params.templateId).maybeSingle(),
-    params.clientId
-      ? admin.from("clients").select("first_name, last_name").eq("id", params.clientId).eq("studio_id", params.studioId).maybeSingle()
-      : Promise.resolve({ data: null }),
-  ]);
+  const [{ data: studio }, { data: template }, { data: client }] =
+    await Promise.all([
+      admin
+        .from("studios")
+        .select("name, public_name, slug")
+        .eq("id", params.studioId)
+        .maybeSingle(),
+      admin
+        .from("document_templates")
+        .select("title")
+        .eq("id", params.templateId)
+        .maybeSingle(),
+      params.clientId
+        ? admin
+            .from("clients")
+            .select("first_name, last_name")
+            .eq("id", params.clientId)
+            .eq("studio_id", params.studioId)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
 
   const studioName = studio?.public_name || studio?.name || "Your studio";
   const clientName = client
@@ -712,7 +799,9 @@ async function queueDocumentAssignmentEmail(params: {
   const { error } = await admin.from("outbound_deliveries").insert({
     studio_id: params.studioId,
     channel: "email",
-    template_key: isReminder ? "document_signature_reminder" : "document_assignment",
+    template_key: isReminder
+      ? "document_signature_reminder"
+      : "document_assignment",
     recipient_email: params.recipientEmail.trim(),
     recipient_phone: null,
     subject,
@@ -734,88 +823,77 @@ async function queueDocumentAssignmentEmail(params: {
     studio_id: params.studioId,
     assignment_id: params.assignmentId,
     event_type: isReminder ? "reminder_queued" : "assignment_delivery_queued",
-    summary: isReminder ? "Signature reminder queued." : "Document assignment email queued.",
-    metadata: { channel: "email", recipient: params.recipientEmail },
+    summary: isReminder
+      ? "Signature reminder queued."
+      : "Document assignment email queued.",
+    metadata: {
+      channel: "email",
+      recipient: params.recipientEmail,
+    },
   });
 
   return { queued: true as const };
 }
 
-async function getManagedAssignment(
-  formData: FormData,
-): Promise<
-  | {
-      ok: true;
-      owner: {
-        supabase: Awaited<ReturnType<typeof createClient>>;
-        userId: string;
-        studioId: string;
-        scope: "studio";
-        organizerId: null;
-      };
-      assignment: {
-        id: string;
-        studio_id: string;
-        client_id: string | null;
-        template_id: string;
-        assigned_to_email: string | null;
-        status: string;
-      };
-    }
-  | {
-      ok: false;
-      error: string;
-    }
-> {
+async function getManagedAssignment(formData: FormData) {
   const owner = await resolveOwnerContext(formData);
 
   if ("error" in owner || owner.scope !== "studio") {
     return {
-      ok: false,
       error: "You do not have permission to manage this assignment.",
-    };
+    } as const;
   }
 
   const assignmentId = getString(formData, "assignmentId");
 
   if (!assignmentId) {
-    return {
-      ok: false,
-      error: "Assignment not found.",
-    };
+    return { error: "Assignment not found." } as const;
   }
 
   const { data, error } = await owner.supabase
     .from("document_assignments")
     .select(
-      "id, studio_id, client_id, template_id, assigned_to_email, status",
+      "id, studio_id, client_id, template_id, assigned_to_email, status, sign_envelope_id",
     )
     .eq("id", assignmentId)
     .eq("studio_id", owner.studioId)
     .maybeSingle();
 
   if (error || !data) {
-    return {
-      ok: false,
-      error: "Assignment not found.",
-    };
+    return { error: "Assignment not found." } as const;
   }
 
-  return {
-    ok: true,
-    owner: {
-      ...owner,
-      scope: "studio",
-      organizerId: null,
-    },
-    assignment: data,
-  };
+  return { owner, assignment: data } as const;
 }
 
 export async function sendDocumentReminderAction(formData: FormData) {
   const result = await getManagedAssignment(formData);
-  if (!result.ok) redirect(`/app/documents?error=${encodeURIComponent(result.error)}`);
-  if (result.assignment.status !== "pending") redirect("/app/documents?error=Only pending documents can receive reminders.");
+
+  if ("error" in result) {
+    return redirect(
+      `/app/documents?error=${encodeURIComponent(result.error ?? "Assignment not found.")}`,
+    );
+  }
+
+  if (result.assignment.status !== "pending") {
+    redirect(
+      "/app/documents?error=Only pending documents can receive reminders.",
+    );
+  }
+
+  if (result.assignment.sign_envelope_id) {
+    const { data: envelope } = await result.owner.supabase
+      .from("document_sign_envelopes")
+      .select("id, status")
+      .eq("id", result.assignment.sign_envelope_id)
+      .eq("studio_id", result.owner.studioId)
+      .maybeSingle();
+
+    if (envelope?.status === "draft") {
+      redirect(`/app/documents/sign/${envelope.id}/edit`);
+    }
+  }
+
   const queued = await queueDocumentAssignmentEmail({
     assignmentId: result.assignment.id,
     studioId: result.owner.studioId,
@@ -824,30 +902,103 @@ export async function sendDocumentReminderAction(formData: FormData) {
     templateId: result.assignment.template_id,
     reason: "manual_reminder",
   });
-  if (!queued.queued) redirect(`/app/documents?error=${queued.reason === "missing_email" ? "This client does not have an email address." : "Could not queue the reminder."}`);
+
+  if (!queued.queued) {
+    redirect(
+      `/app/documents?error=${
+        queued.reason === "missing_email"
+          ? "This client does not have an email address."
+          : "Could not queue the reminder."
+      }`,
+    );
+  }
+
   revalidatePath("/app/documents");
   redirect("/app/documents?success=reminder_queued");
 }
 
 export async function waiveDocumentAssignmentAction(formData: FormData) {
   const result = await getManagedAssignment(formData);
-  if (!result.ok) redirect(`/app/documents?error=${encodeURIComponent(result.error)}`);
+
+  if ("error" in result) {
+    return redirect(
+      `/app/documents?error=${encodeURIComponent(result.error ?? "Assignment not found.")}`,
+    );
+  }
+
   const now = new Date().toISOString();
-  const { error } = await result.owner.supabase.from("document_assignments").update({ status: "waived", completed_at: now }).eq("id", result.assignment.id).eq("studio_id", result.owner.studioId).eq("status", "pending");
-  if (error) redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
-  await createAdminClient().from("document_operation_events").insert({ studio_id: result.owner.studioId, assignment_id: result.assignment.id, event_type: "waived", summary: "Required document waived by studio staff.", actor_user_id: result.owner.userId });
+  const { error } = await result.owner.supabase
+    .from("document_assignments")
+    .update({ status: "waived", completed_at: now })
+    .eq("id", result.assignment.id)
+    .eq("studio_id", result.owner.studioId)
+    .eq("status", "pending");
+
+  if (error) {
+    redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
+  }
+
+  if (result.assignment.sign_envelope_id) {
+    await createAdminClient()
+      .from("document_sign_envelopes")
+      .update({ status: "void", voided_at: now })
+      .eq("id", result.assignment.sign_envelope_id)
+      .eq("studio_id", result.owner.studioId)
+      .eq("status", "draft");
+  }
+
+  await createAdminClient().from("document_operation_events").insert({
+    studio_id: result.owner.studioId,
+    assignment_id: result.assignment.id,
+    event_type: "waived",
+    summary: "Required document waived by studio staff.",
+    actor_user_id: result.owner.userId,
+  });
+
   revalidatePath("/app/documents");
   redirect("/app/documents?success=waived");
 }
 
 export async function voidDocumentAssignmentAction(formData: FormData) {
   const result = await getManagedAssignment(formData);
-  if (!result.ok) redirect(`/app/documents?error=${encodeURIComponent(result.error)}`);
-  const reason = cleanText(getString(formData, "reason"), 500) || "Voided by studio staff.";
+
+  if ("error" in result) {
+    return redirect(
+      `/app/documents?error=${encodeURIComponent(result.error ?? "Assignment not found.")}`,
+    );
+  }
+
+  const reason =
+    cleanText(getString(formData, "reason"), 500) || "Voided by studio staff.";
   const now = new Date().toISOString();
-  const { error } = await result.owner.supabase.from("document_assignments").update({ status: "void", voided_at: now, void_reason: reason }).eq("id", result.assignment.id).eq("studio_id", result.owner.studioId).eq("status", "pending");
-  if (error) redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
-  await createAdminClient().from("document_operation_events").insert({ studio_id: result.owner.studioId, assignment_id: result.assignment.id, event_type: "voided", summary: reason, actor_user_id: result.owner.userId });
+  const { error } = await result.owner.supabase
+    .from("document_assignments")
+    .update({ status: "void", voided_at: now, void_reason: reason })
+    .eq("id", result.assignment.id)
+    .eq("studio_id", result.owner.studioId)
+    .eq("status", "pending");
+
+  if (error) {
+    redirect(`/app/documents?error=${encodeURIComponent(error.message)}`);
+  }
+
+  if (result.assignment.sign_envelope_id) {
+    await createAdminClient()
+      .from("document_sign_envelopes")
+      .update({ status: "void", voided_at: now })
+      .eq("id", result.assignment.sign_envelope_id)
+      .eq("studio_id", result.owner.studioId)
+      .in("status", ["draft", "sent", "viewed"]);
+  }
+
+  await createAdminClient().from("document_operation_events").insert({
+    studio_id: result.owner.studioId,
+    assignment_id: result.assignment.id,
+    event_type: "voided",
+    summary: reason,
+    actor_user_id: result.owner.userId,
+  });
+
   revalidatePath("/app/documents");
   redirect("/app/documents?success=voided");
 }
