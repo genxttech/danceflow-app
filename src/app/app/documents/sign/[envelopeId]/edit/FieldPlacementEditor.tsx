@@ -49,8 +49,31 @@ export default function FieldPlacementEditor({ envelopeId, pageSizes, initialFie
     </aside>
 
     <section className="min-w-0 rounded-2xl border border-slate-200 bg-slate-200 p-3 shadow-sm">
-      <div ref={surfaceRef} className="relative mx-auto overflow-hidden bg-white shadow-lg" style={{ aspectRatio: `${currentSize.width}/${currentSize.height}`, maxHeight: "78vh" }}>
-        <object aria-label={`PDF page ${page}`} data={`/app/documents/sign/${envelopeId}/source#page=${page}&toolbar=0&navpanes=0&scrollbar=0&view=Fit`} type="application/pdf" className="absolute inset-0 h-full w-full pointer-events-none" />
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold text-slate-600">Page {page} preview</p>
+        <a
+          href={`/app/documents/sign/${envelopeId}/source`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-xs font-semibold text-violet-700 hover:underline"
+        >
+          Open source PDF
+        </a>
+      </div>
+      <div
+        ref={surfaceRef}
+        className="relative mx-auto w-full overflow-hidden bg-white shadow-lg"
+        style={{
+          aspectRatio: `${currentSize.width}/${currentSize.height}`,
+          maxWidth: currentSize.width,
+          minHeight: 480,
+        }}
+      >
+        <iframe
+          title={`PDF page ${page}`}
+          src={`/app/documents/sign/${envelopeId}/source#page=${page}&toolbar=0&navpanes=0&scrollbar=0&view=FitH`}
+          className="absolute inset-0 h-full w-full border-0 pointer-events-none"
+        />
         <div className="absolute inset-0" onPointerDown={() => setSelectedId(null)}>
           {pageFields.map((field) => <div key={field.id} onPointerDown={(event) => startDrag(event, field)} className={`absolute cursor-move select-none rounded border-2 px-2 py-1 text-[11px] font-semibold shadow-sm ${selectedId === field.id ? "border-violet-700 bg-violet-100/90" : "border-violet-400 bg-violet-50/85"}`} style={{ left: `${field.x * 100}%`, top: `${field.y * 100}%`, width: `${field.width * 100}%`, height: `${field.height * 100}%` }}>
             <span className="truncate">{field.label}{field.required ? " *" : ""}</span>

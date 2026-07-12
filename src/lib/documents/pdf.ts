@@ -16,6 +16,8 @@ export type SigningField = {
 };
 
 export type PdfPageSize = { pageNumber: number; width: number; height: number };
+export type AppliedSignature = { method: "typed" | "drawn"; value: string };
+export type SigningValue = string | boolean | AppliedSignature;
 
 export function sha256Hex(bytes: Uint8Array) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -39,17 +41,28 @@ function fitTextSize(value: string, width: number, height: number) {
   return Math.max(8, Math.min(byHeight, width / Math.max(1, value.length * 0.55)));
 }
 
+function isAppliedSignature(value: SigningValue | undefined): value is AppliedSignature {
+  return Boolean(value && typeof value === "object" && "method" in value && "value" in value);
+}
+
 export async function applySigningFields(params: {
   sourceBytes: Uint8Array;
   fields: SigningField[];
-  values: Record<string, string | boolean>;
+  values: Record<string, SigningValue>;
   signerName: string;
+  signerEmail?: string | null;
   signedAt: string;
+  timezone?: string | null;
 }) {
   const pdf = await PDFDocument.load(params.sourceBytes, { ignoreEncryption: false });
   const font = await pdf.embedFont(StandardFonts.Helvetica);
   const italic = await pdf.embedFont(StandardFonts.HelveticaOblique);
   const pages = pdf.getPages();
+  const timestamp = new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: params.timezone || "UTC",
+  }).format(new Date(params.signedAt));
 
   for (const field of params.fields) {
     const page = pages[field.page_number - 1];
@@ -69,10 +82,46 @@ export async function applySigningFields(params: {
       continue;
     }
 
+    if ((field.field_type === "signature" || field.field_type === "initials") && isAppliedSignature(raw)) {
+      const footerHeight = Math.min(11, Math.max(7, height * 0.22));
+      const contentHeight = Math.max(8, height - footerHeight - 2);
+      if (raw.method === "drawn" && raw.value.startsWith("data:image/png;base64,")) {
+        const png = await pdf.embedPng(raw.value);
+        const scale = Math.min((width - 6) / png.width, contentHeight / png.height);
+        const drawWidth = Math.max(1, png.width * scale);
+        const drawHeight = Math.max(1, png.height * scale);
+        page.drawImage(png, {
+          x: x + Math.max(3, (width - drawWidth) / 2),
+          y: y + footerHeight + Math.max(1, (contentHeight - drawHeight) / 2),
+          width: drawWidth,
+          height: drawHeight,
+        });
+      } else {
+        const value = raw.value.trim();
+        const size = fitTextSize(value, width, contentHeight);
+        page.drawText(value, {
+          x: x + 3,
+          y: y + footerHeight + Math.max(2, (contentHeight - size) / 2),
+          size,
+          font: italic,
+          color: rgb(0.08, 0.08, 0.08),
+          maxWidth: Math.max(10, width - 6),
+        });
+      }
+      page.drawText(`Signed ${timestamp}`, {
+        x: x + 3,
+        y: y + 1.5,
+        size: Math.min(7.5, footerHeight - 1),
+        font,
+        color: rgb(0.12, 0.45, 0.25),
+        maxWidth: Math.max(10, width - 6),
+      });
+      continue;
+    }
+
     let value = typeof raw === "string" ? raw.trim() : "";
     if (!value) value = field.default_value?.trim() ?? "";
     if (field.field_type === "date" && !value) value = new Date(params.signedAt).toLocaleDateString("en-US");
-    if (field.field_type === "signature" && !value) value = params.signerName;
     if (field.field_type === "printed_name" && !value) value = params.signerName;
     if (!value) continue;
 
@@ -81,7 +130,7 @@ export async function applySigningFields(params: {
       x: x + 3,
       y: y + Math.max(2, (height - size) / 2),
       size,
-      font: field.field_type === "signature" || field.field_type === "initials" ? italic : font,
+      font,
       color: rgb(0.08, 0.08, 0.08),
       maxWidth: Math.max(10, width - 6),
     });

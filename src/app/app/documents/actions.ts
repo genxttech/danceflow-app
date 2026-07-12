@@ -460,7 +460,7 @@ export async function assignDocumentToClientAction(formData: FormData) {
       template_id: templateId,
       template_version_id: version.id,
       client_id: clientId,
-      assignment_id: assignmentId,
+      assignment_id: null,
       source_kind: "template_version",
       title: version.title || template.title,
       signer_name: signerName,
@@ -500,6 +500,19 @@ export async function assignDocumentToClientAction(formData: FormData) {
     await admin.from("document_sign_envelopes").delete().eq("id", envelopeId);
     await admin.storage.from(DOCUMENT_FILES_BUCKET).remove([sourcePath]);
     redirect("/app/documents?error=Could not create the client assignment.");
+  }
+
+  const { error: envelopeLinkError } = await admin
+    .from("document_sign_envelopes")
+    .update({ assignment_id: assignmentId })
+    .eq("id", envelopeId)
+    .eq("studio_id", owner.studioId);
+
+  if (envelopeLinkError) {
+    await admin.from("document_assignments").delete().eq("id", assignmentId);
+    await admin.from("document_sign_envelopes").delete().eq("id", envelopeId);
+    await admin.storage.from(DOCUMENT_FILES_BUCKET).remove([sourcePath]);
+    redirect("/app/documents?error=Could not link the signing request to the client assignment.");
   }
 
   await admin.from("document_sign_events").insert({
