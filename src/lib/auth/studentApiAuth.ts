@@ -1,6 +1,6 @@
 import type { User } from "@supabase/supabase-js";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 const UUID_PATTERN =
@@ -21,23 +21,54 @@ export function studentApiJsonError(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-export function sameStudentEmail(user: Pick<User, "email"> | null | undefined, email: string | null | undefined) {
+export function sameStudentEmail(
+  user: Pick<User, "email"> | null | undefined,
+  email: string | null | undefined,
+) {
   const userEmail = user?.email?.trim().toLowerCase() ?? "";
   const candidate = email?.trim().toLowerCase() ?? "";
   return Boolean(userEmail && candidate && userEmail === candidate);
+}
+
+function createStudentTokenValidationClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_SUPABASE_URL or NEXT_PUBLIC_SUPABASE_ANON_KEY.",
+    );
+  }
+
+  return createSupabaseClient(url, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+      detectSessionInUrl: false,
+    },
+  });
 }
 
 export async function getStudentApiUser(request: Request) {
   const bearerToken = extractStudentBearerToken(request);
 
   if (bearerToken) {
-    const adminClient = createAdminClient();
+    const authClient = createStudentTokenValidationClient();
     const {
       data: { user: bearerUser },
       error: bearerError,
-    } = await adminClient.auth.getUser(bearerToken);
+    } = await authClient.auth.getUser(bearerToken);
 
-    if (bearerError || !bearerUser) return null;
+    if (bearerError || !bearerUser) {
+      console.error("Student bearer-token validation failed", {
+        code: bearerError?.code ?? null,
+        status: bearerError?.status ?? null,
+        message: bearerError?.message ?? "No user returned.",
+        hasAuthorizationHeader: true,
+      });
+      return null;
+    }
+
     return bearerUser;
   }
 
