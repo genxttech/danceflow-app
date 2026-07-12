@@ -186,12 +186,30 @@ function windowMatches(
   }
 ) {
   if (window.active === false) return false;
-  if (window.weekday !== params.weekday) return false;
-  if (window.effective_start_date && params.dateKey < window.effective_start_date) return false;
-  if (window.effective_end_date && params.dateKey > window.effective_end_date) return false;
-  if (params.lessonType && window.lesson_type && window.lesson_type !== params.lessonType) return false;
-  if (params.instructorId && window.instructor_id && window.instructor_id !== params.instructorId) return false;
-  if (params.roomId && window.room_id && window.room_id !== params.roomId) return false;
+  if (Number(window.weekday) !== params.weekday) return false;
+
+  const effectiveStartDate = window.effective_start_date?.slice(0, 10) ?? null;
+  const effectiveEndDate = window.effective_end_date?.slice(0, 10) ?? null;
+
+  if (effectiveStartDate && params.dateKey < effectiveStartDate) return false;
+  if (effectiveEndDate && params.dateKey > effectiveEndDate) return false;
+  if (
+    params.lessonType &&
+    window.lesson_type &&
+    window.lesson_type !== params.lessonType
+  ) {
+    return false;
+  }
+  if (
+    params.instructorId &&
+    window.instructor_id &&
+    window.instructor_id !== params.instructorId
+  ) {
+    return false;
+  }
+  if (params.roomId && window.room_id && window.room_id !== params.roomId) {
+    return false;
+  }
 
   return true;
 }
