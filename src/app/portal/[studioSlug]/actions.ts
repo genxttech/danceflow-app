@@ -25,9 +25,36 @@ const CONTACT_PREFERENCE_LABELS: Record<string, string> = {
   portal: "Portal message or studio follow-up",
 };
 
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
+const REQUEST_TYPES = new Set(Object.keys(REQUEST_TYPE_LABELS));
+const CONTACT_PREFERENCES = new Set(Object.keys(CONTACT_PREFERENCE_LABELS));
+
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function cleanText(value: string, maxLength: number) {
+  return value
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function normalizeSlug(value: string) {
+  const slug = cleanText(value, 80);
+  return SLUG_PATTERN.test(slug) ? slug : "";
+}
+
+function normalizeRequestType(value: string) {
+  const requestType = cleanText(value, 80) || "private_lesson";
+  return REQUEST_TYPES.has(requestType) ? requestType : "private_lesson";
+}
+
+function normalizeContactPreference(value: string) {
+  const preference = cleanText(value, 80) || "email";
+  return CONTACT_PREFERENCES.has(preference) ? preference : "email";
 }
 
 function appendQueryParam(url: string, key: string, value: string) {
@@ -75,13 +102,13 @@ function safePortalReturnTo(studioSlug: string, requestedReturnTo: string) {
 }
 
 export async function submitPortalBookingRequestAction(formData: FormData) {
-  const studioSlug = getString(formData, "studioSlug");
+  const studioSlug = normalizeSlug(getString(formData, "studioSlug"));
   const requestedReturnTo = getString(formData, "returnTo");
   const returnTo = safePortalReturnTo(studioSlug, requestedReturnTo);
-  const requestType = getString(formData, "requestType") || "private_lesson";
-  const contactPreference = getString(formData, "contactPreference") || "email";
-  const preferredTimes = getString(formData, "preferredTimes");
-  const notes = getString(formData, "notes");
+  const requestType = normalizeRequestType(getString(formData, "requestType"));
+  const contactPreference = normalizeContactPreference(getString(formData, "contactPreference"));
+  const preferredTimes = cleanText(getString(formData, "preferredTimes"), 500);
+  const notes = cleanText(getString(formData, "notes"), 2000);
 
   try {
     if (!studioSlug || !preferredTimes) {

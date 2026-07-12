@@ -3,9 +3,50 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_PATTERN = /^[+0-9().\s-]{0,30}$/;
+
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
   return typeof value === "string" ? value.trim() : "";
+}
+
+function cleanText(value: string, maxLength: number) {
+  return value
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function normalizeSlug(value: string) {
+  const slug = cleanText(value, 80);
+  return SLUG_PATTERN.test(slug) ? slug : "";
+}
+
+function normalizeEmail(value: string) {
+  const email = cleanText(value, 254).toLowerCase();
+  return !email || EMAIL_PATTERN.test(email) ? email : null;
+}
+
+function normalizePhone(value: string) {
+  const phone = cleanText(value, 30);
+  return PHONE_PATTERN.test(phone) ? phone : null;
+}
+
+function safeProfileReturnTo(studioSlug: string, requestedReturnTo: string) {
+  const fallback = `/portal/${encodeURIComponent(studioSlug)}/profile`;
+  if (!requestedReturnTo) return fallback;
+
+  try {
+    const decoded = decodeURIComponent(requestedReturnTo);
+    if (decoded === fallback || decoded.startsWith(`${fallback}?`)) return decoded;
+  } catch {
+    return fallback;
+  }
+
+  return fallback;
 }
 
 function appendQueryParam(url: string, key: string, value: string) {
@@ -49,15 +90,20 @@ async function requireIndependentInstructorPortalAccess(studioSlug: string) {
 }
 
 export async function updateInstructorPortalProfileAction(formData: FormData) {
-  const studioSlug = getString(formData, "studioSlug");
-  const email = getString(formData, "email");
-  const phone = getString(formData, "phone");
-  const returnTo =
-    getString(formData, "returnTo") ||
-    `/portal/${encodeURIComponent(studioSlug)}/profile`;
+  const studioSlug = normalizeSlug(getString(formData, "studioSlug"));
+  const email = normalizeEmail(getString(formData, "email"));
+  const phone = normalizePhone(getString(formData, "phone"));
+  const returnTo = safeProfileReturnTo(
+    studioSlug,
+    getString(formData, "returnTo"),
+  );
 
   if (!studioSlug) {
     redirect("/login");
+  }
+
+  if (email === null || phone === null) {
+    redirect(appendQueryParam(returnTo, "error", "profile_update_failed"));
   }
 
   try {

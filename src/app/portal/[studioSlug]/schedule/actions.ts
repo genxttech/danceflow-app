@@ -6,6 +6,18 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
+const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_PATTERN = /^\d{2}:\d{2}$/;
+const APPOINTMENT_TYPES = new Set([
+  "private_lesson",
+  "group_class",
+  "intro_lesson",
+  "coaching",
+  "practice_party",
+  "floor_rental",
+]);
 
 function getStudioTimeZone(value?: string | null) {
   const timeZone = value?.trim() || DEFAULT_TIME_ZONE;
@@ -173,6 +185,41 @@ function getString(formData: FormData, key: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function cleanText(value: string, maxLength: number) {
+  return value
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200D\uFEFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function normalizeSlug(value: string) {
+  const slug = cleanText(value, 80);
+  return SLUG_PATTERN.test(slug) ? slug : "";
+}
+
+function normalizeAppointmentType(value: string) {
+  const type = cleanText(value, 80) || "private_lesson";
+  return APPOINTMENT_TYPES.has(type) ? type : "private_lesson";
+}
+
+function normalizeOptionalUuid(value: string) {
+  const id = cleanText(value, 36);
+  return id && UUID_PATTERN.test(id) ? id : "";
+}
+
+function normalizeDateKey(value: string) {
+  const date = cleanText(value, 10);
+  return DATE_PATTERN.test(date) ? date : "";
+}
+
+function normalizeTimeKey(value: string) {
+  const time = cleanText(value, 5);
+  if (!TIME_PATTERN.test(time)) return "";
+  const [hour, minute] = time.split(":").map(Number);
+  return hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59 ? time : "";
+}
+
 function appendQueryParam(url: string, key: string, value: string) {
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}${key}=${encodeURIComponent(value)}`;
@@ -314,13 +361,13 @@ async function queuePortalScheduleRequestEmails(params: {
 }
 
 export async function createPortalScheduleRequestAction(formData: FormData) {
-  const studioSlug = getString(formData, "studioSlug");
-  const appointmentType = getString(formData, "appointmentType") || "private_lesson";
-  const instructorId = getString(formData, "instructorId");
-  const requestedDate = getString(formData, "requestedDate");
-  const requestedTime = getString(formData, "requestedTime");
+  const studioSlug = normalizeSlug(getString(formData, "studioSlug"));
+  const appointmentType = normalizeAppointmentType(getString(formData, "appointmentType"));
+  const instructorId = normalizeOptionalUuid(getString(formData, "instructorId"));
+  const requestedDate = normalizeDateKey(getString(formData, "requestedDate"));
+  const requestedTime = normalizeTimeKey(getString(formData, "requestedTime"));
   const durationMinutes = normalizeDuration(getString(formData, "durationMinutes"));
-  const notes = getString(formData, "notes");
+  const notes = cleanText(getString(formData, "notes"), 2000);
 
   const returnTo = `/portal/${encodeURIComponent(studioSlug)}/schedule`;
 
@@ -495,7 +542,7 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
       appendQueryParam(
         returnTo,
         "error",
-        requestError?.message ?? "Could not submit your schedule request.",
+        "Could not submit your schedule request.",
       ),
     );
   }
