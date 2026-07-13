@@ -18,8 +18,8 @@ type AppointmentRow = {
   ends_at: string | null;
   status: string | null;
   clients:
-    | { id: string; first_name: string | null; last_name: string | null; portal_user_id: string | null }
-    | { id: string; first_name: string | null; last_name: string | null; portal_user_id: string | null }[]
+    | { id: string; first_name: string | null; last_name: string | null }
+    | { id: string; first_name: string | null; last_name: string | null }[]
     | null;
   instructors:
     | { id: string; first_name: string | null; last_name: string | null; profile_user_id: string | null }
@@ -71,8 +71,7 @@ async function loadOwnedAppointment(request: Request, appointmentId: string) {
       clients:clients!appointments_client_id_fkey (
         id,
         first_name,
-        last_name,
-        portal_user_id
+        last_name
       ),
       instructors:instructors!appointments_instructor_id_fkey (
         id,
@@ -95,7 +94,22 @@ async function loadOwnedAppointment(request: Request, appointmentId: string) {
   const appointment = data as unknown as AppointmentRow;
   const client = firstJoin(appointment.clients);
 
-  if (!client || client.portal_user_id !== user.id || appointment.client_id !== client.id) {
+  if (!client || appointment.client_id !== client.id) {
+    return { error: NextResponse.json({ error: "Appointment not found." }, { status: 404 }) };
+  }
+
+  const { data: relationship, error: relationshipError } = await supabase
+    .from("client_account_links")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("studio_id", appointment.studio_id)
+    .eq("client_id", client.id)
+    .eq("status", "linked")
+    .eq("can_view_schedule", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (relationshipError || !relationship) {
     return { error: NextResponse.json({ error: "Appointment not found." }, { status: 404 }) };
   }
 

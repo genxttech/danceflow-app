@@ -20,6 +20,7 @@ import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from 
 
 type BookingActionPayload = {
   studioSlug?: string;
+  clientId?: string;
   actionType?: "book" | "reschedule" | "cancel";
   appointmentId?: string;
   lessonType?: string;
@@ -95,6 +96,7 @@ function normalizeIsoDateTime(value: unknown) {
 function normalizePayload(payload: BookingActionPayload): BookingActionPayload {
   return {
     studioSlug: normalizeSlug(payload.studioSlug),
+    clientId: normalizeOptionalUuid(payload.clientId) ?? undefined,
     actionType: normalizeActionType(payload.actionType),
     appointmentId: normalizeOptionalUuid(payload.appointmentId) ?? undefined,
     lessonType: normalizeLessonType(payload.lessonType),
@@ -196,6 +198,7 @@ async function loadRequestContext(params: {
   client: SelfServiceExecutionClient;
   studioSlug: string;
   portalUserId: string;
+  requestedClientId?: string | null;
 }) {
   const { data: studio, error: studioError } = await params.client
     .from("studios")
@@ -207,11 +210,37 @@ async function loadRequestContext(params: {
     throw new Error(studioError?.message ?? "Studio not found.");
   }
 
+  let relationshipQuery = params.client
+    .from("client_account_links")
+    .select("client_id")
+    .eq("user_id", params.portalUserId)
+    .eq("studio_id", studio.id)
+    .eq("status", "linked")
+    .eq("can_manage_bookings", true);
+
+  if (params.requestedClientId) {
+    relationshipQuery = relationshipQuery.eq("client_id", params.requestedClientId);
+  }
+
+  if (!params.requestedClientId) {
+    relationshipQuery = relationshipQuery.eq("is_primary", true);
+  }
+
+  const { data: relationship, error: relationshipError } =
+  await relationshipQuery
+    .maybeSingle<{ client_id: string }>();
+
+  if (relationshipError || !relationship) {
+    throw new Error(
+      relationshipError?.message ?? "Linked student profile not found.",
+    );
+  }
+
   const { data: client, error: clientError } = await params.client
     .from("clients")
     .select("id")
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", params.portalUserId)
+    .eq("id", relationship.client_id)
     .maybeSingle<ClientRow>();
 
   if (clientError || !client) {
@@ -404,6 +433,7 @@ export async function POST(request: Request) {
         client: executionClient,
         studioSlug: payload.studioSlug,
         portalUserId: user.id,
+        requestedClientId: payload.clientId ?? null,
       });
       const appointment = await loadOwnedAppointment({
         client: executionClient,
@@ -510,6 +540,7 @@ export async function POST(request: Request) {
       supabase: queryClient,
       studioSlug: payload.studioSlug,
       portalUserId: user.id,
+      requestedClientId: payload.clientId ?? null,
       lessonType,
       instructorId: requestedInstructorId,
       roomId: requestedRoomId,

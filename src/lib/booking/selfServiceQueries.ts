@@ -58,7 +58,10 @@ type StudioRow = {
 
 type ClientRow = {
   id: string;
-  portal_user_id: string | null;
+};
+
+type ClientAccountLinkRow = {
+  client_id: string;
 };
 
 type InstructorRow = {
@@ -84,6 +87,7 @@ type LoadStudentSelfServiceSlotsParams = {
   supabase: SupabaseQueryClient;
   studioSlug: string;
   portalUserId: string;
+  requestedClientId?: string | null;
   lessonType?: string | null;
   instructorId?: string | null;
   roomId?: string | null;
@@ -180,11 +184,32 @@ export async function loadStudentSelfServiceSlots(
     throw new Error(studioError?.message ?? "Studio not found.");
   }
 
+  let linkQuery = params.supabase
+    .from("client_account_links")
+    .select("client_id")
+    .eq("user_id", params.portalUserId)
+    .eq("studio_id", studio.id)
+    .eq("status", "linked")
+    .eq("can_manage_bookings", true);
+
+  if (params.requestedClientId) {
+    linkQuery = linkQuery.eq("client_id", params.requestedClientId);
+  }
+
+  const { data: link, error: linkError } = await linkQuery
+    .order("is_primary", { ascending: false })
+    .limit(1)
+    .maybeSingle<ClientAccountLinkRow>();
+
+  if (linkError || !link) {
+    throw new Error(linkError?.message ?? "Linked student profile not found.");
+  }
+
   const { data: client, error: clientError } = await params.supabase
     .from("clients")
-    .select("id, portal_user_id")
+    .select("id")
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", params.portalUserId)
+    .eq("id", link.client_id)
     .maybeSingle<ClientRow>();
 
   if (clientError || !client) {

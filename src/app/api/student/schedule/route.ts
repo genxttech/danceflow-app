@@ -31,6 +31,7 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const studioSlug = normalizeSlug(url.searchParams.get("studioSlug"));
+  const requestedClientId = cleanInput(url.searchParams.get("clientId"), 36) || null;
 
   if (!studioSlug) {
     return NextResponse.json({ error: "studioSlug is required." }, { status: 400 });
@@ -49,11 +50,35 @@ export async function GET(request: Request) {
       throw new Error(studioError?.message ?? "Studio not found.");
     }
 
+    let relationshipQuery = supabase
+      .from("client_account_links")
+      .select("client_id")
+      .eq("user_id", user.id)
+      .eq("studio_id", studio.id)
+      .eq("status", "linked")
+      .eq("can_view_schedule", true);
+
+    if (requestedClientId) {
+      relationshipQuery = relationshipQuery.eq("client_id", requestedClientId);
+    }
+
+    const { data: relationship, error: relationshipError } =
+      await relationshipQuery
+        .order("is_primary", { ascending: false })
+        .limit(1)
+        .maybeSingle<{ client_id: string }>();
+
+    if (relationshipError || !relationship) {
+      throw new Error(
+        relationshipError?.message ?? "Linked student profile not found.",
+      );
+    }
+
     const { data: client, error: clientError } = await supabase
       .from("clients")
       .select("id")
       .eq("studio_id", studio.id)
-      .eq("portal_user_id", user.id)
+      .eq("id", relationship.client_id)
       .maybeSingle<ClientRow>();
 
     if (clientError || !client) {
@@ -99,6 +124,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       studio,
+      clientId: client.id,
       timezone: settings?.timezone ?? "America/New_York",
       appointments: appointments ?? [],
     });

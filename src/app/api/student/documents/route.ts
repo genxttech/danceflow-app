@@ -54,16 +54,20 @@ export async function GET(request: Request) {
 
   const supabase = createAdminClient();
 
-  const { data: clients, error: clientsError } = await supabase
-    .from("clients")
-    .select("id, studio_id")
-    .eq("portal_user_id", user.id);
+  const { data: links, error: linksError } = await supabase
+    .from("client_account_links")
+    .select("client_id")
+    .eq("user_id", user.id)
+    .eq("status", "linked")
+    .eq("can_sign_documents", true);
 
-  if (clientsError) {
-    return NextResponse.json({ error: clientsError.message }, { status: 400 });
+  if (linksError) {
+    return NextResponse.json({ error: linksError.message }, { status: 400 });
   }
 
-  const clientIds = (clients ?? []).map((client) => client.id);
+  const clientIds = Array.from(
+    new Set((links ?? []).map((link) => String(link.client_id))),
+  );
   if (!clientIds.length) {
     return NextResponse.json({ documents: [] });
   }
@@ -109,12 +113,13 @@ export async function GET(request: Request) {
     const studio = firstJoin(row.studios);
     const status = row.status || (row.signed_at ? "signed" : "assigned");
     const portalUrl = studio?.slug
-      ? `${base}/portal/${encodeURIComponent(studio.slug)}/documents#assignment-${encodeURIComponent(row.id)}`
+      ? `${base}/portal/${encodeURIComponent(studio.slug)}/documents?client=${encodeURIComponent(row.client_id)}#assignment-${encodeURIComponent(row.id)}`
       : null;
 
     return {
       id: row.id,
       studioId: row.studio_id,
+      clientId: row.client_id,
       studioName: studio?.public_name || studio?.name || "Studio",
       studioSlug: studio?.slug || null,
       title: template?.title || "Document",
