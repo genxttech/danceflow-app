@@ -35,96 +35,69 @@ function normalizePhone(value: string) {
   return PHONE_PATTERN.test(phone) ? phone : null;
 }
 
-function safeProfileReturnTo(studioSlug: string, requestedReturnTo: string) {
-  const fallback = `/portal/${encodeURIComponent(studioSlug)}/profile`;
-  if (!requestedReturnTo) return fallback;
+function returnPath(studioSlug: string) {
+  return `/portal/${encodeURIComponent(studioSlug)}/profile`;
+}
 
-  try {
-    const decoded = decodeURIComponent(requestedReturnTo);
-    if (decoded === fallback || decoded.startsWith(`${fallback}?`)) return decoded;
-  } catch {
-    return fallback;
+export async function updatePortalStudioContactAction(formData: FormData) {
+  const studioSlug = normalizeSlug(getString(formData, "studioSlug"));
+  const email = normalizeEmail(getString(formData, "email"));
+  const phone = normalizePhone(getString(formData, "phone"));
+
+  if (!studioSlug) redirect("/login");
+  const destination = returnPath(studioSlug);
+
+  if (email === null || phone === null) {
+    redirect(`${destination}?error=contact_update_failed`);
   }
 
-  return fallback;
-}
-
-function appendQueryParam(url: string, key: string, value: string) {
-  const separator = url.includes("?") ? "&" : "?";
-  return `${url}${separator}${key}=${encodeURIComponent(value)}`;
-}
-
-async function requireIndependentInstructorPortalAccess(studioSlug: string) {
   const supabase = await createClient();
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   if (!user) {
-    redirect(`/login?studio=${encodeURIComponent(studioSlug)}`);
+    redirect(`/login?intent=public&next=${encodeURIComponent(destination)}`);
   }
 
   const { data: studio, error: studioError } = await supabase
     .from("studios")
-    .select("id, slug, name")
+    .select("id")
     .eq("slug", studioSlug)
-    .single();
+    .maybeSingle();
 
   if (studioError || !studio) {
-    throw new Error("Studio not found.");
+    redirect(`${destination}?error=contact_update_failed`);
   }
 
   const { data: client, error: clientError } = await supabase
     .from("clients")
-    .select("id, studio_id, is_independent_instructor")
+    .select("id")
     .eq("studio_id", studio.id)
     .eq("portal_user_id", user.id)
-    .single();
+    .maybeSingle();
 
-  if (clientError || !client || !client.is_independent_instructor) {
-    throw new Error("This portal account is not enabled for independent instructor access.");
+  if (clientError || !client) {
+    redirect(`${destination}?error=contact_update_failed`);
   }
 
-  return { supabase, studio, client };
+  const { error } = await supabase
+    .from("clients")
+    .update({
+      email: email || null,
+      phone: phone || null,
+    })
+    .eq("id", client.id)
+    .eq("studio_id", studio.id)
+    .eq("portal_user_id", user.id);
+
+  if (error) {
+    redirect(`${destination}?error=contact_update_failed`);
+  }
+
+  redirect(`${destination}?success=contact_updated`);
 }
 
-export async function updateInstructorPortalProfileAction(formData: FormData) {
-  const studioSlug = normalizeSlug(getString(formData, "studioSlug"));
-  const email = normalizeEmail(getString(formData, "email"));
-  const phone = normalizePhone(getString(formData, "phone"));
-  const returnTo = safeProfileReturnTo(
-    studioSlug,
-    getString(formData, "returnTo"),
-  );
-
-  if (!studioSlug) {
-    redirect("/login");
-  }
-
-  if (email === null || phone === null) {
-    redirect(appendQueryParam(returnTo, "error", "profile_update_failed"));
-  }
-
-  try {
-    const { supabase, studio, client } =
-      await requireIndependentInstructorPortalAccess(studioSlug);
-
-    const { error } = await supabase
-      .from("clients")
-      .update({
-        email: email || null,
-        phone: phone || null,
-      })
-      .eq("id", client.id)
-      .eq("studio_id", studio.id);
-
-    if (error) {
-      redirect(appendQueryParam(returnTo, "error", "profile_update_failed"));
-    }
-  } catch {
-    redirect(appendQueryParam(returnTo, "error", "profile_update_failed"));
-  }
-
-  redirect(appendQueryParam(returnTo, "success", "profile_updated"));
-}
+// Temporary compatibility export for older imports.
+export const updateInstructorPortalProfileAction =
+  updatePortalStudioContactAction;

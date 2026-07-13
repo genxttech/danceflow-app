@@ -136,8 +136,8 @@ export default function WalletProfileScreen() {
   return (
     <Screen>
       <AppText variant="eyebrow">Wallet</AppText>
-      <AppText variant="title">Profile</AppText>
-      <AppText variant="caption">Your DanceFlow account and connected studio access.</AppText>
+      <AppText variant="title">Account & Studio Access</AppText>
+      <AppText variant="caption">Your DanceFlow identity, settings, and connected studio records.</AppText>
 
       {loading ? <FeatureCard title="Loading profile" detail="Checking your connected studio details." /> : null}
       {errorMessage ? <FeatureCard title="Profile unavailable" detail={errorMessage} /> : null}
@@ -155,10 +155,10 @@ export default function WalletProfileScreen() {
 
           <View style={styles.actionList}>
             <ProfileActionCard
-              detail="Update your app-level name and account identity."
+              detail="Update the dancer-owned profile that follows you across DanceFlow."
               icon="person-outline"
               onPress={() => router.push("/profile")}
-              title="DanceFlow Profile"
+              title="My DanceFlow Profile"
             />
             <ProfileActionCard
               detail="Manage account preferences and access controls."

@@ -238,6 +238,13 @@ export default function ProfileScreen() {
             />
           </View>
 
+          <Field
+            label="Preferred name"
+            onChangeText={(value) => updateSelected((profile) => ({ ...profile, preferredName: value }))}
+            placeholder="What should DanceFlow call you?"
+            value={selectedProfile.preferredName ?? ""}
+          />
+
           <Field label="Email" editable={false} keyboardType="email-address" value={selectedProfile.email} />
           <Field
             label="Phone"
@@ -296,6 +303,39 @@ export default function ProfileScreen() {
             onChangeText={(value) => updateSelected((profile) => ({ ...profile, danceInterests: value }))}
             placeholder="Country, ballroom, showcases, competitions, social dancing..."
             value={selectedProfile.danceInterests}
+          />
+
+          <Field
+            label="Dance goals"
+            multiline
+            onChangeText={(value) =>
+              updateSelected((profile) => ({
+                ...profile,
+                danceGoals: value.split(",").map((item) => item.trim()).filter(Boolean)
+              }))
+            }
+            placeholder="Social dancing, confidence, competition..."
+            value={(selectedProfile.danceGoals ?? []).join(", ")}
+          />
+
+          <Field
+            label="Skill level"
+            onChangeText={(value) => updateSelected((profile) => ({ ...profile, skillLevel: value }))}
+            placeholder="beginner, intermediate, competitive..."
+            value={selectedProfile.skillLevel ?? ""}
+          />
+
+          <Field
+            label="About my dance journey"
+            multiline
+            onChangeText={(value) => updateSelected((profile) => ({ ...profile, bio: value }))}
+            placeholder="Share what you are learning and where you want to go."
+            value={selectedProfile.bio ?? ""}
+          />
+
+          <FeatureCard
+            title="Profile ownership"
+            detail="This is your dancer-owned DanceFlow profile. Each connected studio keeps a separate record for billing, attendance, packages, notes, and studio communication."
           />
 
           <AppButton label={saving ? "Saving..." : "Save profile"} onPress={saveProfile} />
