@@ -36,7 +36,9 @@
     "react-native-safe-area-context": "latest",
     "react-native-screens": "latest",
     "react-native-url-polyfill": "latest",
-    "react-native-worklets": "0.5.1"
+    "react-native-worklets": "0.5.1",
+    "react-native-blob-util": "^0.24.7",
+    "react-native-pdf": "^7.0.4"
   },
   "devDependencies": {
     "@types/react": "latest",

@@ -201,6 +201,13 @@ function AppStack() {
           }}
         />
         <Stack.Screen
+          name="wallet/documents/[assignmentId]"
+          options={{
+            headerShown: true,
+            title: "Review Document"
+          }}
+        />
+        <Stack.Screen
           name="events/[id]"
           options={{
             headerShown: true,

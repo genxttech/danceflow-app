@@ -8,6 +8,7 @@ type AssignmentRow = {
   client_id: string;
   template_id: string;
   template_version_id: string | null;
+  sign_envelope_id: string | null;
   status: string | null;
   due_at: string | null;
   assigned_at: string;
@@ -36,20 +37,24 @@ type AssignmentRow = {
     | null;
 };
 
+type EnvelopeRow = {
+  id: string;
+  status: string;
+  completed_at: string | null;
+};
+
 function firstJoin<T>(value: T | T[] | null | undefined) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
-}
-
-function webBaseUrl(request: Request) {
-  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
-  return (configured || new URL(request.url).origin).replace(/\/$/, "");
 }
 
 export async function GET(request: Request) {
   const user = await getStudentApiUser(request);
 
   if (!user) {
-    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    return NextResponse.json(
+      { error: "Authentication required." },
+      { status: 401 },
+    );
   }
 
   const supabase = createAdminClient();
@@ -68,6 +73,7 @@ export async function GET(request: Request) {
   const clientIds = Array.from(
     new Set((links ?? []).map((link) => String(link.client_id))),
   );
+
   if (!clientIds.length) {
     return NextResponse.json({ documents: [] });
   }
@@ -80,6 +86,7 @@ export async function GET(request: Request) {
       client_id,
       template_id,
       template_version_id,
+      sign_envelope_id,
       status,
       due_at,
       assigned_at,
@@ -107,14 +114,42 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  const base = webBaseUrl(request);
-  const documents = ((data ?? []) as unknown as AssignmentRow[]).map((row) => {
+  const assignments = (data ?? []) as unknown as AssignmentRow[];
+  const envelopeIds = assignments
+    .map((row) => row.sign_envelope_id)
+    .filter((id): id is string => Boolean(id));
+
+  const envelopesById = new Map<string, EnvelopeRow>();
+
+  if (envelopeIds.length) {
+    const { data: envelopes, error: envelopesError } = await supabase
+      .from("document_sign_envelopes")
+      .select("id, status, completed_at")
+      .in("id", envelopeIds);
+
+    if (envelopesError) {
+      return NextResponse.json(
+        { error: envelopesError.message },
+        { status: 400 },
+      );
+    }
+
+    for (const envelope of (envelopes ?? []) as EnvelopeRow[]) {
+      envelopesById.set(envelope.id, envelope);
+    }
+  }
+
+  const documents = assignments.map((row) => {
     const template = firstJoin(row.document_templates);
     const studio = firstJoin(row.studios);
-    const status = row.status || (row.signed_at ? "signed" : "assigned");
-    const portalUrl = studio?.slug
-      ? `${base}/portal/${encodeURIComponent(studio.slug)}/documents?client=${encodeURIComponent(row.client_id)}#assignment-${encodeURIComponent(row.id)}`
+    const envelope = row.sign_envelope_id
+      ? envelopesById.get(row.sign_envelope_id) ?? null
       : null;
+    const signedAt = row.signed_at ?? envelope?.completed_at ?? null;
+    const status =
+      row.status === "signed" || envelope?.status === "completed" || signedAt
+        ? "signed"
+        : row.status || "assigned";
 
     return {
       id: row.id,
@@ -130,8 +165,9 @@ export async function GET(request: Request) {
       status,
       dueAt: row.due_at,
       assignedAt: row.assigned_at,
-      signedAt: row.signed_at,
-      actionUrl: portalUrl,
+      signedAt,
+      envelopeStatus: envelope?.status ?? null,
+      nativeSigningAvailable: Boolean(row.sign_envelope_id),
     };
   });
 

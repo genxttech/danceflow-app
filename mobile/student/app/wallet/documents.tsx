@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
-import { Linking, StyleSheet, View } from "react-native";
-import { useFocusEffect } from "expo-router";
+import { StyleSheet, View } from "react-native";
+import { router, useFocusEffect } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -19,18 +19,33 @@ function formatDate(value: string | null) {
   }).format(date);
 }
 
+function isCompleted(document: StudentDocument) {
+  return (
+    document.status === "signed" ||
+    document.envelopeStatus === "completed" ||
+    Boolean(document.signedAt)
+  );
+}
+
 function statusLabel(document: StudentDocument) {
-  if (document.status === "signed" || document.signedAt) return "Signed";
-  if (document.status === "expired") return "Expired";
-  if (document.status === "void") return "Voided";
-  if (document.dueAt && new Date(document.dueAt).getTime() < Date.now()) return "Past due";
+  if (isCompleted(document)) return "Signed";
+  if (document.envelopeStatus === "draft") return "Studio preparing";
+  if (document.status === "expired" || document.envelopeStatus === "expired") {
+    return "Expired";
+  }
+  if (document.status === "void" || document.envelopeStatus === "void") {
+    return "Voided";
+  }
+  if (document.envelopeStatus === "declined") return "Declined";
+  if (document.dueAt && new Date(document.dueAt).getTime() < Date.now()) {
+    return "Past due";
+  }
   return document.requiresSignature ? "Ready to sign" : "Ready to review";
 }
 
 export default function StudentDocumentsScreen() {
   const [documents, setDocuments] = useState<StudentDocument[]>([]);
   const [loading, setLoading] = useState(true);
-  const [openingId, setOpeningId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -39,7 +54,11 @@ export default function StudentDocumentsScreen() {
     try {
       setDocuments(await loadStudentDocuments());
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : "Documents could not be loaded.");
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : "Documents could not be loaded.",
+      );
     } finally {
       setLoading(false);
     }
@@ -51,28 +70,47 @@ export default function StudentDocumentsScreen() {
     }, [refresh]),
   );
 
-  async function openDocument(document: StudentDocument) {
-    if (!document.actionUrl) return;
-    setOpeningId(document.id);
-    try {
-      await Linking.openURL(document.actionUrl);
-    } finally {
-      setOpeningId(null);
-    }
+  function openDocument(document: StudentDocument) {
+    router.push(
+  {
+    pathname: "/wallet/documents/[assignmentId]",
+    params: { assignmentId: document.id },
+  } as never,
+);
   }
 
   const pending = documents.filter(
     (document) =>
-      document.status !== "signed" &&
-      document.status !== "expired" &&
-      document.status !== "void" &&
-      !document.signedAt,
+      !isCompleted(document) &&
+      !["expired", "void"].includes(document.status) &&
+      !["expired", "void", "declined"].includes(document.envelopeStatus ?? ""),
   );
-  const completed = documents.filter(
-    (document) => document.status === "signed" || Boolean(document.signedAt),
-  );
+  const completed = documents.filter(isCompleted);
   const closed = documents.filter(
-    (document) => document.status === "expired" || document.status === "void",
+    (document) =>
+      ["expired", "void"].includes(document.status) ||
+      ["expired", "void", "declined"].includes(document.envelopeStatus ?? ""),
+  );
+
+  const renderCard = (document: StudentDocument, buttonLabel: string) => (
+    <View key={document.id} style={styles.card}>
+      <View style={styles.row}>
+        <AppText variant="eyebrow">{statusLabel(document)}</AppText>
+        <AppText variant="caption">{document.studioName}</AppText>
+      </View>
+      <AppText variant="subtitle">{document.title}</AppText>
+      {document.description ? (
+        <AppText variant="caption">{document.description}</AppText>
+      ) : null}
+      {document.dueAt ? (
+        <AppText variant="caption">Due {formatDate(document.dueAt)}</AppText>
+      ) : null}
+      <AppButton
+        label={buttonLabel}
+        onPress={() => openDocument(document)}
+        variant={isCompleted(document) ? "secondary" : undefined}
+      />
+    </View>
   );
 
   return (
@@ -80,10 +118,15 @@ export default function StudentDocumentsScreen() {
       <AppText variant="eyebrow">Wallet</AppText>
       <AppText variant="title">Documents</AppText>
       <AppText variant="caption">
-        Review studio documents, sign anything that needs attention, and keep completed records handy.
+        Review and sign studio documents without leaving the DanceFlow app.
       </AppText>
 
-      {loading ? <FeatureCard title="Loading documents" detail="Checking your connected studios." /> : null}
+      {loading ? (
+        <FeatureCard
+          title="Loading documents"
+          detail="Checking your connected studios."
+        />
+      ) : null}
       {error ? <FeatureCard title="Documents unavailable" detail={error} /> : null}
 
       {!loading && !error && documents.length === 0 ? (
@@ -96,68 +139,30 @@ export default function StudentDocumentsScreen() {
       {pending.length ? (
         <View style={styles.section}>
           <AppText variant="subtitle">Needs attention</AppText>
-          {pending.map((document) => (
-            <View key={document.id} style={styles.card}>
-              <View style={styles.row}>
-                <AppText variant="eyebrow">{statusLabel(document)}</AppText>
-                <AppText variant="caption">{document.studioName}</AppText>
-              </View>
-              <AppText variant="subtitle">{document.title}</AppText>
-              {document.description ? <AppText variant="caption">{document.description}</AppText> : null}
-              {document.dueAt ? <AppText variant="caption">Due {formatDate(document.dueAt)}</AppText> : null}
-              {document.actionUrl ? (
-                <AppButton
-                  label={document.requiresSignature ? "Review and sign" : "Review document"}
-                  loading={openingId === document.id}
-                  onPress={() => openDocument(document)}
-                />
-              ) : (
-                <AppText variant="caption">Contact the studio if you still need access.</AppText>
-              )}
-            </View>
-          ))}
+          {pending.map((document) =>
+            renderCard(
+              document,
+              document.envelopeStatus === "draft"
+                ? "View status"
+                : document.requiresSignature
+                  ? "Review and sign"
+                  : "Review document",
+            ),
+          )}
         </View>
       ) : null}
 
       {completed.length ? (
         <View style={styles.section}>
           <AppText variant="subtitle">Completed</AppText>
-          {completed.map((document) => (
-            <View key={document.id} style={styles.card}>
-              <View style={styles.row}>
-                <AppText variant="eyebrow">Signed</AppText>
-                <AppText variant="caption">{document.studioName}</AppText>
-              </View>
-              <AppText variant="subtitle">{document.title}</AppText>
-              {document.signedAt ? <AppText variant="caption">Signed {formatDate(document.signedAt)}</AppText> : null}
-              {document.actionUrl ? (
-                <AppButton
-                  label="View document"
-                  loading={openingId === document.id}
-                  onPress={() => openDocument(document)}
-                  variant="secondary"
-                />
-              ) : null}
-            </View>
-          ))}
+          {completed.map((document) => renderCard(document, "View signed document"))}
         </View>
       ) : null}
 
       {closed.length ? (
         <View style={styles.section}>
           <AppText variant="subtitle">Closed</AppText>
-          {closed.map((document) => (
-            <View key={document.id} style={styles.card}>
-              <View style={styles.row}>
-                <AppText variant="eyebrow">{statusLabel(document)}</AppText>
-                <AppText variant="caption">{document.studioName}</AppText>
-              </View>
-              <AppText variant="subtitle">{document.title}</AppText>
-              <AppText variant="caption">
-                This request is no longer active. Contact the studio if you need a new copy.
-              </AppText>
-            </View>
-          ))}
+          {closed.map((document) => renderCard(document, "View details"))}
         </View>
       ) : null}
 
