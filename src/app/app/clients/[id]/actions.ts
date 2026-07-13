@@ -130,18 +130,36 @@ async function findOrCreatePortalProfileByEmail(params: {
     return existingProfile;
   }
 
-  const { data: authUsers, error: authLookupError } = await adminSupabase
-    .schema("auth")
-    .from("users")
-    .select("id, email")
-    .ilike("email", email)
-    .limit(1);
+  let authUser: { id: string; email: string | null } | null = null;
+  const perPage = 200;
 
-  if (authLookupError) {
-    throw authLookupError;
+  for (let page = 1; page <= 10 && !authUser; page += 1) {
+    const { data: authPage, error: authLookupError } =
+      await adminSupabase.auth.admin.listUsers({
+        page,
+        perPage,
+      });
+
+    if (authLookupError) {
+      throw authLookupError;
+    }
+
+    const match = authPage.users.find(
+      (user) => user.email?.trim().toLowerCase() === email,
+    );
+
+    if (match) {
+      authUser = {
+        id: match.id,
+        email: match.email ?? null,
+      };
+      break;
+    }
+
+    if (authPage.users.length < perPage) {
+      break;
+    }
   }
-
-  const authUser = (authUsers?.[0] as { id: string; email: string | null } | undefined) ?? null;
 
   if (!authUser?.id) {
     return null;
@@ -917,6 +935,8 @@ export async function sendPortalInviteAction(formData: FormData) {
       console.error("Failed to record portal invite delivery", deliveryError);
     });
   } catch (error) {
+    console.error("Portal invite failed", error);
+
     await recordPortalInviteDelivery({
       studioId,
       clientId: client.id,
