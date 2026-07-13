@@ -394,7 +394,7 @@ export async function assignDocumentToClientAction(formData: FormData) {
 
   const { data: client, error: clientError } = await owner.supabase
     .from("clients")
-    .select("id,first_name,last_name,email,portal_user_id")
+    .select("id,first_name,last_name,email")
     .eq("id", clientId)
     .eq("studio_id", owner.studioId)
     .maybeSingle();
@@ -532,24 +532,40 @@ export async function assignDocumentToClientAction(formData: FormData) {
     },
   });
 
-  const portalUserId =
-    typeof client.portal_user_id === "string" ? client.portal_user_id : null;
+  const { data: signerLinks } = await owner.supabase
+    .from("client_account_links")
+    .select("user_id")
+    .eq("studio_id", owner.studioId)
+    .eq("client_id", clientId)
+    .eq("status", "linked")
+    .eq("can_sign_documents", true);
 
-  if (portalUserId) {
-    await sendMobilePushToUser({
-      userId: portalUserId,
-      category: "account",
-      title: "Document is being prepared",
-      body: "Your studio is preparing a document for your signature.",
-      data: {
-        source: "document_sign_draft_created",
-        templateId,
-        envelopeId,
-      },
-    }).catch((pushError) => {
-      console.error("Failed to send document draft mobile push", pushError);
-    });
-  }
+  const portalUserIds = Array.from(
+    new Set(
+      ((signerLinks ?? []) as Array<{ user_id: string | null }>)
+        .map((link) => link.user_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+
+  await Promise.all(
+    portalUserIds.map((portalUserId) =>
+      sendMobilePushToUser({
+        userId: portalUserId,
+        category: "account",
+        title: "Document is being prepared",
+        body: "Your studio is preparing a document for your signature.",
+        data: {
+          source: "document_sign_draft_created",
+          templateId,
+          envelopeId,
+          clientId,
+        },
+      }).catch((pushError) => {
+        console.error("Failed to send document draft mobile push", pushError);
+      }),
+    ),
+  );
 
   revalidatePath("/app/documents");
   revalidatePath(`/app/clients/${clientId}`);

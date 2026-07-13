@@ -591,7 +591,6 @@ export async function sellTicketsAction(
           notes ||
           `${useCardReader ? "Card reader" : "Manual"} ticket sale created from workspace by user ${userId}. Payment method: ${paymentMethod}.`,
         payment_status: paidNow ? "paid" : "pending",
-        portal_user_id: null,
         stripe_checkout_session_id: null,
         stripe_payment_intent_id: null,
       })

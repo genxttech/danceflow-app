@@ -70,8 +70,7 @@ async function getStudioClientOrRedirect(params: {
       last_name,
       email,
       is_independent_instructor,
-      linked_instructor_id,
-      portal_user_id
+      linked_instructor_id
     `)
     .eq("id", clientId)
     .eq("studio_id", studioId)
@@ -82,6 +81,24 @@ async function getStudioClientOrRedirect(params: {
   }
 
   return client;
+}
+
+async function getPrimaryLinkedUserId(params: {
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  studioId: string;
+  clientId: string;
+}) {
+  const { data, error } = await params.supabase
+    .from("client_account_links")
+    .select("user_id")
+    .eq("studio_id", params.studioId)
+    .eq("client_id", params.clientId)
+    .eq("status", "linked")
+    .eq("is_primary", true)
+    .maybeSingle<{ user_id: string | null }>();
+
+  if (error) throw new Error(error.message);
+  return data?.user_id ?? null;
 }
 
 type PortalProfileLink = {
@@ -420,6 +437,8 @@ export async function updateIndependentInstructorSettingsAction(
     returnTo,
   });
 
+  const linkedUserId = await getPrimaryLinkedUserId({ supabase, studioId, clientId });
+
   if (linkedInstructorId) {
     const { data: instructor, error: instructorError } = await supabase
       .from("instructors")
@@ -434,7 +453,7 @@ export async function updateIndependentInstructorSettingsAction(
   }
 
   const clientStatusUpdate =
-    isIndependentInstructor && client.portal_user_id ? { status: "active" } : {};
+    isIndependentInstructor && linkedUserId ? { status: "active" } : {};
 
   const { error: updateError } = await supabase
     .from("clients")
@@ -454,7 +473,7 @@ export async function updateIndependentInstructorSettingsAction(
     await deactivateHostWorkspaceIndependentInstructorRole({
       supabase,
       studioId,
-      userId: client.portal_user_id,
+      userId: linkedUserId,
     });
   } catch {
     redirectWithResult(returnTo, "error", "independent_instructor_update_failed");
@@ -570,6 +589,8 @@ export async function linkPortalAccessAction(formData: FormData) {
     returnTo,
   });
 
+  const linkedUserId = await getPrimaryLinkedUserId({ supabase, studioId, clientId });
+
   const email = client.email?.trim().toLowerCase();
   if (!email) redirectWithResult(returnTo, "error", "portal_email_required");
 
@@ -630,13 +651,14 @@ export async function unlinkPortalAccessAction(formData: FormData) {
     clientId,
     returnTo,
   });
+  const linkedUserId = await getPrimaryLinkedUserId({ supabase, studioId, clientId });
   const { data: authData } = await supabase.auth.getUser();
 
   try {
     await deactivateHostWorkspaceIndependentInstructorRole({
       supabase,
       studioId,
-      userId: client.portal_user_id,
+      userId: linkedUserId,
     });
 
     await disconnectClientAccount({
@@ -671,13 +693,14 @@ export async function markFormerClientPortalAccessAction(formData: FormData) {
     clientId,
     returnTo,
   });
+  const linkedUserId = await getPrimaryLinkedUserId({ supabase, studioId, clientId });
   const { data: authData } = await supabase.auth.getUser();
 
   try {
     await deactivateHostWorkspaceIndependentInstructorRole({
       supabase,
       studioId,
-      userId: client.portal_user_id,
+      userId: linkedUserId,
     });
 
     await disconnectClientAccount({
@@ -765,18 +788,24 @@ export async function sendPortalInviteAction(formData: FormData) {
     returnTo,
   });
 
+  const linkedUserId = await getPrimaryLinkedUserId({
+    supabase,
+    studioId,
+    clientId,
+  });
+
   const email = client.email?.trim().toLowerCase();
 
   if (!email) {
     redirectWithResult(returnTo, "error", "portal_email_required");
   }
 
-  if (client.portal_user_id) {
+  if (linkedUserId) {
     try {
       await deactivateHostWorkspaceIndependentInstructorRole({
         supabase,
         studioId,
-        userId: client.portal_user_id,
+        userId: linkedUserId,
       });
 
       if (client.is_independent_instructor) {

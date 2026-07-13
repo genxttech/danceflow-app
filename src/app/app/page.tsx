@@ -67,7 +67,6 @@ type SubscriptionPlanRow = {
 
 type ClientRow = {
   id: string;
-  portal_user_id?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   email?: string | null;
@@ -1009,8 +1008,19 @@ export default async function AppDashboardPage({
 
   let hostStudioPortalLinks: HostStudioPortalLink[] = [];
 
-  const { data: hostStudioPortalRows, error: hostStudioPortalError } =
-    await supabase
+  const { data: hostAccountLinks, error: hostStudioPortalError } = await supabase
+    .from("client_account_links")
+    .select("client_id")
+    .eq("user_id", user.id)
+    .eq("status", "linked")
+    .neq("studio_id", studioId);
+
+  const hostClientIds = Array.from(
+    new Set((hostAccountLinks ?? []).map((row) => String(row.client_id))),
+  );
+
+  const { data: hostStudioPortalRows } = hostClientIds.length
+    ? await supabase
       .from("clients")
       .select(
         `
@@ -1023,9 +1033,10 @@ export default async function AppDashboardPage({
       )
     `,
       )
-      .eq("portal_user_id", user.id)
+      .in("id", hostClientIds)
       .eq("is_independent_instructor", true)
-      .neq("studio_id", studioId);
+      .neq("studio_id", studioId)
+    : { data: [] };
 
   if (hostStudioPortalError) {
     throw new Error(
@@ -2178,7 +2189,7 @@ export default async function AppDashboardPage({
     supabase
       .from("clients")
       .select(
-        "id, portal_user_id, first_name, last_name, email, phone, birthday, address_line1, address_line2, city, state, postal_code, country",
+        "id, first_name, last_name, email, phone, birthday, address_line1, address_line2, city, state, postal_code, country",
       )
       .eq("studio_id", studioId),
     supabase
@@ -2594,8 +2605,17 @@ export default async function AppDashboardPage({
   const activePackagesCount = typedPackages.filter((item) =>
     Boolean(item.active),
   ).length;
+  const { data: linkedDashboardAccounts } = await supabase
+    .from("client_account_links")
+    .select("client_id")
+    .eq("studio_id", studioId)
+    .eq("status", "linked");
+
+  const linkedDashboardClientIds = new Set(
+    (linkedDashboardAccounts ?? []).map((row) => String(row.client_id)),
+  );
   const invitedPortalUsersCount = typedClients.filter((client) =>
-    Boolean(client.portal_user_id),
+    linkedDashboardClientIds.has(client.id),
   ).length;
   const clientsWithBirthdayTiming = typedClients.map((client) => ({
     ...client,

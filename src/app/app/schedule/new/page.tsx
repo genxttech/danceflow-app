@@ -341,19 +341,31 @@ export default async function NewAppointmentPage({
 
   let linkedHostStudios: LinkedHostStudioRow[] = [];
 
-const userEmail = user.email?.trim().toLowerCase() ?? "";
-
-const hostClientQuery = supabase
-  .from("clients")
-  .select("studio_id")
-  .eq("is_independent_instructor", true)
+const { data: hostAccountLinks, error: hostAccountLinksError } = await supabase
+  .from("client_account_links")
+  .select("client_id")
+  .eq("user_id", user.id)
+  .eq("status", "linked")
   .neq("studio_id", studioId);
 
-const { data: hostClientRows, error: hostClientRowsError } = userEmail
-  ? await hostClientQuery.or(
-      `portal_user_id.eq.${user.id},email.eq.${userEmail}`
-    )
-  : await hostClientQuery.eq("portal_user_id", user.id);
+if (hostAccountLinksError) {
+  throw new Error(
+    `Failed to load linked host studios: ${hostAccountLinksError.message}`
+  );
+}
+
+const hostClientIds = Array.from(
+  new Set((hostAccountLinks ?? []).map((row) => String(row.client_id)))
+);
+
+const { data: hostClientRows, error: hostClientRowsError } = hostClientIds.length
+  ? await supabase
+      .from("clients")
+      .select("studio_id")
+      .in("id", hostClientIds)
+      .eq("is_independent_instructor", true)
+      .neq("studio_id", studioId)
+  : { data: [], error: null };
 
 if (hostClientRowsError) {
   throw new Error(

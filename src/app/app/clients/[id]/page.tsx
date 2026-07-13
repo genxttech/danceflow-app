@@ -62,7 +62,6 @@ type ClientRecord = {
   notes: string | null;
   is_independent_instructor: boolean | null;
   linked_instructor_id: string | null;
-  portal_user_id: string | null;
 };
 
 type ClientPortalInviteDeliveryRow = {
@@ -588,7 +587,7 @@ async function loadClientPortalAdminStatus(
 
   const email = client.email?.trim().toLowerCase();
 
-  if (!email && !client.portal_user_id) {
+  if (!email) {
     return emptyStatus;
   }
 
@@ -597,13 +596,7 @@ async function loadClientPortalAdminStatus(
 
     const [linkedProfileResult, matchingProfileResult, matchingAuthResult, inviteDeliveryResult, accountLinkResult] =
       await Promise.all([
-        client.portal_user_id
-          ? adminSupabase
-              .from("profiles")
-              .select("id, email, full_name, created_at, updated_at")
-              .eq("id", client.portal_user_id)
-              .maybeSingle()
-          : Promise.resolve({ data: null, error: null }),
+        Promise.resolve({ data: null as ClientPortalAdminStatus["linkedProfile"], error: null as Error | null }),
         email
           ? adminSupabase
               .from("profiles")
@@ -644,11 +637,27 @@ async function loadClientPortalAdminStatus(
     if (inviteDeliveryResult.error) throw inviteDeliveryResult.error;
     if (accountLinkResult.error) throw accountLinkResult.error;
 
+    const linkedUserId =
+      accountLinkResult.data?.status === "linked"
+        ? accountLinkResult.data.user_id
+        : null;
+
+    if (linkedUserId) {
+      const { data: linkedProfileData, error: linkedProfileError } =
+        await adminSupabase
+          .from("profiles")
+          .select("id, email, full_name, created_at, updated_at")
+          .eq("id", linkedUserId)
+          .maybeSingle();
+      if (linkedProfileError) throw linkedProfileError;
+      linkedProfileResult.data = linkedProfileData;
+    }
+
     let linkedAuthUser = null;
 
-    if (client.portal_user_id) {
+    if (linkedUserId) {
       const { data: linkedAuthData, error: linkedAuthError } =
-        await adminSupabase.auth.admin.getUserById(client.portal_user_id);
+        await adminSupabase.auth.admin.getUserById(linkedUserId);
 
       if (!linkedAuthError) {
         const user = linkedAuthData.user;
@@ -1838,8 +1847,7 @@ export default async function ClientDetailPage({
         photo_url,
         notes,
         is_independent_instructor,
-        linked_instructor_id,
-        portal_user_id
+        linked_instructor_id
       `)
       .eq("id", id)
       .eq("studio_id", studioId)
@@ -2351,10 +2359,10 @@ export default async function ClientDetailPage({
           : "No Invite Recorded";
   const hasAuthForClientEmail = !!portalAdminStatus?.matchingAuthUser;
   const hasProfileForClientEmail = !!portalAdminStatus?.matchingProfile;
-  const hasUnlinkedAuthUser = !typedClient.portal_user_id && hasAuthForClientEmail;
-  const hasUnlinkedProfile = !typedClient.portal_user_id && hasProfileForClientEmail;
+  const hasUnlinkedAuthUser = !portalAdminStatus?.accountLink?.user_id && hasAuthForClientEmail;
+  const hasUnlinkedProfile = !portalAdminStatus?.accountLink?.user_id && hasProfileForClientEmail;
   const hasLinkedProfileMismatch =
-    !!typedClient.portal_user_id &&
+    !!portalAdminStatus?.accountLink?.user_id &&
     !!portalProfile?.email &&
     !!typedClient.email &&
     portalProfile.email.toLowerCase() !== typedClient.email.toLowerCase();
@@ -2498,7 +2506,7 @@ export default async function ClientDetailPage({
   const isPublicIntroLead = typedClient.referral_source === "public_intro_booking";
   const isEventRegistrationLead = typedClient.referral_source === "event_registration";
   const isIndependentInstructor = !!typedClient.is_independent_instructor;
-  const hasPortalLogin = !!typedClient.portal_user_id;
+  const hasPortalLogin = !!portalAdminStatus?.accountLink?.user_id;
   const accountLink = portalAdminStatus?.accountLink ?? null;
   const portalLifecycleStatus =
     accountLink?.status ??

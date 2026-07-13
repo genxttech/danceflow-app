@@ -18,14 +18,12 @@ type AttendanceRecipientRow = {
   clients:
     | {
         id: string;
-        portal_user_id: string | null;
         email: string | null;
         first_name: string | null;
         last_name: string | null;
       }
     | {
         id: string;
-        portal_user_id: string | null;
         email: string | null;
         first_name: string | null;
         last_name: string | null;
@@ -210,7 +208,6 @@ export async function publishGroupLessonRecapAction(formData: FormData) {
         status,
         clients (
           id,
-          portal_user_id,
           email,
           first_name,
           last_name
@@ -221,6 +218,30 @@ export async function publishGroupLessonRecapAction(formData: FormData) {
       .in("status", ["checked_in", "attended"]);
 
     if (rowsError) throw rowsError;
+
+    const linkedClientIds = Array.from(
+      new Set(
+        ((rows ?? []) as AttendanceRecipientRow[])
+          .map((row) => row.client_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const { data: accountLinks } = linkedClientIds.length
+      ? await supabase
+          .from("client_account_links")
+          .select("client_id, user_id")
+          .eq("studio_id", studioId)
+          .in("client_id", linkedClientIds)
+          .eq("status", "linked")
+          .eq("can_view_schedule", true)
+      : { data: [] };
+
+    const linkedUserByClientId = new Map<string, string>();
+    for (const link of (accountLinks ?? []) as Array<{ client_id: string; user_id: string | null }>) {
+      if (link.user_id && !linkedUserByClientId.has(link.client_id)) {
+        linkedUserByClientId.set(link.client_id, link.user_id);
+      }
+    }
 
     const recipients = ((rows ?? []) as AttendanceRecipientRow[])
       .map((row) => {
@@ -234,7 +255,7 @@ export async function publishGroupLessonRecapAction(formData: FormData) {
           studio_id: studioId,
           appointment_id: appointmentId,
           client_id: row.client_id,
-          user_id: client.portal_user_id,
+          user_id: linkedUserByClientId.get(row.client_id) ?? null,
           guest_email: null,
           guest_name: guestName || null,
           source: row.status === "attended" ? "attended" : "checked_in",

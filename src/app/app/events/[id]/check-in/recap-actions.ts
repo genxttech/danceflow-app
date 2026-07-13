@@ -31,14 +31,12 @@ type RegistrationRecipientRow = {
   clients:
     | {
         id: string;
-        portal_user_id: string | null;
         email: string | null;
         first_name: string | null;
         last_name: string | null;
       }
     | {
         id: string;
-        portal_user_id: string | null;
         email: string | null;
         first_name: string | null;
         last_name: string | null;
@@ -320,7 +318,6 @@ export async function publishEventGroupLessonRecapAction(formData: FormData) {
         attendee_email,
         clients (
           id,
-          portal_user_id,
           email,
           first_name,
           last_name
@@ -338,6 +335,30 @@ export async function publishEventGroupLessonRecapAction(formData: FormData) {
         row,
       ]),
     );
+
+    const linkedClientIds = Array.from(
+      new Set(
+        ((registrations ?? []) as RegistrationRecipientRow[])
+          .map((registration) => registration.client_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    );
+    const { data: accountLinks } = linkedClientIds.length
+      ? await supabase
+          .from("client_account_links")
+          .select("client_id, user_id")
+          .eq("studio_id", studioId)
+          .in("client_id", linkedClientIds)
+          .eq("status", "linked")
+          .eq("can_view_schedule", true)
+      : { data: [] };
+
+    const linkedUserByClientId = new Map<string, string>();
+    for (const link of (accountLinks ?? []) as Array<{ client_id: string; user_id: string | null }>) {
+      if (link.user_id && !linkedUserByClientId.has(link.client_id)) {
+        linkedUserByClientId.set(link.client_id, link.user_id);
+      }
+    }
 
     const recipientByIdentity = new Map<string, Record<string, unknown>>();
 
@@ -395,7 +416,7 @@ export async function publishEventGroupLessonRecapAction(formData: FormData) {
         event_registration_id: registration.id,
         event_registration_attendee_id: attendee?.id ?? null,
         client_id: registration.client_id,
-        user_id: client?.portal_user_id ?? null,
+        user_id: registration.client_id ? linkedUserByClientId.get(registration.client_id) ?? null : null,
         guest_email: registration.client_id ? null : guestEmail,
         guest_name: attendeeName || registrationName || null,
         source: "checked_in",

@@ -64,7 +64,7 @@ type DocumentAssignmentSummary = {
   due_at: string | null;
   assigned_to_email: string | null;
   document_templates: { title: string | null; is_required: boolean | null } | { title: string | null; is_required: boolean | null }[] | null;
-  clients: { first_name: string | null; last_name: string | null; email: string | null; portal_user_id: string | null } | { first_name: string | null; last_name: string | null; email: string | null; portal_user_id: string | null }[] | null;
+  clients: { first_name: string | null; last_name: string | null; email: string | null } | { first_name: string | null; last_name: string | null; email: string | null }[] | null;
 };
 
 type OrganizerOption = {
@@ -920,7 +920,7 @@ export default async function DocumentsPage({
           .limit(10000),
         supabase
           .from("document_assignments")
-          .select("id, template_id, client_id, status, assigned_at, due_at, assigned_to_email, document_templates(title, is_required), clients(first_name, last_name, email, portal_user_id)")
+          .select("id, template_id, client_id, status, assigned_at, due_at, assigned_to_email, document_templates(title, is_required), clients(first_name, last_name, email)")
           .in("template_id", templateIds)
           .neq("status", "void")
           .limit(10000),

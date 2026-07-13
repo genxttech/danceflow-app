@@ -438,7 +438,7 @@ export default async function LaunchSetupPage() {
     ] = await Promise.all([
       supabase
         .from("clients")
-        .select("id, portal_user_id")
+        .select("id")
         .eq("studio_id", studioId)
         .limit(50),
       supabase.from("instructors").select("id").eq("studio_id", studioId),
@@ -481,10 +481,7 @@ export default async function LaunchSetupPage() {
       throw new Error(`Failed to load launch events: ${eventsError.message}`);
     }
 
-    const clientRows = (clients ?? []) as Array<{
-      id: string;
-      portal_user_id: string | null;
-    }>;
+    const clientRows = (clients ?? []) as Array<{ id: string }>;
     const instructorRows = (instructors ?? []) as Array<{ id: string }>;
     const appointmentRows = (appointments ?? []) as Array<{ id: string }>;
     const packageRows = (packages ?? []) as Array<{
@@ -499,8 +496,17 @@ export default async function LaunchSetupPage() {
     }>;
 
     const activePackageCount = packageRows.filter((row) => row.active).length;
+    const { data: linkedAccounts } = await supabase
+      .from("client_account_links")
+      .select("client_id")
+      .eq("studio_id", studioId)
+      .eq("status", "linked");
+
+    const linkedClientIds = new Set(
+      (linkedAccounts ?? []).map((row) => String(row.client_id)),
+    );
     const invitedPortalCount = clientRows.filter((row) =>
-      Boolean(row.portal_user_id),
+      linkedClientIds.has(row.id),
     ).length;
     const publicEventCount = eventRows.filter(
       (event) =>

@@ -24,7 +24,6 @@ type LeadRow = {
   referral_source: string | null;
   created_at: string;
   is_independent_instructor: boolean | null;
-  portal_user_id: string | null;
 };
 
 type BookingRequestRow = {
@@ -395,8 +394,7 @@ export default async function LeadsPage({
           dance_interests,
           referral_source,
           created_at,
-          is_independent_instructor,
-          portal_user_id
+          is_independent_instructor
         `
       )
       .eq("studio_id", studioId)
@@ -526,9 +524,19 @@ export default async function LeadsPage({
     bookingRequestStateByClientId.set(request.client_id, state);
   });
 
+  const { data: linkedLeadAccounts } = await supabase
+    .from("client_account_links")
+    .select("client_id")
+    .eq("studio_id", studioId)
+    .eq("status", "linked");
+
+  const linkedLeadClientIds = new Set(
+    (linkedLeadAccounts ?? []).map((row) => String(row.client_id)),
+  );
+
   const allLeads = ((leads ?? []) as LeadRow[]).filter((lead) => {
     const isActivatedIndependentInstructor =
-      lead.is_independent_instructor === true && Boolean(lead.portal_user_id);
+      lead.is_independent_instructor === true && linkedLeadClientIds.has(lead.id);
 
     return (
       !isActivatedIndependentInstructor &&

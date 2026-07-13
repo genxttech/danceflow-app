@@ -288,7 +288,7 @@ async function sendBookingDecisionPush(params: {
     await Promise.all([
       params.supabase
         .from("clients")
-        .select("first_name, portal_user_id")
+        .select("first_name")
         .eq("id", params.clientId)
         .eq("studio_id", params.studioId)
         .maybeSingle(),
@@ -304,9 +304,22 @@ async function sendBookingDecisionPush(params: {
         .maybeSingle(),
     ]);
 
-  const portalUserId =
-    (client as { portal_user_id?: string | null } | null)?.portal_user_id?.trim();
-  if (!portalUserId) return;
+  const { data: accountLinks } = await params.supabase
+    .from("client_account_links")
+    .select("user_id")
+    .eq("studio_id", params.studioId)
+    .eq("client_id", params.clientId)
+    .eq("status", "linked")
+    .eq("can_view_schedule", true);
+
+  const portalUserIds = Array.from(
+    new Set(
+      ((accountLinks ?? []) as Array<{ user_id: string | null }>)
+        .map((link) => link.user_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+  if (!portalUserIds.length) return;
 
   const studioName = (studio as { name?: string | null } | null)?.name ?? "Your studio";
   const studioTimeZone = getStudioTimeZone(
@@ -316,8 +329,9 @@ async function sendBookingDecisionPush(params: {
   const isApproved = params.status === "approved";
 
   try {
-    await sendMobilePushToUser({
-      userId: portalUserId,
+    await Promise.all(portalUserIds.map((portalUserId) =>
+      sendMobilePushToUser({
+        userId: portalUserId,
       category: "schedule",
       title: isApproved ? "Lesson request approved" : "Lesson request update",
       body: isApproved
@@ -329,7 +343,8 @@ async function sendBookingDecisionPush(params: {
         appointmentId: params.appointmentId ?? null,
         staffNote: params.staffNote,
       },
-    });
+      }),
+    ));
   } catch (pushError) {
     console.error(
       `Failed to send booking request ${params.status} mobile push`,
