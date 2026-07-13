@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
 
   const formData = await request.formData();
   const studioSlug = getString(formData, "studioSlug");
+  const requestedClientId = getString(formData, "clientId") || null;
 
   if (!studioSlug) {
     return redirectTo(
@@ -61,11 +62,35 @@ export async function POST(request: NextRequest) {
       return redirectTo(request, "/login");
     }
 
+    let relationshipQuery = supabase
+      .from("client_account_links")
+      .select("client_id")
+      .eq("user_id", user.id)
+      .eq("studio_id", studio.id)
+      .eq("status", "linked")
+      .eq("can_view_billing", true);
+
+    if (requestedClientId) {
+      relationshipQuery = relationshipQuery.eq("client_id", requestedClientId);
+    } else {
+      relationshipQuery = relationshipQuery.eq("is_primary", true);
+    }
+
+    const { data: relationship, error: relationshipError } =
+      await relationshipQuery.maybeSingle<{ client_id: string }>();
+
+    if (relationshipError || !relationship) {
+      return redirectTo(
+        request,
+        `/portal/${encodeURIComponent(studioSlug)}?error=unauthorized`
+      );
+    }
+
     const { data: client, error: clientError } = await supabase
       .from("clients")
       .select("id, is_independent_instructor")
       .eq("studio_id", studio.id)
-      .eq("portal_user_id", user.id)
+      .eq("id", relationship.client_id)
       .single();
 
     if (clientError || !client || !client.is_independent_instructor) {
@@ -104,7 +129,7 @@ export async function POST(request: NextRequest) {
     if (payableRentals.length === 0) {
       return redirectTo(
         request,
-        `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals?success=no_balance_due`
+        `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&success=no_balance_due`
       );
     }
 
@@ -116,7 +141,7 @@ export async function POST(request: NextRequest) {
     if (!Number.isFinite(totalAmount) || totalAmount <= 0) {
       return redirectTo(
         request,
-        `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals?error=missing_rental_amount`
+        `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&error=missing_rental_amount`
       );
     }
 
@@ -144,10 +169,10 @@ export async function POST(request: NextRequest) {
       ],
       success_url: `${appUrl}/portal/${encodeURIComponent(
         studio.slug
-      )}/floor-space/my-rentals?success=balance_payment_submitted`,
+      )}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&success=balance_payment_submitted`,
       cancel_url: `${appUrl}/portal/${encodeURIComponent(
         studio.slug
-      )}/floor-space/my-rentals?error=checkout_cancelled`,
+      )}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&error=checkout_cancelled`,
       metadata: {
         source: "portal_floor_rental_balance_payment",
         studioId: studio.id,
@@ -175,7 +200,7 @@ reportingCategory: "floor_rental",
     if (!checkoutSession.url) {
       return redirectTo(
         request,
-        `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals?error=checkout_failed`
+        `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals?client=${encodeURIComponent(client.id)}&error=checkout_failed`
       );
     }
 
@@ -184,7 +209,7 @@ reportingCategory: "floor_rental",
     console.error("portal floor rental balance checkout failed", error);
     return redirectTo(
       request,
-      `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals?error=checkout_failed`
+      `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals${requestedClientId ? `?client=${encodeURIComponent(requestedClientId)}&` : "?"}error=checkout_failed`
     );
   }
 }

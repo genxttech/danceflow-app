@@ -119,8 +119,7 @@ export async function GET(request: NextRequest) {
         id,
         first_name,
         last_name,
-        email,
-        portal_user_id
+        email
       ),
       client_packages:client_package_id (
         id,
@@ -170,9 +169,26 @@ export async function GET(request: NextRequest) {
   const clientRow = Array.isArray(payment.clients)
     ? payment.clients[0]
     : payment.clients;
-  const isPortalClient = clientRow?.portal_user_id === user.id;
 
-  if (!role && !isPortalClient) {
+  const { data: billingRelationship, error: billingRelationshipError } =
+    await supabase
+      .from("client_account_links")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("studio_id", payment.studio_id)
+      .eq("client_id", payment.client_id)
+      .eq("status", "linked")
+      .eq("can_view_billing", true)
+      .maybeSingle();
+
+  if (billingRelationshipError) {
+    return NextResponse.json(
+      { error: billingRelationshipError.message },
+      { status: 500 },
+    );
+  }
+
+  if (!role && !billingRelationship) {
     return NextResponse.json(
       { error: "You do not have access to this payment request." },
       { status: 403 },
