@@ -13,6 +13,7 @@ import {
   createOrRefreshClientInvitation,
   disconnectClientAccount,
   linkExistingClientAccount,
+  resolveClientAccountConflict,
 } from "@/lib/student-identity/lifecycle";
 
 function getString(formData: FormData, key: string) {
@@ -694,6 +695,59 @@ export async function markFormerClientPortalAccessAction(formData: FormData) {
   redirectWithResult(returnTo, "success", "portal_former_client");
 }
 
+
+export async function resolvePortalConflictAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const resolution = getString(formData, "resolution");
+  const returnTo =
+    getString(formData, "returnTo") || `/app/clients/${clientId}?tab=portal`;
+
+  if (!clientId || !["link_matching_account", "dismiss_conflict"].includes(resolution)) {
+    redirectWithResult(returnTo, "error", "portal_conflict_resolution_invalid");
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+  const client = await getStudioClientOrRedirect({
+    supabase,
+    studioId,
+    clientId,
+    returnTo,
+  });
+
+  const email = client.email?.trim().toLowerCase();
+  if (!email) redirectWithResult(returnTo, "error", "portal_email_required");
+
+  let matchingUserId: string | null = null;
+
+  if (resolution === "link_matching_account") {
+    try {
+      const profile = await findOrCreatePortalProfileByEmail({
+        email,
+        fullName: `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim(),
+      });
+      matchingUserId = profile?.id ?? null;
+    } catch {
+      redirectWithResult(returnTo, "error", "portal_lookup_failed");
+    }
+  }
+
+  try {
+    await resolveClientAccountConflict({
+      studioId,
+      clientId,
+      resolution: resolution as "link_matching_account" | "dismiss_conflict",
+      matchingUserId,
+      invitedEmail: email,
+    });
+  } catch (error) {
+    console.error("Portal conflict resolution failed", error);
+    redirectWithResult(returnTo, "error", "portal_conflict_resolution_failed");
+  }
+
+  revalidatePath(`/app/clients/${clientId}`);
+  redirectWithResult(returnTo, "success", "portal_conflict_resolved");
+}
+
 export async function sendPortalInviteAction(formData: FormData) {
   const clientId = getString(formData, "clientId");
   const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
@@ -748,7 +802,7 @@ export async function sendPortalInviteAction(formData: FormData) {
   }
 
   const baseUrl = await getBaseUrl();
-  const nextPath = `/portal/${encodeURIComponent(studio.slug)}`;
+  let nextPath = `/portal/${encodeURIComponent(studio.slug)}`;
   const redirectTo = `${baseUrl}/callback?next=${encodeURIComponent(nextPath)}`;
   const portalUrl = `${baseUrl}${nextPath}`;
   const fullName =
@@ -769,6 +823,7 @@ export async function sendPortalInviteAction(formData: FormData) {
       userId: existingProfile?.id ?? null,
     });
 
+    nextPath = `/studio-invites/${encodeURIComponent(lifecycleInvite.token)}`;
     const adminSupabase = createAdminClient();
 
     const { data: magicLinkData, error: magicLinkError } =

@@ -25,6 +25,7 @@ import {
   unlinkPartnerAction,
   unlinkPortalAccessAction,
   markFormerClientPortalAccessAction,
+  resolvePortalConflictAction,
   updateIndependentInstructorSettingsAction,
   adjustLessonCountCorrectionAction,
   addClientAccountLedgerEntryAction,
@@ -1579,6 +1580,23 @@ function getBanner(search: { success?: string; error?: string }) {
     return {
       kind: "error" as const,
       message: "Portal access was not linked because this account conflicts with another client relationship.",
+    };
+  }
+
+  if (search.success === "portal_conflict_resolved") {
+    return {
+      kind: "success" as const,
+      message: "Portal account conflict resolved.",
+    };
+  }
+
+  if (
+    search.error === "portal_conflict_resolution_failed" ||
+    search.error === "portal_conflict_resolution_invalid"
+  ) {
+    return {
+      kind: "error" as const,
+      message: "The portal account conflict could not be resolved.",
     };
   }
 
@@ -4432,6 +4450,51 @@ export default async function ClientDetailPage({
             {accountLink?.disconnect_reason || accountLink?.conflict_details || ""}
           </p>
         </div>
+
+        {portalLifecycleStatus === "conflict" ? (
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+            <p className="text-sm font-semibold text-rose-900">
+              Account relationship conflict
+            </p>
+            <p className="mt-1 text-sm leading-6 text-rose-800">
+              {accountLink?.conflict_details ||
+                "This client record conflicts with another DanceFlow account relationship."}
+            </p>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <form action={resolvePortalConflictAction}>
+                <input type="hidden" name="clientId" value={typedClient.id} />
+                <input type="hidden" name="resolution" value="link_matching_account" />
+                <input
+                  type="hidden"
+                  name="returnTo"
+                  value={`/app/clients/${typedClient.id}?tab=portal`}
+                />
+                <button
+                  type="submit"
+                  className="w-full rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-800"
+                >
+                  Link Matching Email Account
+                </button>
+              </form>
+
+              <form action={resolvePortalConflictAction}>
+                <input type="hidden" name="clientId" value={typedClient.id} />
+                <input type="hidden" name="resolution" value="dismiss_conflict" />
+                <input
+                  type="hidden"
+                  name="returnTo"
+                  value={`/app/clients/${typedClient.id}?tab=portal`}
+                />
+                <button
+                  type="submit"
+                  className="w-full rounded-xl border border-rose-200 bg-white px-4 py-2 text-sm font-semibold text-rose-800 hover:bg-rose-100"
+                >
+                  Dismiss and Leave Disconnected
+                </button>
+              </form>
+            </div>
+          </div>
+        ) : null}
 
         {hasPortalLogin ? (
           <div className="space-y-3">

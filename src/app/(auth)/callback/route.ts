@@ -345,11 +345,16 @@ export async function GET(request: NextRequest) {
   let claimedGroupRecapCount = 0;
 
   try {
-    await ensurePortalProfileAndClientLinks({
-      userId: user.id,
-      email,
-      fullName: getAuthUserFullName(user),
-    });
+    const isExplicitStudioInvite =
+      requestedNextPath?.startsWith("/studio-invites/") === true;
+
+    if (!isExplicitStudioInvite) {
+      await ensurePortalProfileAndClientLinks({
+        userId: user.id,
+        email,
+        fullName: getAuthUserFullName(user),
+      });
+    }
 
     const claimResult = await claimGroupLessonRecapsForUser({
       userId: user.id,

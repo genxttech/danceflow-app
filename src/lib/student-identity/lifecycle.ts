@@ -270,3 +270,263 @@ export async function disconnectClientAccount(params: {
     throw new Error(`Portal access removal failed: ${clientUpdateError.message}`);
   }
 }
+
+
+export type ClientInvitationView = {
+  id: string;
+  studioId: string;
+  clientId: string;
+  status: ClientAccountLinkStatus;
+  invitedEmail: string | null;
+  inviteExpiresAt: string | null;
+  studioName: string;
+  studioSlug: string | null;
+  clientFirstName: string | null;
+  clientLastName: string | null;
+  conflictDetails: string | null;
+};
+
+export async function getClientInvitationByToken(
+  token: string,
+): Promise<ClientInvitationView | null> {
+  const admin = createAdminClient();
+  const hash = tokenHash(token);
+
+  const { data, error } = await admin
+    .from("client_account_links")
+    .select(`
+      id,
+      studio_id,
+      client_id,
+      status,
+      invited_email,
+      invite_expires_at,
+      conflict_details,
+      studios (
+        name,
+        public_name,
+        slug
+      ),
+      clients (
+        first_name,
+        last_name
+      )
+    `)
+    .eq("invite_token_hash", hash)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Invitation lookup failed: ${error.message}`);
+  }
+
+  if (!data) return null;
+
+  const studio = Array.isArray(data.studios) ? data.studios[0] : data.studios;
+  const client = Array.isArray(data.clients) ? data.clients[0] : data.clients;
+
+  return {
+    id: data.id,
+    studioId: data.studio_id,
+    clientId: data.client_id,
+    status: data.status as ClientAccountLinkStatus,
+    invitedEmail: data.invited_email,
+    inviteExpiresAt: data.invite_expires_at,
+    studioName: studio?.public_name?.trim() || studio?.name || "DanceFlow studio",
+    studioSlug: studio?.slug ?? null,
+    clientFirstName: client?.first_name ?? null,
+    clientLastName: client?.last_name ?? null,
+    conflictDetails: data.conflict_details ?? null,
+  };
+}
+
+export async function acceptClientInvitation(params: {
+  token: string;
+  userId: string;
+  userEmail: string;
+}) {
+  const admin = createAdminClient();
+  const invitation = await getClientInvitationByToken(params.token);
+  const email = normalizedEmail(params.userEmail);
+  const now = new Date().toISOString();
+
+  if (!invitation) {
+    throw new Error("invite_not_found");
+  }
+
+  if (!["invited", "claim_pending"].includes(invitation.status)) {
+    if (invitation.status === "linked") return invitation;
+    throw new Error(`invite_${invitation.status}`);
+  }
+
+  if (
+    invitation.inviteExpiresAt &&
+    new Date(invitation.inviteExpiresAt).getTime() <= Date.now()
+  ) {
+    await admin
+      .from("client_account_links")
+      .update({
+        status: "rejected",
+        rejected_at: now,
+        conflict_details: "Invitation expired before acceptance.",
+        updated_at: now,
+      })
+      .eq("id", invitation.id);
+
+    throw new Error("invite_expired");
+  }
+
+  if (
+    !invitation.invitedEmail ||
+    normalizedEmail(invitation.invitedEmail) !== email
+  ) {
+    await admin
+      .from("client_account_links")
+      .update({
+        status: "conflict",
+        user_id: params.userId,
+        conflict_details:
+          "The signed-in DanceFlow account email does not match the invited email.",
+        updated_at: now,
+      })
+      .eq("id", invitation.id);
+
+    throw new Error("invite_email_mismatch");
+  }
+
+  try {
+    await linkExistingClientAccount({
+      studioId: invitation.studioId,
+      clientId: invitation.clientId,
+      userId: params.userId,
+      invitedEmail: email,
+    });
+  } catch (error) {
+    const details =
+      error instanceof Error ? error.message : "Account relationship conflict.";
+
+    await admin
+      .from("client_account_links")
+      .update({
+        status: "conflict",
+        user_id: params.userId,
+        conflict_details: details,
+        updated_at: now,
+      })
+      .eq("id", invitation.id);
+
+    throw new Error("invite_conflict");
+  }
+
+  await admin
+    .from("client_account_links")
+    .update({
+      invite_token_hash: null,
+      invite_expires_at: null,
+      updated_at: now,
+    })
+    .eq("id", invitation.id);
+
+  return invitation;
+}
+
+export async function rejectClientInvitation(params: {
+  token: string;
+  userId: string;
+  userEmail: string;
+}) {
+  const admin = createAdminClient();
+  const invitation = await getClientInvitationByToken(params.token);
+  const email = normalizedEmail(params.userEmail);
+  const now = new Date().toISOString();
+
+  if (!invitation) throw new Error("invite_not_found");
+
+  if (
+    invitation.invitedEmail &&
+    normalizedEmail(invitation.invitedEmail) !== email
+  ) {
+    throw new Error("invite_email_mismatch");
+  }
+
+  const { error } = await admin
+    .from("client_account_links")
+    .update({
+      user_id: params.userId,
+      status: "rejected",
+      rejected_at: now,
+      invite_token_hash: null,
+      invite_expires_at: null,
+      updated_at: now,
+    })
+    .eq("id", invitation.id)
+    .in("status", ["invited", "claim_pending"]);
+
+  if (error) {
+    throw new Error(`Invitation rejection failed: ${error.message}`);
+  }
+
+  return invitation;
+}
+
+export async function resolveClientAccountConflict(params: {
+  studioId: string;
+  clientId: string;
+  resolution: "link_matching_account" | "dismiss_conflict";
+  matchingUserId?: string | null;
+  invitedEmail: string;
+}) {
+  const admin = createAdminClient();
+  const now = new Date().toISOString();
+
+  const { data: conflict, error: conflictError } = await admin
+    .from("client_account_links")
+    .select("id")
+    .eq("studio_id", params.studioId)
+    .eq("client_id", params.clientId)
+    .eq("status", "conflict")
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (conflictError || !conflict) {
+    throw new Error("No unresolved account conflict was found.");
+  }
+
+  if (params.resolution === "dismiss_conflict") {
+    const { error } = await admin
+      .from("client_account_links")
+      .update({
+        status: "disconnected",
+        disconnected_at: now,
+        disconnect_reason: "Conflict dismissed by studio staff.",
+        conflict_details: null,
+        updated_at: now,
+      })
+      .eq("id", conflict.id);
+
+    if (error) throw new Error(`Conflict dismissal failed: ${error.message}`);
+    return;
+  }
+
+  if (!params.matchingUserId) {
+    throw new Error("No matching DanceFlow account is available to link.");
+  }
+
+  await linkExistingClientAccount({
+    studioId: params.studioId,
+    clientId: params.clientId,
+    userId: params.matchingUserId,
+    invitedEmail: params.invitedEmail,
+  });
+
+  await admin
+    .from("client_account_links")
+    .update({
+      status: "linked",
+      conflict_details: null,
+      linked_at: now,
+      accepted_at: now,
+      updated_at: now,
+    })
+    .eq("id", conflict.id);
+}
