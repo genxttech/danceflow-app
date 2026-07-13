@@ -81,35 +81,60 @@ export async function createOrRefreshClientInvitation(params: {
   const expiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   const invite = createClientAccountInviteToken();
   const email = normalizedEmail(params.email);
+  const requestedUserId = params.userId ?? null;
 
-  const { data: existing, error: existingError } = await admin
+  /*
+   * A client/user pair is unique across every lifecycle status, not only open
+   * invitations. Look up both the current open invitation and any existing row
+   * for the resolved auth user before deciding whether to insert.
+   */
+  const { data: existingRows, error: existingError } = await admin
     .from("client_account_links")
-    .select("id, user_id, status")
+    .select("id, user_id, status, relationship_type, created_at")
+    .eq("studio_id", params.studioId)
     .eq("client_id", params.clientId)
-    .in("status", ["invited", "claim_pending"])
-    .maybeSingle();
+    .order("created_at", { ascending: false });
 
   if (existingError) {
     throw new Error(`Client invitation lookup failed: ${existingError.message}`);
   }
 
+  const rows = existingRows ?? [];
+  const existingForUser = requestedUserId
+    ? rows.find((row) => row.user_id === requestedUserId) ?? null
+    : null;
+  const openInvitation =
+    rows.find((row) =>
+      ["invited", "claim_pending"].includes(String(row.status)),
+    ) ?? null;
+
+  if (existingForUser?.status === "linked") {
+    throw new Error("This client already has portal access with that DanceFlow account.");
+  }
+
+  const existing = openInvitation ?? existingForUser;
+  const relationshipType = params.relationshipType ?? "self";
+
   const payload = {
     studio_id: params.studioId,
     client_id: params.clientId,
-    user_id: params.userId ?? existing?.user_id ?? null,
+    user_id: requestedUserId ?? existing?.user_id ?? null,
     status: "invited",
-    relationship_type: params.relationshipType ?? "self",
+    relationship_type: relationshipType,
     can_view_schedule: true,
     can_view_billing: true,
     can_manage_bookings: true,
     can_sign_documents: true,
-    is_primary: (params.relationshipType ?? "self") === "self",
+    is_primary: relationshipType === "self",
     initiated_by: "studio",
     invited_email: email,
     invite_token_hash: invite.hash,
     invite_sent_at: now.toISOString(),
     invite_expires_at: expiresAt.toISOString(),
+    accepted_at: null,
     rejected_at: null,
+    claimed_at: null,
+    linked_at: null,
     conflict_details: null,
     disconnected_at: null,
     disconnected_by: null,
@@ -123,7 +148,14 @@ export async function createOrRefreshClientInvitation(params: {
 
   const { data, error } = await query.select("*").single();
 
-  if (error) throw new Error(`Client invitation save failed: ${error.message}`);
+  if (error) {
+    if (error.code === "23505") {
+      throw new Error(
+        "This client already has a portal relationship for that DanceFlow account. Refresh the client page before resending the invitation.",
+      );
+    }
+    throw new Error(`Client invitation save failed: ${error.message}`);
+  }
 
   return {
     link: data as ClientAccountLinkRecord,
