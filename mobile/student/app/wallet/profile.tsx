@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { AppButton } from "@/components/AppButton";
@@ -9,6 +9,7 @@ import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, studentPassQrImageUrl, type LinkedStudioAccess } from "@/lib/studentAccess";
+import { leaveConnectedStudio } from "@/lib/accountControls";
 
 function studentDisplayName(linkedStudios: LinkedStudioAccess[]) {
   const primary = linkedStudios[0];
@@ -58,7 +59,13 @@ function ProfileActionCard({
   );
 }
 
-function ConnectedStudioCard({ studio }: { studio: LinkedStudioAccess }) {
+function ConnectedStudioCard({
+  onLeave,
+  studio
+}: {
+  onLeave: (studio: LinkedStudioAccess) => void;
+  studio: LinkedStudioAccess;
+}) {
   const studioName = studio.studioPublicName || studio.studioName || "Connected studio";
   const studentName = [studio.clientFirstName, studio.clientLastName].filter(Boolean).join(" ").trim();
 
@@ -86,6 +93,7 @@ function ConnectedStudioCard({ studio }: { studio: LinkedStudioAccess }) {
         <AppButton label="Schedule" onPress={() => router.push("/(tabs)/schedule")} variant="secondary" />
         <AppButton label="Packages" onPress={() => router.push("/wallet/packages")} variant="secondary" />
         <AppButton label="Memberships" onPress={() => router.push("/wallet/memberships")} variant="secondary" />
+        <AppButton label="Leave Studio" onPress={() => onLeave(studio)} variant="secondary" />
       </View>
     </View>
   );
@@ -133,6 +141,32 @@ export default function WalletProfileScreen() {
 
   const hasPortalAccess = linkedStudios.length > 0;
 
+  function confirmLeaveStudio(studio: LinkedStudioAccess) {
+    const studioName = studio.studioPublicName || studio.studioName || "this studio";
+
+    Alert.alert(
+      `Leave ${studioName}?`,
+      "This removes portal access from your account. The studio will keep its client, billing, attendance, document, and communication history.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Leave Studio",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await leaveConnectedStudio({ studioId: studio.studioId });
+              setLinkedStudios((current) =>
+                current.filter((item) => item.studioId !== studio.studioId)
+              );
+            } catch {
+              Alert.alert("Could not leave studio", "Try again or contact DanceFlow support.");
+            }
+          }
+        }
+      ]
+    );
+  }
+
   return (
     <Screen>
       <AppText variant="eyebrow">Wallet</AppText>
@@ -171,7 +205,7 @@ export default function WalletProfileScreen() {
           {hasPortalAccess ? (
             <View style={styles.studioList}>
               {linkedStudios.map((studio) => (
-                <ConnectedStudioCard key={studio.clientId} studio={studio} />
+                <ConnectedStudioCard key={studio.clientId} onLeave={confirmLeaveStudio} studio={studio} />
               ))}
             </View>
           ) : (

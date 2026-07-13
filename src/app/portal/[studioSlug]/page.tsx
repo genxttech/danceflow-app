@@ -1344,21 +1344,6 @@ export default async function PortalHomePage({
           },
         ]
       : []),
-    ...(!upcomingItems.length
-      ? [
-          {
-            title: "No upcoming lessons yet",
-            description: isInstructorPortal
-              ? "No upcoming lessons or rentals are showing in your portal."
-              : "Request a lesson or contact the studio to get something on the calendar.",
-            tone: "sky" as const,
-            href: `/portal/${encodeURIComponent(typedStudio.slug)}${
-              isInstructorPortal ? "/schedule" : "/schedule#self-service-booking"
-            }`,
-            label: "Schedule",
-          },
-        ]
-      : []),
     ...(issuedPortalTicketCount
       ? [
           {
@@ -1434,19 +1419,6 @@ export default async function PortalHomePage({
             tone: "sky" as const,
             href: `/portal/${encodeURIComponent(typedStudio.slug)}/schedule#self-service-booking`,
             cta: "View request",
-          },
-        ]
-      : []),
-    ...(!upcomingItems.length
-      ? [
-          {
-            title: "Nothing scheduled yet",
-            description: isInstructorPortal
-              ? "You do not have upcoming lessons or rentals showing in your portal."
-              : "You do not have an upcoming lesson or class on your portal schedule.",
-            tone: "sky" as const,
-            href: `/portal/${encodeURIComponent(typedStudio.slug)}/schedule`,
-            cta: "View schedule",
           },
         ]
       : []),
@@ -1528,10 +1500,17 @@ export default async function PortalHomePage({
                   </Link>
                 ) : null}
                 <Link
-                  href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
+                  href="/account"
                   className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
                 >
                   My Account
+                </Link>
+
+                <Link
+                  href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
+                  className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
+                >
+                  Profile & Contact Details
                 </Link>
 
                 <form action="/auth/logout" method="post">
@@ -1542,35 +1521,6 @@ export default async function PortalHomePage({
                     Log Out
                   </button>
                 </form>
-              </div>
-            </div>
-
-            <div className="grid w-full gap-4 md:grid-cols-3">
-              <div className="rounded-[28px] border border-white/15 bg-white/10 p-5 backdrop-blur-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/75">
-                  {isInstructorPortal ? "Coming Up" : "Upcoming Appointments"}
-                </p>
-                <p className="mt-3 text-3xl font-semibold text-white">
-                  {upcomingCount}
-                </p>
-              </div>
-
-              <div className="rounded-[28px] border border-white/15 bg-white/10 p-5 backdrop-blur-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/75">
-                  Active Membership
-                </p>
-                <p className="mt-3 text-lg font-semibold text-white">
-                  {typedMembership ? typedMembership.name_snapshot : "None"}
-                </p>
-              </div>
-
-              <div className="rounded-[28px] border border-white/15 bg-white/10 p-5 backdrop-blur-sm">
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-white/75">
-                  Active Packages
-                </p>
-                <p className="mt-3 text-3xl font-semibold text-white">
-                  {typedPackages.length}
-                </p>
               </div>
             </div>
           </div>
@@ -1625,17 +1575,13 @@ export default async function PortalHomePage({
           <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--brand-accent-dark)]">
-                My Dance Hub
+                Your Dashboard
               </p>
               <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
-                {nextUpItem
-                  ? "You have something coming up"
-                  : "You are all caught up"}
+                Your studio snapshot
               </h2>
               <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">
-                {nextUpItem
-                  ? "Your portal keeps your schedule, credits, documents, events, and studio activity in one place."
-                  : "There is nothing urgent showing right now. Use your quick actions to view your schedule, check credits, or contact the studio."}
+                See your next appointment, package and membership status, documents, and events without repeating the same information throughout the portal.
               </p>
             </div>
 
@@ -1674,7 +1620,7 @@ export default async function PortalHomePage({
 
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                My Wallet
+                Packages & Membership
               </p>
               <p className="mt-2 text-2xl font-semibold text-emerald-950">
                 {hasUnlimitedCredits ? "Unlimited" : remainingCreditTotal}
@@ -1778,63 +1724,7 @@ export default async function PortalHomePage({
         </div>
       </section>
 
-      <CardShell
-        title="Portal Updates"
-        accent="violet"
-        subtitle="A simple feed of reminders, changes, and next steps from your studio portal."
-      >
-        <div id="portal-notifications" className="space-y-4">
-          {portalNotificationItems.length ? (
-            <div className="grid gap-4 lg:grid-cols-2">
-              {portalNotificationItems.map((item) => (
-                <Link
-                  key={`${item.label}-${item.title}`}
-                  href={item.href}
-                  className={`block rounded-3xl border p-5 transition hover:shadow-sm ${attentionToneClass(item.tone)}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] opacity-70">
-                        {item.label}
-                      </p>
-                      <p className="mt-2 font-semibold">{item.title}</p>
-                    </div>
-                    <span className="rounded-full bg-white/70 px-3 py-1 text-xs font-semibold">
-                      New
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm leading-6 opacity-85">
-                    {item.description}
-                  </p>
-                  <p className="mt-4 text-sm font-semibold">Review →</p>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
-              <p className="font-semibold">No portal updates right now.</p>
-              <p className="mt-2 text-sm leading-6 text-emerald-900">
-                Schedule reminders, tickets, documents, package notices, and booking request updates will appear here.
-              </p>
-            </div>
-          )}
 
-          <div className="grid gap-3 rounded-3xl border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600 sm:grid-cols-3">
-            <div>
-              <p className="font-semibold text-slate-900">Schedule</p>
-              <p className="mt-1">Lessons, classes, rentals, and booking request status.</p>
-            </div>
-            <div>
-              <p className="font-semibold text-slate-900">Account</p>
-              <p className="mt-1">Credits, memberships, payment requests, and documents.</p>
-            </div>
-            <div>
-              <p className="font-semibold text-slate-900">Events</p>
-              <p className="mt-1">Registrations, ticket codes, waivers, and studio events.</p>
-            </div>
-          </div>
-        </div>
-      </CardShell>
 
       <CardShell
         title="My Pass"
@@ -2157,11 +2047,7 @@ export default async function PortalHomePage({
       <CardShell
         title="Quick Actions"
         accent="sky"
-        subtitle={
-          isInstructorPortal
-            ? "Use these links to move between your schedule, rentals, account details, and workspace access."
-            : "Use these links to view your schedule, packages, payments, and account details."
-        }
+        subtitle="Direct links to full portal tools. Summary information stays in Your Dashboard above."
       >
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
           <ActionTile
@@ -2199,12 +2085,6 @@ export default async function PortalHomePage({
             tone="emerald"
           />
           <ActionTile
-            href="#portal-notifications"
-            title="Portal Updates"
-            description="Review reminders, tickets, documents, and account prompts."
-            tone="violet"
-          />
-          <ActionTile
             href={`/portal/${encodeURIComponent(typedStudio.slug)}/documents`}
             title="Documents"
             description="Review and sign documents from your studio."
@@ -2235,10 +2115,16 @@ export default async function PortalHomePage({
             />
           ) : null}
           <ActionTile
-            href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
+            href="/account"
             title="My Account"
-            description="Update your profile and account details."
+            description="Open your DanceFlow account, favorites, registrations, studio connections, and account controls."
             tone="violet"
+          />
+          <ActionTile
+            href={`/portal/${encodeURIComponent(typedStudio.slug)}/profile`}
+            title="Profile & Contact Details"
+            description="Review your dancer profile and update this studio’s contact information."
+            tone="slate"
           />
           {canReturnToWorkspace ? (
             <ActionTile
@@ -2527,73 +2413,12 @@ export default async function PortalHomePage({
             )}
           </CardShell>
 
-          <CardShell
-            title={isInstructorPortal ? "My Membership" : "Membership Snapshot"}
-            accent="violet"
-            subtitle={
-              isInstructorPortal
-                ? "If this portal account also has a membership, you can review it here."
-                : "See your current membership and billing period in one place."
-            }
-          >
-            {typedMembership ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                  <p className="text-sm text-slate-500">Plan</p>
-                  <p className="mt-2 text-xl font-semibold text-slate-950">
-                    {typedMembership.name_snapshot}
-                  </p>
-                  <p className="mt-2 text-sm text-slate-600">
-                    {formatCurrency(typedMembership.price_snapshot)} /{" "}
-                    {typedMembership.billing_interval_snapshot || "period"}
-                  </p>
-                </div>
 
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                  <p className="text-sm text-slate-500">Status</p>
-                  <p className="mt-2 text-xl font-semibold text-slate-950">
-                    {statusLabel(typedMembership.status)}
-                  </p>
-                  <p className="mt-2 text-sm text-slate-600">
-                    Current period:{" "}
-                    {formatDate(typedMembership.current_period_start)} –{" "}
-                    {formatDate(typedMembership.current_period_end)}
-                  </p>
-                </div>
-
-                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 md:col-span-2">
-                  <p className="text-sm text-slate-500">Renewal</p>
-                  <p className="mt-2 text-sm text-slate-700">
-                    {typedMembership.cancel_at_period_end
-                      ? "Your membership will end at the close of the current billing period."
-                      : typedMembership.auto_renew
-                        ? "Your membership is set to renew automatically."
-                        : "Auto-renew is currently turned off."}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">
-                  No active membership is linked to this portal profile right
-                  now.
-                </p>
-              </div>
-            )}
-          </CardShell>
 
           <CardShell
-            title={
-              isInstructorPortal
-                ? "Recent Lesson Activity"
-                : "Recent Appointments"
-            }
+            title="Recent Activity"
             accent="emerald"
-            subtitle={
-              isInstructorPortal
-                ? "A quick look at your recent lesson-side activity."
-                : "A quick look at your most recent lessons and class bookings."
-            }
+            subtitle="Review recent lessons and classes here. Lesson recaps and payment history remain directly below for deeper detail."
           >
             {recentAppointments.length ? (
               <div className="space-y-3">
@@ -2695,66 +2520,10 @@ export default async function PortalHomePage({
         </div>
 
         <div className="space-y-8">
-          <CardShell
-            title="Coming Up"
-            accent="sky"
-            subtitle={
-              isInstructorPortal
-                ? "Your next lessons and rentals in one place."
-                : "Your upcoming appointments at a glance."
-            }
-          >
-            {upcomingItems.length ? (
-              <div className="space-y-3">
-                {upcomingItems.map((item) => (
-                  <div
-                    key={`${item.kind}-${item.id}`}
-                    className="rounded-3xl border border-slate-200 bg-slate-50 p-5"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        className={`inline-flex rounded-full px-3 py-1 text-xs font-medium ${statusBadgeClass(item.status)}`}
-                      >
-                        {statusLabel(item.status)}
-                      </span>
 
-                      <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
-                        {item.kind === "rental" ? "Rental" : "Lesson"}
-                      </span>
-                    </div>
-
-                    <p className="mt-3 font-medium text-slate-950">
-                      {item.title}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-600">
-                      {formatDateTime(item.starts_at, studioTimeZone)}
-                    </p>
-                    <p className="mt-1 text-sm text-slate-500">
-                      {formatTimeRange(item.starts_at, item.ends_at, studioTimeZone)}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-6">
-                <p className="text-sm text-slate-600">
-                  No upcoming schedule items right now.
-                </p>
-              </div>
-            )}
-
-            <div className="mt-5">
-              <Link
-                href={`/portal/${encodeURIComponent(typedStudio.slug)}/schedule`}
-                className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
-              >
-                Open Full Schedule
-              </Link>
-            </div>
-          </CardShell>
 
           <CardShell
-            title="Payment History"
+            title="Recent Payments"
             accent="slate"
             subtitle="Review recent completed payments recorded by the studio."
           >

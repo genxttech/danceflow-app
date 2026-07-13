@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { Alert, StyleSheet, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
@@ -8,6 +8,7 @@ import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
+import { deleteDanceFlowAccount } from "@/lib/accountControls";
 
 export default function SettingsScreen() {
   const { session, signOut } = useAuth();
@@ -48,6 +49,31 @@ export default function SettingsScreen() {
     };
   }, [session?.user.id]);
 
+  function confirmDeleteAccount() {
+    Alert.alert(
+      "Delete DanceFlow account?",
+      "This permanently removes your DanceFlow login, dancer profile, favorites, preferences, and account-owned data. Studios may retain business records such as billing, attendance, documents, payments, and communications.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Account",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteDanceFlowAccount();
+              await signOut();
+            } catch {
+              Alert.alert(
+                "Account deletion failed",
+                "Your account was not deleted. Try again or contact DanceFlow support."
+              );
+            }
+          }
+        }
+      ]
+    );
+  }
+
   return (
     <Screen>
       <AppText variant="eyebrow">Settings</AppText>
@@ -74,6 +100,16 @@ export default function SettingsScreen() {
 
       {errorMessage ? <FeatureCard title="Settings update" detail={errorMessage} /> : null}
 
+      <View style={styles.dangerCard}>
+        <AppText variant="eyebrow">Account Controls</AppText>
+        <AppText variant="subtitle">Delete DanceFlow account</AppText>
+        <AppText variant="caption">
+          Permanently removes your DanceFlow login and account-owned profile data.
+          Studios may retain their business records.
+        </AppText>
+        <AppButton label="Delete Account" onPress={confirmDeleteAccount} variant="secondary" />
+      </View>
+
       <AppButton label="Sign Out" onPress={signOut} variant="secondary" />
     </Screen>
   );
@@ -83,6 +119,14 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 8,
+    padding: 16
+    },
+  dangerCard: {
+    backgroundColor: colors.surface,
+    borderColor: "#fecaca",
     borderRadius: 18,
     borderWidth: 1,
     gap: 8,

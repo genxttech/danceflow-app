@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import PublicSiteHeader from "@/components/public/PublicSiteHeader";
 import { createClient } from "@/lib/supabase/server";
+import { deleteAccountAction, leaveStudioAction } from "./actions";
 
 type FavoriteRow = {
   studio_id: string | null;
@@ -74,6 +75,15 @@ type RegisteredEventItem = {
   status: string;
   createdAt: string;
   event: EventRow;
+};
+
+type AccountRelationshipHistoryItem = {
+  id: string;
+  studioId: string;
+  studioName: string;
+  status: string;
+  disconnectedAt: string | null;
+  disconnectReason: string | null;
 };
 
 type LinkedPortalItem = {
@@ -443,9 +453,8 @@ function PortalCards({ linkedPortals }: { linkedPortals: LinkedPortalItem[] }) {
   return (
     <div className="mt-6 grid gap-4 lg:grid-cols-2">
       {linkedPortals.map((portal) => (
-        <Link
+        <div
           key={`${portal.studioId}-${portal.clientId}`}
-          href={`/portal/${portal.studioSlug}`}
           className="group rounded-[28px] border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -470,10 +479,40 @@ function PortalCards({ linkedPortals }: { linkedPortals: LinkedPortalItem[] }) {
             Open this studio’s private portal for studio-specific lessons,
             memberships, rentals, and account access.
           </p>
-          <p className="mt-5 text-sm font-semibold text-emerald-800 group-hover:text-emerald-900">
+          <Link
+            href={`/portal/${portal.studioSlug}`}
+            className="mt-5 inline-flex text-sm font-semibold text-emerald-800 group-hover:text-emerald-900"
+          >
             Open portal →
-          </p>
-        </Link>
+          </Link>
+
+          <details className="mt-5 rounded-2xl border border-rose-100 bg-white p-4">
+            <summary className="cursor-pointer text-sm font-semibold text-rose-700">
+              Leave this studio
+            </summary>
+            <form action={leaveStudioAction} className="mt-4 space-y-3">
+              <input type="hidden" name="studioId" value={portal.studioId} />
+              <p className="text-xs leading-5 text-slate-600">
+                This removes your portal access. The studio keeps its client, billing,
+                attendance, document, and communication history.
+              </p>
+              <input
+                name="reason"
+                placeholder="Optional reason"
+                className="w-full rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              />
+              <input
+                name="confirmation"
+                placeholder="Type LEAVE"
+                className="w-full rounded-xl border border-rose-200 px-3 py-2 text-sm"
+                required
+              />
+              <button className="w-full rounded-xl bg-rose-700 px-4 py-2 text-sm font-semibold text-white">
+                Remove Studio Access
+              </button>
+            </form>
+          </details>
+        </div>
       ))}
     </div>
   );
@@ -591,7 +630,12 @@ function RegisteredEventCards({ events }: { events: RegisteredEventItem[] }) {
   );
 }
 
-export default async function AccountPage() {
+export default async function AccountPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ success?: string; error?: string }>;
+}) {
+  const search = await searchParams;
   const supabase = await createClient();
 
   const {
@@ -606,6 +650,7 @@ export default async function AccountPage() {
     { data: favorites, error: favoritesError },
     { data: registrations, error: registrationsError },
     { data: portalLinks, error: portalLinksError },
+    { data: relationshipHistory, error: relationshipHistoryError },
   ] = await Promise.all([
     supabase
       .from("user_favorites")
@@ -639,6 +684,24 @@ export default async function AccountPage() {
       )
       .eq("portal_user_id", user.id)
       .order("created_at", { ascending: false }),
+
+    supabase
+      .from("client_account_links")
+      .select(`
+        id,
+        studio_id,
+        status,
+        disconnected_at,
+        disconnect_reason,
+        studios (
+          id,
+          name,
+          public_name
+        )
+      `)
+      .eq("user_id", user.id)
+      .in("status", ["disconnected", "former_client"])
+      .order("updated_at", { ascending: false }),
   ]);
 
   if (favoritesError) {
@@ -654,6 +717,12 @@ export default async function AccountPage() {
   if (portalLinksError) {
     throw new Error(
       `Failed to load studio portals: ${portalLinksError.message}`,
+    );
+  }
+
+  if (relationshipHistoryError) {
+    throw new Error(
+      `Failed to load studio relationship history: ${relationshipHistoryError.message}`,
     );
   }
 
@@ -777,6 +846,22 @@ export default async function AccountPage() {
     })
     .filter((value): value is LinkedPortalItem => Boolean(value));
 
+  const relationshipHistoryItems = (relationshipHistory ?? [])
+    .map((row) => {
+      const studio = Array.isArray(row.studios) ? row.studios[0] : row.studios;
+      if (!studio) return null;
+
+      return {
+        id: row.id,
+        studioId: row.studio_id,
+        studioName: studio.public_name?.trim() || studio.name,
+        status: row.status,
+        disconnectedAt: row.disconnected_at,
+        disconnectReason: row.disconnect_reason,
+      };
+    })
+    .filter((value): value is AccountRelationshipHistoryItem => Boolean(value));
+
   const portalClientIds = Array.from(
     new Set(linkedPortals.map((row) => row.clientId)),
   );
@@ -856,6 +941,23 @@ export default async function AccountPage() {
       <PublicSiteHeader currentPath="account" isAuthenticated />
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+        {search.success === "studio_left" ? (
+          <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-800">
+            Studio access was removed. The studio still retains its historical client records.
+          </div>
+        ) : null}
+
+        {search.error ? (
+          <div className="mb-6 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-800">
+            {search.error === "leave_confirmation_required"
+              ? "Type LEAVE to confirm removing studio access."
+              : search.error === "delete_confirmation_required"
+                ? "Type DELETE to confirm account deletion."
+                : search.error === "leave_studio_failed"
+                  ? "Studio access could not be removed."
+                  : "Your DanceFlow account could not be deleted."}
+          </div>
+        ) : null}
         <section className="overflow-hidden rounded-[36px] border border-orange-100 bg-white shadow-sm">
           <div className="relative isolate bg-gradient-to-br from-purple-900 via-fuchsia-800 to-orange-500 p-6 text-white sm:p-8 lg:p-10">
             <div className="absolute inset-0 -z-10 opacity-25 [background-image:radial-gradient(circle_at_top_left,#ffffff_0,transparent_28%),radial-gradient(circle_at_bottom_right,#ffffff_0,transparent_24%)]" />
@@ -1030,6 +1132,74 @@ export default async function AccountPage() {
             <RegisteredEventCards events={registeredEventsList} />
           </section>
 
+
+          {relationshipHistoryItems.length > 0 ? (
+            <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
+              <SectionHeader
+                eyebrow="Studio History"
+                title="Previous studio relationships"
+                description="Disconnected and former-client relationships remain listed for transparency. Studio records are retained by the studio."
+              />
+              <div className="mt-6 space-y-3">
+                {relationshipHistoryItems.map((item) => (
+                  <div key={item.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold text-slate-950">{item.studioName}</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {item.disconnectReason || "Access ended."}
+                        </p>
+                      </div>
+                      <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-700 ring-1 ring-slate-200">
+                        {formatStatus(item.status)}
+                      </span>
+                    </div>
+                    {item.disconnectedAt ? (
+                      <p className="mt-3 text-xs text-slate-500">
+                        Ended {formatDate(item.disconnectedAt)}
+                      </p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="rounded-[32px] border border-rose-200 bg-white p-6 shadow-sm sm:p-7">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-rose-600">
+              Account Controls
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              Delete DanceFlow account
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+              This permanently removes your DanceFlow login, global dancer profile,
+              favorites, app preferences, and account-owned data. Studios may retain
+              client, billing, attendance, document, payment, tax, safety, and
+              communication records associated with their business.
+            </p>
+
+            <details className="mt-5 rounded-2xl border border-rose-200 bg-rose-50 p-4">
+              <summary className="cursor-pointer text-sm font-semibold text-rose-800">
+                Permanently delete my account
+              </summary>
+              <form action={deleteAccountAction} className="mt-4 space-y-3">
+                <p className="text-sm leading-6 text-rose-900">
+                  This cannot be undone. Type DELETE to confirm.
+                </p>
+                <input
+                  name="confirmation"
+                  placeholder="Type DELETE"
+                  className="w-full max-w-md rounded-xl border border-rose-300 bg-white px-3 py-2 text-sm"
+                  required
+                />
+                <button className="rounded-xl bg-rose-700 px-5 py-3 text-sm font-semibold text-white hover:bg-rose-800">
+                  Delete DanceFlow Account
+                </button>
+              </form>
+            </details>
+          </section>
+
           <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
             <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr] lg:items-center">
               <div>
@@ -1075,4 +1245,3 @@ export default async function AccountPage() {
     </div>
   );
 }
-
