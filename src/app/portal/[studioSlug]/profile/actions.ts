@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -43,6 +44,7 @@ export async function updatePortalStudioContactAction(formData: FormData) {
   const studioSlug = normalizeSlug(getString(formData, "studioSlug"));
   const email = normalizeEmail(getString(formData, "email"));
   const phone = normalizePhone(getString(formData, "phone"));
+  const requestedClientId = getString(formData, "clientId") || null;
 
   if (!studioSlug) redirect("/login");
   const destination = returnPath(studioSlug);
@@ -70,16 +72,17 @@ export async function updatePortalStudioContactAction(formData: FormData) {
     redirect(`${destination}?error=contact_update_failed`);
   }
 
-  const { data: client, error: clientError } = await supabase
-    .from("clients")
-    .select("id")
-    .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id)
-    .maybeSingle();
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: studio.id,
+    requestedClientId,
+  });
 
-  if (clientError || !client) {
+  if (!relationship) {
     redirect(`${destination}?error=contact_update_failed`);
   }
+
+  const client = { id: relationship.clientId };
 
   const { error } = await supabase
     .from("clients")
@@ -88,8 +91,7 @@ export async function updatePortalStudioContactAction(formData: FormData) {
       phone: phone || null,
     })
     .eq("id", client.id)
-    .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id);
+    .eq("studio_id", studio.id);
 
   if (error) {
     redirect(`${destination}?error=contact_update_failed`);

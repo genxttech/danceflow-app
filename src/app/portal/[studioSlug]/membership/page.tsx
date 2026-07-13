@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
 
 type Params = Promise<{
   studioSlug: string;
 }>;
+
+type SearchParams = Promise<{ client?: string }>;
 
 type ActiveMembership = {
   id: string;
@@ -120,10 +123,14 @@ function benefitSummary(benefit: MembershipBenefit) {
 
 export default async function PortalMembershipPage({
   params,
+  searchParams,
 }: {
   params: Params;
+  searchParams: SearchParams;
 }) {
   const { studioSlug } = await params;
+  const query = await searchParams;
+  const requestedClientId = query.client ?? null;
   const supabase = await createClient();
 
   const {
@@ -144,17 +151,23 @@ export default async function PortalMembershipPage({
     redirect("/login");
   }
 
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: studio.id,
+    requestedClientId,
+    permission: "can_view_billing",
+  });
+
+  if (!relationship) {
+    redirect(`/portal/${encodeURIComponent(studioSlug)}`);
+  }
+
   const { data: client, error: clientError } = await supabase
     .from("clients")
-    .select(`
-      id,
-      first_name,
-      last_name,
-      is_independent_instructor
-    `)
+    .select(`id, first_name, last_name, is_independent_instructor`)
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id)
-    .single();
+    .eq("id", relationship.clientId)
+    .maybeSingle();
 
   if (clientError || !client || !client.is_independent_instructor) {
     redirect(`/login?studio=${encodeURIComponent(studioSlug)}`);
@@ -234,14 +247,14 @@ export default async function PortalMembershipPage({
 
           <div className="flex flex-wrap gap-3">
             <Link
-              href={`/portal/${encodeURIComponent(studio.slug)}`}
+              href={portalClientPath(studio.slug, client.id)}
               className="rounded-xl border px-4 py-2 hover:bg-slate-50"
             >
               Back to Portal
             </Link>
 
             <Link
-              href={`/portal/${encodeURIComponent(studio.slug)}/floor-space`}
+              href={portalClientPath(studio.slug, client.id, "/floor-space")}
               className="rounded-xl bg-slate-900 px-4 py-2 text-white hover:bg-slate-800"
             >
               Book Floor Space
@@ -442,30 +455,32 @@ export default async function PortalMembershipPage({
 
                 <div className="mt-5 grid gap-3">
                   <Link
-                    href={`/portal/${encodeURIComponent(studio.slug)}`}
+                    href={portalClientPath(studio.slug, client.id)}
                     className="rounded-xl border px-4 py-3 hover:bg-slate-50"
                   >
                     Portal Home
                   </Link>
 
                   <Link
-                    href={`/portal/${encodeURIComponent(studio.slug)}/floor-space`}
+                    href={portalClientPath(studio.slug, client.id, "/floor-space")}
                     className="rounded-xl border px-4 py-3 hover:bg-slate-50"
                   >
                     Book Floor Space
                   </Link>
 
                   <Link
-                    href={`/portal/${encodeURIComponent(
-                      studio.slug
-                    )}/floor-space/my-rentals`}
+                    href={portalClientPath(
+                      studio.slug,
+                      client.id,
+                      "/floor-space/my-rentals",
+                    )}
                     className="rounded-xl border px-4 py-3 hover:bg-slate-50"
                   >
                     My Rentals
                   </Link>
 
                   <Link
-                    href={`/portal/${encodeURIComponent(studio.slug)}/profile`}
+                    href={portalClientPath(studio.slug, client.id, "/profile")}
                     className="rounded-xl border px-4 py-3 hover:bg-slate-50"
                   >
                     My Profile

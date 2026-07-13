@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getIncludedUsageAllowance } from "@/lib/usage/addons";
+import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 
 type PlanCode = "starter" | "growth" | "pro" | null;
 
@@ -35,6 +36,7 @@ function normalizePlan(value: string | null | undefined): PlanCode {
 
 export async function resolveLumiPortalAccess(
   studioSlug: string,
+  requestedClientId?: string | null,
 ): Promise<LumiPortalAccess> {
   const authClient = await createClient();
   const {
@@ -58,11 +60,19 @@ export async function resolveLumiPortalAccess(
 
   if (!studio) redirect("/app");
 
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: studio.id,
+    requestedClientId,
+  });
+
+  if (!relationship) redirect(`/portal/${studioSlug}`);
+
   const { data: client } = await admin
     .from("clients")
     .select("id, first_name, last_name, is_independent_instructor")
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id)
+    .eq("id", relationship.clientId)
     .maybeSingle<PortalClient>();
 
   if (!client) redirect(`/portal/${studioSlug}`);

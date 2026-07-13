@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 
 type ActionState = {
   error: string;
@@ -193,7 +194,7 @@ function appointmentTypeLabel(value: string) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-async function requireIndependentInstructorPortalAccess(studioSlug: string) {
+async function requireIndependentInstructorPortalAccess(studioSlug: string, requestedClientId?: string | null) {
   const supabase = await createClient();
 
   const {
@@ -214,19 +215,26 @@ async function requireIndependentInstructorPortalAccess(studioSlug: string) {
     throw new Error("Studio not found.");
   }
 
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: studio.id,
+    requestedClientId,
+    permission: "can_manage_bookings",
+  });
+
+  if (!relationship) {
+    throw new Error("No authorized portal relationship was found for this studio.");
+  }
+
   const { data: client, error: clientError } = await supabase
     .from("clients")
-    .select(
-      "id, studio_id, first_name, last_name, is_independent_instructor, linked_instructor_id"
-    )
+    .select("id, studio_id, first_name, last_name, is_independent_instructor, linked_instructor_id")
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id)
+    .eq("id", relationship.clientId)
     .single();
 
   if (clientError || !client) {
-    throw new Error(
-      "No portal-linked instructor profile was found for this studio."
-    );
+    throw new Error("No portal-linked instructor profile was found for this studio.");
   }
 
   if (!client.is_independent_instructor) {
@@ -340,6 +348,7 @@ export async function createFloorSpaceRentalAction(
   const roomIdRaw = getString(formData, "roomId");
   const slotsJson = getString(formData, "slotsJson");
   const roomId = roomIdRaw || null;
+  const clientId = getString(formData, "clientId") || null;
 
   if (!studioSlug) {
     return { error: "Missing studio slug.", success: "" };
@@ -347,7 +356,7 @@ export async function createFloorSpaceRentalAction(
 
   try {
     const { supabase, studio, client, user } =
-      await requireIndependentInstructorPortalAccess(studioSlug);
+      await requireIndependentInstructorPortalAccess(studioSlug, clientId);
 
     if (roomId) {
       const { data: room, error: roomError } = await supabase
@@ -501,6 +510,7 @@ export async function createFloorSpaceRentalAction(
 export async function cancelFloorSpaceRentalAction(formData: FormData) {
   const studioSlug = getString(formData, "studioSlug");
   const appointmentId = getString(formData, "appointmentId");
+  const clientId = getString(formData, "clientId") || null;
   const returnTo =
     getString(formData, "returnTo") ||
     `/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals`;
@@ -515,7 +525,7 @@ export async function cancelFloorSpaceRentalAction(formData: FormData) {
 
   try {
     const { supabase, studio, client } =
-      await requireIndependentInstructorPortalAccess(studioSlug);
+      await requireIndependentInstructorPortalAccess(studioSlug, clientId);
 
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")

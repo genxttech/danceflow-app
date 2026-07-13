@@ -3,9 +3,10 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getDancerProfile } from "@/lib/student-identity/profile";
 import { updatePortalStudioContactAction } from "./actions";
+import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
 
 type Params = Promise<{ studioSlug: string }>;
-type SearchParams = Promise<{ success?: string; error?: string }>;
+type SearchParams = Promise<{ client?: string; success?: string; error?: string }>;
 
 export default async function PortalProfilePage({
   params,
@@ -16,6 +17,7 @@ export default async function PortalProfilePage({
 }) {
   const { studioSlug } = await params;
   const search = await searchParams;
+  const requestedClientId = search.client ?? null;
   const supabase = await createClient();
   const {
     data: { user },
@@ -33,11 +35,22 @@ export default async function PortalProfilePage({
 
   if (studioError || !studio) redirect("/account");
 
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: studio.id,
+    requestedClientId,
+    permission: "can_view_schedule",
+  });
+
+  if (!relationship) {
+    redirect(`/portal/${encodeURIComponent(studioSlug)}`);
+  }
+
   const { data: client, error: clientError } = await supabase
     .from("clients")
     .select("id, first_name, last_name, email, phone, is_independent_instructor")
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id)
+    .eq("id", relationship.clientId)
     .maybeSingle();
 
   if (clientError || !client) {
@@ -128,6 +141,7 @@ export default async function PortalProfilePage({
 
           <form action={updatePortalStudioContactAction} className="mt-5 space-y-4">
             <input type="hidden" name="studioSlug" value={studio.slug} />
+            <input type="hidden" name="clientId" value={client.id} />
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="text-sm font-medium text-slate-700">
@@ -157,10 +171,10 @@ export default async function PortalProfilePage({
 
       <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap gap-3">
-          <Link href={`/portal/${encodeURIComponent(studio.slug)}`} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          <Link href={portalClientPath(studio.slug, client.id)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             Back to Portal
           </Link>
-          <Link href={`/portal/${encodeURIComponent(studio.slug)}/schedule`} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+          <Link href={portalClientPath(studio.slug, client.id, "/schedule")} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             My Schedule
           </Link>
           <span className="rounded-xl bg-slate-100 px-4 py-3 text-sm text-slate-600">

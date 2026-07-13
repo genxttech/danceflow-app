@@ -4,6 +4,7 @@ import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
@@ -36,7 +37,7 @@ function portalDocumentsPath(studioSlug: string, key?: string, value?: string) {
   return key && value ? `${path}?${key}=${encodeURIComponent(value)}` : path;
 }
 
-async function getPortalClient(params: { studioSlug: string }) {
+async function getPortalClient(params: { studioSlug: string; clientId?: string | null }) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -56,20 +57,26 @@ async function getPortalClient(params: { studioSlug: string }) {
     redirect("/login");
   }
 
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: studio.id,
+    requestedClientId: params.clientId ?? null,
+    permission: "can_sign_documents",
+  });
+
+  if (!relationship) {
+    redirect(`/portal/${encodeURIComponent(params.studioSlug)}`);
+  }
+
   const { data: client, error: clientError } = await supabase
     .from("clients")
-    .select("id, first_name, last_name, email, portal_user_id")
+    .select("id, first_name, last_name, email")
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id)
+    .eq("id", relationship.clientId)
     .maybeSingle();
 
-  if (clientError) {
-    throw clientError;
-  }
-
-  if (!client) {
-    redirect(`/login?studio=${encodeURIComponent(params.studioSlug)}`);
-  }
+  if (clientError) throw clientError;
+  if (!client) redirect(`/portal/${encodeURIComponent(params.studioSlug)}`);
 
   return { supabase, user, studio, client };
 }
@@ -110,6 +117,7 @@ export async function signPortalDocumentAction(formData: FormData) {
   const templateVersionId = normalizeOptionalUuid(getString(formData, "templateVersionId"));
   const signerName = cleanText(getString(formData, "signerName"), 160);
   const consentAccepted = getString(formData, "consentAccepted") === "on";
+  const clientId = normalizeOptionalUuid(getString(formData, "clientId")) || null;
 
   if (!studioSlug) {
     redirect("/login");
@@ -127,7 +135,7 @@ export async function signPortalDocumentAction(formData: FormData) {
     redirect(portalDocumentsPath(studioSlug, "error", "missing_consent"));
   }
 
-  const { supabase, user, studio, client } = await getPortalClient({ studioSlug });
+  const { supabase, user, studio, client } = await getPortalClient({ studioSlug, clientId });
 
   let assignment: {
     id: string;

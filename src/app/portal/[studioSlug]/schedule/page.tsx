@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import AppointmentSelfServiceActions from "./AppointmentSelfServiceActions";
 import SelfServiceBookingPanel from "./SelfServiceBookingPanel";
+import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -132,6 +133,7 @@ type PageProps = {
     studioSlug: string;
   }>;
   searchParams: Promise<{
+    client?: string;
     success?: string;
     error?: string;
   }>;
@@ -393,12 +395,14 @@ function groupByDay(rows: CalendarRow[], studioTimeZone: string) {
 function ScheduleCard({
   item,
   studioSlug,
+  clientId,
   isIndependentInstructor,
   recap,
   studioTimeZone,
 }: {
   item: CalendarRow;
   studioSlug: string;
+  clientId: string;
   isIndependentInstructor: boolean;
   recap?: LessonRecapRow;
   studioTimeZone: string;
@@ -478,7 +482,7 @@ function ScheduleCard({
         <div className="flex flex-wrap gap-2">
           {isRental && isIndependentInstructor ? (
             <Link
-              href={`/portal/${studioSlug}/floor-space/my-rentals`}
+              href={portalClientPath(studioSlug, clientId, "/floor-space/my-rentals")}
               className="inline-flex items-center justify-center rounded-xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             >
               View Rentals
@@ -542,6 +546,7 @@ async function loadAppointments(params: {
 export default async function PortalSchedulePage({ params, searchParams }: PageProps) {
   const { studioSlug } = await params;
   const query = await searchParams;
+  const requestedClientId = query.client ?? null;
   const supabase = await createClient();
 
   const {
@@ -562,6 +567,17 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
     notFound();
   }
 
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: studio.id,
+    requestedClientId,
+    permission: "can_view_schedule",
+  });
+
+  if (!relationship) {
+    redirect(`/portal/${studioSlug}`);
+  }
+
   const { data: portalClient, error: portalClientError } = await supabase
     .from("clients")
     .select(`
@@ -573,7 +589,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
       linked_instructor_id
     `)
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id)
+    .eq("id", relationship.clientId)
     .maybeSingle<ClientRow>();
 
   if (portalClientError || !portalClient) {
@@ -772,7 +788,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
 
         <div className="flex flex-wrap gap-3 border-t border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/35 px-6 py-5 md:px-8">
           <Link
-            href={`/portal/${studioSlug}`}
+            href={portalClientPath(studioSlug, portalClient.id)}
             className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
           >
             Back to Portal
@@ -781,14 +797,14 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
           {isIndependentInstructor ? (
             <>
               <Link
-                href={`/portal/${studioSlug}/floor-space/book`}
+                 href={portalClientPath(studioSlug, portalClient.id, "/floor-space")}
                 className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
                 Book Floor Space
               </Link>
 
               <Link
-                href={`/portal/${studioSlug}/floor-space/my-rentals`}
+                href={portalClientPath(studioSlug, portalClient.id, "/floor-space/my-rentals")}
                 className="inline-flex items-center justify-center rounded-xl bg-[var(--brand-accent-dark)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-95"
               >
                 My Rentals
@@ -844,6 +860,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
                           key={item.id}
                           item={item}
                           studioSlug={studioSlug}
+                          clientId={portalClient.id}
                           isIndependentInstructor={isIndependentInstructor}
                           recap={recapByAppointmentId.get(item.id)}
                           studioTimeZone={studioTimeZone}
@@ -885,6 +902,7 @@ export default async function PortalSchedulePage({ params, searchParams }: PageP
                           key={item.id}
                           item={item}
                           studioSlug={studioSlug}
+                          clientId={portalClient.id}
                           isIndependentInstructor={isIndependentInstructor}
                           recap={recapByAppointmentId.get(item.id)}
                           studioTimeZone={studioTimeZone}

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { createClient } from "@/lib/supabase/server";
+import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 import {
   ensurePortalProfileAndClientLinks,
   getAuthUserFullName,
@@ -109,6 +110,7 @@ export async function submitPortalBookingRequestAction(formData: FormData) {
   const contactPreference = normalizeContactPreference(getString(formData, "contactPreference"));
   const preferredTimes = cleanText(getString(formData, "preferredTimes"), 500);
   const notes = cleanText(getString(formData, "notes"), 2000);
+  const requestedClientId = getString(formData, "clientId") || null;
 
   try {
     if (!studioSlug || !preferredTimes) {
@@ -135,22 +137,14 @@ export async function submitPortalBookingRequestAction(formData: FormData) {
       redirect(buildPortalLoginPath(studioSlug, "portal-studio-not-found"));
     }
 
-    let clientId: string | null = null;
+    let relationship = await resolvePortalRelationship({
+      userId: user.id,
+      studioId: studio.id,
+      requestedClientId,
+      permission: "can_manage_bookings",
+    });
 
-    const { data: linkedClient, error: linkedClientError } = await supabase
-      .from("clients")
-      .select("id, first_name, last_name, email, phone")
-      .eq("studio_id", studio.id)
-      .eq("portal_user_id", user.id)
-      .maybeSingle();
-
-    if (linkedClientError) {
-      throw linkedClientError;
-    }
-
-    if (linkedClient?.id) {
-      clientId = linkedClient.id;
-    } else if (user.email) {
+    if (!relationship && user.email) {
       await ensurePortalProfileAndClientLinks({
         userId: user.id,
         email: user.email,
@@ -158,21 +152,27 @@ export async function submitPortalBookingRequestAction(formData: FormData) {
         studioId: studio.id,
       });
 
-      const { data: repairedClient, error: repairedClientError } = await supabase
-        .from("clients")
-        .select("id")
-        .eq("studio_id", studio.id)
-        .eq("portal_user_id", user.id)
-        .maybeSingle();
-
-      if (repairedClientError) {
-        throw repairedClientError;
-      }
-
-      clientId = repairedClient?.id ?? null;
+      relationship = await resolvePortalRelationship({
+        userId: user.id,
+        studioId: studio.id,
+        requestedClientId,
+        permission: "can_manage_bookings",
+      });
     }
 
-    if (!clientId) {
+    if (!relationship) {
+      redirect(appendQueryParam(returnTo, "error", "booking-request-failed"));
+    }
+
+    const clientId = relationship.clientId;
+    const { data: linkedClient, error: linkedClientError } = await supabase
+      .from("clients")
+      .select("id, first_name, last_name, email, phone")
+      .eq("studio_id", studio.id)
+      .eq("id", clientId)
+      .maybeSingle();
+
+    if (linkedClientError || !linkedClient) {
       redirect(appendQueryParam(returnTo, "error", "booking-request-failed"));
     }
 

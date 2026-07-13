@@ -2,12 +2,14 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import FloorSpaceRentalForm from "./FloorSpaceRentalForm";
+import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
 
 type Params = Promise<{
   studioSlug: string;
 }>;
 
 type SearchParams = Promise<{
+  client?: string;
   success?: string;
   error?: string;
 }>;
@@ -230,6 +232,7 @@ export default async function FloorSpacePage({
 }) {
   const { studioSlug } = await params;
   const query = await searchParams;
+  const requestedClientId = query.client ?? null;
   const banner = getBanner(query);
 
   const supabase = await createClient();
@@ -252,12 +255,23 @@ export default async function FloorSpacePage({
     redirect(`/login?studio=${encodeURIComponent(studioSlug)}`);
   }
 
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: studio.id,
+    requestedClientId,
+    permission: "can_manage_bookings",
+  });
+
+  if (!relationship) {
+    redirect(`/portal/${encodeURIComponent(studioSlug)}`);
+  }
+
   const { data: client, error: clientError } = await supabase
     .from("clients")
     .select("id, first_name, last_name, is_independent_instructor")
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id)
-    .single();
+    .eq("id", relationship.clientId)
+    .maybeSingle();
 
   if (clientError || !client) {
     redirect(`/portal/${encodeURIComponent(studioSlug)}`);
@@ -355,7 +369,7 @@ export default async function FloorSpacePage({
 
             <div className="flex flex-wrap gap-3">
   <Link
-    href={`/portal/${encodeURIComponent(studioSlug)}`}
+    href={portalClientPath(studioSlug, client.id)}
     className="rounded-xl bg-white px-4 py-2 text-sm font-medium text-[var(--brand-primary)] hover:bg-white/90"
   >
     Portal Home
@@ -463,7 +477,7 @@ export default async function FloorSpacePage({
 
             <div className="mt-5">
               <Link
-                href={`/portal/${encodeURIComponent(studioSlug)}/floor-space/my-rentals`}
+                href={portalClientPath(studioSlug, client.id, "/floor-space/my-rentals")}
                 className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-100"
               >
                 View All Rentals

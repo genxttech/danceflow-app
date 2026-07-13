@@ -2,12 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { cancelFloorSpaceRentalAction } from "../actions";
+import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
 
 type Params = Promise<{
   studioSlug: string;
 }>;
 
 type SearchParams = Promise<{
+  client?: string;
   success?: string;
   error?: string;
 }>;
@@ -172,6 +174,7 @@ export default async function MyFloorRentalsPage({
 }) {
   const { studioSlug } = await params;
   const query = await searchParams;
+  const requestedClientId = query.client ?? null;
   const banner = getBanner(query);
 
   const supabase = await createClient();
@@ -196,12 +199,23 @@ export default async function MyFloorRentalsPage({
 
   const studioTimeZone = getStudioTimeZone(studio.timezone);
 
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: studio.id,
+    requestedClientId,
+    permission: "can_view_billing",
+  });
+
+  if (!relationship) {
+    redirect(`/portal/${encodeURIComponent(studioSlug)}`);
+  }
+
   const { data: client, error: clientError } = await supabase
     .from("clients")
     .select("id, first_name, last_name, is_independent_instructor")
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id)
-    .single();
+    .eq("id", relationship.clientId)
+    .maybeSingle();
 
   if (clientError || !client || !client.is_independent_instructor) {
     redirect(`/portal/${encodeURIComponent(studioSlug)}`);
@@ -346,6 +360,7 @@ export default async function MyFloorRentalsPage({
 
               <form action="/api/payments/portal-floor-rental-checkout" method="post">
                 <input type="hidden" name="studioSlug" value={studio.slug} />
+                <input type="hidden" name="clientId" value={client.id} />
                 <button
                   type="submit"
                   disabled={balanceDue <= 0}
@@ -357,7 +372,7 @@ export default async function MyFloorRentalsPage({
 
               <div className="grid gap-3">
                 <Link
-                  href={`/portal/${encodeURIComponent(studio.slug)}/floor-space`}
+                  href={portalClientPath(studio.slug, client.id, "/floor-space")}
                   className="rounded-2xl border border-slate-200 bg-slate-50 p-4 hover:bg-slate-100"
                 >
                   <p className="font-medium text-slate-900">Book Floor Space</p>
@@ -367,7 +382,7 @@ export default async function MyFloorRentalsPage({
                 </Link>
 
                 <Link
-                  href={`/portal/${encodeURIComponent(studio.slug)}`}
+                  href={portalClientPath(studio.slug, client.id)}
                   className="rounded-2xl border border-slate-200 bg-slate-50 p-4 hover:bg-slate-100"
                 >
                   <p className="font-medium text-slate-900">Portal Home</p>
@@ -449,13 +464,16 @@ export default async function MyFloorRentalsPage({
                       {rental.status !== "cancelled" ? (
                         <form action={cancelFloorSpaceRentalAction}>
                           <input type="hidden" name="studioSlug" value={studio.slug} />
+                <input type="hidden" name="clientId" value={client.id} />
                           <input type="hidden" name="appointmentId" value={rental.id} />
                           <input
                             type="hidden"
                             name="returnTo"
-                            value={`/portal/${encodeURIComponent(
-                              studio.slug
-                            )}/floor-space/my-rentals`}
+                            value={portalClientPath(
+                              studio.slug,
+                              client.id,
+                              "/floor-space/my-rentals",
+                            )}
                           />
                           <button
                             type="submit"

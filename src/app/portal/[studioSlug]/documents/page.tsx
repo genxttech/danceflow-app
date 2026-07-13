@@ -2,12 +2,14 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { signPortalDocumentAction } from "./actions";
+import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
 
 type Params = Promise<{
   studioSlug: string;
 }>;
 
 type SearchParams = Promise<{
+  client?: string;
   success?: string;
   error?: string;
 }>;
@@ -167,6 +169,7 @@ export default async function PortalDocumentsPage({
 }) {
   const { studioSlug } = await params;
   const resolvedSearchParams = await searchParams;
+  const requestedClientId = resolvedSearchParams.client ?? null;
   const supabase = await createClient();
 
   const {
@@ -190,11 +193,22 @@ export default async function PortalDocumentsPage({
   const typedStudio = studio as StudioRow;
   const studioLabel = typedStudio.public_name?.trim() || typedStudio.name;
 
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: typedStudio.id,
+    requestedClientId,
+    permission: "can_view_schedule",
+  });
+
+  if (!relationship) {
+    redirect(`/portal/${encodeURIComponent(studioSlug)}`);
+  }
+
   const { data: client, error: clientError } = await supabase
     .from("clients")
     .select("id, first_name, last_name, email")
     .eq("studio_id", typedStudio.id)
-    .eq("portal_user_id", user.id)
+    .eq("id", relationship.clientId)
     .maybeSingle();
 
   if (clientError) throw clientError;
@@ -490,6 +504,7 @@ export default async function PortalDocumentsPage({
             ) : (
               <form action={signPortalDocumentAction} className="space-y-4">
                 <input type="hidden" name="studioSlug" value={typedStudio.slug} />
+                <input type="hidden" name="clientId" value={typedClient.id} />
                 <input type="hidden" name="assignmentId" value={item.assignment?.id ?? ""} />
                 <input type="hidden" name="templateId" value={item.template.id} />
                 <input type="hidden" name="templateVersionId" value={version?.id ?? ""} />
@@ -551,7 +566,7 @@ export default async function PortalDocumentsPage({
             </p>
           </div>
           <Link
-            href={`/portal/${encodeURIComponent(typedStudio.slug)}`}
+            href={portalClientPath(typedStudio.slug, typedClient.id)}
             className="inline-flex items-center justify-center rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
           >
             Back to My Dance Hub

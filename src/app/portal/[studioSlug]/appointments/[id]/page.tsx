@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 
@@ -154,7 +155,6 @@ type ClientRow = {
   id: string;
   first_name: string | null;
   last_name: string | null;
-  portal_user_id: string | null;
 };
 
 type LessonRecapMediaRow = {
@@ -297,19 +297,6 @@ export default async function PortalAppointmentDetailPage({
     (settingsRow as { timezone?: string | null } | null)?.timezone,
   );
 
-  const { data: client, error: clientError } = await supabase
-    .from("clients")
-    .select("id, first_name, last_name, portal_user_id")
-    .eq("studio_id", typedStudio.id)
-    .eq("portal_user_id", user.id)
-    .single();
-
-  if (clientError || !client) {
-    redirect(`/login?studio=${encodeURIComponent(studioSlug)}`);
-  }
-
-  const typedClient = client as ClientRow;
-
   const { data: appointment, error: appointmentError } = await supabase
     .from("appointments")
     .select(`
@@ -332,6 +319,34 @@ export default async function PortalAppointmentDetailPage({
   }
 
   const typedAppointment = appointment as AppointmentRow;
+
+  if (!typedAppointment.client_id) {
+    notFound();
+  }
+
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: typedStudio.id,
+    requestedClientId: typedAppointment.client_id,
+    permission: "can_view_schedule",
+  });
+
+  if (!relationship) {
+    notFound();
+  }
+
+  const { data: client, error: clientError } = await supabase
+    .from("clients")
+    .select("id, first_name, last_name")
+    .eq("studio_id", typedStudio.id)
+    .eq("id", relationship.clientId)
+    .maybeSingle();
+
+  if (clientError || !client) {
+    notFound();
+  }
+
+  const typedClient = client as ClientRow;
   const directClientAppointment = typedAppointment.client_id === typedClient.id;
 
   const [{ data: attendeeRow }, { data: groupRecipientRow }] =
@@ -470,13 +485,13 @@ export default async function PortalAppointmentDetailPage({
 
           <div className="flex flex-wrap gap-3">
             <Link
-              href={`/portal/${encodeURIComponent(studioSlug)}`}
+              href={portalClientPath(studioSlug, typedClient.id)}
               className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
             >
               Back to Portal
             </Link>
             <Link
-              href={`/portal/${encodeURIComponent(studioSlug)}/profile`}
+              href={portalClientPath(studioSlug, typedClient.id, "/profile")}
               className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/15"
             >
               My Profile

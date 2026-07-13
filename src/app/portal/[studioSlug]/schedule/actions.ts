@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { resolvePortalRelationship } from "@/lib/student-identity/portal-context";
 
 const DEFAULT_TIME_ZONE = "America/New_York";
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/i;
@@ -368,6 +369,7 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
   const requestedTime = normalizeTimeKey(getString(formData, "requestedTime"));
   const durationMinutes = normalizeDuration(getString(formData, "durationMinutes"));
   const notes = cleanText(getString(formData, "notes"), 2000);
+  const requestedClientId = getString(formData, "clientId") || null;
 
   const returnTo = `/portal/${encodeURIComponent(studioSlug)}/schedule`;
 
@@ -401,11 +403,22 @@ export async function createPortalScheduleRequestAction(formData: FormData) {
     redirect(appendQueryParam(returnTo, "error", "Studio not found."));
   }
 
+  const relationship = await resolvePortalRelationship({
+    userId: user.id,
+    studioId: studio.id,
+    requestedClientId,
+    permission: "can_manage_bookings",
+  });
+
+  if (!relationship) {
+    redirect(appendQueryParam(returnTo, "error", "Portal client profile not found."));
+  }
+
   const { data: client, error: clientError } = await supabase
     .from("clients")
     .select("id, first_name, last_name, email, phone")
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id)
+    .eq("id", relationship.clientId)
     .maybeSingle<ClientRow>();
 
   if (clientError || !client) {
