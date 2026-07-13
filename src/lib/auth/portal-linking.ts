@@ -17,7 +17,9 @@ type GroupLessonRecapRecipientClaimRow = {
   delivery_status: string;
 };
 
-export function getGroupLessonRecapTokenFromPath(value: string | null | undefined) {
+export function getGroupLessonRecapTokenFromPath(
+  value: string | null | undefined,
+) {
   const path = value?.trim() ?? "";
   const match = path.match(GROUP_RECAP_TOKEN_PATH_PATTERN);
 
@@ -40,7 +42,9 @@ async function claimGroupLessonRecapRecipient(params: {
     .maybeSingle();
 
   if (existingError) {
-    throw new Error(`Group recap claim lookup failed: ${existingError.message}`);
+    throw new Error(
+      `Group recap claim lookup failed: ${existingError.message}`,
+    );
   }
 
   const payload: {
@@ -79,7 +83,10 @@ export async function claimGroupLessonRecapsForUser(params: {
   }
 
   const admin = createAdminClient();
-  const recipientsById = new Map<string, GroupLessonRecapRecipientClaimRow>();
+  const recipientsById = new Map<
+    string,
+    GroupLessonRecapRecipientClaimRow
+  >();
 
   if (recapToken) {
     const { data: tokenRecipient, error: tokenError } = await admin
@@ -90,11 +97,16 @@ export async function claimGroupLessonRecapsForUser(params: {
       .maybeSingle();
 
     if (tokenError) {
-      throw new Error(`Group recap token claim lookup failed: ${tokenError.message}`);
+      throw new Error(
+        `Group recap token claim lookup failed: ${tokenError.message}`,
+      );
     }
 
     if (tokenRecipient) {
-      recipientsById.set(tokenRecipient.id, tokenRecipient as GroupLessonRecapRecipientClaimRow);
+      recipientsById.set(
+        tokenRecipient.id,
+        tokenRecipient as GroupLessonRecapRecipientClaimRow,
+      );
     }
   }
 
@@ -107,11 +119,16 @@ export async function claimGroupLessonRecapsForUser(params: {
       .limit(50);
 
     if (emailError) {
-      throw new Error(`Group recap email claim lookup failed: ${emailError.message}`);
+      throw new Error(
+        `Group recap email claim lookup failed: ${emailError.message}`,
+      );
     }
 
     for (const recipient of emailRecipients ?? []) {
-      recipientsById.set(recipient.id, recipient as GroupLessonRecapRecipientClaimRow);
+      recipientsById.set(
+        recipient.id,
+        recipient as GroupLessonRecapRecipientClaimRow,
+      );
     }
   }
 
@@ -129,6 +146,14 @@ export async function claimGroupLessonRecapsForUser(params: {
   return { claimedCount };
 }
 
+function splitFullName(value: string | null | undefined) {
+  const parts = value?.trim().split(/\s+/).filter(Boolean) ?? [];
+  return {
+    firstName: parts[0] ?? null,
+    lastName: parts.length > 1 ? parts.slice(1).join(" ") : null,
+  };
+}
+
 export async function ensurePortalProfileAndClientLinks({
   userId,
   email,
@@ -142,52 +167,111 @@ export async function ensurePortalProfileAndClientLinks({
   }
 
   const admin = createAdminClient();
-  const profilePayload: {
-    id: string;
-    email: string;
-    full_name?: string | null;
-    updated_at: string;
-  } = {
-    id: userId,
-    email: normalizedEmail,
-    updated_at: new Date().toISOString(),
-  };
+  const now = new Date().toISOString();
+  const names = splitFullName(fullName);
 
-  const trimmedFullName = fullName?.trim();
-  if (trimmedFullName) {
-    profilePayload.full_name = trimmedFullName;
-  }
-
-  const { error: profileError } = await admin.from("profiles").upsert(profilePayload, {
-    onConflict: "id",
-  });
+  const { error: profileError } = await admin.from("profiles").upsert(
+    {
+      id: userId,
+      email: normalizedEmail,
+      ...(fullName?.trim() ? { full_name: fullName.trim() } : {}),
+      updated_at: now,
+    },
+    { onConflict: "id" },
+  );
 
   if (profileError) {
     throw new Error(`Portal profile sync failed: ${profileError.message}`);
   }
 
-  let linkQuery = admin
+  const { error: dancerProfileError } = await admin
+    .from("dancer_profiles")
+    .upsert(
+      {
+        user_id: userId,
+        first_name: names.firstName,
+        last_name: names.lastName,
+        updated_at: now,
+      },
+      { onConflict: "user_id", ignoreDuplicates: true },
+    );
+
+  if (dancerProfileError) {
+    throw new Error(
+      `Dancer profile sync failed: ${dancerProfileError.message}`,
+    );
+  }
+
+  let matchingQuery = admin
     .from("clients")
-    .update({
-      portal_user_id: userId,
-      updated_at: new Date().toISOString(),
-    })
-    .ilike("email", normalizedEmail)
-    .is("portal_user_id", null);
+    .select("id, studio_id, email, portal_user_id")
+    .ilike("email", normalizedEmail);
 
   if (studioId) {
-    linkQuery = linkQuery.eq("studio_id", studioId);
+    matchingQuery = matchingQuery.eq("studio_id", studioId);
   }
 
-  const { data: linkedClients, error: clientLinkError } = await linkQuery.select("id");
+  const { data: matchingClients, error: matchingError } =
+    await matchingQuery.limit(50);
 
-  if (clientLinkError) {
-    throw new Error(`Portal client link failed: ${clientLinkError.message}`);
+  if (matchingError) {
+    throw new Error(`Portal client lookup failed: ${matchingError.message}`);
   }
 
-  return {
-    linkedClientIds: (linkedClients ?? []).map((client) => String(client.id)),
-  };
+  const linkableClients = (matchingClients ?? []).filter(
+    (client) =>
+      client.portal_user_id === null || client.portal_user_id === userId,
+  );
+
+  const linkedClientIds: string[] = [];
+
+  for (const client of linkableClients) {
+    if (!client.portal_user_id) {
+      const { error: clientLinkError } = await admin
+        .from("clients")
+        .update({
+          portal_user_id: userId,
+          updated_at: now,
+        })
+        .eq("id", client.id)
+        .is("portal_user_id", null);
+
+      if (clientLinkError) {
+        throw new Error(`Portal client link failed: ${clientLinkError.message}`);
+      }
+    }
+
+    const { error: relationshipError } = await admin
+      .from("client_account_links")
+      .upsert(
+        {
+          studio_id: client.studio_id,
+          client_id: client.id,
+          user_id: userId,
+          status: "linked",
+          relationship_type: "self",
+          initiated_by: "legacy_email_repair",
+          invited_email: normalizedEmail,
+          linked_at: now,
+          claimed_at: now,
+          disconnected_at: null,
+          disconnected_by: null,
+          disconnect_reason: null,
+          updated_at: now,
+        },
+        { onConflict: "client_id,user_id" },
+      );
+
+    if (relationshipError) {
+      throw new Error(
+        `Portal relationship sync failed: ${relationshipError.message}`,
+      );
+    }
+
+    linkedClientIds.push(String(client.id));
+  }
+
+  return { linkedClientIds };
 }
 
 export function getAuthUserFullName(user: {
