@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
+import ClientNoteDateTimeField from "./ClientNoteDateTimeField";
 import { canCreateAppointments, canEditClients } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
@@ -4639,21 +4640,7 @@ export default async function ClientDetailPage({
                     </select>
                   </div>
 
-                  <div>
-                    <label
-                      htmlFor="clientNoteOccurredAt"
-                      className="mb-1 block text-sm font-medium text-[var(--brand-text)]"
-                    >
-                      Date / time
-                    </label>
-                    <input
-                      id="clientNoteOccurredAt"
-                      name="occurredAt"
-                      type="datetime-local"
-                      defaultValue={new Date().toISOString().slice(0, 16)}
-                      className="w-full rounded-xl border border-[#E9D5FF] bg-white px-3 py-2 text-sm"
-                    />
-                  </div>
+                  <ClientNoteDateTimeField />
                 </div>
 
                 <div className="mt-4">
