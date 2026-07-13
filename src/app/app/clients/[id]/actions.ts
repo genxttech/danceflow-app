@@ -849,9 +849,8 @@ export async function sendPortalInviteAction(formData: FormData) {
   }
 
   const baseUrl = await getBaseUrl();
-  let nextPath = `/portal/${encodeURIComponent(studio.slug)}`;
-  const redirectTo = `${baseUrl}/callback?next=${encodeURIComponent(nextPath)}`;
-  const portalUrl = `${baseUrl}${nextPath}`;
+  const portalPath = `/portal/${encodeURIComponent(studio.slug)}`;
+  const portalUrl = `${baseUrl}${portalPath}`;
   const fullName =
     `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || undefined;
 
@@ -878,7 +877,12 @@ export async function sendPortalInviteAction(formData: FormData) {
         | "dependent_manager",
     });
 
-    nextPath = `/studio-invites/${encodeURIComponent(lifecycleInvite.token)}`;
+    const invitePath = `/studio-invites/${encodeURIComponent(
+      lifecycleInvite.token
+    )}`;
+    const redirectTo = `${baseUrl}/callback?next=${encodeURIComponent(
+      invitePath
+    )}`;
     const adminSupabase = createAdminClient();
 
     const { data: magicLinkData, error: magicLinkError } =
@@ -903,12 +907,12 @@ export async function sendPortalInviteAction(formData: FormData) {
       throw magicLinkError;
     }
 
-    const tokenHash = magicLinkData.properties?.hashed_token;
-    const actionLink = tokenHash
-      ? `${baseUrl}/callback?token_hash=${encodeURIComponent(
-          tokenHash
-        )}&type=magiclink&next=${encodeURIComponent(nextPath)}`
-      : magicLinkData.properties?.action_link;
+    /*
+      Use Supabase's generated action link instead of reconstructing a
+      callback URL from hashed_token. The action link performs the provider's
+      verification step first and then returns to DanceFlow with a PKCE code.
+    */
+    const actionLink = magicLinkData.properties?.action_link;
 
     if (!actionLink) {
       throw new Error("Supabase did not return a portal invite action link.");

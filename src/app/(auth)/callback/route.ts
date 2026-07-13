@@ -282,6 +282,21 @@ export async function GET(request: NextRequest) {
     : await supabase.auth.exchangeCodeForSession(code!);
 
   if (exchangeError) {
+    console.error("Auth callback exchange failed", {
+      message: exchangeError.message,
+      code:
+        "code" in exchangeError && typeof exchangeError.code === "string"
+          ? exchangeError.code
+          : null,
+      status:
+        "status" in exchangeError && typeof exchangeError.status === "number"
+          ? exchangeError.status
+          : null,
+      flow: tokenHash ? "token_hash" : "pkce_code",
+      hasRequestedNextPath: Boolean(requestedNextPath),
+      host: requestUrl.host,
+    });
+
     return NextResponse.redirect(
       new URL(buildLoginErrorPath("auth-callback-failed"), request.url)
     );
