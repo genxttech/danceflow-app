@@ -9,6 +9,11 @@ import { canEditClients } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { revalidatePath } from "next/cache";
 import { getStripe } from "@/lib/payments/stripe";
+import {
+  createOrRefreshClientInvitation,
+  disconnectClientAccount,
+  linkExistingClientAccount,
+} from "@/lib/student-identity/lifecycle";
 
 function getString(formData: FormData, key: string) {
   const value = formData.get(key);
@@ -557,7 +562,6 @@ export async function linkPortalAccessAction(formData: FormData) {
   }
 
   const { supabase, studioId } = await getEditableStudioContext(returnTo);
-
   const client = await getStudioClientOrRedirect({
     supabase,
     studioId,
@@ -566,20 +570,13 @@ export async function linkPortalAccessAction(formData: FormData) {
   });
 
   const email = client.email?.trim().toLowerCase();
-
-  if (!email) {
-    redirectWithResult(returnTo, "error", "portal_email_required");
-  }
+  if (!email) redirectWithResult(returnTo, "error", "portal_email_required");
 
   const fullName = `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim();
 
   let profile: PortalProfileLink | null = null;
-
   try {
-    profile = await findOrCreatePortalProfileByEmail({
-      email,
-      fullName,
-    });
+    profile = await findOrCreatePortalProfileByEmail({ email, fullName });
   } catch {
     redirectWithResult(returnTo, "error", "portal_lookup_failed");
   }
@@ -588,28 +585,29 @@ export async function linkPortalAccessAction(formData: FormData) {
     redirectWithResult(returnTo, "error", "portal_account_not_found");
   }
 
-  const portalActivationUpdate = client.is_independent_instructor
-    ? { portal_user_id: profile.id, status: "active" }
-    : { portal_user_id: profile.id };
-
-  const { error: updateError } = await supabase
-    .from("clients")
-    .update(portalActivationUpdate)
-    .eq("id", client.id)
-    .eq("studio_id", studioId);
-
-  if (updateError) {
-    redirectWithResult(returnTo, "error", "portal_link_failed");
-  }
-
   try {
+    await linkExistingClientAccount({
+      studioId,
+      clientId: client.id,
+      userId: profile.id,
+      invitedEmail: email,
+    });
+
     await deactivateHostWorkspaceIndependentInstructorRole({
       supabase,
       studioId,
       userId: profile.id,
     });
-  } catch {
-    redirectWithResult(returnTo, "error", "portal_link_failed");
+  } catch (error) {
+    console.error("Portal account link failed", error);
+    const message = error instanceof Error ? error.message.toLowerCase() : "";
+    redirectWithResult(
+      returnTo,
+      "error",
+      message.includes("different") || message.includes("another client")
+        ? "portal_link_conflict"
+        : "portal_link_failed",
+    );
   }
 
   redirectWithResult(returnTo, "success", "portal_linked");
@@ -617,6 +615,7 @@ export async function linkPortalAccessAction(formData: FormData) {
 
 export async function unlinkPortalAccessAction(formData: FormData) {
   const clientId = getString(formData, "clientId");
+  const reason = getString(formData, "reason") || "Studio disconnected portal access.";
   const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
 
   if (!clientId) {
@@ -624,13 +623,13 @@ export async function unlinkPortalAccessAction(formData: FormData) {
   }
 
   const { supabase, studioId } = await getEditableStudioContext(returnTo);
-
   const client = await getStudioClientOrRedirect({
     supabase,
     studioId,
     clientId,
     returnTo,
   });
+  const { data: authData } = await supabase.auth.getUser();
 
   try {
     await deactivateHostWorkspaceIndependentInstructorRole({
@@ -638,23 +637,61 @@ export async function unlinkPortalAccessAction(formData: FormData) {
       studioId,
       userId: client.portal_user_id,
     });
-  } catch {
-    redirectWithResult(returnTo, "error", "portal_unlink_failed");
-  }
 
-  const { error: updateError } = await supabase
-    .from("clients")
-    .update({
-      portal_user_id: null,
-    })
-    .eq("id", clientId)
-    .eq("studio_id", studioId);
-
-  if (updateError) {
+    await disconnectClientAccount({
+      studioId,
+      clientId,
+      disconnectedBy: authData.user?.id ?? "",
+      reason,
+    });
+  } catch (error) {
+    console.error("Portal disconnect failed", error);
     redirectWithResult(returnTo, "error", "portal_unlink_failed");
   }
 
   redirectWithResult(returnTo, "success", "portal_unlinked");
+}
+
+export async function markFormerClientPortalAccessAction(formData: FormData) {
+  const clientId = getString(formData, "clientId");
+  const reason =
+    getString(formData, "reason") ||
+    "Client marked as former client and portal access removed.";
+  const returnTo = getString(formData, "returnTo") || `/app/clients/${clientId}`;
+
+  if (!clientId) {
+    redirect(appendQueryParam("/app/clients", "error", "missing_client"));
+  }
+
+  const { supabase, studioId } = await getEditableStudioContext(returnTo);
+  const client = await getStudioClientOrRedirect({
+    supabase,
+    studioId,
+    clientId,
+    returnTo,
+  });
+  const { data: authData } = await supabase.auth.getUser();
+
+  try {
+    await deactivateHostWorkspaceIndependentInstructorRole({
+      supabase,
+      studioId,
+      userId: client.portal_user_id,
+    });
+
+    await disconnectClientAccount({
+      studioId,
+      clientId,
+      disconnectedBy: authData.user?.id ?? "",
+      reason,
+      formerClient: true,
+    });
+  } catch (error) {
+    console.error("Former-client transition failed", error);
+    redirectWithResult(returnTo, "error", "portal_former_client_failed");
+  }
+
+  redirectWithResult(returnTo, "success", "portal_former_client");
 }
 
 export async function sendPortalInviteAction(formData: FormData) {
@@ -717,7 +754,21 @@ export async function sendPortalInviteAction(formData: FormData) {
   const fullName =
     `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() || undefined;
 
+  let lifecycleInvite: Awaited<ReturnType<typeof createOrRefreshClientInvitation>>;
+
   try {
+    const existingProfile = await findOrCreatePortalProfileByEmail({
+      email,
+      fullName,
+    });
+
+    lifecycleInvite = await createOrRefreshClientInvitation({
+      studioId,
+      clientId: client.id,
+      email,
+      userId: existingProfile?.id ?? null,
+    });
+
     const adminSupabase = createAdminClient();
 
     const { data: magicLinkData, error: magicLinkError } =
@@ -732,6 +783,8 @@ export async function sendPortalInviteAction(formData: FormData) {
             portal_invite: true,
             invited_studio_id: studioId,
             invited_client_id: client.id,
+            client_account_link_id: lifecycleInvite.link.id,
+            client_account_invite_token: lifecycleInvite.token,
           },
         },
       });

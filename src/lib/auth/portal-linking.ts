@@ -197,81 +197,45 @@ export async function ensurePortalProfileAndClientLinks({
     );
 
   if (dancerProfileError) {
-    throw new Error(
-      `Dancer profile sync failed: ${dancerProfileError.message}`,
-    );
+    throw new Error(`Dancer profile sync failed: ${dancerProfileError.message}`);
   }
 
-  let matchingQuery = admin
-    .from("clients")
-    .select("id, studio_id, email, portal_user_id")
-    .ilike("email", normalizedEmail);
-
-  if (studioId) {
-    matchingQuery = matchingQuery.eq("studio_id", studioId);
-  }
-
-  const { data: matchingClients, error: matchingError } =
-    await matchingQuery.limit(50);
-
-  if (matchingError) {
-    throw new Error(`Portal client lookup failed: ${matchingError.message}`);
-  }
-
-  const linkableClients = (matchingClients ?? []).filter(
-    (client) =>
-      client.portal_user_id === null || client.portal_user_id === userId,
+  const { data: claimed, error: claimError } = await admin.rpc(
+    "claim_client_account_invitation",
+    {
+      p_user_id: userId,
+      p_email: normalizedEmail,
+      p_studio_id: studioId || null,
+    },
   );
 
-  const linkedClientIds: string[] = [];
-
-  for (const client of linkableClients) {
-    if (!client.portal_user_id) {
-      const { error: clientLinkError } = await admin
-        .from("clients")
-        .update({
-          portal_user_id: userId,
-          updated_at: now,
-        })
-        .eq("id", client.id)
-        .is("portal_user_id", null);
-
-      if (clientLinkError) {
-        throw new Error(`Portal client link failed: ${clientLinkError.message}`);
-      }
-    }
-
-    const { error: relationshipError } = await admin
-      .from("client_account_links")
-      .upsert(
-        {
-          studio_id: client.studio_id,
-          client_id: client.id,
-          user_id: userId,
-          status: "linked",
-          relationship_type: "self",
-          initiated_by: "legacy_email_repair",
-          invited_email: normalizedEmail,
-          linked_at: now,
-          claimed_at: now,
-          disconnected_at: null,
-          disconnected_by: null,
-          disconnect_reason: null,
-          updated_at: now,
-        },
-        { onConflict: "client_id,user_id" },
-      );
-
-    if (relationshipError) {
-      throw new Error(
-        `Portal relationship sync failed: ${relationshipError.message}`,
-      );
-    }
-
-    linkedClientIds.push(String(client.id));
+  if (claimError) {
+    throw new Error(`Portal invitation claim failed: ${claimError.message}`);
   }
 
-  return { linkedClientIds };
+  const claimedClientIds = (claimed ?? []).map((item: { client_id: string }) =>
+    String(item.client_id),
+  );
+
+  const { data: existingLinks, error: existingError } = await admin
+    .from("client_account_links")
+    .select("client_id")
+    .eq("user_id", userId)
+    .eq("status", "linked")
+    .limit(100);
+
+  if (existingError) {
+    throw new Error(`Portal relationship lookup failed: ${existingError.message}`);
+  }
+
+  return {
+    linkedClientIds: Array.from(
+      new Set([
+        ...claimedClientIds,
+        ...(existingLinks ?? []).map((item) => String(item.client_id)),
+      ]),
+    ),
+  };
 }
 
 export function getAuthUserFullName(user: {

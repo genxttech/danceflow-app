@@ -24,6 +24,7 @@ import {
   sendPortalInviteAction,
   unlinkPartnerAction,
   unlinkPortalAccessAction,
+  markFormerClientPortalAccessAction,
   updateIndependentInstructorSettingsAction,
   adjustLessonCountCorrectionAction,
   addClientAccountLedgerEntryAction,
@@ -106,6 +107,18 @@ type ClientPortalAdminStatus = {
     created_at: string | null;
   } | null;
   inviteDeliveries: ClientPortalInviteDeliveryRow[];
+  accountLink: {
+    id: string;
+    status: string;
+    user_id: string | null;
+    invited_email: string | null;
+    invite_sent_at: string | null;
+    invite_expires_at: string | null;
+    linked_at: string | null;
+    disconnected_at: string | null;
+    disconnect_reason: string | null;
+    conflict_details: string | null;
+  } | null;
 };
 
 type StudioRecord = {
@@ -569,6 +582,7 @@ async function loadClientPortalAdminStatus(
     matchingAuthUser: null,
     linkedAuthUser: null,
     inviteDeliveries: [],
+    accountLink: null,
   };
 
   const email = client.email?.trim().toLowerCase();
@@ -580,7 +594,7 @@ async function loadClientPortalAdminStatus(
   try {
     const adminSupabase = createAdminClient();
 
-    const [linkedProfileResult, matchingProfileResult, matchingAuthResult, inviteDeliveryResult] =
+    const [linkedProfileResult, matchingProfileResult, matchingAuthResult, inviteDeliveryResult, accountLinkResult] =
       await Promise.all([
         client.portal_user_id
           ? adminSupabase
@@ -613,12 +627,21 @@ async function loadClientPortalAdminStatus(
           .in("template_key", ["client_portal_invite", "portal_invite", "client_portal_access_invite"])
           .order("created_at", { ascending: false })
           .limit(5),
+        adminSupabase
+          .from("client_account_links")
+          .select("id, status, user_id, invited_email, invite_sent_at, invite_expires_at, linked_at, disconnected_at, disconnect_reason, conflict_details")
+          .eq("studio_id", studioId)
+          .eq("client_id", client.id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ]);
 
     if (linkedProfileResult.error) throw linkedProfileResult.error;
     if (matchingProfileResult.error) throw matchingProfileResult.error;
     if (matchingAuthResult.error) throw matchingAuthResult.error;
     if (inviteDeliveryResult.error) throw inviteDeliveryResult.error;
+    if (accountLinkResult.error) throw accountLinkResult.error;
 
     let linkedAuthUser = null;
 
@@ -654,6 +677,7 @@ async function loadClientPortalAdminStatus(
       matchingAuthUser: matchingAuthUsers[0] ?? null,
       linkedAuthUser,
       inviteDeliveries: (inviteDeliveryResult.data ?? []) as ClientPortalInviteDeliveryRow[],
+      accountLink: accountLinkResult.data ?? null,
     };
   } catch (error) {
     return {
@@ -1114,7 +1138,7 @@ function getBanner(search: { success?: string; error?: string }) {
       message: "Could not send the portal invite.",
     };
   }
-  
+
   if (search.success === "independent_instructor_updated") {
     return {
       kind: "success" as const,
@@ -1537,7 +1561,28 @@ function getBanner(search: { success?: string; error?: string }) {
     };
   }
 
-    if (search.success === "portal_linked") {
+    if (search.success === "portal_former_client") {
+    return {
+      kind: "success" as const,
+      message: "Client marked as former client. Historical records were preserved and portal access was removed.",
+    };
+  }
+
+  if (search.error === "portal_former_client_failed") {
+    return {
+      kind: "error" as const,
+      message: "Could not mark this client as a former client.",
+    };
+  }
+
+  if (search.error === "portal_link_conflict") {
+    return {
+      kind: "error" as const,
+      message: "Portal access was not linked because this account conflicts with another client relationship.",
+    };
+  }
+
+  if (search.success === "portal_linked") {
     return {
       kind: "success" as const,
       message: "Portal access linked to an existing account.",
@@ -1708,14 +1753,14 @@ export default async function ClientDetailPage({
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
 
-  
+
   const studioId = context.studioId;
   const role = context.studioRole ?? "";
   const canIssuePaymentRefunds = ["studio_owner", "studio_admin"].includes(role);
   const nowIso = new Date().toISOString();
   const returnTo = `/app/clients/${id}`;
 
-  
+
 
   if (notificationId) {
     await supabase
@@ -2436,6 +2481,26 @@ export default async function ClientDetailPage({
   const isEventRegistrationLead = typedClient.referral_source === "event_registration";
   const isIndependentInstructor = !!typedClient.is_independent_instructor;
   const hasPortalLogin = !!typedClient.portal_user_id;
+  const accountLink = portalAdminStatus?.accountLink ?? null;
+  const portalLifecycleStatus =
+    accountLink?.status ??
+    (hasPortalLogin ? "linked" : hasSuccessfulPortalInviteDelivery ? "invited" : "unclaimed");
+  const portalLifecycleLabel =
+    portalLifecycleStatus === "linked"
+      ? "Connected"
+      : portalLifecycleStatus === "invited"
+        ? "Invited"
+        : portalLifecycleStatus === "claim_pending"
+          ? "Claim Pending"
+          : portalLifecycleStatus === "disconnected"
+            ? "Disconnected"
+            : portalLifecycleStatus === "former_client"
+              ? "Former Client"
+              : portalLifecycleStatus === "rejected"
+                ? "Invite Rejected"
+                : portalLifecycleStatus === "conflict"
+                  ? "Conflict"
+                  : "Not Connected";
   const linkedInstructorName = getLinkedInstructorName(
     typedInstructors,
     typedClient.linked_instructor_id
@@ -4109,14 +4174,20 @@ export default async function ClientDetailPage({
     <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3 md:p-4">
       <p className="text-sm text-slate-500">Portal Status</p>
       <p className="mt-2 text-lg font-semibold text-[var(--brand-text)]">
-        {hasPortalLogin ? "Connected" : hasUnlinkedAuthUser || hasUnlinkedProfile ? "Needs Attention" : "Not Connected"}
+        {portalLifecycleLabel}
       </p>
       <p className="mt-1 text-xs text-slate-500">
-        {hasPortalLogin
+        {portalLifecycleStatus === "linked"
           ? "This client can use the student portal."
-          : hasUnlinkedAuthUser || hasUnlinkedProfile
-            ? "A portal sign-in exists for this email and can be connected."
-            : "Send an invite so the student can access the portal."}
+          : portalLifecycleStatus === "invited" || portalLifecycleStatus === "claim_pending"
+            ? "An explicit portal invitation is waiting for this client."
+            : portalLifecycleStatus === "disconnected"
+              ? "Portal access was removed, but the relationship history was preserved."
+              : portalLifecycleStatus === "former_client"
+                ? "Historical records remain available to the studio, but portal access is closed."
+                : portalLifecycleStatus === "conflict"
+                  ? "A conflicting account relationship requires staff review."
+                  : "Send an invite so the student can access the portal."}
       </p>
     </div>
 
@@ -4347,21 +4418,63 @@ export default async function ClientDetailPage({
           </p>
         </div>
 
+        <div className="rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-3">
+          <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            Relationship Lifecycle
+          </p>
+          <p className="mt-1 text-sm font-semibold text-[var(--brand-text)]">
+            {portalLifecycleLabel}
+          </p>
+          <p className="mt-1 text-xs leading-5 text-slate-500">
+            {accountLink?.linked_at ? `Linked ${fmtPortalDateTime(accountLink.linked_at)}. ` : ""}
+            {accountLink?.invite_sent_at ? `Invited ${fmtPortalDateTime(accountLink.invite_sent_at)}. ` : ""}
+            {accountLink?.disconnected_at ? `Disconnected ${fmtPortalDateTime(accountLink.disconnected_at)}. ` : ""}
+            {accountLink?.disconnect_reason || accountLink?.conflict_details || ""}
+          </p>
+        </div>
+
         {hasPortalLogin ? (
-          <form action={unlinkPortalAccessAction}>
-            <input type="hidden" name="clientId" value={typedClient.id} />
-            <input
-              type="hidden"
-              name="returnTo"
-              value={`/app/clients/${typedClient.id}`}
-            />
-            <button
-              type="submit"
-              className="w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 hover:bg-red-100"
-            >
-              Unlink Portal Access
-            </button>
-          </form>
+          <div className="space-y-3">
+            <form action={unlinkPortalAccessAction} className="space-y-2">
+              <input type="hidden" name="clientId" value={typedClient.id} />
+              <input
+                type="hidden"
+                name="returnTo"
+                value={`/app/clients/${typedClient.id}?tab=portal`}
+              />
+              <input
+                name="reason"
+                placeholder="Reason for disconnecting access"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                className="w-full rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 hover:bg-red-100"
+              >
+                Disconnect Portal Access
+              </button>
+            </form>
+
+            <form action={markFormerClientPortalAccessAction} className="space-y-2">
+              <input type="hidden" name="clientId" value={typedClient.id} />
+              <input
+                type="hidden"
+                name="returnTo"
+                value={`/app/clients/${typedClient.id}?tab=portal`}
+              />
+              <input
+                name="reason"
+                placeholder="Optional former-client note"
+                className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+              />
+              <button
+                type="submit"
+                className="w-full rounded-2xl border border-slate-300 bg-slate-100 px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-200"
+              >
+                Mark as Former Client
+              </button>
+            </form>
+          </div>
         ) : (
           <form action={linkPortalAccessAction}>
             <input type="hidden" name="clientId" value={typedClient.id} />
