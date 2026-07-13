@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { signPortalDocumentAction } from "./actions";
 import { resolvePortalRelationship, portalClientPath } from "@/lib/student-identity/portal-context";
 
@@ -32,10 +33,18 @@ type AssignmentRow = {
   id: string;
   template_id: string;
   template_version_id: string | null;
+  sign_envelope_id: string | null;
   status: string;
   due_at: string | null;
   assigned_at: string;
   signed_at: string | null;
+};
+
+type SignEnvelopeRow = {
+  id: string;
+  status: string;
+  expires_at: string;
+  completed_at: string | null;
 };
 
 type TemplateRow = {
@@ -73,6 +82,7 @@ type SignatureRow = {
 type DocumentItem = {
   key: string;
   assignment: AssignmentRow | null;
+  envelope: SignEnvelopeRow | null;
   template: TemplateRow;
   version: VersionRow | null;
   signature: SignatureRow | null;
@@ -118,6 +128,8 @@ function getErrorMessage(value: string | undefined) {
   if (value === "missing_consent") return "Check the agreement box before signing.";
   if (value === "document_not_found") return "That document could not be found.";
   if (value === "document_not_assigned") return "That document is not assigned to this portal account.";
+  if (value === "document_preparing") return "Your studio is still preparing this document for signature.";
+  if (value === "signing_request_unavailable") return "That signing request is no longer available. Contact the studio for help.";
   return value.replaceAll("_", " ");
 }
 
@@ -223,7 +235,7 @@ export default async function PortalDocumentsPage({
     await Promise.all([
       supabase
         .from("document_assignments")
-        .select("id, template_id, template_version_id, status, due_at, assigned_at, signed_at")
+        .select("id, template_id, template_version_id, sign_envelope_id, status, due_at, assigned_at, signed_at")
         .eq("studio_id", typedStudio.id)
         .eq("client_id", typedClient.id)
         .neq("status", "void")
@@ -253,6 +265,28 @@ export default async function PortalDocumentsPage({
   const allClientTemplates =
     (allClientTemplatesResult.data ?? []) as TemplateRow[];
   const signatures = (signaturesResult.data ?? []) as SignatureRow[];
+
+  const signEnvelopeIds = assignments
+    .map((assignment) => assignment.sign_envelope_id)
+    .filter((id): id is string => Boolean(id));
+
+  const envelopesById = new Map<string, SignEnvelopeRow>();
+
+  if (signEnvelopeIds.length) {
+    const admin = createAdminClient();
+    const { data: envelopes, error: envelopesError } = await admin
+      .from("document_sign_envelopes")
+      .select("id, status, expires_at, completed_at")
+      .eq("studio_id", typedStudio.id)
+      .eq("client_id", typedClient.id)
+      .in("id", signEnvelopeIds);
+
+    if (envelopesError) throw envelopesError;
+
+    for (const envelope of (envelopes ?? []) as SignEnvelopeRow[]) {
+      envelopesById.set(envelope.id, envelope);
+    }
+  }
 
   const assignmentTemplateIds = assignments.map((item) => item.template_id);
   const allTemplateIds = Array.from(
@@ -336,11 +370,18 @@ export default async function PortalDocumentsPage({
           ? signaturesByTemplateVersion.get(`${template.id}:${version.id}`)
           : undefined) ??
         null;
-      const isSigned = assignment.status === "signed" || Boolean(signature);
+      const envelope = assignment.sign_envelope_id
+        ? envelopesById.get(assignment.sign_envelope_id) ?? null
+        : null;
+      const isSigned =
+        assignment.status === "signed" ||
+        envelope?.status === "completed" ||
+        Boolean(signature);
 
       return {
         key: `assignment-${assignment.id}`,
         assignment,
+        envelope,
         template,
         version,
         signature,
@@ -364,6 +405,7 @@ export default async function PortalDocumentsPage({
       return {
         key: `template-${template.id}`,
         assignment: null,
+        envelope: null,
         template,
         version,
         signature,
@@ -501,6 +543,52 @@ export default async function PortalDocumentsPage({
                   .
                 </p>
               </div>
+            ) : item.assignment?.sign_envelope_id ? (
+              item.envelope?.status === "draft" ? (
+                <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+                  <p className="text-sm font-semibold text-violet-950">
+                    Your studio is preparing this document
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-violet-800">
+                    The signing fields are still being prepared. You will be able to
+                    open and sign the document here as soon as it is sent.
+                  </p>
+                </div>
+              ) : item.envelope &&
+                ["sent", "viewed", "started"].includes(item.envelope.status) &&
+                new Date(item.envelope.expires_at).getTime() > Date.now() ? (
+                <div className="space-y-4">
+                  <div className="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+                    <p className="text-sm font-semibold text-orange-950">
+                      Ready for your signature
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-orange-800">
+                      Open the secure DanceFlow Sign experience to review and complete
+                      the required fields.
+                    </p>
+                  </div>
+                  <Link
+                    href={`/portal/${encodeURIComponent(
+                      typedStudio.slug,
+                    )}/documents/${encodeURIComponent(
+                      item.assignment.id,
+                    )}/sign?client=${encodeURIComponent(typedClient.id)}`}
+                    className="inline-flex w-full items-center justify-center rounded-2xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-semibold text-white hover:opacity-95"
+                  >
+                    Review and Sign Securely
+                  </Link>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-sm font-semibold text-slate-950">
+                    Signing request unavailable
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    This request expired, was declined, or was withdrawn. Contact the
+                    studio if you still need to sign it.
+                  </p>
+                </div>
+              )
             ) : (
               <form action={signPortalDocumentAction} className="space-y-4">
                 <input type="hidden" name="studioSlug" value={typedStudio.slug} />
@@ -539,7 +627,7 @@ export default async function PortalDocumentsPage({
                 </button>
 
                 <p className="text-xs leading-5 text-slate-500">
-                  Your typed name will be stored with the signed document and signing time.
+                  This older document uses DanceFlow's legacy typed-signature flow.
                 </p>
               </form>
             )}
