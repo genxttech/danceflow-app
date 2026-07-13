@@ -4,8 +4,8 @@ const portalChecks = [
   "Confirm the client email on the studio client record matches the email the student is using to sign in.",
   "Check whether an auth.users row exists for that email and whether email_confirmed_at is populated.",
   "Check whether public.profiles has a row with the same id as auth.users.id.",
-  "Check whether public.clients.portal_user_id is linked to the matching profiles.id.",
-  "Use the platform studio detail repair action when the auth user exists but the profile/client link is missing.",
+  "Check whether public.client_account_links has a linked row connecting the client to the matching auth user.",
+  "Use the platform studio detail repair action when the auth user exists but the account-link row is missing.",
 ];
 
 const portalSql = `select
@@ -13,7 +13,10 @@ const portalSql = `select
   c.first_name,
   c.last_name,
   c.email as client_email,
-  c.portal_user_id,
+  cal.id as account_link_id,
+  cal.status as account_link_status,
+  cal.relationship_type,
+  cal.user_id,
   p.id as profile_id,
   p.email as profile_email,
   u.id as auth_user_id,
@@ -21,10 +24,13 @@ const portalSql = `select
   u.email_confirmed_at,
   u.last_sign_in_at
 from public.clients c
+left join public.client_account_links cal
+  on cal.client_id = c.id
+  and cal.studio_id = c.studio_id
 left join public.profiles p
-  on p.id = c.portal_user_id
+  on p.id = cal.user_id
 left join auth.users u
-  on u.id = p.id
+  on u.id = cal.user_id
 where lower(c.email) = lower('student@example.com');`;
 
 const inviteSql = `select
@@ -124,7 +130,7 @@ export default function PlatformSupportNotesPage() {
         summary="Use this when a student says they cannot access the portal after receiving an invite or magic link."
       >
         <div className="rounded-2xl bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-          Keep the studio-facing explanation simple: “The portal account was not connected yet. We reconnected it and they can try again.” Do not mention auth.users, profiles, portal_user_id, or raw IDs to the studio.
+          Keep the studio-facing explanation simple: “The portal account was not connected yet. We reconnected it and they can try again.” Do not mention auth.users, profiles, client_account_links, or raw IDs to the studio.
         </div>
 
         <ol className="list-decimal space-y-2 pl-5 text-sm leading-6 text-slate-700">

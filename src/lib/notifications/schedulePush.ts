@@ -17,24 +17,20 @@ type AppointmentPushRow = {
     | {
         first_name: string | null;
         last_name: string | null;
-        portal_user_id: string | null;
       }
     | {
         first_name: string | null;
         last_name: string | null;
-        portal_user_id: string | null;
       }[]
     | null;
   partner_client:
     | {
         first_name: string | null;
         last_name: string | null;
-        portal_user_id: string | null;
       }
     | {
         first_name: string | null;
         last_name: string | null;
-        portal_user_id: string | null;
       }[]
     | null;
   studios:
@@ -158,8 +154,8 @@ async function getStudioTimeZone(
   return data?.timezone || DEFAULT_TIME_ZONE;
 }
 
-async function sendToPortalUser(params: {
-  userId: string | null | undefined;
+async function sendToPortalUsers(params: {
+  userIds: string[];
   title: string;
   body: string;
   appointmentId: string;
@@ -167,26 +163,61 @@ async function sendToPortalUser(params: {
   reason: SchedulePushReason;
   recipientRole: "primary" | "partner";
 }) {
-  const userId = params.userId?.trim();
-  if (!userId) return;
+  const userIds = Array.from(
+    new Set(params.userIds.map((userId) => userId.trim()).filter(Boolean)),
+  );
+  if (!userIds.length) return;
 
-  try {
-    await sendMobilePushToUser({
-      userId,
-      category: "schedule",
-      title: params.title,
-      body: params.body,
-      data: {
-        screen: "appointment",
-        appointmentId: params.appointmentId,
-        studioId: params.studioId,
-        reason: params.reason,
-        recipientRole: params.recipientRole,
-      },
-    });
-  } catch (error) {
-    console.error("Could not send schedule push notification:", error);
+  await Promise.all(
+    userIds.map(async (userId) => {
+      try {
+        await sendMobilePushToUser({
+          userId,
+          category: "schedule",
+          title: params.title,
+          body: params.body,
+          data: {
+            screen: "appointment",
+            appointmentId: params.appointmentId,
+            studioId: params.studioId,
+            reason: params.reason,
+            recipientRole: params.recipientRole,
+          },
+        });
+      } catch (error) {
+        console.error("Could not send schedule push notification:", error);
+      }
+    }),
+  );
+}
+
+async function linkedScheduleUserIds(params: {
+  supabase: SupabaseClient;
+  studioId: string;
+  clientId: string | null;
+}) {
+  if (!params.clientId) return [] as string[];
+
+  const { data, error } = await params.supabase
+    .from("client_account_links")
+    .select("user_id")
+    .eq("studio_id", params.studioId)
+    .eq("client_id", params.clientId)
+    .eq("status", "linked")
+    .eq("can_view_schedule", true);
+
+  if (error) {
+    console.error("Could not load linked schedule recipients:", error.message);
+    return [] as string[];
   }
+
+  return Array.from(
+    new Set(
+      (data ?? [])
+        .map((link) => String(link.user_id ?? "").trim())
+        .filter(Boolean),
+    ),
+  );
 }
 
 export async function sendAppointmentSchedulePush(params: {
@@ -212,13 +243,11 @@ export async function sendAppointmentSchedulePush(params: {
       status,
       clients (
         first_name,
-        last_name,
-        portal_user_id
+        last_name
       ),
       partner_client:clients!appointments_partner_client_id_fkey (
         first_name,
-        last_name,
-        portal_user_id
+        last_name
       ),
       studios (
         name,
@@ -247,11 +276,14 @@ export async function sendAppointmentSchedulePush(params: {
   const timeZone = await getStudioTimeZone(supabase, studioId);
   const message = buildSchedulePushMessage({ row, reason, timeZone });
 
-  const primaryClient = firstJoin(row.clients);
-  const partnerClient = firstJoin(row.partner_client);
+  const primaryUserIds = await linkedScheduleUserIds({
+    supabase,
+    studioId,
+    clientId: row.client_id,
+  });
 
-  await sendToPortalUser({
-    userId: primaryClient?.portal_user_id,
+  await sendToPortalUsers({
+    userIds: primaryUserIds,
     title: message.title,
     body: message.body,
     appointmentId: row.id,
@@ -261,8 +293,14 @@ export async function sendAppointmentSchedulePush(params: {
   });
 
   if (row.appointment_type === "private_lesson" && row.partner_client_id) {
-    await sendToPortalUser({
-      userId: partnerClient?.portal_user_id,
+    const partnerUserIds = await linkedScheduleUserIds({
+      supabase,
+      studioId,
+      clientId: row.partner_client_id,
+    });
+
+    await sendToPortalUsers({
+      userIds: partnerUserIds,
       title: message.title,
       body: message.body,
       appointmentId: row.id,

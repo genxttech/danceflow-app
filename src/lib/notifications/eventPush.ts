@@ -39,14 +39,6 @@ type EventRegistrationPushRow = {
         name: string | null;
       }[]
     | null;
-  clients:
-    | {
-        portal_user_id: string | null;
-      }
-    | {
-        portal_user_id: string | null;
-      }[]
-    | null;
 };
 
 type EventPushRow = {
@@ -180,29 +172,51 @@ function buildEventUpdatedMessage(row: EventPushRow) {
   };
 }
 
-async function findPortalUserByEmail(params: {
+async function findPortalUsersByEmail(params: {
   supabase: SupabaseClient;
   studioId: string;
   email: string | null | undefined;
 }) {
   const email = clean(params.email);
-  if (!email) return null;
+  if (!email) return [] as string[];
 
-  const { data, error } = await params.supabase
+  const { data: matchingClients, error: clientsError } = await params.supabase
     .from("clients")
-    .select("portal_user_id")
+    .select("id")
     .eq("studio_id", params.studioId)
-    .ilike("email", email)
-    .not("portal_user_id", "is", null)
-    .limit(1)
-    .maybeSingle<{ portal_user_id: string | null }>();
+    .ilike("email", email);
 
-  if (error) {
-    console.error("Could not find mobile account for event push:", error.message);
-    return null;
+  if (clientsError) {
+    console.error("Could not find client for event push:", clientsError.message);
+    return [] as string[];
   }
 
-  return data?.portal_user_id ?? null;
+  const clientIds = Array.from(
+    new Set((matchingClients ?? []).map((client) => String(client.id))),
+  );
+
+  if (!clientIds.length) return [] as string[];
+
+  const { data: links, error: linksError } = await params.supabase
+    .from("client_account_links")
+    .select("user_id")
+    .eq("studio_id", params.studioId)
+    .in("client_id", clientIds)
+    .eq("status", "linked")
+    .eq("can_view_schedule", true);
+
+  if (linksError) {
+    console.error("Could not find mobile accounts for event push:", linksError.message);
+    return [] as string[];
+  }
+
+  return Array.from(
+    new Set(
+      (links ?? [])
+        .map((link) => clean(link.user_id))
+        .filter(Boolean),
+    ),
+  );
 }
 
 async function userIdsForRegistration(params: {
@@ -214,18 +228,33 @@ async function userIdsForRegistration(params: {
   const directUserId = clean(params.row.user_id);
   if (directUserId) ids.add(directUserId);
 
-  const linkedClient = firstJoin(params.row.clients);
-  const linkedPortalUserId = clean(linkedClient?.portal_user_id);
-  if (linkedPortalUserId) ids.add(linkedPortalUserId);
+  if (params.row.client_id) {
+    const { data: links, error: linksError } = await params.supabase
+      .from("client_account_links")
+      .select("user_id")
+      .eq("studio_id", params.row.studio_id)
+      .eq("client_id", params.row.client_id)
+      .eq("status", "linked")
+      .eq("can_view_schedule", true);
+
+    if (linksError) {
+      console.error("Could not load linked event recipients:", linksError.message);
+    } else {
+      for (const link of links ?? []) {
+        const userId = clean(link.user_id);
+        if (userId) ids.add(userId);
+      }
+    }
+  }
 
   if (ids.size === 0) {
-    const emailUserId = await findPortalUserByEmail({
+    const emailUserIds = await findPortalUsersByEmail({
       supabase: params.supabase,
       studioId: params.row.studio_id,
       email: params.row.attendee_email,
     });
 
-    if (emailUserId) ids.add(emailUserId);
+    for (const userId of emailUserIds) ids.add(userId);
   }
 
   return Array.from(ids);
@@ -315,9 +344,6 @@ async function loadRegistrationForPush(params: {
       ),
       event_ticket_types (
         name
-      ),
-      clients (
-        portal_user_id
       )
     `,
     )
@@ -451,9 +477,6 @@ export async function sendEventUpdatedPush(params: {
       ),
       event_ticket_types (
         name
-      ),
-      clients (
-        portal_user_id
       )
     `,
     )

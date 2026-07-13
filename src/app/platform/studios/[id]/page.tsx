@@ -90,8 +90,15 @@ type ClientPortalDiagnosticRow = {
   first_name: string | null;
   last_name: string | null;
   email: string | null;
-  portal_user_id: string | null;
   updated_at: string | null;
+};
+
+type ClientAccountLinkDiagnosticRow = {
+  client_id: string;
+  user_id: string | null;
+  status: string;
+  invited_email: string | null;
+  linked_at: string | null;
 };
 
 type ProfileDiagnosticRow = {
@@ -265,6 +272,7 @@ export default async function PlatformStudioDetailPage({
     { data: registrations, error: registrationsError },
     { data: adminActions, error: adminActionsError },
     { data: portalClients, error: portalClientsError },
+    { data: portalAccountLinks, error: portalAccountLinksError },
     { data: portalInviteDeliveries, error: portalInviteDeliveriesError },
   ] = await Promise.all([
     supabase
@@ -320,11 +328,16 @@ export default async function PlatformStudioDetailPage({
 
     supabase
       .from("clients")
-      .select("id, first_name, last_name, email, portal_user_id, updated_at")
+      .select("id, first_name, last_name, email, updated_at")
       .eq("studio_id", id)
-      .or("email.not.is.null,portal_user_id.not.is.null")
+      .not("email", "is", null)
       .order("updated_at", { ascending: false })
       .limit(150),
+
+    supabase
+      .from("client_account_links")
+      .select("client_id, user_id, status, invited_email, linked_at")
+      .eq("studio_id", id),
 
     supabase
       .from("outbound_deliveries")
@@ -367,6 +380,10 @@ export default async function PlatformStudioDetailPage({
     throw new Error(`Failed to load portal diagnostic clients: ${portalClientsError.message}`);
   }
 
+  if (portalAccountLinksError) {
+    throw new Error(`Failed to load portal account links: ${portalAccountLinksError.message}`);
+  }
+
   if (portalInviteDeliveriesError) {
     throw new Error(`Failed to load portal invite deliveries: ${portalInviteDeliveriesError.message}`);
   }
@@ -378,8 +395,13 @@ export default async function PlatformStudioDetailPage({
   const typedRegistrations = (registrations ?? []) as RegistrationRow[];
   const typedAdminActions = (adminActions ?? []) as PlatformAdminActionRow[];
   const typedPortalClients = (portalClients ?? []) as ClientPortalDiagnosticRow[];
+  const typedPortalAccountLinks =
+    (portalAccountLinks ?? []) as ClientAccountLinkDiagnosticRow[];
   const typedPortalInviteDeliveries = (portalInviteDeliveries ?? []) as PortalInviteDeliveryRow[];
 
+  const accountLinkByClientId = new Map(
+    typedPortalAccountLinks.map((link) => [link.client_id, link] as const),
+  );
   const portalClientIds = new Set(typedPortalClients.map((client) => client.id));
   const filteredPortalInviteDeliveries = typedPortalInviteDeliveries.filter((delivery) =>
     delivery.related_id ? portalClientIds.has(delivery.related_id) : false
@@ -390,8 +412,13 @@ export default async function PlatformStudioDetailPage({
     new Set(typedPortalClients.map((client) => normalizeEmail(client.email)).filter(Boolean))
   );
   const portalProfileIds = Array.from(
-    new Set(typedPortalClients.map((client) => client.portal_user_id).filter(Boolean))
-  ) as string[];
+    new Set(
+      typedPortalAccountLinks
+        .filter((link) => link.status === "linked")
+        .map((link) => link.user_id)
+        .filter((userId): userId is string => Boolean(userId)),
+    ),
+  );
 
   let portalProfiles: ProfileDiagnosticRow[] = [];
   let portalAuthUsers: AuthUserDiagnosticRow[] = [];
@@ -480,9 +507,12 @@ export default async function PlatformStudioDetailPage({
 
   const portalDiagnostics = typedPortalClients.map((client) => {
     const email = normalizeEmail(client.email);
-    const linkedProfile = client.portal_user_id ? profileById.get(client.portal_user_id) ?? null : null;
+    const accountLink = accountLinkByClientId.get(client.id) ?? null;
+    const linkedUserId =
+      accountLink?.status === "linked" ? accountLink.user_id : null;
+    const linkedProfile = linkedUserId ? profileById.get(linkedUserId) ?? null : null;
     const matchingProfile = email ? profileByEmail.get(email) ?? null : null;
-    const linkedAuthUser = client.portal_user_id ? authById.get(client.portal_user_id) ?? null : null;
+    const linkedAuthUser = linkedUserId ? authById.get(linkedUserId) ?? null : null;
     const matchingAuthUser = email ? authByEmail.get(email) ?? null : null;
     const recentDeliveries = deliveriesByClientId.get(client.id) ?? [];
     const latestDelivery = recentDeliveries[0] ?? null;
@@ -490,10 +520,10 @@ export default async function PlatformStudioDetailPage({
     let status: "ok" | "warning" | "danger" | "neutral" = "neutral";
     let label = "No portal activity";
 
-    if (client.portal_user_id && linkedProfile && linkedAuthUser) {
+    if (linkedUserId && linkedProfile && linkedAuthUser) {
       status = "ok";
       label = "Linked";
-    } else if (client.portal_user_id && (!linkedProfile || !linkedAuthUser)) {
+    } else if (linkedUserId && (!linkedProfile || !linkedAuthUser)) {
       status = "danger";
       label = "Broken link";
     } else if (matchingAuthUser || matchingProfile) {
@@ -509,6 +539,8 @@ export default async function PlatformStudioDetailPage({
 
     return {
       client,
+      accountLink,
+      linkedUserId,
       email,
       linkedProfile,
       matchingProfile,
@@ -921,8 +953,8 @@ export default async function PlatformStudioDetailPage({
                   </div>
 
                   <div className="col-span-2 space-y-1 text-xs text-slate-600">
-                    <p>portal_user_id</p>
-                    <p className="font-mono text-slate-500">{shortId(item.client.portal_user_id)}</p>
+                    <p>account link user</p>
+                    <p className="font-mono text-slate-500">{shortId(item.linkedUserId)}</p>
                     <p>auth.users</p>
                     <p className="font-mono text-slate-500">{shortId((item.linkedAuthUser ?? item.matchingAuthUser)?.id)}</p>
                     <p>profiles</p>

@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requirePlatformAdmin } from "@/lib/auth/platform";
+import { linkExistingClientAccount } from "@/lib/student-identity/lifecycle";
 import {
   cleanTextValue,
   getValidationError,
@@ -463,7 +464,7 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
 
   const { data: clients, error: clientsError } = await adminSupabase
     .from("clients")
-    .select("id, first_name, last_name, email, portal_user_id")
+    .select("id, first_name, last_name, email")
     .eq("studio_id", studioId)
     .not("email", "is", null);
 
@@ -476,8 +477,20 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
     first_name: string | null;
     last_name: string | null;
     email: string | null;
-    portal_user_id: string | null;
   }>;
+
+  const { data: existingLinks, error: existingLinksError } = await adminSupabase
+    .from("client_account_links")
+    .select("client_id, user_id, status")
+    .eq("studio_id", studioId);
+
+  if (existingLinksError) {
+    throw new Error(`Failed to load account links for portal repair: ${existingLinksError.message}`);
+  }
+
+  const linksByClientId = new Map(
+    (existingLinks ?? []).map((link) => [String(link.client_id), link] as const),
+  );
 
   const { data: authUsersData, error: authUsersError } = await adminSupabase.auth.admin.listUsers({
     page: 1,
@@ -495,7 +508,7 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
   );
 
   let profilesUpserted = 0;
-  let clientsLinked = 0;
+  let linksCreated = 0;
   let skippedAlreadyLinked = 0;
   let skippedNoAuthUser = 0;
   let skippedMismatchedLink = 0;
@@ -529,33 +542,38 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
 
     profilesUpserted += 1;
 
-    if (client.portal_user_id === matchingAuthUser.id) {
+    const existingLink = linksByClientId.get(client.id);
+    if (
+      existingLink?.status === "linked" &&
+      existingLink.user_id === matchingAuthUser.id
+    ) {
       skippedAlreadyLinked += 1;
       continue;
     }
 
-    if (client.portal_user_id && client.portal_user_id !== matchingAuthUser.id) {
+    if (
+      existingLink?.status === "linked" &&
+      existingLink.user_id &&
+      existingLink.user_id !== matchingAuthUser.id
+    ) {
       skippedMismatchedLink += 1;
       continue;
     }
 
-    const { error: updateError } = await adminSupabase
-      .from("clients")
-      .update({ portal_user_id: matchingAuthUser.id, updated_at: new Date().toISOString() })
-      .eq("id", client.id)
-      .is("portal_user_id", null);
+    await linkExistingClientAccount({
+      studioId,
+      clientId: client.id,
+      userId: matchingAuthUser.id,
+      invitedEmail: normalizedEmail,
+    });
 
-    if (updateError) {
-      throw new Error(`Failed to link portal client ${client.id}: ${updateError.message}`);
-    }
-
-    clientsLinked += 1;
+    linksCreated += 1;
   }
 
   const note = [
-    `Portal link repair completed for studio ${studioId}.`,
+    `Portal account-link repair completed for studio ${studioId}.`,
     `Profiles upserted: ${profilesUpserted}.`,
-    `Clients linked: ${clientsLinked}.`,
+    `Links created: ${linksCreated}.`,
     `Already linked: ${skippedAlreadyLinked}.`,
     `No auth user: ${skippedNoAuthUser}.`,
     `Mismatched existing links skipped: ${skippedMismatchedLink}.`,
@@ -572,7 +590,6 @@ export async function repairStudioPortalLinksAction(formData: FormData) {
   revalidatePath(`/platform/studios/${studioId}`);
   redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}portal_repair=1`);
 }
-
 
 function normalizeMobilePushCategory(value: FormDataEntryValue | null) {
   const normalized = String(value ?? "account").trim().toLowerCase();
