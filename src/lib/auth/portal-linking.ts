@@ -238,6 +238,81 @@ export async function ensurePortalProfileAndClientLinks({
   };
 }
 
+
+type LinkedPortalDestinationRow = {
+  client_id: string;
+  relationship_type: string;
+  is_primary: boolean | null;
+  studios:
+    | { slug: string | null }
+    | { slug: string | null }[]
+    | null;
+};
+
+function firstRelation<T>(value: T | T[] | null | undefined) {
+  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+}
+
+export async function getLinkedPortalDestination(userId: string) {
+  if (!userId) return null;
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("client_account_links")
+    .select(`
+      client_id,
+      relationship_type,
+      is_primary,
+      studios (
+        slug
+      )
+    `)
+    .eq("user_id", userId)
+    .eq("status", "linked")
+    .order("is_primary", { ascending: false })
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  const row = data as LinkedPortalDestinationRow;
+  const studio = firstRelation(row.studios);
+  if (!studio?.slug) return null;
+
+  return {
+    studioSlug: studio.slug,
+    clientId: row.client_id,
+    relationshipType: row.relationship_type,
+    path: `/portal/${studio.slug}?client=${encodeURIComponent(row.client_id)}`,
+  };
+}
+
+export async function getLinkedClientIdsForUser(params: {
+  userId: string;
+  studioId?: string | null;
+}) {
+  const admin = createAdminClient();
+  let query = admin
+    .from("client_account_links")
+    .select("client_id")
+    .eq("user_id", params.userId)
+    .eq("status", "linked");
+
+  if (params.studioId) {
+    query = query.eq("studio_id", params.studioId);
+  }
+
+  const { data, error } = await query.limit(250);
+  if (error) {
+    throw new Error(`Portal relationship lookup failed: ${error.message}`);
+  }
+
+  return Array.from(
+    new Set((data ?? []).map((item) => String(item.client_id))),
+  );
+}
+
 export function getAuthUserFullName(user: {
   user_metadata?: Record<string, unknown> | null;
 }) {

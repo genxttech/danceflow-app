@@ -2,7 +2,7 @@ import type { User } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export type StudentStudioLink = {
-  linkId: string | null;
+  linkId: string;
   clientId: string;
   studioId: string;
   studioSlug: string;
@@ -70,26 +70,6 @@ export async function getStudentStudioLinks(user: User) {
 
   let typedLinks = (links ?? []) as LinkRow[];
 
-  // Compatibility fallback for records created before the new relationship table.
-  if (!typedLinks.length) {
-    const { data: legacyClients, error: legacyError } = await admin
-      .from("clients")
-      .select("id, studio_id")
-      .eq("portal_user_id", user.id)
-      .order("created_at", { ascending: true });
-
-    if (legacyError) {
-      throw new Error(`Legacy student link lookup failed: ${legacyError.message}`);
-    }
-
-    typedLinks = (legacyClients ?? []).map((client) => ({
-      id: "",
-      client_id: client.id,
-      studio_id: client.studio_id,
-      status: "linked",
-      relationship_type: "self",
-    }));
-  }
 
   const clientIds = typedLinks.map((link) => link.client_id);
   if (!clientIds.length) return [];
@@ -146,7 +126,7 @@ export async function getStudentStudioLinks(user: User) {
       if (!client || !studio?.id || !studio.slug) return null;
 
       return {
-        linkId: link.id || null,
+        linkId: link.id,
         clientId: client.id,
         studioId: studio.id,
         studioSlug: studio.slug,

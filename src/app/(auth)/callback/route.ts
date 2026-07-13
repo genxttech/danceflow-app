@@ -11,6 +11,7 @@ import {
   ensurePortalProfileAndClientLinks,
   getAuthUserFullName,
   getGroupLessonRecapTokenFromPath,
+  getLinkedPortalDestination,
 } from "@/lib/auth/portal-linking";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
@@ -34,23 +35,7 @@ type StudioRoleRow = {
     | null;
 };
 
-type PortalClientRow = {
-  studio_id: string;
-  studios:
-    | {
-        slug: string | null;
-      }
-    | {
-        slug: string | null;
-      }[]
-    | null;
-};
-
 function getStudioFromJoin(value: StudioRoleRow["studios"]) {
-  return Array.isArray(value) ? value[0] ?? null : value ?? null;
-}
-
-function getPortalStudioFromJoin(value: PortalClientRow["studios"]) {
   return Array.isArray(value) ? value[0] ?? null : value ?? null;
 }
 
@@ -120,37 +105,10 @@ async function getActiveStudioRoles(params: {
 }
 
 async function getPortalRedirectPath(params: {
-  supabase: ReturnType<typeof createServerClient>;
   userId: string;
 }) {
-  const { supabase, userId } = params;
-
-  const { data, error } = await supabase
-    .from("clients")
-    .select(
-      `
-      studio_id,
-      studios (
-        slug
-      )
-    `
-    )
-    .eq("portal_user_id", userId)
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !data) {
-    return null;
-  }
-
-  const portalClient = data as PortalClientRow;
-  const studio = getPortalStudioFromJoin(portalClient.studios);
-
-  if (!studio?.slug) {
-    return null;
-  }
-
-  return `/portal/${studio.slug}`;
+  const destination = await getLinkedPortalDestination(params.userId);
+  return destination?.path ?? null;
 }
 
 async function acceptTeamInvitationsForEmail(params: {
@@ -390,7 +348,6 @@ export async function GET(request: NextRequest) {
 
   try {
     portalPath = await getPortalRedirectPath({
-      supabase,
       userId: user.id,
     });
   } catch {

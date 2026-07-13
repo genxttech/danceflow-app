@@ -141,10 +141,11 @@ export async function linkExistingClientAccount(params: {
 }) {
   const admin = createAdminClient();
   const now = new Date().toISOString();
+  const relationshipType = params.relationshipType ?? "self";
 
   const { data: client, error: clientError } = await admin
     .from("clients")
-    .select("id, portal_user_id")
+    .select("id")
     .eq("id", params.clientId)
     .eq("studio_id", params.studioId)
     .single();
@@ -153,44 +154,22 @@ export async function linkExistingClientAccount(params: {
     throw new Error("Client record could not be found.");
   }
 
-  if (client.portal_user_id && client.portal_user_id !== params.userId) {
-    await admin.from("client_account_links").insert({
-      studio_id: params.studioId,
-      client_id: params.clientId,
-      user_id: client.portal_user_id,
-      status: "conflict",
-      relationship_type: params.relationshipType ?? "self",
-      can_view_schedule: true,
-      can_view_billing: true,
-      can_manage_bookings: true,
-      can_sign_documents: true,
-      is_primary: (params.relationshipType ?? "self") === "self",
-      initiated_by: "studio",
-      invited_email: normalizedEmail(params.invitedEmail),
-      conflict_details: "The client record is already connected to a different account.",
-      updated_at: now,
-    });
+  if (relationshipType === "self") {
+    const { data: existingSelfLink, error: selfLinkError } = await admin
+      .from("client_account_links")
+      .select("id, user_id")
+      .eq("studio_id", params.studioId)
+      .eq("client_id", params.clientId)
+      .eq("status", "linked")
+      .eq("relationship_type", "self")
+      .maybeSingle();
 
-    throw new Error("This client record is already connected to a different account.");
-  }
+    if (selfLinkError) {
+      throw new Error(`Client account check failed: ${selfLinkError.message}`);
+    }
 
-  const { data: otherLinkedClient, error: otherError } = await admin
-    .from("client_account_links")
-    .select("id, client_id")
-    .eq("user_id", params.userId)
-    .eq("studio_id", params.studioId)
-    .eq("status", "linked")
-    .neq("client_id", params.clientId)
-    .limit(1)
-    .maybeSingle();
-
-  if (otherError) {
-    throw new Error(`Account conflict check failed: ${otherError.message}`);
-  }
-
-  if (otherLinkedClient && (params.relationshipType ?? "self") === "self") {
-    await admin.from("client_account_links").upsert(
-      {
+    if (existingSelfLink?.user_id && existingSelfLink.user_id !== params.userId) {
+      await admin.from("client_account_links").insert({
         studio_id: params.studioId,
         client_id: params.clientId,
         user_id: params.userId,
@@ -199,49 +178,98 @@ export async function linkExistingClientAccount(params: {
         initiated_by: "studio",
         invited_email: normalizedEmail(params.invitedEmail),
         conflict_details:
-          "This account is already connected to another client record in this studio.",
+          "The client record already has a different self account relationship.",
         updated_at: now,
-      },
-      { onConflict: "client_id,user_id" },
-    );
+      });
 
-    throw new Error("This account is already connected to another client in this studio.");
-  }
+      throw new Error(
+        "This client record is already connected to a different self account.",
+      );
+    }
 
-  if ((params.relationshipType ?? "self") === "self") {
-    const { error: clientUpdateError } = await admin
-      .from("clients")
-      .update({ portal_user_id: params.userId, updated_at: now })
-      .eq("id", params.clientId)
-      .eq("studio_id", params.studioId);
+    const { data: otherSelfLink, error: otherSelfError } = await admin
+      .from("client_account_links")
+      .select("id, client_id")
+      .eq("user_id", params.userId)
+      .eq("studio_id", params.studioId)
+      .eq("status", "linked")
+      .eq("relationship_type", "self")
+      .neq("client_id", params.clientId)
+      .limit(1)
+      .maybeSingle();
 
-    if (clientUpdateError) {
-      throw new Error(`Portal access link failed: ${clientUpdateError.message}`);
+    if (otherSelfError) {
+      throw new Error(`Account conflict check failed: ${otherSelfError.message}`);
+    }
+
+    if (otherSelfLink) {
+      await admin.from("client_account_links").insert({
+        studio_id: params.studioId,
+        client_id: params.clientId,
+        user_id: params.userId,
+        status: "conflict",
+        relationship_type: "self",
+        initiated_by: "studio",
+        invited_email: normalizedEmail(params.invitedEmail),
+        conflict_details:
+          "This account already has a self relationship with another client in this studio.",
+        updated_at: now,
+      });
+
+      throw new Error(
+        "This account is already connected to another self client in this studio.",
+      );
     }
   }
 
-  const { error: linkError } = await admin.from("client_account_links").upsert(
-    {
-      studio_id: params.studioId,
-      client_id: params.clientId,
-      user_id: params.userId,
-      status: "linked",
-      relationship_type: "self",
-      initiated_by: "studio",
-      invited_email: normalizedEmail(params.invitedEmail),
-      claimed_at: now,
-      linked_at: now,
-      accepted_at: now,
-      disconnected_at: null,
-      disconnected_by: null,
-      disconnect_reason: null,
-      conflict_details: null,
-      updated_at: now,
-    },
-    { onConflict: "client_id,user_id" },
-  );
+  const { data: existingLink, error: existingLinkError } = await admin
+    .from("client_account_links")
+    .select("id")
+    .eq("studio_id", params.studioId)
+    .eq("client_id", params.clientId)
+    .eq("user_id", params.userId)
+    .eq("relationship_type", relationshipType)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
 
-  if (linkError) throw new Error(`Account relationship save failed: ${linkError.message}`);
+  if (existingLinkError) {
+    throw new Error(`Account relationship lookup failed: ${existingLinkError.message}`);
+  }
+
+  const payload = {
+    studio_id: params.studioId,
+    client_id: params.clientId,
+    user_id: params.userId,
+    status: "linked",
+    relationship_type: relationshipType,
+    can_view_schedule: true,
+    can_view_billing: true,
+    can_manage_bookings: true,
+    can_sign_documents: true,
+    is_primary: relationshipType === "self",
+    initiated_by: "studio",
+    invited_email: normalizedEmail(params.invitedEmail),
+    claimed_at: now,
+    linked_at: now,
+    accepted_at: now,
+    disconnected_at: null,
+    disconnected_by: null,
+    disconnect_reason: null,
+    conflict_details: null,
+    updated_at: now,
+  };
+
+  const { error: linkError } = existingLink?.id
+    ? await admin
+        .from("client_account_links")
+        .update(payload)
+        .eq("id", existingLink.id)
+    : await admin.from("client_account_links").insert(payload);
+
+  if (linkError) {
+    throw new Error(`Account relationship save failed: ${linkError.message}`);
+  }
 }
 
 export async function disconnectClientAccount(params: {
@@ -250,51 +278,47 @@ export async function disconnectClientAccount(params: {
   disconnectedBy: string;
   reason: string;
   formerClient?: boolean;
+  userId?: string | null;
 }) {
   const admin = createAdminClient();
   const now = new Date().toISOString();
   const status = params.formerClient ? "former_client" : "disconnected";
 
-  const { data: client, error: clientError } = await admin
-    .from("clients")
-    .select("portal_user_id")
-    .eq("id", params.clientId)
-    .eq("studio_id", params.studioId)
-    .single();
-
-  if (clientError || !client) throw new Error("Client record could not be found.");
-
-  const userId = client.portal_user_id as string | null;
-
-  if (userId) {
-    const { error: linkError } = await admin
-      .from("client_account_links")
-      .update({
-        status,
-        disconnected_at: now,
-        disconnected_by: params.disconnectedBy,
-        disconnect_reason: params.reason,
-        updated_at: now,
-      })
-      .eq("client_id", params.clientId)
-      .eq("user_id", userId)
-      .eq("status", "linked");
-
-    if (linkError) throw new Error(`Account relationship update failed: ${linkError.message}`);
-  }
-
-  const { error: clientUpdateError } = await admin
-    .from("clients")
+  let query = admin
+    .from("client_account_links")
     .update({
-      portal_user_id: null,
-      ...(params.formerClient ? { status: "inactive" } : {}),
+      status,
+      disconnected_at: now,
+      disconnected_by: params.disconnectedBy || null,
+      disconnect_reason: params.reason,
       updated_at: now,
     })
-    .eq("id", params.clientId)
-    .eq("studio_id", params.studioId);
+    .eq("studio_id", params.studioId)
+    .eq("client_id", params.clientId)
+    .eq("status", "linked");
 
-  if (clientUpdateError) {
-    throw new Error(`Portal access removal failed: ${clientUpdateError.message}`);
+  if (params.userId) {
+    query = query.eq("user_id", params.userId);
+  }
+
+  const { error: linkError } = await query;
+  if (linkError) {
+    throw new Error(`Account relationship update failed: ${linkError.message}`);
+  }
+
+  if (params.formerClient) {
+    const { error: clientUpdateError } = await admin
+      .from("clients")
+      .update({
+        status: "inactive",
+        updated_at: now,
+      })
+      .eq("id", params.clientId)
+      .eq("studio_id", params.studioId);
+
+    if (clientUpdateError) {
+      throw new Error(`Former-client update failed: ${clientUpdateError.message}`);
+    }
   }
 }
 

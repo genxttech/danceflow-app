@@ -9,7 +9,9 @@ import {
 } from "@/lib/security/redirects";
 import {
   claimGroupLessonRecapsForUser,
+  ensurePortalProfileAndClientLinks,
   getGroupLessonRecapTokenFromPath,
+  getLinkedPortalDestination,
 } from "@/lib/auth/portal-linking";
 import { createClient } from "@/lib/supabase/server";
 
@@ -47,33 +49,8 @@ async function hasActiveWorkspaceRole(userId: string): Promise<boolean> {
 }
 
 async function getPortalRedirectPath(userId: string): Promise<string | null> {
-  const supabase = await createClient();
-
-  const { data: portalClient, error } = await supabase
-    .from("clients")
-    .select("studio_id, studios(slug)")
-    .eq("portal_user_id", userId)
-    .eq("is_independent_instructor", true)
-    .limit(1)
-    .maybeSingle();
-
-  if (error || !portalClient) {
-    return null;
-  }
-
-  const studiosRelation = (portalClient as {
-    studios?: { slug?: string | null } | { slug?: string | null }[] | null;
-  }).studios;
-
-  const studio = Array.isArray(studiosRelation)
-    ? studiosRelation[0]
-    : studiosRelation;
-
-  if (!studio?.slug) {
-    return null;
-  }
-
-  return `/portal/${studio.slug}`;
+  const destination = await getLinkedPortalDestination(userId);
+  return destination?.path ?? null;
 }
 
 async function getPostLoginRedirectPath(userId: string): Promise<string> {
@@ -211,25 +188,6 @@ async function upsertProfile(params: {
   }
 }
 
-async function attachPortalAccessForEmail(params: {
-  supabase: Awaited<ReturnType<typeof createClient>>;
-  userId: string;
-  email: string;
-}) {
-  const { supabase, userId, email } = params;
-
-  if (!email) return;
-
-  const { error } = await supabase.rpc("link_portal_client_by_email", {
-    p_user_id: userId,
-    p_email: email,
-  });
-
-  if (error) {
-    throw new Error(`Portal auto-link failed: ${error.message}`);
-  }
-}
-
 async function syncAccountAfterAuth(params: {
   supabase: Awaited<ReturnType<typeof createClient>>;
   userId: string;
@@ -246,10 +204,10 @@ async function syncAccountAfterAuth(params: {
     fullName,
   });
 
-  await attachPortalAccessForEmail({
-    supabase,
+  await ensurePortalProfileAndClientLinks({
     userId,
     email,
+    fullName,
   });
 
   await claimGroupLessonRecapsForUser({

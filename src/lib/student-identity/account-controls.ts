@@ -14,16 +14,20 @@ export async function leaveStudioRelationship(params: {
   const admin = createAdminClient();
   const now = new Date().toISOString();
 
-  const { data: link, error: linkError } = await admin
+  const { data: links, error: linkError } = await admin
     .from("client_account_links")
     .select("id, client_id, studio_id, status")
     .eq("user_id", params.user.id)
     .eq("studio_id", params.studioId)
-    .eq("status", "linked")
-    .maybeSingle();
+    .eq("status", "linked");
 
-  if (linkError) throw new Error(`Studio relationship lookup failed: ${linkError.message}`);
-  if (!link) throw new Error("This studio is not currently connected to your account.");
+  if (linkError) {
+    throw new Error(`Studio relationship lookup failed: ${linkError.message}`);
+  }
+
+  if (!links?.length) {
+    throw new Error("This studio is not currently connected to your account.");
+  }
 
   const reason =
     params.reason?.trim().slice(0, 500) ||
@@ -39,29 +43,18 @@ export async function leaveStudioRelationship(params: {
       left_by_user_at: now,
       updated_at: now,
     })
-    .eq("id", link.id)
     .eq("user_id", params.user.id)
+    .eq("studio_id", params.studioId)
     .eq("status", "linked");
 
   if (linkUpdateError) {
     throw new Error(`Studio relationship update failed: ${linkUpdateError.message}`);
   }
 
-  const { error: clientUpdateError } = await admin
-    .from("clients")
-    .update({
-      portal_user_id: null,
-      updated_at: now,
-    })
-    .eq("id", link.client_id)
-    .eq("studio_id", link.studio_id)
-    .eq("portal_user_id", params.user.id);
-
-  if (clientUpdateError) {
-    throw new Error(`Studio portal access removal failed: ${clientUpdateError.message}`);
-  }
-
-  return { clientId: link.client_id, studioId: link.studio_id };
+  return {
+    clientIds: links.map((link) => String(link.client_id)),
+    studioId: params.studioId,
+  };
 }
 
 export async function deleteDanceFlowAccount(user: User) {
@@ -81,17 +74,6 @@ export async function deleteDanceFlowAccount(user: User) {
 
   const linkedRows = links ?? [];
 
-  const { error: clientsError } = await admin
-    .from("clients")
-    .update({
-      portal_user_id: null,
-      updated_at: now,
-    })
-    .eq("portal_user_id", user.id);
-
-  if (clientsError) {
-    throw new Error(`Studio portal cleanup failed: ${clientsError.message}`);
-  }
 
   if (linkedRows.length > 0) {
     const { error: relationshipError } = await admin
