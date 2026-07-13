@@ -2,7 +2,11 @@
 
 import { randomUUID } from "crypto";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { redirect } from "next/navigation";
+import { DOCUMENT_FILES_BUCKET, sourceStoragePath } from "@/lib/documents/signing";
+import { getPdfPageSizes, sha256Hex } from "@/lib/documents/pdf";
+import { renderTemplateVersionPdf } from "@/lib/documents/template-pdf";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   CLIENT_REFERRAL_SOURCE_OPTIONS,
@@ -314,12 +318,316 @@ function normalizeClientPayload(params: {
   };
 }
 
+
+export type OnboardingDocumentOption = {
+  id: string;
+  title: string;
+  description: string | null;
+  requiresSignature: boolean;
+  isRequired: boolean;
+};
+
+export async function loadOnboardingDocumentOptionsAction(): Promise<
+  OnboardingDocumentOption[]
+> {
+  const { supabase, studioId } = await getCurrentUserStudioContext();
+
+  const { data, error } = await supabase
+    .from("document_templates")
+    .select("id, title, description, requires_signature, is_required")
+    .eq("studio_id", studioId)
+    .eq("scope", "studio")
+    .eq("is_active", true)
+    .order("is_required", { ascending: false })
+    .order("title", { ascending: true });
+
+  if (error) {
+    console.error("Could not load onboarding document options:", error.message);
+    return [];
+  }
+
+  return (data ?? []).map((template) => ({
+    id: String(template.id),
+    title: String(template.title ?? "Untitled document"),
+    description:
+      typeof template.description === "string" ? template.description : null,
+    requiresSignature: template.requires_signature === true,
+    isRequired: template.is_required === true,
+  }));
+}
+
+async function loadStudioDocumentBrandingForOnboarding(
+  admin: ReturnType<typeof createAdminClient>,
+  studioId: string,
+) {
+  const { data: studio } = await admin
+    .from("studios")
+    .select("name, public_name, public_logo_url")
+    .eq("id", studioId)
+    .maybeSingle();
+
+  const studioName =
+    String(studio?.public_name ?? studio?.name ?? "Your studio").trim() ||
+    "Your studio";
+  const logoUrl =
+    typeof studio?.public_logo_url === "string"
+      ? studio.public_logo_url.trim()
+      : "";
+
+  if (!logoUrl) {
+    return {
+      studioName,
+      studioLogoBytes: null,
+      studioLogoMimeType: null,
+    } as const;
+  }
+
+  try {
+    const response = await fetch(logoUrl, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!response.ok) throw new Error("Logo request failed.");
+
+    const contentType = response.headers
+      .get("content-type")
+      ?.split(";")[0]
+      ?.trim()
+      ?.toLowerCase();
+
+    if (contentType !== "image/png" && contentType !== "image/jpeg") {
+      return {
+        studioName,
+        studioLogoBytes: null,
+        studioLogoMimeType: null,
+      } as const;
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!bytes.length || bytes.length > 2 * 1024 * 1024) {
+      return {
+        studioName,
+        studioLogoBytes: null,
+        studioLogoMimeType: null,
+      } as const;
+    }
+
+    return {
+      studioName,
+      studioLogoBytes: bytes,
+      studioLogoMimeType: contentType,
+    } as const;
+  } catch {
+    return {
+      studioName,
+      studioLogoBytes: null,
+      studioLogoMimeType: null,
+    } as const;
+  }
+}
+
+async function createOnboardingDocumentDraft(params: {
+  studioId: string;
+  clientId: string;
+  templateId: string;
+  assignedBy: string;
+}) {
+  const admin = createAdminClient();
+
+  const [{ data: template, error: templateError }, { data: client, error: clientError }] =
+    await Promise.all([
+      admin
+        .from("document_templates")
+        .select(
+          "id, studio_id, is_active, current_version, current_version_id, title, description, body, default_consent_text",
+        )
+        .eq("id", params.templateId)
+        .eq("studio_id", params.studioId)
+        .eq("scope", "studio")
+        .maybeSingle(),
+      admin
+        .from("clients")
+        .select("id, first_name, last_name, email")
+        .eq("id", params.clientId)
+        .eq("studio_id", params.studioId)
+        .maybeSingle(),
+    ]);
+
+  if (templateError || !template || !template.is_active) {
+    throw new Error("Selected onboarding document is unavailable.");
+  }
+
+  if (clientError || !client) {
+    throw new Error("New client could not be loaded for document assignment.");
+  }
+
+  const signerEmail =
+    typeof client.email === "string" ? client.email.trim().toLowerCase() : "";
+
+  if (!signerEmail || !signerEmail.includes("@")) {
+    throw new Error(
+      "A valid client email is required before onboarding documents can be prepared.",
+    );
+  }
+
+  const { data: existing } = await admin
+    .from("document_assignments")
+    .select("id")
+    .eq("template_id", params.templateId)
+    .eq("client_id", params.clientId)
+    .eq("status", "pending")
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    return { envelopeId: null as string | null, skipped: true as const };
+  }
+
+  const { data: version, error: versionError } = await admin
+    .from("document_template_versions")
+    .select("id, version_number, title, description, body, consent_text")
+    .eq("id", template.current_version_id)
+    .eq("template_id", params.templateId)
+    .maybeSingle();
+
+  if (versionError || !version) {
+    throw new Error("The selected document's current version could not be loaded.");
+  }
+
+  const signerName =
+    [client.first_name, client.last_name].filter(Boolean).join(" ").trim() ||
+    signerEmail;
+  const branding = await loadStudioDocumentBrandingForOnboarding(
+    admin,
+    params.studioId,
+  );
+  const pdfBytes = await renderTemplateVersionPdf({
+    title: version.title || template.title,
+    description: version.description ?? template.description,
+    body: version.body || template.body,
+    versionNumber: Number(version.version_number ?? template.current_version ?? 1),
+    consentText: version.consent_text ?? template.default_consent_text,
+    studioName: branding.studioName,
+    studioLogoBytes: branding.studioLogoBytes,
+    studioLogoMimeType: branding.studioLogoMimeType,
+  });
+
+  const pageSizes = await getPdfPageSizes(pdfBytes);
+  const envelopeId = randomUUID();
+  const assignmentId = randomUUID();
+  const sourcePath = sourceStoragePath(params.studioId, envelopeId);
+  const expiresAt = new Date(Date.now() + 7 * 86400000).toISOString();
+
+  const { error: uploadError } = await admin.storage
+    .from(DOCUMENT_FILES_BUCKET)
+    .upload(sourcePath, pdfBytes, {
+      contentType: "application/pdf",
+      upsert: false,
+      cacheControl: "0",
+    });
+
+  if (uploadError) {
+    throw new Error("Could not create the onboarding signing PDF.");
+  }
+
+  const { error: envelopeError } = await admin
+    .from("document_sign_envelopes")
+    .insert({
+      id: envelopeId,
+      studio_id: params.studioId,
+      template_id: params.templateId,
+      template_version_id: version.id,
+      client_id: params.clientId,
+      assignment_id: null,
+      source_kind: "template_version",
+      title: version.title || template.title,
+      signer_name: signerName,
+      signer_email: signerEmail,
+      status: "draft",
+      token_hash: null,
+      source_bucket: DOCUMENT_FILES_BUCKET,
+      source_path: sourcePath,
+      source_sha256: sha256Hex(pdfBytes),
+      page_count: pageSizes.length,
+      page_sizes: pageSizes,
+      expires_at: expiresAt,
+      created_by: params.assignedBy,
+    });
+
+  if (envelopeError) {
+    await admin.storage.from(DOCUMENT_FILES_BUCKET).remove([sourcePath]);
+    throw new Error("Could not create the onboarding signing request.");
+  }
+
+  const { error: assignmentError } = await admin
+    .from("document_assignments")
+    .insert({
+      id: assignmentId,
+      template_id: params.templateId,
+      template_version_id: version.id,
+      studio_id: params.studioId,
+      client_id: params.clientId,
+      assigned_to_email: signerEmail,
+      status: "pending",
+      due_at: null,
+      assigned_by: params.assignedBy,
+      sign_envelope_id: envelopeId,
+    });
+
+  if (assignmentError) {
+    await admin.from("document_sign_envelopes").delete().eq("id", envelopeId);
+    await admin.storage.from(DOCUMENT_FILES_BUCKET).remove([sourcePath]);
+    throw new Error("Could not create the onboarding document assignment.");
+  }
+
+  const { error: envelopeLinkError } = await admin
+    .from("document_sign_envelopes")
+    .update({ assignment_id: assignmentId })
+    .eq("id", envelopeId)
+    .eq("studio_id", params.studioId);
+
+  if (envelopeLinkError) {
+    await admin.from("document_assignments").delete().eq("id", assignmentId);
+    await admin.from("document_sign_envelopes").delete().eq("id", envelopeId);
+    await admin.storage.from(DOCUMENT_FILES_BUCKET).remove([sourcePath]);
+    throw new Error("Could not link the onboarding signing request.");
+  }
+
+  await admin.from("document_sign_events").insert({
+    envelope_id: envelopeId,
+    event_type: "created",
+    actor_user_id: params.assignedBy,
+    summary: "Onboarding signing draft created during client creation.",
+    metadata: {
+      template_id: params.templateId,
+      template_version_id: version.id,
+      client_id: params.clientId,
+      assignment_id: assignmentId,
+      source: "client_creation",
+    },
+  });
+
+  return { envelopeId, skipped: false as const };
+}
+
 export async function createClientAction(
   prevState: { error: string },
   formData: FormData
 ) {
+  let createdClientId = "";
+  let onboardingEnvelopeId: string | null = null;
+  let onboardingWarning = "";
+
   try {
     const { supabase, studioId } = await getCurrentUserStudioContext();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      return { error: "Your session expired. Sign in and try again." };
+    }
 
     const firstNameResult = cleanFormText(formData, "firstName", {
       fieldLabel: "First name",
@@ -556,6 +864,7 @@ export async function createClientAction(
     });
 
     const clientId = randomUUID();
+    createdClientId = clientId;
     const photoResult = await uploadClientPhoto({
       supabase,
       studioId,
@@ -625,13 +934,67 @@ export async function createClientAction(
         return { error: `Partner link failed: ${linkError.message}` };
       }
     }
+
+    const selectedTemplateIds = Array.from(
+      new Set(getStringList(formData, "onboardingDocumentTemplateIds")),
+    ).filter((value) =>
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        value,
+      ),
+    );
+
+    let firstEnvelopeId: string | null = null;
+    const documentErrors: string[] = [];
+
+    for (const templateId of selectedTemplateIds) {
+      try {
+        const result = await createOnboardingDocumentDraft({
+          studioId,
+          clientId,
+          templateId,
+          assignedBy: user.id,
+        });
+
+        if (!firstEnvelopeId && result.envelopeId) {
+          firstEnvelopeId = result.envelopeId;
+        }
+      } catch (documentError) {
+        documentErrors.push(
+          documentError instanceof Error
+            ? documentError.message
+            : "An onboarding document could not be prepared.",
+        );
+      }
+    }
+
+    onboardingEnvelopeId = firstEnvelopeId;
+
+    if (documentErrors.length > 0) {
+      onboardingWarning = `Client created, but onboarding documents need attention: ${documentErrors.join(" ")}`;
+    }
   } catch (error) {
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
     };
   }
 
-  redirect("/app/clients");
+  if (onboardingEnvelopeId) {
+    redirect(
+      `/app/documents/sign/${onboardingEnvelopeId}/edit?source=client_onboarding&clientId=${encodeURIComponent(
+        createdClientId,
+      )}`,
+    );
+  }
+
+  if (createdClientId && onboardingWarning) {
+    redirect(
+      `/app/clients/${createdClientId}?warning=${encodeURIComponent(
+        onboardingWarning,
+      )}`,
+    );
+  }
+
+  redirect(createdClientId ? `/app/clients/${createdClientId}` : "/app/clients");
 }
 
 export async function updateClientAction(

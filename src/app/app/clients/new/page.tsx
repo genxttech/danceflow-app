@@ -1,15 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import {
   ArrowLeft,
   GraduationCap,
   Sparkles,
+  FileText,
   UserPlus,
   Users,
 } from "lucide-react";
-import { createClientAction } from "../actions";
+import {
+  createClientAction,
+  loadOnboardingDocumentOptionsAction,
+  type OnboardingDocumentOption,
+} from "../actions";
 import {
   CLIENT_REFERRAL_SOURCE_OPTIONS,
   CLIENT_SKILL_LEVEL_OPTIONS,
@@ -162,6 +167,29 @@ export default function NewClientPage() {
     initialState
   );
   const [includePartner, setIncludePartner] = useState(false);
+  const [documentOptions, setDocumentOptions] = useState<
+    OnboardingDocumentOption[]
+  >([]);
+  const [documentsLoading, setDocumentsLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+
+    loadOnboardingDocumentOptionsAction()
+      .then((options) => {
+        if (active) setDocumentOptions(options);
+      })
+      .catch(() => {
+        if (active) setDocumentOptions([]);
+      })
+      .finally(() => {
+        if (active) setDocumentsLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -251,7 +279,7 @@ export default function NewClientPage() {
         </div>
       </section>
 
-      <form action={formAction} encType="multipart/form-data" className="space-y-6">
+      <form action={formAction} className="space-y-6">
         <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm md:p-6">
           <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
             <div>
@@ -604,6 +632,81 @@ export default function NewClientPage() {
               />
             </div>
           </div>
+        </section>
+
+        <section className="rounded-[28px] border border-emerald-200 bg-emerald-50 p-5 shadow-sm md:p-6">
+          <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
+                Client onboarding
+              </p>
+              <h2 className="mt-2 text-2xl font-semibold text-slate-950">
+                Prepare onboarding documents
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">
+                Select the waivers, policies, or agreements that should be prepared
+                after this client is created. A valid client email is required.
+              </p>
+            </div>
+
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white text-emerald-700 shadow-sm">
+              <FileText className="h-6 w-6" />
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {documentsLoading ? (
+              <div className="rounded-2xl border border-emerald-200 bg-white px-4 py-4 text-sm text-slate-600">
+                Loading active document templates...
+              </div>
+            ) : documentOptions.length > 0 ? (
+              documentOptions.map((document) => (
+                <label
+                  key={document.id}
+                  className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm"
+                >
+                  <input
+                    type="checkbox"
+                    name="onboardingDocumentTemplateIds"
+                    value={document.id}
+                    className="mt-1 h-4 w-4 rounded border-slate-300 text-emerald-700 focus:ring-emerald-500"
+                  />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium text-slate-950">
+                        {document.title}
+                      </p>
+                      {document.isRequired ? (
+                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">
+                          Required
+                        </span>
+                      ) : null}
+                      {document.requiresSignature ? (
+                        <span className="rounded-full bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-700">
+                          Signature
+                        </span>
+                      ) : null}
+                    </div>
+                    {document.description ? (
+                      <p className="mt-1 text-sm leading-6 text-slate-600">
+                        {document.description}
+                      </p>
+                    ) : null}
+                  </div>
+                </label>
+              ))
+            ) : (
+              <div className="rounded-2xl border border-dashed border-emerald-300 bg-white px-4 py-4 text-sm text-slate-600">
+                No active studio document templates are available. Create one in
+                Documents, then return here to include it in onboarding.
+              </div>
+            )}
+          </div>
+
+          <p className="mt-4 text-xs leading-5 text-emerald-800">
+            After the client is created, DanceFlow opens the first selected document
+            so signature fields can be reviewed before it is sent.
+          </p>
         </section>
 
         <section className="rounded-[28px] border border-[#E9D5FF] bg-[#FAF5FF] p-5 shadow-sm md:p-6">
