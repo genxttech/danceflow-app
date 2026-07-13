@@ -12,7 +12,7 @@ type CreateState = {
   error: string;
 };
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const BILLING_INTERVALS = new Set(["monthly", "quarterly", "yearly"]);
 const PLAN_VISIBILITIES = new Set(["public", "private", "hidden"]);
 const BENEFIT_TYPES = new Set([

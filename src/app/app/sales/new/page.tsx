@@ -99,9 +99,11 @@ function messageFromCode(code: string | undefined) {
   const normalized = decodeURIComponent(code);
   const known: Record<string, string> = {
     missing_client: "Choose a client before completing the sale.",
+    invalid_client: "The selected client ID is invalid. Please select the client again.",
     missing_package: "Choose a package before completing the sale.",
     missing_sale_selection: "Choose a client and product before completing the sale.",
     missing_plan: "Choose a membership plan before completing the sale.",
+    invalid_plan: "The selected membership plan ID is invalid. Please select the plan again.",
     missing_start: "Choose a membership start date.",
     client_not_found: "The selected client could not be found.",
     plan_not_found: "The selected membership plan could not be found.",
