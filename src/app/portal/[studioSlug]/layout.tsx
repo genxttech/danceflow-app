@@ -61,44 +61,19 @@ export default async function PortalStudioLayout({
     redirect(buildPortalLoginPath(studioSlug, "portal-studio-not-found"));
   }
 
-  let portalClient: ClientRow | null = null;
-
-  const { data: linkedClient, error: linkedClientError } = await supabase
-    .from("clients")
-    .select("id, first_name, last_name, email, is_independent_instructor")
+  const { data: linkedRelationships, error: relationshipError } = await supabase
+    .from("client_account_links")
+    .select("client_id")
     .eq("studio_id", studio.id)
-    .eq("portal_user_id", user.id)
-    .maybeSingle();
+    .eq("user_id", user.id)
+    .eq("status", "linked")
+    .limit(1);
 
-  if (linkedClientError) {
-    throw linkedClientError;
+  if (relationshipError) {
+    throw relationshipError;
   }
 
-  if (linkedClient) {
-    portalClient = linkedClient as ClientRow;
-  } else if (user.email) {
-    await ensurePortalProfileAndClientLinks({
-      userId: user.id,
-      email: user.email,
-      fullName: getAuthUserFullName(user),
-      studioId: studio.id,
-    });
-
-    const { data: repairedClient, error: repairedClientError } = await supabase
-      .from("clients")
-      .select("id, first_name, last_name, email, is_independent_instructor")
-      .eq("studio_id", studio.id)
-      .eq("portal_user_id", user.id)
-      .maybeSingle();
-
-    if (repairedClientError) {
-      throw repairedClientError;
-    }
-
-    if (repairedClient) {
-      portalClient = repairedClient as ClientRow;
-    }
-  }
+  const portalClient = linkedRelationships?.[0] ?? null;
 
   if (!portalClient) {
     redirect(buildPortalLoginPath(studioSlug, "portal-access-not-found"));

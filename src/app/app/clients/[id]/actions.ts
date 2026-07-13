@@ -816,11 +816,19 @@ export async function sendPortalInviteAction(formData: FormData) {
       fullName,
     });
 
+    const relationshipType = getString(formData, "relationshipType") || "self";
+
     lifecycleInvite = await createOrRefreshClientInvitation({
       studioId,
       clientId: client.id,
       email,
       userId: existingProfile?.id ?? null,
+      relationshipType: relationshipType as
+        | "self"
+        | "guardian"
+        | "parent"
+        | "billing_contact"
+        | "dependent_manager",
     });
 
     nextPath = `/studio-invites/${encodeURIComponent(lifecycleInvite.token)}`;

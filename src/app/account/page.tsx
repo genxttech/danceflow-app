@@ -36,26 +36,50 @@ type EventRow = {
 };
 
 type PortalLinkRow = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  is_independent_instructor: boolean | null;
-  studios:
+  client_id: string;
+  relationship_type: string;
+  clients:
     | {
         id: string;
-        slug: string | null;
-        name: string;
-        public_name: string | null;
-        city: string | null;
-        state: string | null;
+        first_name: string | null;
+        last_name: string | null;
+        is_independent_instructor: boolean | null;
+        studios: {
+          id: string;
+          slug: string | null;
+          name: string;
+          public_name: string | null;
+          city: string | null;
+          state: string | null;
+        } | {
+          id: string;
+          slug: string | null;
+          name: string;
+          public_name: string | null;
+          city: string | null;
+          state: string | null;
+        }[] | null;
       }
     | {
         id: string;
-        slug: string | null;
-        name: string;
-        public_name: string | null;
-        city: string | null;
-        state: string | null;
+        first_name: string | null;
+        last_name: string | null;
+        is_independent_instructor: boolean | null;
+        studios: {
+          id: string;
+          slug: string | null;
+          name: string;
+          public_name: string | null;
+          city: string | null;
+          state: string | null;
+        } | {
+          id: string;
+          slug: string | null;
+          name: string;
+          public_name: string | null;
+          city: string | null;
+          state: string | null;
+        }[] | null;
       }[]
     | null;
 };
@@ -164,7 +188,26 @@ function getStudioLocation(studio: StudioRow) {
   );
 }
 
-function getPortalStudio(value: PortalLinkRow["studios"]): {
+type PortalStudioRelation =
+  | {
+      id: string;
+      slug: string | null;
+      name: string;
+      public_name: string | null;
+      city: string | null;
+      state: string | null;
+    }
+  | {
+      id: string;
+      slug: string | null;
+      name: string;
+      public_name: string | null;
+      city: string | null;
+      state: string | null;
+    }[]
+  | null;
+
+function getPortalStudio(value: PortalStudioRelation): {
   id: string;
   slug: string | null;
   name: string;
@@ -480,7 +523,7 @@ function PortalCards({ linkedPortals }: { linkedPortals: LinkedPortalItem[] }) {
             memberships, rentals, and account access.
           </p>
           <Link
-            href={`/portal/${portal.studioSlug}`}
+            href={`/portal/${portal.studioSlug}?client=${encodeURIComponent(portal.clientId)}`}
             className="mt-5 inline-flex text-sm font-semibold text-emerald-800 group-hover:text-emerald-900"
           >
             Open portal →
@@ -665,25 +708,28 @@ export default async function AccountPage({
       .order("created_at", { ascending: false }),
 
     supabase
-      .from("clients")
-      .select(
-        `
-        id,
-        first_name,
-        last_name,
-        is_independent_instructor,
-        studios (
+      .from("client_account_links")
+      .select(`
+        client_id,
+        relationship_type,
+        clients (
           id,
-          slug,
-          name,
-          public_name,
-          city,
-          state
+          first_name,
+          last_name,
+          is_independent_instructor,
+          studios (
+            id,
+            slug,
+            name,
+            public_name,
+            city,
+            state
+          )
         )
-      `,
-      )
-      .eq("portal_user_id", user.id)
-      .order("created_at", { ascending: false }),
+      `)
+      .eq("user_id", user.id)
+      .eq("status", "linked")
+      .order("updated_at", { ascending: false }),
 
     supabase
       .from("client_account_links")
@@ -827,20 +873,22 @@ export default async function AccountPage({
 
   const linkedPortals = typedPortalLinks
     .map((row) => {
-      const studio = getPortalStudio(row.studios);
+      const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
+      if (!client) return null;
+      const studio = getPortalStudio(client.studios);
       if (!studio?.slug) return null;
 
       return {
-        clientId: row.id,
+        clientId: client.id,
         studioId: studio.id,
         studioSlug: studio.slug,
         studioName: studio.public_name?.trim() || studio.name,
         location:
           [studio.city, studio.state].filter(Boolean).join(", ") ||
           "Location coming soon",
-        isIndependentInstructor: Boolean(row.is_independent_instructor),
+        isIndependentInstructor: Boolean(client.is_independent_instructor),
         clientName:
-          `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim() ||
+          `${client.first_name ?? ""} ${client.last_name ?? ""}`.trim() ||
           "Portal Member",
       };
     })

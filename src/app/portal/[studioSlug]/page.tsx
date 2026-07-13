@@ -149,6 +149,7 @@ type Params = Promise<{
 type SearchParams = Promise<{
   booking?: string | string[];
   error?: string | string[];
+  client?: string | string[];
 }>;
 
 type StudioRow = {
@@ -655,6 +656,7 @@ export default async function PortalHomePage({
   const resolvedSearchParams = await searchParams;
   const bookingStatus = readSearchParam(resolvedSearchParams.booking);
   const pageError = readSearchParam(resolvedSearchParams.error);
+  const requestedClientId = readSearchParam(resolvedSearchParams.client);
   const supabase = await createClient();
 
   const {
@@ -691,48 +693,78 @@ export default async function PortalHomePage({
     true;
   const studioLabel = typedStudio.public_name?.trim() || typedStudio.name;
 
-  let typedClient: ClientRow | null = null;
-
-  const { data: linkedClient, error: linkedClientError } = await supabase
-    .from("clients")
-    .select("id, first_name, last_name, email, is_independent_instructor")
+  const { data: accountLinks, error: accountLinksError } = await supabase
+    .from("client_account_links")
+    .select(`
+      client_id,
+      relationship_type,
+      is_primary,
+      clients (
+        id,
+        first_name,
+        last_name,
+        email,
+        is_independent_instructor
+      )
+    `)
     .eq("studio_id", typedStudio.id)
-    .eq("portal_user_id", user.id)
-    .maybeSingle();
+    .eq("user_id", user.id)
+    .eq("status", "linked")
+    .order("is_primary", { ascending: false });
 
-  if (linkedClientError) {
-    throw linkedClientError;
+  if (accountLinksError) {
+    throw accountLinksError;
   }
 
-  if (linkedClient) {
-    typedClient = linkedClient as ClientRow;
-  } else if (user.email) {
-    await ensurePortalProfileAndClientLinks({
-      userId: user.id,
-      email: user.email,
-      fullName: getAuthUserFullName(user),
-      studioId: typedStudio.id,
-    });
+  const availableClients = (accountLinks ?? [])
+    .map((link) => {
+      const client = Array.isArray(link.clients) ? link.clients[0] : link.clients;
+      return client
+        ? {
+            ...(client as ClientRow),
+            relationshipType: link.relationship_type as string,
+            isPrimary: Boolean(link.is_primary),
+          }
+        : null;
+    })
+    .filter(Boolean) as (ClientRow & { relationshipType: string; isPrimary: boolean })[];
 
-    const { data: repairedClient, error: repairedClientError } = await supabase
-      .from("clients")
-      .select("id, first_name, last_name, email, is_independent_instructor")
-      .eq("studio_id", typedStudio.id)
-      .eq("portal_user_id", user.id)
-      .maybeSingle();
-
-    if (repairedClientError) {
-      throw repairedClientError;
-    }
-
-    if (repairedClient) {
-      typedClient = repairedClient as ClientRow;
-    }
-  }
+  const typedClient =
+    availableClients.find((item) => item.id === requestedClientId) ??
+    availableClients.find((item) => item.isPrimary) ??
+    availableClients[0] ??
+    null;
 
   if (!typedClient) {
     redirect(buildPortalLoginPath(studioSlug, "portal-access-not-found"));
   }
+
+  const clientSwitcher =
+    availableClients.length > 1 ? (
+      <div className="rounded-2xl border border-violet-200 bg-violet-50 p-4">
+        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-violet-700">
+          Viewing portal for
+        </p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {availableClients.map((item) => (
+            <Link
+              key={item.id}
+              href={`/portal/${encodeURIComponent(typedStudio.slug)}?client=${encodeURIComponent(item.id)}`}
+              className={`rounded-xl px-3 py-2 text-sm font-semibold ${
+                item.id === typedClient.id
+                  ? "bg-violet-800 text-white"
+                  : "border border-violet-200 bg-white text-violet-800"
+              }`}
+            >
+              {[item.first_name, item.last_name].filter(Boolean).join(" ") || "Client"}
+              {item.relationshipType !== "self"
+                ? ` · ${item.relationshipType.replaceAll("_", " ")}`
+                : ""}
+            </Link>
+          ))}
+        </div>
+      </div>
+    ) : null;
 
   const { data: workspaceRole, error: workspaceRoleError } = await supabase
     .from("user_studio_roles")

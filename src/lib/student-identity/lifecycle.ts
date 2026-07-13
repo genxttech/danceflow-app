@@ -1,6 +1,14 @@
 import { createHash, randomBytes } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+export type ClientRelationshipType =
+  | "self"
+  | "guardian"
+  | "parent"
+  | "billing_contact"
+  | "dependent_manager"
+  | "dependent";
+
 export type ClientAccountLinkStatus =
   | "unclaimed"
   | "invited"
@@ -17,7 +25,12 @@ export type ClientAccountLinkRecord = {
   client_id: string;
   user_id: string | null;
   status: ClientAccountLinkStatus;
-  relationship_type: string;
+  relationship_type: ClientRelationshipType;
+  can_view_schedule?: boolean;
+  can_view_billing?: boolean;
+  can_manage_bookings?: boolean;
+  can_sign_documents?: boolean;
+  is_primary?: boolean;
   invited_email: string | null;
   invite_sent_at: string | null;
   invite_expires_at: string | null;
@@ -61,6 +74,7 @@ export async function createOrRefreshClientInvitation(params: {
   clientId: string;
   email: string;
   userId?: string | null;
+  relationshipType?: ClientRelationshipType;
 }) {
   const admin = createAdminClient();
   const now = new Date();
@@ -84,7 +98,12 @@ export async function createOrRefreshClientInvitation(params: {
     client_id: params.clientId,
     user_id: params.userId ?? existing?.user_id ?? null,
     status: "invited",
-    relationship_type: "self",
+    relationship_type: params.relationshipType ?? "self",
+    can_view_schedule: true,
+    can_view_billing: true,
+    can_manage_bookings: true,
+    can_sign_documents: true,
+    is_primary: (params.relationshipType ?? "self") === "self",
     initiated_by: "studio",
     invited_email: email,
     invite_token_hash: invite.hash,
@@ -118,6 +137,7 @@ export async function linkExistingClientAccount(params: {
   clientId: string;
   userId: string;
   invitedEmail: string;
+  relationshipType?: ClientRelationshipType;
 }) {
   const admin = createAdminClient();
   const now = new Date().toISOString();
@@ -139,7 +159,12 @@ export async function linkExistingClientAccount(params: {
       client_id: params.clientId,
       user_id: client.portal_user_id,
       status: "conflict",
-      relationship_type: "self",
+      relationship_type: params.relationshipType ?? "self",
+      can_view_schedule: true,
+      can_view_billing: true,
+      can_manage_bookings: true,
+      can_sign_documents: true,
+      is_primary: (params.relationshipType ?? "self") === "self",
       initiated_by: "studio",
       invited_email: normalizedEmail(params.invitedEmail),
       conflict_details: "The client record is already connected to a different account.",
@@ -163,7 +188,7 @@ export async function linkExistingClientAccount(params: {
     throw new Error(`Account conflict check failed: ${otherError.message}`);
   }
 
-  if (otherLinkedClient) {
+  if (otherLinkedClient && (params.relationshipType ?? "self") === "self") {
     await admin.from("client_account_links").upsert(
       {
         studio_id: params.studioId,
@@ -183,14 +208,16 @@ export async function linkExistingClientAccount(params: {
     throw new Error("This account is already connected to another client in this studio.");
   }
 
-  const { error: clientUpdateError } = await admin
-    .from("clients")
-    .update({ portal_user_id: params.userId, updated_at: now })
-    .eq("id", params.clientId)
-    .eq("studio_id", params.studioId);
+  if ((params.relationshipType ?? "self") === "self") {
+    const { error: clientUpdateError } = await admin
+      .from("clients")
+      .update({ portal_user_id: params.userId, updated_at: now })
+      .eq("id", params.clientId)
+      .eq("studio_id", params.studioId);
 
-  if (clientUpdateError) {
-    throw new Error(`Portal access link failed: ${clientUpdateError.message}`);
+    if (clientUpdateError) {
+      throw new Error(`Portal access link failed: ${clientUpdateError.message}`);
+    }
   }
 
   const { error: linkError } = await admin.from("client_account_links").upsert(
@@ -284,6 +311,7 @@ export type ClientInvitationView = {
   clientFirstName: string | null;
   clientLastName: string | null;
   conflictDetails: string | null;
+  relationshipType: ClientRelationshipType;
 };
 
 export async function getClientInvitationByToken(
@@ -302,6 +330,7 @@ export async function getClientInvitationByToken(
       invited_email,
       invite_expires_at,
       conflict_details,
+      relationship_type,
       studios (
         name,
         public_name,
@@ -336,6 +365,7 @@ export async function getClientInvitationByToken(
     clientFirstName: client?.first_name ?? null,
     clientLastName: client?.last_name ?? null,
     conflictDetails: data.conflict_details ?? null,
+    relationshipType: data.relationship_type as ClientRelationshipType,
   };
 }
 
@@ -399,6 +429,7 @@ export async function acceptClientInvitation(params: {
       clientId: invitation.clientId,
       userId: params.userId,
       invitedEmail: email,
+      relationshipType: invitation.relationshipType,
     });
   } catch (error) {
     const details =

@@ -4563,6 +4563,20 @@ export default async function ClientDetailPage({
               name="returnTo"
               value={`/app/clients/${typedClient.id}`}
             />
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Account relationship
+            </label>
+            <select
+              name="relationshipType"
+              defaultValue="self"
+              className="mb-3 w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm"
+            >
+              <option value="self">Self</option>
+              <option value="parent">Parent</option>
+              <option value="guardian">Guardian</option>
+              <option value="billing_contact">Billing Contact</option>
+              <option value="dependent_manager">Dependent Manager</option>
+            </select>
             <button
               type="submit"
               className="w-full rounded-2xl border border-[var(--brand-border)] bg-white px-4 py-3 text-sm font-medium text-[var(--brand-text)] hover:bg-[var(--brand-primary-soft)]"
