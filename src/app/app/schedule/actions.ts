@@ -2157,13 +2157,96 @@ export async function deleteAppointmentAction(formData: FormData) {
   }
 }
 
+
+async function applyMissedAppointmentCharge(params: {
+  supabase: Awaited<ReturnType<typeof requireAppointmentEditAccess>>["supabase"];
+  studioId: string;
+  appointment: {
+    id: string;
+    client_id: string | null;
+    appointment_type: string;
+    starts_at: string;
+    client_package_id: string | null;
+    billing_type: string | null;
+  };
+  chargeSource: string;
+}) {
+  const { supabase, studioId, appointment, chargeSource } = params;
+
+  if (chargeSource === "none") return;
+
+  if (!appointment.client_id) {
+    throw new Error("This appointment is not linked to a client.");
+  }
+
+  if (chargeSource === "package") {
+    if (!appointment.client_package_id) {
+      throw new Error("No package is linked to this appointment.");
+    }
+
+    await syncPackageUsageForAttendedAppointment({
+      supabase,
+      studioId,
+      appointmentId: appointment.id,
+      clientId: appointment.client_id,
+      appointmentType: appointment.appointment_type,
+      clientPackageId: appointment.client_package_id,
+    });
+
+    return;
+  }
+
+  if (chargeSource === "membership") {
+    await syncMembershipUsageForAppointment({
+      supabase,
+      studioId,
+      appointmentId: appointment.id,
+      clientId: appointment.client_id,
+      appointmentType: appointment.appointment_type,
+      status: "attended",
+      startsAtIso: appointment.starts_at,
+    });
+
+    const { data: usageRows, error: usageLookupError } = await supabase
+      .from("client_membership_usage")
+      .select("id")
+      .eq("reference_type", "appointment")
+      .eq("reference_id", appointment.id)
+      .limit(1);
+
+    if (usageLookupError) {
+      throw new Error(
+        `Could not verify membership deduction: ${usageLookupError.message}`,
+      );
+    }
+
+    if ((usageRows ?? []).length === 0) {
+      throw new Error(
+        "No eligible membership benefit was found for this appointment.",
+      );
+    }
+
+    return;
+  }
+
+  throw new Error("Choose a valid missed-appointment deduction option.");
+}
+
 export async function cancelAppointmentAction(formData: FormData) {
   const fallback = "/app/schedule";
+  const allowedRequesters = new Set(["client", "instructor", "studio", "other"]);
 
   try {
-    const { supabase, studioId } = await requireAppointmentEditAccess();
+    const { supabase, studioId, user } = await requireAppointmentEditAccess();
 
     const appointmentId = getString(formData, "appointmentId");
+    const cancellationReason = getString(formData, "cancellationReason");
+    const cancellationRequestedBy = getString(
+      formData,
+      "cancellationRequestedBy",
+    );
+    const missedAppointmentCharge =
+      getString(formData, "missedAppointmentCharge") || "none";
     const scope =
       getString(formData, "cancelScope") ||
       getString(formData, "scope") ||
@@ -2173,9 +2256,27 @@ export async function cancelAppointmentAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
     }
 
+    if (!allowedRequesters.has(cancellationRequestedBy)) {
+      redirect(
+        getErrorRedirect(
+          formData,
+          fallback,
+          "cancellation_requester_required",
+        ),
+      );
+    }
+
+    if (!cancellationReason) {
+      redirect(
+        getErrorRedirect(formData, fallback, "cancellation_reason_required"),
+      );
+    }
+
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")
-      .select("id, client_id, recurrence_series_id, starts_at")
+      .select(
+        "id, client_id, recurrence_series_id, starts_at, title, appointment_type, client_package_id, billing_type",
+      )
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
       .single();
@@ -2184,12 +2285,32 @@ export async function cancelAppointmentAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
     }
 
+    const cancelledAt = new Date().toISOString();
+    const requesterLabel =
+      cancellationRequestedBy === "client"
+        ? "Client"
+        : cancellationRequestedBy === "instructor"
+          ? "Instructor"
+          : cancellationRequestedBy === "studio"
+            ? "Studio"
+            : "Other";
+
+    const appointmentLabel =
+      typeof appointment.title === "string" && appointment.title.trim()
+        ? appointment.title.trim()
+        : appointmentTypeLabel(String(appointment.appointment_type));
+
+    const scopeLabel =
+      scope === "this_and_future"
+        ? "This appointment and future appointments in the recurring series"
+        : "This appointment only";
+
     if (scope === "this_and_future" && appointment.recurrence_series_id) {
       const { error: updateError } = await supabase
         .from("appointments")
         .update({
           status: "cancelled",
-          updated_at: new Date().toISOString(),
+          updated_at: cancelledAt,
         })
         .eq("studio_id", studioId)
         .eq("recurrence_series_id", appointment.recurrence_series_id)
@@ -2217,7 +2338,7 @@ export async function cancelAppointmentAction(formData: FormData) {
         .from("appointments")
         .update({
           status: "cancelled",
-          updated_at: new Date().toISOString(),
+          updated_at: cancelledAt,
         })
         .eq("id", appointmentId)
         .eq("studio_id", studioId);
@@ -2227,9 +2348,9 @@ export async function cancelAppointmentAction(formData: FormData) {
       }
 
       await clearMembershipUsageForAppointment({
-    supabase,
-    appointmentId,
-  });
+        supabase,
+        appointmentId,
+      });
 
       await queueAppointmentOutboundDelivery({
         supabase,
@@ -2239,9 +2360,73 @@ export async function cancelAppointmentAction(formData: FormData) {
       });
     }
 
+    try {
+      await applyMissedAppointmentCharge({
+        supabase,
+        studioId,
+        appointment: {
+          id: appointment.id,
+          client_id: appointment.client_id,
+          appointment_type: appointment.appointment_type,
+          starts_at: appointment.starts_at,
+          client_package_id: appointment.client_package_id,
+          billing_type: appointment.billing_type,
+        },
+        chargeSource: missedAppointmentCharge,
+      });
+    } catch (chargeError) {
+      console.error("Appointment cancelled, but deduction failed:", chargeError);
+      redirect(
+        getErrorRedirect(
+          formData,
+          fallback,
+          chargeError instanceof Error
+            ? chargeError.message
+            : "missed_appointment_charge_failed",
+        ),
+      );
+    }
+
+    const chargeLabel =
+      missedAppointmentCharge === "package"
+        ? "Package credit deducted"
+        : missedAppointmentCharge === "membership"
+          ? "Membership benefit deducted"
+          : "No lesson deduction";
+
+    if (appointment.client_id) {
+      const activityBody = [
+        `Appointment cancelled: ${appointmentLabel}`,
+        `Requested by: ${requesterLabel}`,
+        `Scope: ${scopeLabel}`,
+        `Charge policy: ${chargeLabel}`,
+        `Reason: ${cancellationReason}`,
+      ].join("\n");
+
+      const { error: activityError } = await supabase
+        .from("client_activity_notes")
+        .insert({
+          studio_id: studioId,
+          client_id: appointment.client_id,
+          note_type: "general",
+          body: activityBody,
+          occurred_at: cancelledAt,
+          created_by: user.id,
+        });
+
+      if (activityError) {
+        console.error(
+          "Appointment was cancelled, but the client activity note failed:",
+          activityError.message,
+        );
+      }
+    }
+
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
-    revalidatePath(`/app/clients/${appointment.client_id}`);
+    if (appointment.client_id) {
+      revalidatePath(`/app/clients/${appointment.client_id}`);
+    }
     revalidatePath("/app/instructor-pay");
     redirect(getSuccessRedirect(formData, fallback, "appointment_cancelled"));
   } catch (error) {
@@ -2690,16 +2875,21 @@ export async function markAppointmentNoShowAction(formData: FormData) {
   const fallback = "/app/schedule";
 
   try {
-    const { supabase, studioId } = await requireAttendanceAccess();
+    const { supabase, studioId, user } = await requireAttendanceAccess();
 
     const appointmentId = getString(formData, "appointmentId");
+    const missedAppointmentCharge =
+      getString(formData, "missedAppointmentCharge") || "none";
+
     if (!appointmentId) {
       redirect(getErrorRedirect(formData, fallback, "missing_appointment"));
     }
 
     const { data: appointment, error: appointmentError } = await supabase
       .from("appointments")
-      .select("id, client_id")
+      .select(
+        "id, client_id, appointment_type, starts_at, title, client_package_id, billing_type",
+      )
       .eq("id", appointmentId)
       .eq("studio_id", studioId)
       .single();
@@ -2708,11 +2898,13 @@ export async function markAppointmentNoShowAction(formData: FormData) {
       redirect(getErrorRedirect(formData, fallback, "appointment_not_found"));
     }
 
+    const markedAt = new Date().toISOString();
+
     const { error: updateError } = await supabase
       .from("appointments")
       .update({
         status: "no_show",
-        updated_at: new Date().toISOString(),
+        updated_at: markedAt,
       })
       .eq("id", appointmentId)
       .eq("studio_id", studioId);
@@ -2722,13 +2914,70 @@ export async function markAppointmentNoShowAction(formData: FormData) {
     }
 
     await clearMembershipUsageForAppointment({
-    supabase,
-    appointmentId,
-  });
+      supabase,
+      appointmentId,
+    });
+
+    try {
+      await applyMissedAppointmentCharge({
+        supabase,
+        studioId,
+        appointment,
+        chargeSource: missedAppointmentCharge,
+      });
+    } catch (chargeError) {
+      console.error("Appointment marked no-show, but deduction failed:", chargeError);
+      redirect(
+        getErrorRedirect(
+          formData,
+          fallback,
+          chargeError instanceof Error
+            ? chargeError.message
+            : "missed_appointment_charge_failed",
+        ),
+      );
+    }
+
+    if (appointment.client_id) {
+      const appointmentLabel =
+        typeof appointment.title === "string" && appointment.title.trim()
+          ? appointment.title.trim()
+          : appointmentTypeLabel(String(appointment.appointment_type));
+
+      const chargeLabel =
+        missedAppointmentCharge === "package"
+          ? "Package credit deducted"
+          : missedAppointmentCharge === "membership"
+            ? "Membership benefit deducted"
+            : "No lesson deduction";
+
+      const { error: activityError } = await supabase
+        .from("client_activity_notes")
+        .insert({
+          studio_id: studioId,
+          client_id: appointment.client_id,
+          note_type: "general",
+          body: [
+            `Appointment marked no-show: ${appointmentLabel}`,
+            `Charge policy: ${chargeLabel}`,
+          ].join("\n"),
+          occurred_at: markedAt,
+          created_by: user.id,
+        });
+
+      if (activityError) {
+        console.error(
+          "Appointment was marked no-show, but the client activity note failed:",
+          activityError.message,
+        );
+      }
+    }
 
     revalidatePath("/app/schedule");
     revalidatePath(`/app/schedule/${appointmentId}`);
-    revalidatePath(`/app/clients/${appointment.client_id}`);
+    if (appointment.client_id) {
+      revalidatePath(`/app/clients/${appointment.client_id}`);
+    }
     redirect(getSuccessRedirect(formData, fallback, "appointment_no_show"));
   } catch (error) {
     rethrowIfRedirect(error);

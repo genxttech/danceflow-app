@@ -1437,17 +1437,129 @@ export default async function AppointmentDetailPage({
               ) : null}
 
               {!isFinalStatus && canEdit ? (
-                <form action={cancelAppointmentAction}>
-                  <input type="hidden" name="appointmentId" value={typedAppointment.id} />
-                  <input type="hidden" name="cancelScope" value="this_lesson_only" />
-                  <input type="hidden" name="returnTo" value={returnTo} />
-                  <button
-                    type="submit"
-                    className="rounded-xl border border-red-200 px-4 py-2 text-red-700 hover:bg-red-50"
-                  >
+                <details className="w-full rounded-2xl border border-red-200 bg-red-50 p-4">
+                  <summary className="cursor-pointer list-none text-sm font-semibold text-red-800">
                     {isFloorRental ? "Cancel Rental" : "Cancel Appointment"}
-                  </button>
-                </form>
+                  </summary>
+
+                  <form action={cancelAppointmentAction} className="mt-4 space-y-4">
+                    <input
+                      type="hidden"
+                      name="appointmentId"
+                      value={typedAppointment.id}
+                    />
+                    <input type="hidden" name="returnTo" value={returnTo} />
+
+                    {typedAppointment.is_recurring ? (
+                      <div>
+                        <label
+                          htmlFor="cancelScope"
+                          className="text-sm font-medium text-slate-900"
+                        >
+                          Cancellation scope
+                        </label>
+                        <select
+                          id="cancelScope"
+                          name="cancelScope"
+                          defaultValue="this_instance"
+                          className="mt-2 w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm"
+                        >
+                          <option value="this_instance">
+                            This appointment only
+                          </option>
+                          <option value="this_and_future">
+                            This and all future appointments in the series
+                          </option>
+                        </select>
+                      </div>
+                    ) : (
+                      <input
+                        type="hidden"
+                        name="cancelScope"
+                        value="this_instance"
+                      />
+                    )}
+
+                    <div>
+                      <label
+                        htmlFor="cancellationRequestedBy"
+                        className="text-sm font-medium text-slate-900"
+                      >
+                        Who requested the cancellation?
+                      </label>
+                      <select
+                        id="cancellationRequestedBy"
+                        name="cancellationRequestedBy"
+                        defaultValue=""
+                        required
+                        className="mt-2 w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="" disabled>
+                          Select requester
+                        </option>
+                        <option value="client">Client</option>
+                        <option value="instructor">Instructor</option>
+                        <option value="studio">Studio</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="cancellationReason"
+                        className="text-sm font-medium text-slate-900"
+                      >
+                        Cancellation reason
+                      </label>
+                      <textarea
+                        id="cancellationReason"
+                        name="cancellationReason"
+                        rows={6}
+                        maxLength={2000}
+                        required
+                        className="mt-2 w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm"
+                        placeholder="Enter the full reason for the cancellation, including any follow-up or rescheduling details."
+                      />
+                    </div>
+
+                    <div>
+                      <label
+                        htmlFor="missedAppointmentCharge"
+                        className="text-sm font-medium text-slate-900"
+                      >
+                        Short-notice charge
+                      </label>
+                      <select
+                        id="missedAppointmentCharge"
+                        name="missedAppointmentCharge"
+                        defaultValue="none"
+                        className="mt-2 w-full rounded-xl border border-red-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="none">Do not deduct a lesson</option>
+                        <option value="package">Deduct one package credit</option>
+                        <option value="membership">
+                          Deduct one membership benefit
+                        </option>
+                      </select>
+                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                        Use a deduction only when the studio&apos;s cancellation policy
+                        treats the missed lesson as used.
+                      </p>
+                    </div>
+
+                    <p className="text-xs leading-5 text-red-700">
+                      The cancellation and charge decision will be saved to the
+                      client&apos;s Notes / Activity ledger.
+                    </p>
+
+                    <button
+                      type="submit"
+                      className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+                    >
+                      Confirm Cancellation
+                    </button>
+                  </form>
+                </details>
               ) : null}
             </div>
 
@@ -1464,16 +1576,53 @@ export default async function AppointmentDetailPage({
                   </button>
                 </form>
 
-                <form action={markAppointmentNoShowAction}>
-                  <input type="hidden" name="appointmentId" value={typedAppointment.id} />
-                  <input type="hidden" name="returnTo" value={returnTo} />
-                  <button
-                    type="submit"
-                    className="rounded-xl bg-amber-500 px-4 py-2 text-white hover:bg-amber-600"
-                  >
+                <details className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                  <summary className="cursor-pointer list-none text-sm font-semibold text-amber-900">
                     Mark No Show
-                  </button>
-                </form>
+                  </summary>
+
+                  <form action={markAppointmentNoShowAction} className="mt-4 space-y-4">
+                    <input
+                      type="hidden"
+                      name="appointmentId"
+                      value={typedAppointment.id}
+                    />
+                    <input type="hidden" name="returnTo" value={returnTo} />
+
+                    <div>
+                      <label
+                        htmlFor="noShowMissedAppointmentCharge"
+                        className="text-sm font-medium text-slate-900"
+                      >
+                        Missed-lesson charge
+                      </label>
+                      <select
+                        id="noShowMissedAppointmentCharge"
+                        name="missedAppointmentCharge"
+                        defaultValue="none"
+                        className="mt-2 w-full rounded-xl border border-amber-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="none">Do not deduct a lesson</option>
+                        <option value="package">Deduct one package credit</option>
+                        <option value="membership">
+                          Deduct one membership benefit
+                        </option>
+                      </select>
+                    </div>
+
+                    <p className="text-xs leading-5 text-amber-800">
+                      The no-show and charge decision will be saved to the
+                      client&apos;s Notes / Activity ledger.
+                    </p>
+
+                    <button
+                      type="submit"
+                      className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-600"
+                    >
+                      Confirm No Show
+                    </button>
+                  </form>
+                </details>
               </div>
             ) : null}
 
