@@ -309,6 +309,7 @@ function ariaDigestTypeLabel(value: string | null | undefined) {
 }
 
 function ariaDigestStatusLabel(value: string | null | undefined) {
+  if (value === "sent") return "Email sent";
   if (value === "queued") return "Email queued";
   if (value === "prepared") return "Prepared";
   if (value === "skipped") return "Skipped";
@@ -1578,12 +1579,12 @@ function AriaDigestPreferencesPanel({
             ARIA digest preferences
           </p>
           <h2 className="mt-2 text-2xl font-semibold text-slate-950">
-            Prepare daily briefing delivery
+            Schedule daily ARIA briefing delivery
           </h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-            Configure the morning briefing and end-of-day carryover now. This
-            stores durable preferences and previews the digest; scheduled
-            delivery comes next.
+            Choose when ARIA sends the morning briefing and end-of-day
+            carryover. Email digests are generated in your studio timezone,
+            queued automatically, and tracked through delivery.
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
@@ -1642,8 +1643,8 @@ function AriaDigestPreferencesPanel({
                 defaultValue={deliveryChannel}
                 className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-800"
               >
-                <option value="in_app">In-app notification prep</option>
-                <option value="email">Email digest prep</option>
+                <option value="in_app">In-app digest summary</option>
+                <option value="email">Email digest</option>
               </select>
             </label>
             <label className="block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
@@ -1721,7 +1722,7 @@ function AriaDigestPreferencesPanel({
             {endOfDayEnabled
               ? (preferences?.end_of_day_digest_time ?? "17:00")
               : "off"}
-            . Delivery prep: {deliveryChannel === "email" ? "email" : "in-app"}.
+            . Delivery: {deliveryChannel === "email" ? "email" : "in-app"}.
           </p>
           <div className="mt-4 rounded-2xl border border-violet-100 bg-white p-3">
             <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">

@@ -516,8 +516,104 @@ async function markFailed(id: string, errorMessage: string) {
   }
 }
 
+async function syncAriaDigestRunStatus(params: {
+  deliveryId: string;
+  status: "sent" | "failed" | "queued";
+  errorMessage?: string | null;
+}) {
+  const supabase = createAdminClient();
+  const now = new Date();
+  const payload: Record<string, unknown> = {
+    status: params.status,
+    error_message: params.errorMessage?.slice(0, 1000) ?? null,
+    last_attempt_at: now.toISOString(),
+  };
+
+  if (params.status === "sent") {
+    payload.sent_at = now.toISOString();
+    payload.processed_at = now.toISOString();
+    payload.next_attempt_at = null;
+  } else if (params.status === "failed") {
+    payload.processed_at = now.toISOString();
+    payload.next_attempt_at = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
+  } else {
+    payload.next_attempt_at = now.toISOString();
+  }
+
+  const { error } = await supabase
+    .from("aria_digest_runs")
+    .update(payload)
+    .eq("delivery_id", params.deliveryId);
+
+  if (error) {
+    console.warn("Failed to synchronize ARIA digest run status", {
+      deliveryId: params.deliveryId,
+      status: params.status,
+      error,
+    });
+  }
+}
+
+async function requeueFailedAriaDigestDeliveries(limit = 25) {
+  const supabase = createAdminClient();
+  const now = new Date().toISOString();
+  const { data: runs, error } = await supabase
+    .from("aria_digest_runs")
+    .select("id, delivery_id, retry_count")
+    .eq("status", "failed")
+    .not("delivery_id", "is", null)
+    .lt("retry_count", 3)
+    .lte("next_attempt_at", now)
+    .order("next_attempt_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    throw new Error(`Failed to load retryable ARIA digests: ${error.message}`);
+  }
+
+  let requeued = 0;
+  for (const run of runs ?? []) {
+    if (!run.delivery_id) continue;
+
+    const { data: delivery, error: deliveryError } = await supabase
+      .from("outbound_deliveries")
+      .update({
+        status: "queued",
+        error_message: null,
+        updated_at: now,
+      })
+      .eq("id", run.delivery_id)
+      .eq("status", "failed")
+      .select("id")
+      .maybeSingle<{ id: string }>();
+
+    if (deliveryError) {
+      console.warn("Failed to requeue ARIA digest delivery", deliveryError);
+      continue;
+    }
+
+    if (!delivery) continue;
+
+    await supabase
+      .from("aria_digest_runs")
+      .update({
+        status: "queued",
+        retry_count: Number(run.retry_count ?? 0) + 1,
+        last_attempt_at: now,
+        next_attempt_at: now,
+        error_message: null,
+      })
+      .eq("id", run.id);
+
+    requeued += 1;
+  }
+
+  return requeued;
+}
+
 export async function dispatchQueuedOutboundDeliveries(limit = 25) {
   const supabase = createAdminClient();
+  const requeued = await requeueFailedAriaDigestDeliveries(limit);
 
   const { data, error } = await supabase
     .from("outbound_deliveries")
@@ -555,22 +651,39 @@ export async function dispatchQueuedOutboundDeliveries(limit = 25) {
       if (!result.ok) {
         failed += 1;
         await markFailed(row.id, result.error);
+        if (row.template_key.startsWith("aria_digest_")) {
+          await syncAriaDigestRunStatus({
+            deliveryId: row.id,
+            status: "failed",
+            errorMessage: result.error,
+          });
+        }
         continue;
       }
 
       sent += 1;
       await markSent(row.id, result.providerMessageId ?? null);
+      if (row.template_key.startsWith("aria_digest_")) {
+        await syncAriaDigestRunStatus({ deliveryId: row.id, status: "sent" });
+      }
     } catch (error) {
       failed += 1;
-      await markFailed(
-        row.id,
-        error instanceof Error ? error.message : "Unknown outbound dispatch error"
-      );
+      const message =
+        error instanceof Error ? error.message : "Unknown outbound dispatch error";
+      await markFailed(row.id, message);
+      if (row.template_key.startsWith("aria_digest_")) {
+        await syncAriaDigestRunStatus({
+          deliveryId: row.id,
+          status: "failed",
+          errorMessage: message,
+        });
+      }
     }
   }
 
   return {
     processed: rows.length,
+    requeued,
     sent,
     failed,
   };

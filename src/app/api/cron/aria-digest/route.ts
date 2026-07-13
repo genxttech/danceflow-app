@@ -346,6 +346,9 @@ async function processDigestRun(params: {
           summary,
           recipient_email: recipientEmail,
           delivery_id: delivery.id,
+          retry_count: 0,
+          last_attempt_at: null,
+          next_attempt_at: now.toISOString(),
           processed_at: now.toISOString(),
         })
         .eq("id", runId);
@@ -387,6 +390,7 @@ async function handleDigestRequest(request: NextRequest) {
   const forceParam = url.searchParams.get("force");
   const forceDigestType: DigestType | null =
     forceParam === "morning" || forceParam === "end_of_day" ? forceParam : null;
+  const forceStudioId = url.searchParams.get("studio_id")?.trim() || null;
   const now = new Date();
   const adminSupabase = createAdminClient();
 
@@ -420,8 +424,9 @@ async function handleDigestRequest(request: NextRequest) {
     ),
   );
 
-  const dueJobs = ((preferences ?? []) as DigestPreferenceRow[]).flatMap(
-    (preference) => {
+  const dueJobs = ((preferences ?? []) as DigestPreferenceRow[])
+    .filter((preference) => !forceStudioId || preference.studio_id === forceStudioId)
+    .flatMap((preference) => {
       const timezone = timezoneByStudioId.get(preference.studio_id) || "UTC";
       const local = getLocalDateTimeParts(now, timezone);
       const jobs: Array<{
@@ -504,6 +509,7 @@ async function handleDigestRequest(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     force: forceDigestType,
+    forceStudioId,
     evaluatedAt: now.toISOString(),
     totals,
   });
