@@ -6,8 +6,25 @@ const MARGIN = 54;
 const BODY_SIZE = 11;
 const LINE_HEIGHT = 16;
 
+function normalizePdfText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\u2610/g, "[ ]")
+    .replace(/[\u2611\u2612\u2705\u2713\u2714]/g, "[x]")
+    .replace(/[\u2022\u25CF\u25E6]/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\u2026/g, "...")
+    .replace(/\u00A0/g, " ")
+    .replace(/[^\x09\x0A\x0D\x20-\x7E]/g, "");
+}
+
 function wrapText(text: string, maxChars: number) {
-  const paragraphs = text.replace(/\r\n/g, "\n").split("\n");
+  const paragraphs = normalizePdfText(text)
+    .replace(/\r\n/g, "\n")
+    .split("\n");
   const lines: string[] = [];
 
   for (const paragraph of paragraphs) {
@@ -18,14 +35,18 @@ function wrapText(text: string, maxChars: number) {
 
     const words = paragraph.trim().split(/\s+/);
     let current = "";
+
     for (const word of words) {
       const next = current ? `${current} ${word}` : word;
-      if (next.length <= maxChars) current = next;
-      else {
+
+      if (next.length <= maxChars) {
+        current = next;
+      } else {
         if (current) lines.push(current);
         current = word;
       }
     }
+
     if (current) lines.push(current);
   }
 
@@ -66,14 +87,18 @@ export async function renderTemplateVersionPdf(params: {
   }
 
   const drawBrandHeader = () => {
-    const studioName = params.studioName?.trim();
+    const studioName = normalizePdfText(params.studioName?.trim() ?? "");
     let textX = MARGIN;
 
     if (logo) {
       const natural = logo.scale(1);
       const maxWidth = 96;
       const maxHeight = 44;
-      const scale = Math.min(maxWidth / natural.width, maxHeight / natural.height, 1);
+      const scale = Math.min(
+        maxWidth / natural.width,
+        maxHeight / natural.height,
+        1,
+      );
       const width = natural.width * scale;
       const height = natural.height * scale;
 
@@ -118,7 +143,7 @@ export async function renderTemplateVersionPdf(params: {
     if (y - height < MARGIN) addPage();
   };
 
-  page.drawText(params.title, {
+  page.drawText(normalizePdfText(params.title), {
     x: MARGIN,
     y,
     size: 18,
@@ -154,6 +179,7 @@ export async function renderTemplateVersionPdf(params: {
 
   for (const line of wrapText(params.body, 92)) {
     ensureSpace(LINE_HEIGHT);
+
     if (line) {
       page.drawText(line, {
         x: MARGIN,
@@ -163,6 +189,7 @@ export async function renderTemplateVersionPdf(params: {
         color: rgb(0.08, 0.08, 0.1),
       });
     }
+
     y -= LINE_HEIGHT;
   }
 
@@ -177,6 +204,7 @@ export async function renderTemplateVersionPdf(params: {
       color: rgb(0.15, 0.15, 0.18),
     });
     y -= 16;
+
     for (const line of wrapText(params.consentText, 96)) {
       ensureSpace(14);
       page.drawText(line, {
