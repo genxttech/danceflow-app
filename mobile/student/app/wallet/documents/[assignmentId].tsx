@@ -147,6 +147,8 @@ export default function StudentDocumentDetailScreen() {
   const [pdfAccessToken, setPdfAccessToken] = useState<string | null>(null);
   const [localPdfUri, setLocalPdfUri] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [pdfPage, setPdfPage] = useState(1);
+  const [pdfPageCount, setPdfPageCount] = useState(1);
   const downloadedPdfUriRef = useRef<string | null>(null);
 
   const completed = isCompleted(detail);
@@ -251,6 +253,8 @@ export default function StudentDocumentDetailScreen() {
 
       setPdfLoading(true);
       setLocalPdfUri(null);
+      setPdfPage(1);
+      setPdfPageCount(1);
       setError(null);
 
       try {
@@ -458,8 +462,22 @@ export default function StudentDocumentDetailScreen() {
         <View style={styles.pdfCard}>
           <Pdf
             source={pdfSource}
+            page={pdfPage}
+            horizontal
+            enablePaging
+            fitPolicy={0}
             style={styles.pdf}
             trustAllCerts={false}
+            onLoadComplete={(numberOfPages) => {
+              setPdfPageCount(Math.max(numberOfPages, 1));
+              setPdfPage((current) =>
+                Math.min(Math.max(current, 1), Math.max(numberOfPages, 1)),
+              );
+            }}
+            onPageChanged={(page, numberOfPages) => {
+              setPdfPage(page);
+              setPdfPageCount(Math.max(numberOfPages, 1));
+            }}
             onError={(pdfError) => {
               console.error("Student document PDF preview failed", pdfError);
               setError(
@@ -469,6 +487,37 @@ export default function StudentDocumentDetailScreen() {
               );
             }}
           />
+          <View style={styles.pdfNavigation}>
+            <Pressable
+              accessibilityRole="button"
+              disabled={pdfPage <= 1}
+              onPress={() => setPdfPage((current) => Math.max(current - 1, 1))}
+              style={[
+                styles.pdfNavigationButton,
+                pdfPage <= 1 && styles.pdfNavigationButtonDisabled,
+              ]}
+            >
+              <AppText style={styles.pdfNavigationButtonText}>Previous</AppText>
+            </Pressable>
+
+            <AppText variant="caption">
+              Page {pdfPage} of {pdfPageCount}
+            </AppText>
+
+            <Pressable
+              accessibilityRole="button"
+              disabled={pdfPage >= pdfPageCount}
+              onPress={() =>
+                setPdfPage((current) => Math.min(current + 1, pdfPageCount))
+              }
+              style={[
+                styles.pdfNavigationButton,
+                pdfPage >= pdfPageCount && styles.pdfNavigationButtonDisabled,
+              ]}
+            >
+              <AppText style={styles.pdfNavigationButtonText}>Next</AppText>
+            </Pressable>
+          </View>
         </View>
       ) : (
         <FeatureCard
@@ -626,7 +675,7 @@ const styles = StyleSheet.create({
   },
   pdf: {
     flex: 1,
-    minHeight: 560,
+    minHeight: 520,
     width: "100%",
   },
   pdfCard: {
@@ -634,8 +683,34 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     borderRadius: 18,
     borderWidth: 1,
-    height: 600,
+    height: 610,
     overflow: "hidden",
+  },
+  pdfNavigation: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  pdfNavigationButton: {
+    alignItems: "center",
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    minWidth: 88,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  pdfNavigationButtonDisabled: {
+    opacity: 0.4,
+  },
+  pdfNavigationButtonText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
   },
   pdfLoadingCard: {
     alignItems: "center",
