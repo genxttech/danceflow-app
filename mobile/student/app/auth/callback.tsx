@@ -1,160 +1,140 @@
 import { router, useLocalSearchParams } from "expo-router";
 import * as Linking from "expo-linking";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import type { EmailOtpType } from "@supabase/supabase-js";
+import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
+import { useAuth } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
-
-function getAuthParams(url: string) {
-  const parsed = new URL(url);
-  const params = new URLSearchParams(parsed.search);
-
-  if (parsed.hash) {
-    const hashParams = new URLSearchParams(parsed.hash.replace(/^#/, ""));
-    hashParams.forEach((value, key) => {
-      params.set(key, value);
-    });
-  }
-
-  return params;
-}
 
 function cleanParam(value: string | string[] | null | undefined) {
   const nextValue = Array.isArray(value) ? value[0] : value;
   return nextValue?.trim() || null;
 }
 
-async function getCurrentSessionWithRetry() {
-  for (let index = 0; index < 4; index += 1) {
+function buildCallbackUrl(
+  baseUrl: string | null,
+  routeParams: {
+    access_token?: string | string[];
+    code?: string | string[];
+    error?: string | string[];
+    error_description?: string | string[];
+    refresh_token?: string | string[];
+    token_hash?: string | string[];
+    type?: string | string[];
+  },
+) {
+  if (baseUrl) return baseUrl;
+
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(routeParams)) {
+    const cleaned = cleanParam(value);
+    if (cleaned) params.set(key, cleaned);
+  }
+
+  const query = params.toString();
+  return query ? `danceflow://auth/callback?${query}` : null;
+}
+
+async function waitForSession() {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     const { data, error } = await supabase.auth.getSession();
     if (error) throw error;
-    if (data.session) return data.session;
-
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    if (data.session?.access_token) return data.session;
+    await new Promise((resolve) => setTimeout(resolve, 200));
   }
 
   return null;
 }
 
 export default function AuthCallbackScreen() {
-  const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string | null>(null);
+  const { handleAuthUrl, session } = useAuth();
   const callbackUrl = Linking.useURL();
   const routeParams = useLocalSearchParams<{
-    access_token?: string;
-    code?: string;
-    error?: string;
-    error_description?: string;
-    refresh_token?: string;
-    token_hash?: string;
-    type?: string;
+    access_token?: string | string[];
+    code?: string | string[];
+    error?: string | string[];
+    error_description?: string | string[];
+    refresh_token?: string | string[];
+    token_hash?: string | string[];
+    type?: string | string[];
   }>();
+  const attemptedRef = useRef(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (session?.access_token) {
+      router.replace("/(tabs)/home");
+    }
+  }, [session?.access_token]);
 
   useEffect(() => {
     let mounted = true;
 
     async function completeSignIn() {
+      if (attemptedRef.current) return;
+      attemptedRef.current = true;
+
       try {
-        const url = callbackUrl || (await Linking.getInitialURL());
-        const params = url ? getAuthParams(url) : null;
-        const code = cleanParam(params?.get("code")) || cleanParam(routeParams.code);
-        const accessToken =
-          cleanParam(params?.get("access_token")) ||
-          cleanParam(routeParams.access_token);
-        const refreshToken =
-          cleanParam(params?.get("refresh_token")) ||
-          cleanParam(routeParams.refresh_token);
-        const tokenHash =
-          cleanParam(params?.get("token_hash")) ||
-          cleanParam(routeParams.token_hash);
-        const otpType =
-          cleanParam(params?.get("type")) ||
-          cleanParam(routeParams.type) ||
-          "magiclink";
-        const callbackError =
-          cleanParam(params?.get("error_description")) ||
-          cleanParam(params?.get("error")) ||
-          cleanParam(routeParams.error_description) ||
-          cleanParam(routeParams.error);
+        const initialUrl = callbackUrl || (await Linking.getInitialURL());
+        const resolvedUrl = buildCallbackUrl(initialUrl, routeParams);
 
-        setDebugInfo(
-          [
-            `callbackUrl: ${url ? "present" : "missing"}`,
-            `callbackUrlPrefix: ${url?.slice(0, 80) ?? "none"}`,
-            `code: ${code ? "present" : "missing"}`,
-            `accessToken: ${accessToken ? "present" : "missing"}`,
-            `refreshToken: ${refreshToken ? "present" : "missing"}`,
-            `tokenHash: ${tokenHash ? `present length ${tokenHash.length}` : "missing"}`,
-            `tokenHashPrefix: ${tokenHash?.slice(0, 8) ?? "none"}`,
-            `otpType: ${otpType ?? "missing"}`,
-            `callbackError: ${callbackError ?? "none"}`,
-          ].join("\n")
-        );
-
-        const existingSession = await getCurrentSessionWithRetry();
-        if (existingSession) {
-          router.replace("/(tabs)/home");
-          return;
+        if (!resolvedUrl) {
+          throw new Error(
+            "The sign-in link did not include the information DanceFlow needs. Request a new link and try again.",
+          );
         }
 
-        if (callbackError) {
-          throw new Error(callbackError);
+        const handled = await handleAuthUrl(resolvedUrl);
+
+        if (!handled) {
+          throw new Error(
+            "The sign-in link was incomplete or has already been used. Request a new link and try again.",
+          );
         }
 
-        try {
-          if (code) {
-            const { error: exchangeError } =
-              await supabase.auth.exchangeCodeForSession(code);
-            if (exchangeError) throw exchangeError;
-          } else if (accessToken && refreshToken) {
-            const { error: sessionError } = await supabase.auth.setSession({
-              access_token: accessToken,
-              refresh_token: refreshToken
-            });
-            if (sessionError) throw sessionError;
-          } else if (tokenHash && otpType) {
-            const { error: verifyError } = await supabase.auth.verifyOtp({
-              token_hash: tokenHash,
-              type: otpType as EmailOtpType
-            });
-            if (verifyError) throw verifyError;
-          } else {
-            throw new Error("Missing sign-in session. Open the latest magic link again.");
-          }
-        } catch (authError) {
-          const recoveredSession = await getCurrentSessionWithRetry();
-          if (recoveredSession) {
-            router.replace("/(tabs)/home");
-            return;
-          }
+        const nextSession = await waitForSession();
 
-          throw authError;
-        }
-
-        const finalSession = await getCurrentSessionWithRetry();
-        if (!finalSession) {
-          throw new Error("Missing sign-in session. Open the latest magic link again.");
+        if (!nextSession) {
+          throw new Error(
+            "DanceFlow could not finish creating your session. Request a new link and try again.",
+          );
         }
 
         if (mounted) {
           setError(null);
           router.replace("/(tabs)/home");
         }
-      } catch (err) {
+      } catch (nextError) {
         if (!mounted) return;
-        setError(err instanceof Error ? err.message : "Unable to finish sign in.");
+
+        setError(
+          nextError instanceof Error
+            ? nextError.message
+            : "DanceFlow could not finish signing you in.",
+        );
       }
     }
 
-    completeSignIn();
+    void completeSignIn();
 
     return () => {
       mounted = false;
     };
-  }, [callbackUrl, routeParams]);
+  }, [
+    callbackUrl,
+    handleAuthUrl,
+    routeParams.access_token,
+    routeParams.code,
+    routeParams.error,
+    routeParams.error_description,
+    routeParams.refresh_token,
+    routeParams.token_hash,
+    routeParams.type,
+  ]);
 
   return (
     <Screen scroll={false}>
@@ -163,7 +143,10 @@ export default function AuthCallbackScreen() {
           <>
             <AppText variant="title">Sign in needs another try</AppText>
             <AppText variant="caption">{error}</AppText>
-            {debugInfo ? <AppText variant="caption">{debugInfo}</AppText> : null}
+            <AppButton
+              label="Request a new link"
+              onPress={() => router.replace("/(auth)/sign-in")}
+            />
           </>
         ) : (
           <>
@@ -184,6 +167,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flex: 1,
     gap: 12,
-    justifyContent: "center"
-  }
+    justifyContent: "center",
+  },
 });

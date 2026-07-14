@@ -7,7 +7,6 @@ import {
   useMemo,
   useState
 } from "react";
-import * as Linking from "expo-linking";
 import { router } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session } from "@supabase/supabase-js";
@@ -108,11 +107,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     async function bootstrap() {
       try {
-        const initialUrl = await Linking.getInitialURL();
-        if (initialUrl) {
-          await handleAuthUrl(initialUrl);
-        }
-
         const { data } = await supabase.auth.getSession();
         if (!mounted) return;
 
@@ -145,20 +139,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
     }).data.subscription;
 
-    const urlSubscription = Linking.addEventListener("url", async ({ url }) => {
-      try {
-        await handleAuthUrl(url);
-      } catch (_error) {
-        // The sign-in screen will let the dancer request a fresh link.
-      }
-    });
-
     return () => {
       mounted = false;
       authSubscription.unsubscribe();
-      urlSubscription.remove();
     };
-  }, [handleAuthUrl]);
+  }, []);
 
   const continueWithEmail = useCallback(async (email: string) => {
     const { error } = await supabase.auth.signInWithOtp({
