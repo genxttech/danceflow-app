@@ -16,8 +16,17 @@ export default function FieldPlacementEditor({ envelopeId, pageSizes, initialFie
   const [selectedId, setSelectedId] = useState<string | null>(initialFields[0]?.id ?? null);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const currentSize = pageSizes.find((item) => item.pageNumber === page) ?? { pageNumber: page, width: 612, height: 792 };
+  const pageNumbers = pageSizes.map((item) => item.pageNumber).sort((a, b) => a - b);
+  const firstPage = pageNumbers[0] ?? 1;
+  const lastPage = pageNumbers[pageNumbers.length - 1] ?? 1;
   const selected = fields.find((field) => field.id === selectedId) ?? null;
   const pageFields = useMemo(() => fields.filter((field) => field.page_number === page), [fields, page]);
+
+  function goToPage(nextPage: number) {
+    const bounded = Math.min(lastPage, Math.max(firstPage, nextPage));
+    setPage(bounded);
+    setSelectedId(null);
+  }
 
   function addField(type: FieldType) {
     const [width, height] = DEFAULT_SIZE[type];
@@ -45,12 +54,32 @@ export default function FieldPlacementEditor({ envelopeId, pageSizes, initialFie
     <aside className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <h2 className="font-semibold text-slate-950">Add fields</h2><p className="mt-1 text-xs leading-5 text-slate-500">Choose a field, then drag and resize it on the document.</p>
       <div className="mt-4 grid gap-2">{(Object.keys(LABELS) as FieldType[]).map((type) => <button key={type} type="button" onClick={() => addField(type)} className="rounded-xl border border-slate-300 px-3 py-2 text-left text-sm font-medium hover:bg-slate-50">+ {LABELS[type]}</button>)}</div>
-      <div className="mt-5 border-t border-slate-200 pt-4"><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Page<select value={page} onChange={(e) => setPage(Number(e.target.value))} className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">{pageSizes.map((item) => <option key={item.pageNumber} value={item.pageNumber}>Page {item.pageNumber}</option>)}</select></label></div>
+      <div className="mt-5 border-t border-slate-200 pt-4"><label className="text-xs font-semibold uppercase tracking-wide text-slate-500">Page<select value={page} onChange={(e) => goToPage(Number(e.target.value))} className="mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm">{pageSizes.map((item) => <option key={item.pageNumber} value={item.pageNumber}>Page {item.pageNumber}</option>)}</select></label><p className="mt-2 text-xs leading-5 text-slate-500">Use the page selector or the Previous and Next controls above the document preview.</p></div>
     </aside>
 
     <section className="min-w-0 rounded-2xl border border-slate-200 bg-slate-200 p-3 shadow-sm">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-xs font-semibold text-slate-600">Page {page} preview</p>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={page <= firstPage}
+            onClick={() => goToPage(page - 1)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Previous
+          </button>
+          <p className="min-w-[92px] text-center text-xs font-semibold text-slate-600">
+            Page {page} of {lastPage}
+          </p>
+          <button
+            type="button"
+            disabled={page >= lastPage}
+            onClick={() => goToPage(page + 1)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Next
+          </button>
+        </div>
         <a
           href={`/app/documents/sign/${envelopeId}/source`}
           target="_blank"
@@ -87,7 +116,11 @@ export default function FieldPlacementEditor({ envelopeId, pageSizes, initialFie
       <h2 className="font-semibold text-slate-950">Field settings</h2>
       {!selected ? <p className="mt-4 text-sm text-slate-500">Select a field to edit it.</p> : <div className="mt-4 space-y-4">
         <label className="block text-sm font-medium">Label<input value={selected.label} onChange={(e) => updateField(selected.id, { label: e.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2" /></label>
-        <label className="block text-sm font-medium">Page<select value={selected.page_number} onChange={(e) => updateField(selected.id, { page_number: Number(e.target.value) })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2">{pageSizes.map((item) => <option key={item.pageNumber} value={item.pageNumber}>Page {item.pageNumber}</option>)}</select></label>
+        <label className="block text-sm font-medium">Page<select value={selected.page_number} onChange={(e) => {
+          const nextPage = Number(e.target.value);
+          updateField(selected.id, { page_number: nextPage });
+          setPage(nextPage);
+        }} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2">{pageSizes.map((item) => <option key={item.pageNumber} value={item.pageNumber}>Page {item.pageNumber}</option>)}</select></label>
         {selected.field_type === "text" ? <label className="block text-sm font-medium">Placeholder<input value={selected.placeholder_text ?? ""} onChange={(e) => updateField(selected.id, { placeholder_text: e.target.value })} className="mt-1.5 w-full rounded-xl border border-slate-300 px-3 py-2" /></label> : null}
         <label className="flex items-center gap-3 text-sm font-medium"><input type="checkbox" checked={selected.required} onChange={(e) => updateField(selected.id, { required: e.target.checked })} /> Required</label>
         <div className="grid grid-cols-2 gap-2"><button type="button" onClick={duplicateSelected} className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold">Duplicate</button><button type="button" onClick={removeSelected} className="rounded-xl border border-rose-300 px-3 py-2 text-sm font-semibold text-rose-700">Delete</button></div>

@@ -63,8 +63,17 @@ type DocumentAssignmentSummary = {
   assigned_at: string | null;
   due_at: string | null;
   assigned_to_email: string | null;
+  sign_envelope_id: string | null;
   document_templates: { title: string | null; is_required: boolean | null } | { title: string | null; is_required: boolean | null }[] | null;
   clients: { first_name: string | null; last_name: string | null; email: string | null } | { first_name: string | null; last_name: string | null; email: string | null }[] | null;
+};
+
+type SigningEnvelopeSummary = {
+  id: string;
+  status: string | null;
+  document_sign_fields:
+    | { id: string }[]
+    | null;
 };
 
 type OrganizerOption = {
@@ -920,12 +929,32 @@ export default async function DocumentsPage({
           .limit(10000),
         supabase
           .from("document_assignments")
-          .select("id, template_id, client_id, status, assigned_at, due_at, assigned_to_email, document_templates(title, is_required), clients(first_name, last_name, email)")
+          .select("id, template_id, client_id, status, assigned_at, due_at, assigned_to_email, sign_envelope_id, document_templates(title, is_required), clients(first_name, last_name, email)")
           .in("template_id", templateIds)
           .neq("status", "void")
           .limit(10000),
       ])
     : [{ data: [], error: null }, { data: [], error: null }];
+
+  const envelopeIds = Array.from(
+    new Set(
+      ((assignmentRows ?? []) as DocumentAssignmentSummary[])
+        .map((assignment) => assignment.sign_envelope_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  );
+
+  const { data: envelopeRows, error: envelopesError } = envelopeIds.length
+    ? await supabase
+        .from("document_sign_envelopes")
+        .select("id, status, document_sign_fields(id)")
+        .in("id", envelopeIds)
+    : { data: [], error: null };
+
+  const envelopesById = new Map<string, SigningEnvelopeSummary>();
+  for (const envelope of (envelopeRows ?? []) as SigningEnvelopeSummary[]) {
+    envelopesById.set(envelope.id, envelope);
+  }
 
   const signedCountByTemplateId = new Map<string, number>();
   for (const signature of (signatureRows ?? []) as DocumentSignatureSummary[]) {
@@ -991,13 +1020,15 @@ export default async function DocumentsPage({
       error ||
       clientsError ||
       signaturesError ||
-      assignmentsError,
+      assignmentsError ||
+      envelopesError,
   );
   const pageMessage =
     error?.message ??
     clientsError?.message ??
     signaturesError?.message ??
     assignmentsError?.message ??
+    envelopesError?.message ??
     message;
 
   return (
@@ -1057,6 +1088,11 @@ export default async function DocumentsPage({
               const clientName = [client?.first_name, client?.last_name].filter(Boolean).join(" ") || client?.email || assignment.assigned_to_email || "Client";
               const overdue = Boolean(assignment.due_at && new Date(assignment.due_at).getTime() < now);
               const missingEmail = !assignment.assigned_to_email && !client?.email;
+              const envelope = assignment.sign_envelope_id
+                ? envelopesById.get(assignment.sign_envelope_id) ?? null
+                : null;
+              const draftEnvelope = envelope?.status === "draft";
+              const savedFieldCount = envelope?.document_sign_fields?.length ?? 0;
               return (
                 <div key={assignment.id} className={`rounded-2xl border p-4 ${overdue ? "border-rose-200 bg-rose-50/60" : missingEmail ? "border-amber-200 bg-amber-50/60" : "border-[var(--brand-border)] bg-[var(--brand-surface)]"}`}>
                   <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
@@ -1065,13 +1101,28 @@ export default async function DocumentsPage({
                         {overdue ? <AlertTriangle className="h-4 w-4 text-rose-600" /> : <Clock3 className="h-4 w-4 text-amber-600" />}
                         <p className="font-bold text-[var(--brand-text)]">{clientName}</p>
                         {template?.is_required ? <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-bold text-amber-800">Required</span> : null}
+                        {draftEnvelope ? (
+                          <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-bold text-violet-800">
+                            {savedFieldCount > 0 ? "Draft layout" : "Needs field setup"}
+                          </span>
+                        ) : null}
                         {missingEmail ? <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-bold text-rose-800">No email</span> : null}
                       </div>
                       <p className="mt-1 text-sm text-[var(--brand-muted)]">{template?.title || "Document"}{assignment.due_at ? ` · ${overdue ? "Past due" : "Due"} ${formatDateTime(assignment.due_at)}` : " · No due date"}</p>
                     </div>
                     <div className="flex flex-wrap gap-2">
                       {assignment.client_id ? <Link href={`/app/clients/${assignment.client_id}?tab=documents`} className="rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2 text-xs font-bold text-[var(--brand-text)]">Open client</Link> : null}
-                      {!missingEmail ? <form action={sendDocumentReminderAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><button className="inline-flex items-center gap-1 rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white"><Send className="h-3.5 w-3.5"/>Send reminder</button></form> : null}
+                      {draftEnvelope && assignment.sign_envelope_id ? (
+                        <Link
+                          href={`/app/documents/sign/${assignment.sign_envelope_id}/edit`}
+                          className="inline-flex items-center gap-1 rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white"
+                        >
+                          <FileSignature className="h-3.5 w-3.5" />
+                          {savedFieldCount > 0 ? "Edit field layout" : "Finish field setup"}
+                        </Link>
+                      ) : !missingEmail ? (
+                        <form action={sendDocumentReminderAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><button className="inline-flex items-center gap-1 rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-bold text-white"><Send className="h-3.5 w-3.5"/>Send reminder</button></form>
+                      ) : null}
                       <form action={waiveDocumentAssignmentAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><button className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-800">Waive</button></form>
                       <form action={voidDocumentAssignmentAction}><input type="hidden" name="assignmentId" value={assignment.id}/><input type="hidden" name="scope" value="studio"/><input type="hidden" name="reason" value="Voided from Document Operations Center."/><button className="rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700">Void</button></form>
                     </div>
