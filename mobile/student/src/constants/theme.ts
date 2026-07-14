@@ -31,28 +31,28 @@ export const darkColors = {
 };
 
 export const lightColors = {
-  background: "#F8FAFC",
-  backgroundSoft: "#EEF2FF",
+  background: "#FFF9FC",
+  backgroundSoft: "#F7F3FF",
   surface: "#FFFFFF",
-  surfaceAlt: "#F1F5F9",
-  surfaceGlow: "rgba(244, 63, 142, 0.09)",
-  text: "#111827",
-  muted: "#64748B",
-  border: "rgba(15,23,42,0.12)",
-  borderStrong: "rgba(15,23,42,0.2)",
-  primary: "#DB2777",
-  primaryDark: "#BE185D",
-  accent: "#EA580C",
-  accentSoft: "rgba(234, 88, 12, 0.12)",
-  magenta: "#DB2777",
-  orange: "#EA580C",
-  danger: "#E11D48",
-  success: "#059669",
+  surfaceAlt: "#F8F4FA",
+  surfaceGlow: "rgba(219, 39, 119, 0.08)",
+  text: "#2B1830",
+  muted: "#6F6373",
+  border: "rgba(77,31,71,0.11)",
+  borderStrong: "rgba(77,31,71,0.2)",
+  primary: "#A64AC9",
+  primaryDark: "#7A2E90",
+  accent: "#E66A3A",
+  accentSoft: "rgba(230, 106, 58, 0.12)",
+  magenta: "#C53B91",
+  orange: "#E66A3A",
+  danger: "#D92D59",
+  success: "#168A63",
   white: "#FFFFFF",
-  black: "#020617",
-  brandGradient: ["#DB2777", "#EA580C"] as const,
-  brandGradientSoft: ["rgba(219, 39, 119, 0.12)", "rgba(234, 88, 12, 0.1)"] as const,
-  appBackgroundGradient: ["#FFFFFF", "#F8FAFC", "#EEF2FF"] as const
+  black: "#140B16",
+  brandGradient: ["#A64AC9", "#FF7A59"] as const,
+  brandGradientSoft: ["rgba(166, 74, 201, 0.14)", "rgba(255, 122, 89, 0.11)"] as const,
+  appBackgroundGradient: ["#FFFDFE", "#FFF9FC", "#F7F3FF"] as const
 };
 
 export function colorsForScheme(scheme: ColorSchemeName) {

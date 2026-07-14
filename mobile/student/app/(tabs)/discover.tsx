@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, useColorScheme, useWindowDimensions, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import {
   getPublicEventsForMobile,
   getPublicJobPostingsForMobile,
@@ -22,23 +22,40 @@ type DiscoverCardProps = {
   icon: keyof typeof Ionicons.glyphMap;
   onPress: () => void;
   title: string;
+  width: "100%" | "48.5%";
 };
 
-function DiscoverCard({ accent, countLabel, detail, icon, onPress, title }: DiscoverCardProps) {
+function DiscoverCard({ accent, countLabel, detail, icon, onPress, title, width }: DiscoverCardProps) {
+  const colors = colorsForScheme(useColorScheme());
+
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.categoryCard, pressed && styles.cardPressed]}
+      style={({ pressed }) => [
+        styles.categoryCard,
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          shadowColor: colors.black,
+          width,
+        },
+        pressed && styles.cardPressed,
+      ]}
     >
-      <View style={[styles.categoryIcon, accent && styles.categoryIconAccent]}>
+      <View
+        style={[
+          styles.categoryIcon,
+          { backgroundColor: accent ? colors.accent : colors.primary },
+        ]}
+      >
         <Ionicons color="#fff" name={icon} size={24} />
       </View>
       <View style={{ flex: 1 }}>
         <View style={styles.cardHeader}>
-          <AppText style={styles.categoryTitle}>{title}</AppText>
-          <AppText style={styles.countPill}>{countLabel}</AppText>
+          <AppText style={[styles.categoryTitle, { color: colors.text }]}>{title}</AppText>
+          <AppText style={[styles.countPill, { backgroundColor: colors.surfaceAlt, color: colors.primary }]}>{countLabel}</AppText>
         </View>
-        <AppText style={styles.categoryDetail}>{detail}</AppText>
+        <AppText style={[styles.categoryDetail, { color: colors.muted }]}>{detail}</AppText>
       </View>
     </Pressable>
   );
@@ -46,6 +63,9 @@ function DiscoverCard({ accent, countLabel, detail, icon, onPress, title }: Disc
 
 export default function DiscoverScreen() {
   const router = useRouter();
+  const colors = colorsForScheme(useColorScheme());
+  const { width: screenWidth } = useWindowDimensions();
+  const cardWidth: "100%" | "48.5%" = screenWidth >= 390 ? "48.5%" : "100%";
   const [loading, setLoading] = useState(true);
   const [counts, setCounts] = useState({
     events: 0,
@@ -89,7 +109,7 @@ export default function DiscoverScreen() {
 
   return (
     <Screen>
-      <View style={styles.hero}>
+      <View style={[styles.hero, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
         <AppText variant="eyebrow">Discover</AppText>
         <AppText variant="title">What are you looking for?</AppText>
         <AppText variant="caption">
@@ -107,6 +127,7 @@ export default function DiscoverScreen() {
           icon="business-outline"
           onPress={() => router.push("/discover/studios" as unknown as RouterPushTarget)}
           title="Studios"
+          width={cardWidth}
         />
         <DiscoverCard
           accent
@@ -115,6 +136,7 @@ export default function DiscoverScreen() {
           icon="ticket-outline"
           onPress={() => router.push("/discover/events" as unknown as RouterPushTarget)}
           title="Events"
+          width={cardWidth}
         />
         <DiscoverCard
           countLabel={`${counts.partners}`}
@@ -122,6 +144,7 @@ export default function DiscoverScreen() {
           icon="people-outline"
           onPress={() => router.push("/partners" as unknown as RouterPushTarget)}
           title="Partners"
+          width={cardWidth}
         />
         <DiscoverCard
           accent
@@ -130,6 +153,7 @@ export default function DiscoverScreen() {
           icon="briefcase-outline"
           onPress={() => router.push("/jobs" as unknown as RouterPushTarget)}
           title="Jobs"
+          width={cardWidth}
         />
       </View>
     </Screen>
@@ -144,47 +168,44 @@ const styles = StyleSheet.create({
     justifyContent: "space-between"
   },
   cardPressed: {
-    opacity: 0.78
+    opacity: 0.88,
+    transform: [{ scale: 0.99 }]
   },
   categoryCard: {
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
     borderRadius: 22,
     borderWidth: 1,
-    flexDirection: "row",
-    gap: 14,
-    padding: 16
+    elevation: 1,
+    gap: 13,
+    minHeight: 170,
+    padding: 16,
+    shadowOffset: { width: 0, height: 7 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14
   },
   categoryDetail: {
-    color: colors.muted,
     fontSize: 13,
     lineHeight: 19,
     marginTop: 4
   },
   categoryIcon: {
     alignItems: "center",
-    backgroundColor: colors.primary,
     borderRadius: 18,
     height: 50,
     justifyContent: "center",
     width: 50
   },
-  categoryIconAccent: {
-    backgroundColor: colors.accent
-  },
   categoryList: {
-    gap: 12
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    justifyContent: "space-between"
   },
   categoryTitle: {
-    color: colors.text,
-    fontSize: 20,
-    fontWeight: "900"
+    fontSize: 19,
+    fontWeight: "800"
   },
   countPill: {
-    backgroundColor: colors.surfaceAlt,
     borderRadius: 999,
-    color: colors.primary,
     fontSize: 12,
     fontWeight: "900",
     overflow: "hidden",
@@ -192,11 +213,9 @@ const styles = StyleSheet.create({
     paddingVertical: 5
   },
   hero: {
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    borderRadius: 22,
+    borderRadius: 24,
     borderWidth: 1,
     gap: 8,
-    padding: 18
+    padding: 20
   }
 });

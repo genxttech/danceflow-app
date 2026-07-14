@@ -1,12 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link, router } from "expo-router";
 import { useEffect, useState } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Image, Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getPublicEventsForMobile, getPublicStudiosForMobile, type PublicEventItem, type PublicStudioItem } from "@/lib/publicDiscovery";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
@@ -58,12 +58,22 @@ function HomeActionCard({
   onPress: () => void;
   title: string;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.actionCard, pressed && styles.cardPressed]}
+      style={({ pressed }) => [
+        styles.actionCard,
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          shadowColor: colors.black,
+        },
+        pressed && styles.cardPressed,
+      ]}
     >
-      <View style={styles.actionIcon}>
+      <View style={[styles.actionIcon, { backgroundColor: colors.primary }]}>
         <Ionicons color="#fff" name={icon} size={22} />
       </View>
       <View style={{ flex: 1 }}>
@@ -77,6 +87,7 @@ function HomeActionCard({
 
 export default function HomeScreen() {
   const { session } = useAuth();
+  const colors = colorsForScheme(useColorScheme());
   const [loadingAccess, setLoadingAccess] = useState(true);
   const [loadingSchedule, setLoadingSchedule] = useState(false);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -159,7 +170,7 @@ export default function HomeScreen() {
 
   return (
     <Screen>
-      <View style={styles.hero}>
+      <View style={[styles.hero, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
         <Image accessibilityIgnoresInvertColors resizeMode="contain" source={danceFlowLogo} style={styles.logo} />
         <AppText variant="title">
           {isGuest ? "Welcome to DanceFlow" : `Welcome back, ${greetingName}`}
@@ -250,7 +261,7 @@ export default function HomeScreen() {
       )}
 
       {!isGuest ? (
-        <View style={styles.savedCard}>
+        <View style={[styles.savedCard, { backgroundColor: colors.surface, borderColor: colors.border, shadowColor: colors.black }]}>
           <View style={styles.savedHeader}>
             <View style={{ flex: 1 }}>
               <AppText variant="eyebrow">Saved</AppText>
@@ -274,7 +285,7 @@ export default function HomeScreen() {
         </View>
       ) : null}
 
-      <View style={styles.lumiCard}>
+      <View style={[styles.lumiCard, { backgroundColor: colors.surfaceAlt, borderColor: colors.border }]}>
         <Image accessibilityIgnoresInvertColors resizeMode="cover" source={lumiAvatar} style={styles.lumiAvatar} />
         <View style={styles.lumiCopy}>
           <AppText variant="eyebrow">LUMI</AppText>
@@ -299,9 +310,9 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   hero: {
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 18,
-    gap: 8,
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 9,
     padding: 20
   },
   logo: {
@@ -316,23 +327,25 @@ const styles = StyleSheet.create({
   },
   lumiCard: {
     alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 18,
+    borderRadius: 22,
+    borderWidth: 1,
     flexDirection: "row",
     gap: 14,
-    padding: 16
+    padding: 17
   },
   lumiCopy: {
     flex: 1,
     gap: 8
   },
   savedCard: {
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    borderRadius: 18,
+    borderRadius: 22,
     borderWidth: 1,
-    gap: 8,
-    padding: 16
+    elevation: 1,
+    gap: 9,
+    padding: 17,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12
   },
   savedHeader: {
     alignItems: "center",
@@ -341,17 +354,18 @@ const styles = StyleSheet.create({
   },
   actionCard: {
     alignItems: "center",
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
+    elevation: 1,
     flexDirection: "row",
     gap: 14,
-    padding: 16
+    padding: 16,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12
   },
   actionIcon: {
     alignItems: "center",
-    backgroundColor: colors.primary,
     borderRadius: 16,
     height: 46,
     justifyContent: "center",
@@ -361,6 +375,7 @@ const styles = StyleSheet.create({
     gap: 10
   },
   cardPressed: {
-    opacity: 0.78
+    opacity: 0.88,
+    transform: [{ scale: 0.99 }]
   }
 });

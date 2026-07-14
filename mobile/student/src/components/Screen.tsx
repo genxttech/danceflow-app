@@ -1,6 +1,12 @@
 import type React from "react";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { ScrollView, StyleSheet, useColorScheme, View, type ViewStyle } from "react-native";
+import {
+  ScrollView,
+  StyleSheet,
+  useColorScheme,
+  View,
+  type ViewStyle,
+} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { colorsForScheme } from "@/constants/theme";
 
@@ -13,25 +19,23 @@ type ScreenProps = {
 export function Screen({ children, scroll = true, style }: ScreenProps) {
   const colors = colorsForScheme(useColorScheme());
 
-  if (!scroll) {
-    return (
-      <LinearGradient colors={colors.appBackgroundGradient} style={styles.gradient}>
-        <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-          <View style={[styles.content, style]}>{children}</View>
-        </SafeAreaView>
-      </LinearGradient>
-    );
-  }
+  const content = <View style={[styles.content, style]}>{children}</View>;
 
   return (
     <LinearGradient colors={colors.appBackgroundGradient} style={styles.gradient}>
-      <SafeAreaView style={[styles.safe, { backgroundColor: colors.background }]}>
-        <ScrollView
-          contentContainerStyle={[styles.content, style]}
-          keyboardShouldPersistTaps="handled"
-        >
-          {children}
-        </ScrollView>
+      <SafeAreaView style={styles.safe}>
+        {scroll ? (
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            contentInsetAdjustmentBehavior="automatic"
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
+            {content}
+          </ScrollView>
+        ) : (
+          content
+        )}
       </SafeAreaView>
     </LinearGradient>
   );
@@ -39,14 +43,20 @@ export function Screen({ children, scroll = true, style }: ScreenProps) {
 
 const styles = StyleSheet.create({
   gradient: {
-    flex: 1
+    flex: 1,
   },
   safe: {
-    flex: 1
+    backgroundColor: "transparent",
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   content: {
     flexGrow: 1,
-    padding: 20,
-    gap: 16
-  }
+    gap: 16,
+    paddingBottom: 28,
+    paddingHorizontal: 18,
+    paddingTop: 16,
+  },
 });

@@ -13,7 +13,16 @@ export function FeatureCard({ title, detail, label }: FeatureCardProps) {
   const colors = colorsForScheme(useColorScheme());
 
   return (
-    <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          shadowColor: colors.black,
+        },
+      ]}
+    >
       <LinearGradient colors={colors.brandGradient} style={styles.accentBar} />
       {label ? <AppText variant="eyebrow">{label}</AppText> : null}
       <AppText variant="subtitle">{title}</AppText>
@@ -24,18 +33,23 @@ export function FeatureCard({ title, detail, label }: FeatureCardProps) {
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 18,
+    borderRadius: 22,
     borderWidth: 1,
+    elevation: 2,
     gap: 8,
     overflow: "hidden",
     padding: 18,
-    paddingTop: 22
+    paddingTop: 22,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.07,
+    shadowRadius: 16,
   },
   accentBar: {
-    height: 4,
-    left: 0,
+    borderRadius: 999,
+    height: 5,
+    left: 18,
     position: "absolute",
-    right: 0,
-    top: 0
-  }
+    top: 0,
+    width: 68,
+  },
 });

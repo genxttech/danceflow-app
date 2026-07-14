@@ -4,7 +4,7 @@ import {
   StyleSheet,
   useColorScheme,
   View,
-  type PressableProps
+  type PressableProps,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { AppText } from "@/components/AppText";
@@ -33,24 +33,39 @@ export function AppButton({
       disabled={disabled || loading}
       style={({ pressed }) => [
         styles.button,
-        !isPrimary && styles[variant],
+        isPrimary && {
+          borderColor: "rgba(255,255,255,0.24)",
+          shadowColor: colors.primaryDark,
+        },
         variant === "secondary" && {
           backgroundColor: colors.surface,
-          borderColor: colors.borderStrong
+          borderColor: colors.borderStrong,
+          shadowColor: colors.black,
         },
+        variant === "ghost" && styles.ghost,
         pressed && styles.pressed,
         (disabled || loading) && styles.disabled,
-        typeof style === "function" ? style({ pressed, hovered: false }) : style
+        typeof style === "function"
+  ? style({ pressed, hovered: false })
+  : style,
       ]}
     >
       {isPrimary ? (
         <LinearGradient colors={colors.brandGradient} style={StyleSheet.absoluteFill} />
       ) : null}
+
       <View style={styles.content}>
         {loading ? (
           <ActivityIndicator color={isPrimary ? colors.white : colors.primary} />
         ) : (
-          <AppText style={[styles.label, !isPrimary && { color: colors.text }]}>{label}</AppText>
+          <AppText
+            style={[
+              styles.label,
+              { color: isPrimary ? colors.white : colors.text },
+            ]}
+          >
+            {label}
+          </AppText>
         )}
       </View>
     </Pressable>
@@ -60,33 +75,39 @@ export function AppButton({
 const styles = StyleSheet.create({
   button: {
     alignItems: "center",
-    borderRadius: 14,
-    minHeight: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    elevation: 2,
     justifyContent: "center",
+    minHeight: 52,
     overflow: "hidden",
-    paddingHorizontal: 18
+    paddingHorizontal: 18,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
   },
   content: {
     alignItems: "center",
     justifyContent: "center",
     minHeight: 52,
-    width: "100%"
-  },
-  secondary: {
-    borderWidth: 1
+    width: "100%",
   },
   ghost: {
-    backgroundColor: "transparent"
+    backgroundColor: "transparent",
+    borderColor: "transparent",
+    elevation: 0,
+    shadowOpacity: 0,
   },
   label: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "800"
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 0.15,
   },
   pressed: {
-    opacity: 0.78
+    opacity: 0.88,
+    transform: [{ scale: 0.985 }],
   },
   disabled: {
-    opacity: 0.55
-  }
+    opacity: 0.5,
+  },
 });
