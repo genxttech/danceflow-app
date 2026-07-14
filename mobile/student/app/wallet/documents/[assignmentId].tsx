@@ -8,6 +8,7 @@ import {
   View,
 } from "react-native";
 import Pdf from "react-native-pdf";
+import ReactNativeBlobUtil from "react-native-blob-util";
 import { router, useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
@@ -144,24 +145,18 @@ export default function StudentDocumentDetailScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pdfAccessToken, setPdfAccessToken] = useState<string | null>(null);
+  const [localPdfUri, setLocalPdfUri] = useState<string | null>(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   const completed = isCompleted(detail);
   const pdfUrl = completed
     ? detail?.document.signedUrl
     : detail?.document.sourceUrl;
 
-  const pdfSource = useMemo(() => {
-    if (!pdfUrl || !pdfAccessToken) return null;
-
-    return {
-      uri: pdfUrl,
-      cache: false,
-      headers: {
-        Authorization: `Bearer ${pdfAccessToken}`,
-        "X-DanceFlow-Access-Token": pdfAccessToken,
-      },
-    };
-  }, [pdfAccessToken, pdfUrl]);
+  const pdfSource = useMemo(
+    () => (localPdfUri ? { uri: localPdfUri, cache: false } : null),
+    [localPdfUri],
+  );
 
   const load = useCallback(async () => {
     if (!assignmentId) {
@@ -235,6 +230,96 @@ export default function StudentDocumentDetailScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let downloadedPath: string | null = null;
+
+    async function downloadPdf() {
+      if (!pdfUrl || !pdfAccessToken) {
+        setLocalPdfUri(null);
+        return;
+      }
+
+      setPdfLoading(true);
+      setLocalPdfUri(null);
+
+      try {
+        const response = await ReactNativeBlobUtil.config({
+          fileCache: true,
+          appendExt: "pdf",
+        }).fetch("GET", pdfUrl, {
+          Authorization: `Bearer ${pdfAccessToken}`,
+          "X-DanceFlow-Access-Token": pdfAccessToken,
+          Accept: "application/pdf",
+        });
+
+        const info = response.info();
+        const headers = info.headers ?? {};
+        const contentType =
+          headers["Content-Type"] ??
+          headers["content-type"] ??
+          "";
+
+        if (info.status !== 200) {
+          const responseText = await response.text();
+          throw new Error(
+            `The PDF request failed (${info.status}). ${responseText.slice(0, 180)}`,
+          );
+        }
+
+        if (
+          contentType &&
+          !String(contentType).toLowerCase().includes("application/pdf")
+        ) {
+          const responseText = await response.text();
+          throw new Error(
+            `The server returned ${contentType} instead of a PDF. ${responseText.slice(0, 180)}`,
+          );
+        }
+
+        downloadedPath = response.path();
+        const filePrefix = await ReactNativeBlobUtil.fs.readFile(
+          downloadedPath,
+          "ascii",
+        );
+
+        if (!filePrefix.startsWith("%PDF-")) {
+          throw new Error("The downloaded response is not a valid PDF file.");
+        }
+
+        if (!cancelled) {
+          setLocalPdfUri(`file://${downloadedPath}`);
+        }
+      } catch (downloadError) {
+        if (!cancelled) {
+          console.error("Student document PDF download failed", downloadError);
+          setError(
+            downloadError instanceof Error
+              ? downloadError.message
+              : "The PDF preview could not be downloaded.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setPdfLoading(false);
+        }
+      }
+    }
+
+    void downloadPdf();
+
+    return () => {
+      cancelled = true;
+
+      if (downloadedPath) {
+        void ReactNativeBlobUtil.fs
+          .unlink(downloadedPath)
+          .catch(() => undefined);
+      }
+    };
+  }, [pdfAccessToken, pdfUrl]);
+
 
   const missingRequired = useMemo(() => {
     if (!detail || completed) return [];
@@ -340,7 +425,12 @@ export default function StudentDocumentDetailScreen() {
 
       {error ? <FeatureCard title="Signing needs attention" detail={error} /> : null}
 
-      {pdfSource ? (
+      {pdfLoading ? (
+        <View style={styles.pdfLoadingCard}>
+          <ActivityIndicator color={colors.primary} size="large" />
+          <AppText variant="caption">Preparing PDF preview…</AppText>
+        </View>
+      ) : pdfSource ? (
         <View style={styles.pdfCard}>
           <Pdf
             source={pdfSource}
@@ -520,6 +610,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     height: 600,
     overflow: "hidden",
+  },
+  pdfLoadingCard: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 18,
+    borderWidth: 1,
+    gap: 12,
+    justifyContent: "center",
+    minHeight: 220,
+    padding: 24,
   },
   row: {
     alignItems: "center",
