@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { requireClientEditAccess } from "@/lib/auth/serverRoleGuard";
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const PAYMENT_METHODS = new Set(["card", "cash", "check", "ach", "venmo", "zelle", "other"]);
 const PAYMENT_STATUSES = new Set(["pending", "paid", "processed", "complete", "completed", "failed", "refunded"]);
 const PAYMENT_ACTIONS = new Set(["manual", "charge_now", "send_to_portal", "terminal"]);
