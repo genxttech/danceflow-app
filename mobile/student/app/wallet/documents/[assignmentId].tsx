@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -8,7 +8,7 @@ import {
   View,
 } from "react-native";
 import Pdf from "react-native-pdf";
-import ReactNativeBlobUtil from "react-native-blob-util";
+import * as FileSystem from "expo-file-system/legacy";
 import { router, useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
@@ -147,6 +147,7 @@ export default function StudentDocumentDetailScreen() {
   const [pdfAccessToken, setPdfAccessToken] = useState<string | null>(null);
   const [localPdfUri, setLocalPdfUri] = useState<string | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const downloadedPdfUriRef = useRef<string | null>(null);
 
   const completed = isCompleted(detail);
   const pdfUrl = completed
@@ -233,11 +234,18 @@ export default function StudentDocumentDetailScreen() {
 
   useEffect(() => {
     let cancelled = false;
-    let downloadedPath: string | null = null;
 
     async function downloadPdf() {
       if (!pdfUrl) {
         setLocalPdfUri(null);
+        return;
+      }
+
+      const cacheDirectory = FileSystem.cacheDirectory;
+
+      if (!cacheDirectory) {
+        setError("The app cache is unavailable on this device.");
+        setPdfLoading(false);
         return;
       }
 
@@ -246,9 +254,18 @@ export default function StudentDocumentDetailScreen() {
       setError(null);
 
       try {
-        const filename = `danceflow-document-${assignmentId ?? "preview"}-${Date.now()}.pdf`;
-        downloadedPath = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/${filename}`;
+        const previousUri = downloadedPdfUriRef.current;
+        downloadedPdfUriRef.current = null;
 
+        if (previousUri) {
+          await FileSystem.deleteAsync(previousUri, {
+            idempotent: true,
+          }).catch(() => undefined);
+        }
+
+        const filename =
+          `danceflow-document-${assignmentId ?? "preview"}-${Date.now()}.pdf`;
+        const destination = `${cacheDirectory}${filename}`;
         const isDanceFlowApiUrl = pdfUrl.includes("/api/student/documents/");
         const requestHeaders: Record<string, string> = {
           Accept: "application/pdf",
@@ -259,39 +276,39 @@ export default function StudentDocumentDetailScreen() {
           requestHeaders["X-DanceFlow-Access-Token"] = pdfAccessToken;
         }
 
-        const response = await ReactNativeBlobUtil.config({
-          path: downloadedPath,
-          overwrite: true,
-          timeout: 30_000,
-        }).fetch("GET", pdfUrl, requestHeaders);
+        const result = await FileSystem.downloadAsync(pdfUrl, destination, {
+          headers: requestHeaders,
+        });
 
-        const info = response.info();
-        const headers = info.headers ?? {};
-        const contentType = String(
-          headers["Content-Type"] ??
-            headers["content-type"] ??
-            "",
-        ).toLowerCase();
+        if (result.status !== 200) {
+          await FileSystem.deleteAsync(result.uri, {
+            idempotent: true,
+          }).catch(() => undefined);
 
-        if (info.status !== 200) {
-          throw new Error(`The PDF request failed with status ${info.status}.`);
-        }
-
-        if (contentType && !contentType.includes("application/pdf")) {
           throw new Error(
-            `The server returned ${contentType} instead of a PDF.`,
+            `The PDF request failed with status ${result.status}.`,
           );
         }
 
-        const fileInfo = await ReactNativeBlobUtil.fs.stat(downloadedPath);
+        const fileInfo = await FileSystem.getInfoAsync(result.uri);
 
-        if (!fileInfo.size || Number(fileInfo.size) < 5) {
+        if (!fileInfo.exists || !("size" in fileInfo) || fileInfo.size < 5) {
+          await FileSystem.deleteAsync(result.uri, {
+            idempotent: true,
+          }).catch(() => undefined);
+
           throw new Error("The downloaded PDF file was empty.");
         }
 
-        if (!cancelled) {
-          setLocalPdfUri(`file://${downloadedPath}`);
+        if (cancelled) {
+          await FileSystem.deleteAsync(result.uri, {
+            idempotent: true,
+          }).catch(() => undefined);
+          return;
         }
+
+        downloadedPdfUriRef.current = result.uri;
+        setLocalPdfUri(result.uri);
       } catch (downloadError) {
         if (!cancelled) {
           console.error("Student document PDF download failed", downloadError);
@@ -312,14 +329,20 @@ export default function StudentDocumentDetailScreen() {
 
     return () => {
       cancelled = true;
-
-      if (downloadedPath) {
-        void ReactNativeBlobUtil.fs
-          .unlink(downloadedPath)
-          .catch(() => undefined);
-      }
     };
   }, [assignmentId, pdfAccessToken, pdfUrl]);
+
+  useEffect(() => {
+    return () => {
+      const uri = downloadedPdfUriRef.current;
+
+      if (uri) {
+        void FileSystem.deleteAsync(uri, {
+          idempotent: true,
+        }).catch(() => undefined);
+      }
+    };
+  }, []);
 
 
   const missingRequired = useMemo(() => {
