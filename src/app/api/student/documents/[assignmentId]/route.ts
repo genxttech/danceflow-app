@@ -213,16 +213,22 @@ export async function GET(
     return studentApiJsonError(fieldsError.message, 400);
   }
 
-  const requestOrigin = new URL(request.url).origin;
-  const encodedAssignmentId = encodeURIComponent(assignment.id);
-  const sourceUrl =
-    envelope.source_bucket && envelope.source_path
-      ? `${requestOrigin}/api/student/documents/${encodedAssignmentId}/source`
-      : null;
-  const signedUrl =
-    envelope.signed_bucket && envelope.signed_path
-      ? `${requestOrigin}/api/student/documents/${encodedAssignmentId}/signed`
-      : null;
+  let sourceUrl: string | null = null;
+  let signedUrl: string | null = null;
+
+  if (envelope.source_bucket && envelope.source_path) {
+    const { data: signedSource } = await admin.storage
+      .from(envelope.source_bucket)
+      .createSignedUrl(envelope.source_path, 5 * 60);
+    sourceUrl = signedSource?.signedUrl ?? null;
+  }
+
+  if (envelope.signed_bucket && envelope.signed_path) {
+    const { data: signedDocument } = await admin.storage
+      .from(envelope.signed_bucket)
+      .createSignedUrl(envelope.signed_path, 5 * 60);
+    signedUrl = signedDocument?.signedUrl ?? null;
+  }
 
   const completed =
     envelope.status === "completed" ||

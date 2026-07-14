@@ -236,56 +236,57 @@ export default function StudentDocumentDetailScreen() {
     let downloadedPath: string | null = null;
 
     async function downloadPdf() {
-      if (!pdfUrl || !pdfAccessToken) {
+      if (!pdfUrl) {
         setLocalPdfUri(null);
         return;
       }
 
       setPdfLoading(true);
       setLocalPdfUri(null);
+      setError(null);
 
       try {
-        const response = await ReactNativeBlobUtil.config({
-          fileCache: true,
-          appendExt: "pdf",
-        }).fetch("GET", pdfUrl, {
-          Authorization: `Bearer ${pdfAccessToken}`,
-          "X-DanceFlow-Access-Token": pdfAccessToken,
+        const filename = `danceflow-document-${assignmentId ?? "preview"}-${Date.now()}.pdf`;
+        downloadedPath = `${ReactNativeBlobUtil.fs.dirs.CacheDir}/${filename}`;
+
+        const isDanceFlowApiUrl = pdfUrl.includes("/api/student/documents/");
+        const requestHeaders: Record<string, string> = {
           Accept: "application/pdf",
-        });
+        };
+
+        if (isDanceFlowApiUrl && pdfAccessToken) {
+          requestHeaders.Authorization = `Bearer ${pdfAccessToken}`;
+          requestHeaders["X-DanceFlow-Access-Token"] = pdfAccessToken;
+        }
+
+        const response = await ReactNativeBlobUtil.config({
+          path: downloadedPath,
+          overwrite: true,
+          timeout: 30_000,
+        }).fetch("GET", pdfUrl, requestHeaders);
 
         const info = response.info();
         const headers = info.headers ?? {};
-        const contentType =
+        const contentType = String(
           headers["Content-Type"] ??
-          headers["content-type"] ??
-          "";
+            headers["content-type"] ??
+            "",
+        ).toLowerCase();
 
         if (info.status !== 200) {
-          const responseText = await response.text();
+          throw new Error(`The PDF request failed with status ${info.status}.`);
+        }
+
+        if (contentType && !contentType.includes("application/pdf")) {
           throw new Error(
-            `The PDF request failed (${info.status}). ${responseText.slice(0, 180)}`,
+            `The server returned ${contentType} instead of a PDF.`,
           );
         }
 
-        if (
-          contentType &&
-          !String(contentType).toLowerCase().includes("application/pdf")
-        ) {
-          const responseText = await response.text();
-          throw new Error(
-            `The server returned ${contentType} instead of a PDF. ${responseText.slice(0, 180)}`,
-          );
-        }
+        const fileInfo = await ReactNativeBlobUtil.fs.stat(downloadedPath);
 
-        downloadedPath = response.path();
-        const filePrefix = await ReactNativeBlobUtil.fs.readFile(
-          downloadedPath,
-          "ascii",
-        );
-
-        if (!filePrefix.startsWith("%PDF-")) {
-          throw new Error("The downloaded response is not a valid PDF file.");
+        if (!fileInfo.size || Number(fileInfo.size) < 5) {
+          throw new Error("The downloaded PDF file was empty.");
         }
 
         if (!cancelled) {
@@ -318,7 +319,7 @@ export default function StudentDocumentDetailScreen() {
           .catch(() => undefined);
       }
     };
-  }, [pdfAccessToken, pdfUrl]);
+  }, [assignmentId, pdfAccessToken, pdfUrl]);
 
 
   const missingRequired = useMemo(() => {
@@ -448,11 +449,13 @@ export default function StudentDocumentDetailScreen() {
         </View>
       ) : (
         <FeatureCard
-          title={completed ? "Signed copy unavailable" : "Document preparing"}
+          title={completed ? "Signed copy unavailable" : "PDF preview unavailable"}
           detail={
             completed
               ? "The signed PDF is not available yet."
-              : "Your studio is still preparing the signing fields."
+              : pdfUrl
+                ? "The document is ready, but the app could not prepare the preview."
+                : "Your studio is still preparing the signing fields."
           }
         />
       )}
