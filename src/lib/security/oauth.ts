@@ -15,7 +15,7 @@ export type OAuthStateCookieValue = {
 
 const DEFAULT_MAX_AGE_MS = 10 * 60 * 1000;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,256}$/;
-const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
+const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function safeString(value: unknown, maxLength = 256) {
   return typeof value === "string"
