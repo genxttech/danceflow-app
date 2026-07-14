@@ -14,6 +14,7 @@ import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import { colors } from "@/constants/theme";
+import { supabase } from "@/lib/supabase";
 import {
   completeStudentDocument,
   loadStudentDocument,
@@ -142,11 +143,25 @@ export default function StudentDocumentDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pdfAccessToken, setPdfAccessToken] = useState<string | null>(null);
 
   const completed = isCompleted(detail);
   const pdfUrl = completed
     ? detail?.document.signedUrl
     : detail?.document.sourceUrl;
+
+  const pdfSource = useMemo(() => {
+    if (!pdfUrl || !pdfAccessToken) return null;
+
+    return {
+      uri: pdfUrl,
+      cache: false,
+      headers: {
+        Authorization: `Bearer ${pdfAccessToken}`,
+        "X-DanceFlow-Access-Token": pdfAccessToken,
+      },
+    };
+  }, [pdfAccessToken, pdfUrl]);
 
   const load = useCallback(async () => {
     if (!assignmentId) {
@@ -159,6 +174,37 @@ export default function StudentDocumentDetailScreen() {
     setError(null);
 
     try {
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
+      if (sessionError) throw sessionError;
+
+      let activeSession = session;
+      const expiresSoon =
+        !activeSession?.expires_at ||
+        activeSession.expires_at * 1000 <= Date.now() + 60_000;
+
+      if (expiresSoon) {
+        const {
+          data: { session: refreshedSession },
+          error: refreshError,
+        } = await supabase.auth.refreshSession();
+
+        if (refreshError || !refreshedSession?.access_token) {
+          throw new Error("Your session has expired. Please sign in again.");
+        }
+
+        activeSession = refreshedSession;
+      }
+
+      if (!activeSession?.access_token) {
+        throw new Error("Authentication required.");
+      }
+
+      setPdfAccessToken(activeSession.access_token);
+
       const next = await loadStudentDocument(assignmentId);
       setDetail(next);
 
@@ -294,15 +340,20 @@ export default function StudentDocumentDetailScreen() {
 
       {error ? <FeatureCard title="Signing needs attention" detail={error} /> : null}
 
-      {pdfUrl ? (
+      {pdfSource ? (
         <View style={styles.pdfCard}>
           <Pdf
-            source={{ uri: pdfUrl, cache: false }}
+            source={pdfSource}
             style={styles.pdf}
             trustAllCerts={false}
-            onError={() =>
-              setError("The PDF preview could not be loaded. Try refreshing.")
-            }
+            onError={(pdfError) => {
+              console.error("Student document PDF preview failed", pdfError);
+              setError(
+                pdfError instanceof Error
+                  ? pdfError.message
+                  : `The PDF preview could not be loaded: ${String(pdfError)}`,
+              );
+            }}
           />
         </View>
       ) : (
