@@ -122,7 +122,7 @@ function normalizeNavLabel(item: NavItem) {
   }
 
   if (item.href === "/app/documents") {
-    return "Waivers & Documents";
+    return "Documents";
   }
 
   if (item.href === "/app/marketing" || item.href === "/app/campaigns") {

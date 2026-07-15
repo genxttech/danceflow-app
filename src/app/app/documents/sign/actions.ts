@@ -19,7 +19,9 @@ function text(formData: FormData, key: string, max = 200) {
   return typeof value === "string" ? value.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, max) : "";
 }
 function signPath(key?: string, value?: string) {
-  return key && value ? `/app/documents/sign?${key}=${encodeURIComponent(value)}` : "/app/documents/sign";
+  return key && value
+    ? `/app/documents?${key}=${encodeURIComponent(value)}#active-requests`
+    : "/app/documents#active-requests";
 }
 function escapeHtml(value: string) {
   return value
@@ -147,7 +149,7 @@ export async function sendSignEnvelopeAction(formData: FormData) {
   if (updateError) redirect(`/app/documents/sign/${envelopeId}/edit?error=send_failed`);
   const { error: deliveryError } = await queueEnvelopeEmail({ admin, envelope, token, studioId, dedupeKey: `document-sign:${envelopeId}:initial` });
   await admin.from("document_sign_events").insert({ envelope_id: envelopeId, event_type: deliveryError ? "delivery_exception" : "sent", actor_user_id: user.id, actor_email: user.email ?? null, summary: deliveryError ? "Signing request could not be queued for delivery." : "Signing request queued for email delivery." });
-  revalidatePath("/app/documents/sign");
+  revalidatePath("/app/documents");
   redirect(signPath(deliveryError ? "error" : "success", deliveryError ? "delivery_failed" : "sent"));
 }
 
@@ -164,7 +166,7 @@ export async function resendSignEnvelopeAction(formData: FormData) {
   if (updateError) redirect(signPath("error", "resend_failed"));
   const { error: deliveryError } = await queueEnvelopeEmail({ admin, envelope, token, studioId, dedupeKey: `document-sign:${envelopeId}:resend:${Date.now()}`, subjectPrefix: "Reminder: signature requested" });
   await admin.from("document_sign_events").insert({ envelope_id: envelopeId, event_type: deliveryError ? "delivery_exception" : "resent", actor_user_id: user.id, actor_email: user.email ?? null, summary: deliveryError ? "Reminder could not be queued." : "Signing reminder queued and secure link rotated." });
-  revalidatePath("/app/documents/sign"); revalidatePath(`/app/documents/sign/${envelopeId}`);
+  revalidatePath("/app/documents"); revalidatePath(`/app/documents/sign/${envelopeId}`);
   redirect(signPath(deliveryError ? "error" : "success", deliveryError ? "delivery_failed" : "resent"));
 }
 
@@ -177,6 +179,6 @@ export async function revokeSignEnvelopeAction(formData: FormData) {
   if (error) redirect(signPath("error", "revoke_failed"));
   await admin.from("document_sign_events").insert({ envelope_id: envelopeId, event_type: "revoked", actor_user_id: user.id, actor_email: user.email ?? null, summary: reason });
   if (envelope.assignment_id) await admin.from("document_assignments").update({ status: "void" }).eq("id", envelope.assignment_id).eq("studio_id", studioId).neq("status", "signed");
-  revalidatePath("/app/documents/sign"); revalidatePath("/app/documents");
+  revalidatePath("/app/documents"); revalidatePath("/app/documents");
   redirect(signPath("success", "revoked"));
 }

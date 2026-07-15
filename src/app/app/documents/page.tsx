@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Clock3, FileSignature, Plus, Send, ShieldCheck, UserPlus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock3, FileSignature, History, Plus, Send, ShieldCheck, Upload, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireStudioFeature } from "@/lib/billing/access";
@@ -14,6 +14,11 @@ import {
   waiveDocumentAssignmentAction,
   voidDocumentAssignmentAction,
 } from "./actions";
+import {
+  createSignEnvelopeAction,
+  resendSignEnvelopeAction,
+  revokeSignEnvelopeAction,
+} from "./sign/actions";
 
 type SearchParams = {
   success?: string;
@@ -74,6 +79,24 @@ type SigningEnvelopeSummary = {
   document_sign_fields:
     | { id: string }[]
     | null;
+};
+
+type SigningEnvelopeRow = {
+  id: string;
+  title: string;
+  signer_name: string;
+  signer_email: string;
+  status: string;
+  expires_at: string | null;
+  sent_at: string | null;
+  viewed_at: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  last_reminded_at: string | null;
+  reminder_count: number | null;
+  assignment_id: string | null;
+  document_sign_fields: { id: string }[] | null;
 };
 
 type OrganizerOption = {
@@ -140,6 +163,26 @@ function formatDateTime(value: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Not recorded";
   return date.toLocaleString();
+}
+
+function envelopeStatusClass(status: string) {
+  if (status === "completed") {
+    return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+  }
+  if (["sent", "viewed", "started"].includes(status)) {
+    return "bg-blue-50 text-blue-700 ring-blue-200";
+  }
+  if (["expired", "declined", "void"].includes(status)) {
+    return "bg-rose-50 text-rose-700 ring-rose-200";
+  }
+  return "bg-violet-50 text-violet-700 ring-violet-200";
+}
+
+function signingStatusMessage(searchParams: SearchParams) {
+  if (searchParams.success === "sent") return "Signing request queued successfully.";
+  if (searchParams.success === "resent") return "A new secure signing link was emailed.";
+  if (searchParams.success === "revoked") return "The signing request was revoked.";
+  return null;
 }
 
 function statusMessage(searchParams: SearchParams) {
@@ -951,6 +994,27 @@ export default async function DocumentsPage({
         .in("id", envelopeIds)
     : { data: [], error: null };
 
+  const { data: allEnvelopeRows, error: allEnvelopesError } = await supabase
+    .from("document_sign_envelopes")
+    .select(
+      "id,title,signer_name,signer_email,status,expires_at,sent_at,viewed_at,started_at,completed_at,created_at,last_reminded_at,reminder_count,assignment_id,document_sign_fields(id)",
+    )
+    .eq("studio_id", studioId)
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  const allEnvelopes = (allEnvelopeRows ?? []) as SigningEnvelopeRow[];
+  const draftEnvelopes = allEnvelopes.filter((item) => item.status === "draft");
+  const activeEnvelopes = allEnvelopes.filter((item) =>
+    ["sent", "viewed", "started"].includes(item.status),
+  );
+  const completedEnvelopes = allEnvelopes.filter(
+    (item) => item.status === "completed",
+  );
+  const closedEnvelopes = allEnvelopes.filter((item) =>
+    ["expired", "declined", "void"].includes(item.status),
+  );
+
   const envelopesById = new Map<string, SigningEnvelopeSummary>();
   for (const envelope of (envelopeRows ?? []) as SigningEnvelopeSummary[]) {
     envelopesById.set(envelope.id, envelope);
@@ -1021,7 +1085,8 @@ export default async function DocumentsPage({
       clientsError ||
       signaturesError ||
       assignmentsError ||
-      envelopesError,
+      envelopesError ||
+      allEnvelopesError,
   );
   const pageMessage =
     error?.message ??
@@ -1029,6 +1094,8 @@ export default async function DocumentsPage({
     signaturesError?.message ??
     assignmentsError?.message ??
     envelopesError?.message ??
+    allEnvelopesError?.message ??
+    signingStatusMessage(resolvedSearchParams) ??
     message;
 
   return (
@@ -1039,20 +1106,27 @@ export default async function DocumentsPage({
             <FileSignature className="h-4 w-4" /> Documents
           </div>
           <h1 className="mt-4 text-3xl font-bold tracking-tight sm:text-4xl">
-            Documents & e-signatures
+            Documents Center
           </h1>
           <p className="mt-3 text-sm leading-7 text-white/85 sm:text-base">
-            Create reusable waivers, policies, agreements, and releases for your
-            studio or organizer events. DanceFlow sends, tracks, and follows up on documents so your team only handles exceptions and approval decisions.
+            Create documents from reusable templates or upload a PDF, place signing
+            fields, send requests, track progress, and retain completed records from one workspace.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
-            <Link
-              href="/app/documents/sign"
+            <a
+              href="#create-document"
               className="inline-flex items-center justify-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-bold text-[var(--brand-primary)] shadow-sm transition hover:bg-white/90"
             >
+              <Plus className="h-4 w-4" />
+              Create document
+            </a>
+            <a
+              href="#active-requests"
+              className="inline-flex items-center justify-center gap-2 rounded-2xl border border-white/30 bg-white/10 px-5 py-3 text-sm font-bold text-white transition hover:bg-white/20"
+            >
               <FileSignature className="h-4 w-4" />
-              Send PDF for signature
-            </Link>
+              View requests
+            </a>
           </div>
         </div>
       </section>
@@ -1064,6 +1138,86 @@ export default async function DocumentsPage({
           {pageMessage}
         </div>
       ) : null}
+
+      <section id="create-document" className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--brand-primary)]">Create document</p>
+          <h2 className="mt-2 text-2xl font-bold text-[var(--brand-text)]">Choose how to start</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--brand-muted)]">
+            Both options create a document workflow. Use a reusable template for standard studio forms, or upload a PDF when the layout already exists.
+          </p>
+        </div>
+
+        <div className="mt-6 grid gap-5 xl:grid-cols-2">
+          <details className="rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
+            <summary className="cursor-pointer list-none">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-2 text-[var(--brand-primary)]">
+                  <FileSignature className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-[var(--brand-text)]">Create from template</h3>
+                  <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                    Build a reusable waiver, policy, agreement, release, or membership form.
+                  </p>
+                </div>
+              </div>
+            </summary>
+            <div className="mt-5">
+              <DocumentTemplateForm organizers={organizers} />
+            </div>
+          </details>
+
+          <details className="rounded-3xl border border-[var(--brand-border)] bg-[var(--brand-surface)] p-5">
+            <summary className="cursor-pointer list-none">
+              <div className="flex items-start gap-3">
+                <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-2 text-[var(--brand-primary)]">
+                  <Upload className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-[var(--brand-text)]">Upload PDF for signature</h3>
+                  <p className="mt-1 text-sm leading-6 text-[var(--brand-muted)]">
+                    Upload an existing PDF, identify the signer, then place fields before sending.
+                  </p>
+                </div>
+              </div>
+            </summary>
+
+            <form action={createSignEnvelopeAction} className="mt-5 grid gap-4 md:grid-cols-2">
+              <label className="text-sm font-semibold text-[var(--brand-text)]">
+                Document title
+                <input name="title" required className="mt-2 w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2.5" />
+              </label>
+              <label className="text-sm font-semibold text-[var(--brand-text)]">
+                PDF file
+                <input name="pdfFile" type="file" accept="application/pdf,.pdf" required className="mt-2 block w-full rounded-xl border border-[var(--brand-border)] bg-white p-2 text-sm" />
+              </label>
+              <label className="text-sm font-semibold text-[var(--brand-text)]">
+                Signer name
+                <input name="signerName" required className="mt-2 w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2.5" />
+              </label>
+              <label className="text-sm font-semibold text-[var(--brand-text)]">
+                Signer email
+                <input name="signerEmail" type="email" required className="mt-2 w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2.5" />
+              </label>
+              <label className="text-sm font-semibold text-[var(--brand-text)]">
+                Link expires in
+                <select name="expiresInDays" defaultValue="7" className="mt-2 w-full rounded-xl border border-[var(--brand-border)] bg-white px-3 py-2.5">
+                  <option value="3">3 days</option>
+                  <option value="7">7 days</option>
+                  <option value="14">14 days</option>
+                  <option value="30">30 days</option>
+                </select>
+              </label>
+              <div className="flex items-end">
+                <button className="w-full rounded-xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-semibold text-white">
+                  Upload and place fields
+                </button>
+              </div>
+            </form>
+          </details>
+        </div>
+      </section>
 
       <section className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1138,14 +1292,118 @@ export default async function DocumentsPage({
         {deliveryExceptions.length ? <p className="mt-4 text-xs font-semibold text-rose-700">{deliveryExceptions.length} pending assignment{deliveryExceptions.length === 1 ? "" : "s"} cannot receive email until a client email address is added.</p> : null}
       </section>
 
+      <section id="active-requests" className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[var(--brand-primary)]">Signing workflow</p>
+            <h2 className="mt-2 text-2xl font-bold text-[var(--brand-text)]">Requests and signing history</h2>
+            <p className="mt-2 text-sm leading-6 text-[var(--brand-muted)]">
+              Drafts and active requests stay operational. Completed and closed requests remain available as signing history.
+            </p>
+          </div>
+          <span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-bold text-[var(--brand-primary)]">
+            {allEnvelopes.length} total
+          </span>
+        </div>
+
+        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl bg-violet-50 p-4"><p className="text-xs font-semibold text-violet-700">Drafts</p><p className="mt-1 text-2xl font-bold text-violet-950">{draftEnvelopes.length}</p></div>
+          <div className="rounded-2xl bg-blue-50 p-4"><p className="text-xs font-semibold text-blue-700">Active</p><p className="mt-1 text-2xl font-bold text-blue-950">{activeEnvelopes.length}</p></div>
+          <div className="rounded-2xl bg-emerald-50 p-4"><p className="text-xs font-semibold text-emerald-700">Completed</p><p className="mt-1 text-2xl font-bold text-emerald-950">{completedEnvelopes.length}</p></div>
+          <div className="rounded-2xl bg-slate-100 p-4"><p className="text-xs font-semibold text-slate-600">Closed</p><p className="mt-1 text-2xl font-bold text-slate-950">{closedEnvelopes.length}</p></div>
+        </div>
+
+        <div className="mt-6 overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="py-3 pr-4">Document</th>
+                <th className="py-3 pr-4">Signer</th>
+                <th className="py-3 pr-4">Status</th>
+                <th className="py-3 pr-4">Activity</th>
+                <th className="py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {allEnvelopes.map((item) => {
+                const active = ["sent", "viewed", "started"].includes(item.status);
+                const fieldCount = item.document_sign_fields?.length ?? 0;
+                return (
+                  <tr key={item.id} className="border-b border-slate-100 align-top">
+                    <td className="py-4 pr-4">
+                      <Link
+                        className="font-semibold text-[var(--brand-primary)] hover:underline"
+                        href={item.status === "draft" ? `/app/documents/sign/${item.id}/edit` : `/app/documents/sign/${item.id}`}
+                      >
+                        {item.title}
+                      </Link>
+                      <div className="mt-1 text-xs text-slate-500">Created {formatDateTime(item.created_at)}</div>
+                    </td>
+                    <td className="py-4 pr-4">
+                      <div>{item.signer_name}</div>
+                      <div className="text-xs text-slate-500">{item.signer_email}</div>
+                    </td>
+                    <td className="py-4 pr-4">
+                      <span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ring-1 ${envelopeStatusClass(item.status)}`}>
+                        {item.status}
+                      </span>
+                    </td>
+                    <td className="py-4 pr-4 text-xs text-slate-600">
+                      {item.status === "draft" ? <div>{fieldCount} field{fieldCount === 1 ? "" : "s"} placed</div> : null}
+                      <div>Sent: {formatDateTime(item.sent_at)}</div>
+                      <div>Viewed: {formatDateTime(item.viewed_at)}</div>
+                      <div>Completed: {formatDateTime(item.completed_at)}</div>
+                    </td>
+                    <td className="py-4">
+                      <div className="flex flex-wrap gap-2">
+                        {item.status === "draft" ? (
+                          <Link href={`/app/documents/sign/${item.id}/edit`} className="rounded-lg bg-[var(--brand-primary)] px-3 py-2 text-xs font-semibold text-white">
+                            {fieldCount ? "Edit field layout" : "Place fields"}
+                          </Link>
+                        ) : (
+                          <Link href={`/app/documents/sign/${item.id}`} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">
+                            Details
+                          </Link>
+                        )}
+                        {active ? (
+                          <form action={resendSignEnvelopeAction}>
+                            <input type="hidden" name="envelopeId" value={item.id} />
+                            <button className="rounded-lg bg-violet-700 px-3 py-2 text-xs font-semibold text-white">Resend</button>
+                          </form>
+                        ) : null}
+                        {["draft", "sent", "viewed", "started"].includes(item.status) ? (
+                          <form action={revokeSignEnvelopeAction}>
+                            <input type="hidden" name="envelopeId" value={item.id} />
+                            <input type="hidden" name="reason" value="Revoked from Documents Center." />
+                            <button className="rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700">Revoke</button>
+                          </form>
+                        ) : null}
+                        {item.status === "completed" ? (
+                          <>
+                            <a href={`/app/documents/sign/${item.id}/signed`} className="rounded-lg border border-emerald-300 px-3 py-2 text-xs font-semibold text-emerald-700">Signed PDF</a>
+                            <a href={`/app/documents/sign/${item.id}/certificate`} className="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700">Certificate</a>
+                          </>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {!allEnvelopes.length ? (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-slate-500">No signing requests yet.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
       <details className="rounded-[2rem] border border-[var(--brand-border)] bg-white p-5 shadow-sm sm:p-6">
         <summary className="cursor-pointer list-none">
-          <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold text-[var(--brand-text)]">Assign, configure, and manage templates</h2><p className="mt-1 text-sm text-[var(--brand-muted)]">Open this area when creating documents, attaching event waivers, or publishing a new version.</p></div><span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-bold text-[var(--brand-primary)]">{(templates ?? []).filter((template) => template.is_active).length} active</span></div>
+          <div className="flex items-center justify-between gap-4"><div><h2 className="text-xl font-bold text-[var(--brand-text)]">Template library</h2><p className="mt-1 text-sm text-[var(--brand-muted)]">Manage reusable templates, client assignment, event requirements, and version history.</p></div><span className="rounded-full bg-[var(--brand-primary-soft)] px-3 py-1 text-xs font-bold text-[var(--brand-primary)]">{(templates ?? []).filter((template) => template.is_active).length} active</span></div>
         </summary>
         <div className="mt-6 space-y-6">
-          <DocumentTemplateForm organizers={organizers} />
-
-
       <section className="space-y-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
