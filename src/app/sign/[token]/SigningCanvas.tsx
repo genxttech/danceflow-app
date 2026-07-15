@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, PenLine, RotateCcw, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, PenLine, RotateCcw, X } from "lucide-react";
 import { completeSigningAction } from "./actions";
 
 type Field = {
@@ -195,6 +195,34 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
   const pageFields = useMemo(() => fields.filter((field) => field.page_number === page), [fields, page]);
   const today = new Date().toLocaleDateString("en-US");
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const pageCount = Math.max(pageSizes.length, 1);
+  const canGoPrevious = page > 1;
+  const canGoNext = page < pageCount;
+
+  function goToPage(nextPage: number) {
+    setPage(Math.min(Math.max(nextPage, 1), pageCount));
+  }
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        if (canGoPrevious) {
+          event.preventDefault();
+          goToPage(page - 1);
+        }
+      }
+
+      if (event.key === "ArrowRight" || event.key === "PageDown") {
+        if (canGoNext) {
+          event.preventDefault();
+          goToPage(page + 1);
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [canGoNext, canGoPrevious, page, pageCount]);
 
   return (
     <>
@@ -206,11 +234,53 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
           <input key={fieldId} type="hidden" name={`field_${fieldId}`} value={JSON.stringify(value)} />
         ))}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-3">
-          <p className="text-sm font-semibold text-slate-800">Complete the highlighted fields</p>
-          <select value={page} onChange={(event) => setPage(Number(event.target.value))} className="rounded-xl border border-slate-300 px-3 py-2 text-sm">
-            {pageSizes.map((item) => <option key={item.pageNumber} value={item.pageNumber}>Page {item.pageNumber}</option>)}
-          </select>
+        <div className="sticky top-3 z-20 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-sm backdrop-blur">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-slate-800">Complete the highlighted fields</p>
+              <p className="mt-1 text-xs text-slate-500">
+                Use Previous and Next to review every page of the document.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={!canGoPrevious}
+                onClick={() => goToPage(page - 1)}
+                className="inline-flex items-center gap-1 rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Previous
+              </button>
+
+              <label className="sr-only" htmlFor="document-page-select">
+                Document page
+              </label>
+              <select
+                id="document-page-select"
+                value={page}
+                onChange={(event) => goToPage(Number(event.target.value))}
+                className="rounded-xl border border-slate-300 px-3 py-2 text-sm"
+              >
+                {pageSizes.map((item) => (
+                  <option key={item.pageNumber} value={item.pageNumber}>
+                    Page {item.pageNumber} of {pageCount}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                disabled={!canGoNext}
+                onClick={() => goToPage(page + 1)}
+                className="inline-flex items-center gap-1 rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-slate-200 p-3">
@@ -218,8 +288,19 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
             <p className="text-xs font-semibold text-slate-600">Page {page} preview</p>
             <a href={`/sign/${encodeURIComponent(token)}/source`} target="_blank" rel="noreferrer" className="text-xs font-semibold text-violet-700 hover:underline">Open document</a>
           </div>
-          <div className="relative mx-auto w-full overflow-hidden bg-white shadow-lg" style={{ aspectRatio: `${size.width}/${size.height}`, maxWidth: size.width, minHeight: 480 }}>
-            <iframe title={`Document page ${page}`} src={`/sign/${encodeURIComponent(token)}/source#page=${page}&toolbar=0&navpanes=0&scrollbar=0&view=FitH`} className="absolute inset-0 h-full w-full border-0 pointer-events-none" />
+          <div
+            className="relative mx-auto w-full overflow-hidden bg-white shadow-lg"
+            style={{
+              aspectRatio: `${size.width}/${size.height}`,
+              maxWidth: size.width,
+              minHeight: 520,
+            }}
+          >
+            <iframe
+              title={`Document page ${page}`}
+              src={`/sign/${encodeURIComponent(token)}/source#page=${page}&toolbar=0&navpanes=0&scrollbar=1&view=FitH`}
+              className="absolute inset-0 h-full w-full border-0 pointer-events-none"
+            />
             <div className="absolute inset-0">
               {pageFields.map((field) => {
                 const style = { left: `${field.x * 100}%`, top: `${field.y * 100}%`, width: `${field.width * 100}%`, height: `${field.height * 100}%` };
@@ -251,6 +332,32 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
                 return <label key={field.id} className="absolute border-2 border-violet-600 bg-white/95 p-0.5 shadow-sm" style={style}><span className="sr-only">{field.label}</span><input name={`field_${field.id}`} required={field.required} defaultValue={defaultValue} placeholder={field.placeholder_text ?? field.label} className="h-full w-full min-w-0 border-0 bg-transparent px-1 text-xs outline-none" /></label>;
               })}
             </div>
+          </div>
+
+          <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <button
+              type="button"
+              disabled={!canGoPrevious}
+              onClick={() => goToPage(page - 1)}
+              className="inline-flex items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous page
+            </button>
+
+            <p className="text-center text-sm font-semibold text-slate-700">
+              Page {page} of {pageCount}
+            </p>
+
+            <button
+              type="button"
+              disabled={!canGoNext}
+              onClick={() => goToPage(page + 1)}
+              className="inline-flex items-center justify-center gap-1 rounded-xl bg-[var(--brand-primary)] px-4 py-2.5 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next page
+              <ChevronRight className="h-4 w-4" />
+            </button>
           </div>
         </div>
 
