@@ -338,7 +338,20 @@ export default async function PayrollPeriodPage({
                 <p className="font-semibold text-slate-950">Batch #{batch.batch_number} · {label(batch.provider)}</p>
                 <p className="text-sm text-slate-500">{batch.earning_count} earnings · {money(batch.net_payment_total)} · {label(batch.status)}</p>
               </div>
-              <Link href={`/app/instructor-pay/export?batchId=${batch.id}`} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">Export CSV</Link>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  href={`/app/instructor-pay/batches/${batch.id}/pdf`}
+                  className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800"
+                >
+                  Payroll packet PDF
+                </Link>
+                <Link
+                  href={`/app/instructor-pay/export?batchId=${batch.id}`}
+                  className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700"
+                >
+                  Detailed CSV
+                </Link>
+              </div>
             </div>
           ))}
           {!batches.length ? <p className="text-sm text-slate-500">No payroll batches have been created for this period.</p> : null}
