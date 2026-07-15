@@ -404,6 +404,19 @@ export default async function SettingsPage() {
               : "Manage Stripe now and review upcoming integrations. Wave is available on the Pro plan."}
           </p>
         </Link>
+
+        <Link
+          href="/app/settings/accountant"
+          className="rounded-lg border border-t-4 border-t-amber-500 bg-white p-5 shadow-sm transition hover:border-amber-300"
+        >
+          <p className="text-sm font-medium text-slate-500">Accounting</p>
+          <h2 className="mt-2 text-xl font-semibold text-slate-900">
+            Accountant and export preferences
+          </h2>
+          <p className="mt-2 text-sm text-slate-600">
+            Store your accountant contact, report preferences, delivery cadence, and explicit export authorization.
+          </p>
+        </Link>
       </div>
 
       <form
