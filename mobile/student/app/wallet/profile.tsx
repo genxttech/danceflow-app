@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
-import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, studentPassQrImageUrl, type LinkedStudioAccess } from "@/lib/studentAccess";
 import { leaveConnectedStudio } from "@/lib/accountControls";
@@ -43,6 +43,9 @@ function ProfileActionCard({
   onPress: () => void;
   title: string;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
+
   return (
     <Pressable
       onPress={onPress}
@@ -66,6 +69,8 @@ function ConnectedStudioCard({
   onLeave: (studio: LinkedStudioAccess) => void;
   studio: LinkedStudioAccess;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const studioName = studio.studioPublicName || studio.studioName || "Connected studio";
   const studentName = [studio.clientFirstName, studio.clientLastName].filter(Boolean).join(" ").trim();
 
@@ -101,6 +106,8 @@ function ConnectedStudioCard({
 
 export default function WalletProfileScreen() {
   const { session, signOut } = useAuth();
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -222,7 +229,8 @@ export default function WalletProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   actionCard: {
     alignItems: "center",
     backgroundColor: colors.surface,
@@ -287,4 +295,5 @@ const styles = StyleSheet.create({
   studioList: {
     gap: 10
   }
-});
+  });
+}

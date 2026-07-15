@@ -7,7 +7,6 @@ import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
 import {
-  colors,
   colorsForScheme,
   getAppearanceMode,
   setAppearanceMode,
@@ -34,6 +33,9 @@ function Field({
   multiline?: boolean;
   editable?: boolean;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
+
   return (
     <View style={styles.field}>
       <AppText variant="eyebrow">{label}</AppText>
@@ -63,6 +65,7 @@ export default function ProfileScreen() {
   const { session, signOut } = useAuth();
   const router = useRouter();
   const themeColors = colorsForScheme(useColorScheme());
+  const styles = createStyles(themeColors);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -348,7 +351,8 @@ export default function ProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   appearanceCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -430,4 +434,5 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginBottom: 4
   }
-});
+  });
+}

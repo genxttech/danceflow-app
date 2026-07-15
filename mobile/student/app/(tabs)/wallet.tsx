@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Image, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Image, Linking, Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router, useFocusEffect, useLocalSearchParams } from "expo-router";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import {
   getStudentEventOrderStatus,
@@ -103,6 +103,9 @@ function WalletCategoryCard({
   onPress: () => void;
   title: string;
 }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
+
   return (
     <Pressable
       onPress={onPress}
@@ -127,6 +130,8 @@ function WalletCategoryCard({
 }
 
 function StudentPassCard({ linkedStudios }: { linkedStudios: LinkedStudioAccess[] }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const primary = linkedStudios[0];
   const name = studentDisplayName(linkedStudios);
   const studioName = primary?.studioPublicName || primary?.studioName || "Connected studio";
@@ -153,6 +158,8 @@ function StudentPassCard({ linkedStudios }: { linkedStudios: LinkedStudioAccess[
 }
 
 function MembershipCard({ membership }: { membership: StudentMembership }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const price = formatCurrency(membership.price);
   const periodEnd = membership.currentPeriodEnd || membership.endsOn;
 
@@ -178,6 +185,8 @@ function MembershipCard({ membership }: { membership: StudentMembership }) {
 }
 
 function PackageCard({ item }: { item: StudentPackage }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const price = formatCurrency(item.price);
 
   return (
@@ -205,6 +214,8 @@ function PackageCard({ item }: { item: StudentPackage }) {
 }
 
 function PaymentRequestCard({ payment }: { payment: StudentPaymentRequest }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const amount = formatCurrency(payment.amount);
 
   return (
@@ -223,6 +234,8 @@ function PaymentRequestCard({ payment }: { payment: StudentPaymentRequest }) {
 }
 
 function TicketCard({ ticket }: { ticket: StudentTicket }) {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const checkedIn = Boolean(ticket.checkedInAt);
   const location = locationLine(ticket);
 
@@ -262,6 +275,8 @@ function TicketCard({ ticket }: { ticket: StudentTicket }) {
 
 export default function WalletScreen() {
   const { session } = useAuth();
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const params = useLocalSearchParams<{ checkout?: string; orderId?: string }>();
   const checkoutSource = normalizeParam(params.checkout);
   const checkoutOrderId = normalizeParam(params.orderId);
@@ -541,7 +556,8 @@ export default function WalletScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   actionRow: {
     gap: 10
   },
@@ -710,4 +726,5 @@ const styles = StyleSheet.create({
   valueList: {
     gap: 12
   }
-});
+  });
+}

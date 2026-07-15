@@ -1,17 +1,19 @@
 import { useEffect, useState } from "react";
-import { Alert, StyleSheet, View } from "react-native";
+import { Alert, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { NotificationPreferencesCard } from "@/components/NotificationPreferencesCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import { deleteDanceFlowAccount } from "@/lib/accountControls";
 
 export default function SettingsScreen() {
   const { session, signOut } = useAuth();
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -115,7 +117,8 @@ export default function SettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
@@ -132,4 +135,5 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 16
   }
-});
+  });
+}

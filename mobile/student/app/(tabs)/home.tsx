@@ -316,9 +316,9 @@ const styles = StyleSheet.create({
     padding: 20
   },
   logo: {
-    height: 42,
-    marginBottom: 4,
-    width: 150
+    height: 68,
+    marginBottom: 6,
+    width: 230
   },
   lumiAvatar: {
     borderRadius: 34,

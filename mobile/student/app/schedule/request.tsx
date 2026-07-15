@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { danceflowApiFetch } from "@/lib/danceflowApi";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
@@ -71,6 +71,8 @@ function shiftMonth(monthKey: string, offset: number) {
 
 export default function ScheduleRequestScreen() {
   const { session } = useAuth();
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const [studios, setStudios] = useState<LinkedStudioAccess[]>([]);
   const [selectedStudioSlug, setSelectedStudioSlug] = useState("");
   const [slots, setSlots] = useState<SelfServiceSlot[]>([]);
@@ -396,7 +398,8 @@ export default function ScheduleRequestScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   dayUnavailable: {
     opacity: 0.32,
   },
@@ -511,4 +514,5 @@ const styles = StyleSheet.create({
   weekRow: {
     flexDirection: "row",
   },
-});
+  });
+}
