@@ -57,6 +57,15 @@ function labelize(value: string | null | undefined) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+
+function csvSafe(value: unknown) {
+  if (typeof value !== "string") return value;
+  const normalized = value.replace(/\u0000/g, "");
+  return /^[\s]*[=+\-@\t\r]/.test(normalized)
+    ? `'${normalized}`
+    : normalized;
+}
+
 function safeFilenamePart(value: string | null | undefined) {
   return (value || "all").replace(/[^a-z0-9_-]/gi, "-").toLowerCase();
 }
@@ -96,38 +105,50 @@ export async function GET(request: Request) {
   const { data, error } = await query;
 
   if (error) {
+    console.error("Instructor pay export failed", {
+      studioId: context.studioId,
+      batchId,
+      status,
+      instructorId,
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+    });
     return NextResponse.json(
-      { error: `Instructor pay export failed: ${error.message}` },
+      { error: "The instructor-pay export could not be generated. No data was downloaded." },
       { status: 500 },
     );
   }
 
-  const rows = ((data ?? []) as EarningExportRow[]).map((earning) => [
-    earning.earning_date,
-    relationName(earning.instructors, "Instructor"),
-    relationName(earning.clients, ""),
-    labelize(earning.appointment_type),
-    labelize(earning.source_type),
-    Number(earning.gross_revenue_basis ?? 0),
-    labelize(earning.pay_mode),
-    Number(earning.pay_rate_amount ?? 0),
-    Number(earning.pay_percentage ?? 0),
-    earning.attendance_count ?? 0,
-    Number(earning.earning_amount ?? 0),
-    labelize(earning.status),
-    earning.paid_at,
-    labelize(earning.payment_method),
-    labelize(earning.worker_classification_snapshot),
-    earning.accounting_category_snapshot ?? "",
-    Number(earning.taxable_compensation_amount ?? 0),
-    Number(earning.reimbursement_amount ?? 0),
-    Number(earning.deduction_amount ?? 0),
-    earning.pay_period_id ?? "",
-    earning.payroll_batch_id ?? "",
-    earning.notes ?? "",
-    earning.appointment_id ?? "",
-    earning.id,
-  ]);
+  const rows = ((data ?? []) as EarningExportRow[]).map((earning) =>
+    [
+      earning.earning_date,
+      relationName(earning.instructors, "Instructor"),
+      relationName(earning.clients, ""),
+      labelize(earning.appointment_type),
+      labelize(earning.source_type),
+      Number(earning.gross_revenue_basis ?? 0),
+      labelize(earning.pay_mode),
+      Number(earning.pay_rate_amount ?? 0),
+      Number(earning.pay_percentage ?? 0),
+      earning.attendance_count ?? 0,
+      Number(earning.earning_amount ?? 0),
+      labelize(earning.status),
+      earning.paid_at,
+      labelize(earning.payment_method),
+      labelize(earning.worker_classification_snapshot),
+      earning.accounting_category_snapshot ?? "",
+      Number(earning.taxable_compensation_amount ?? 0),
+      Number(earning.reimbursement_amount ?? 0),
+      Number(earning.deduction_amount ?? 0),
+      earning.pay_period_id ?? "",
+      earning.payroll_batch_id ?? "",
+      earning.notes ?? "",
+      earning.appointment_id ?? "",
+      earning.id,
+    ].map(csvSafe),
+  );
 
   const csv = toCsv(
     [
@@ -164,7 +185,8 @@ export async function GET(request: Request) {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="danceflow-instructor-pay-${safeFilenamePart(batchId ? `batch-${batchId}` : payPeriodId ? `period-${payPeriodId}` : status)}.csv"`,
-      "Cache-Control": "no-store",
+      "Cache-Control": "private, no-store, max-age=0",
+      "X-Content-Type-Options": "nosniff",
     },
   });
 }
