@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createAdminClient } from "@/lib/supabase/admin";
+import { accountingCategoryLabel } from "@/lib/accounting/categories";
 import { createWaveMoneyTransaction, WavePostingUncertainError } from "@/lib/integrations/wave/client";
 import { getValidWaveAccessToken } from "@/lib/integrations/wave/token";
 
@@ -115,16 +116,38 @@ async function postClaimedLine({
     throw new Error("Claimed Wave posting line is unavailable.");
   }
 
-  await admin.from("studio_wave_audit_events").insert({
-    studio_id: run.studio_id,
-    connection_id: connection.id,
-    run_id: run.id,
-    line_id: line.id,
-    event_type: "auto_post_line",
-    outcome: "started",
-    actor_user_id: null,
-    details: { waveExternalId: line.wave_external_id, amount: line.amount, currency: line.currency },
-  });
+  const { error: auditStartError } = await admin
+    .from("studio_wave_audit_events")
+    .insert({
+      studio_id: run.studio_id,
+      connection_id: connection.id,
+      run_id: run.id,
+      line_id: line.id,
+      event_type: "auto_post_line",
+      outcome: "started",
+      actor_user_id: null,
+      details: {
+        waveExternalId: line.wave_external_id,
+        amount: line.amount,
+        currency: line.currency,
+      },
+    });
+
+  if (auditStartError) {
+    await admin
+      .from("studio_wave_sync_lines")
+      .update({ posting_status: "pending", posting_started_at: null })
+      .eq("id", line.id);
+    await admin
+      .from("studio_wave_sync_runs")
+      .update({
+        status: run.status,
+        posting_error: "Automatic posting audit could not be started.",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", run.id);
+    throw new Error(auditStartError.message);
+  }
 
   try {
     const anchorDirection = anchorDirectionFor(line);
@@ -134,8 +157,8 @@ async function postClaimedLine({
       businessId: connection.wave_business_id!,
       externalId: line.wave_external_id,
       date: line.entry_date,
-      description: `DanceFlow ${line.category.replaceAll("_", " ")}`,
-      notes: `DanceFlow auto-post run ${run.id}; ${line.source_count ?? 0} source component(s).`,
+      description: `DanceFlow — ${accountingCategoryLabel(line.category)}`,
+      notes: `DanceFlow automatic accounting run ${run.id}; ${line.source_count ?? 0} source component(s).`,
       anchor: { accountId: line.wave_anchor_account_id, amount, direction: anchorDirection },
       lineItems: [{
         accountId: line.wave_category_account_id,
@@ -152,16 +175,36 @@ async function postClaimedLine({
     }).eq("id", line.id);
     if (saveError) throw new WavePostingUncertainError(`Wave created transaction ${transactionId}, but DanceFlow could not save the result.`);
 
-    await admin.from("studio_wave_audit_events").insert({
-      studio_id: run.studio_id,
-      connection_id: connection.id,
-      run_id: run.id,
-      line_id: line.id,
-      event_type: "auto_post_line",
-      outcome: "succeeded",
-      actor_user_id: null,
-      details: { waveExternalId: line.wave_external_id, waveTransactionId: transactionId },
-    });
+    const { error: auditSuccessError } = await admin
+      .from("studio_wave_audit_events")
+      .insert({
+        studio_id: run.studio_id,
+        connection_id: connection.id,
+        run_id: run.id,
+        line_id: line.id,
+        event_type: "auto_post_line",
+        outcome: "succeeded",
+        actor_user_id: null,
+        details: {
+          waveExternalId: line.wave_external_id,
+          waveTransactionId: transactionId,
+        },
+      });
+
+    if (auditSuccessError) {
+      await admin
+        .from("studio_wave_sync_runs")
+        .update({
+          status: "attention_required",
+          posting_error:
+            "Wave posted successfully, but the automatic-post audit completion event could not be saved.",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", run.id);
+      throw new WavePostingUncertainError(
+        `Wave created transaction ${transactionId}, but DanceFlow could not save the audit completion event.`,
+      );
+    }
 
     const completedRun = await markRunCompleteIfFinished(admin, run.id);
     return { posted: true, completedRun };
@@ -177,16 +220,30 @@ async function postClaimedLine({
       posting_error: message,
       updated_at: new Date().toISOString(),
     }).eq("id", run.id);
-    await admin.from("studio_wave_audit_events").insert({
-      studio_id: run.studio_id,
-      connection_id: connection.id,
-      run_id: run.id,
-      line_id: line.id,
-      event_type: "auto_post_line",
-      outcome: uncertain ? "uncertain" : "failed",
-      actor_user_id: null,
-      details: { waveExternalId: line.wave_external_id, error: message },
-    });
+    const { error: auditFailureError } = await admin
+      .from("studio_wave_audit_events")
+      .insert({
+        studio_id: run.studio_id,
+        connection_id: connection.id,
+        run_id: run.id,
+        line_id: line.id,
+        event_type: "auto_post_line",
+        outcome: uncertain ? "uncertain" : "failed",
+        actor_user_id: null,
+        details: { waveExternalId: line.wave_external_id, error: message },
+      });
+
+    if (auditFailureError) {
+      await admin
+        .from("studio_wave_sync_runs")
+        .update({
+          status: "attention_required",
+          posting_error: `${message} Audit failure: ${auditFailureError.message}`,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", run.id);
+    }
+
     throw error;
   }
 }

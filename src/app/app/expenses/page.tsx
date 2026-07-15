@@ -7,11 +7,11 @@ import {
   DollarSign,
   Plus,
   ReceiptText,
-  Trash2,
+  Ban,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { createExpenseAction, deleteExpenseAction } from "./actions";
+import { createExpenseAction, voidExpenseAction } from "./actions";
 
 type ExpenseRow = {
   id: string;
@@ -24,6 +24,8 @@ type ExpenseRow = {
   related_event_id: string | null;
   notes: string | null;
   created_at: string;
+  voided_at: string | null;
+  void_reason: string | null;
 };
 
 type EventOptionRow = {
@@ -169,7 +171,9 @@ export default async function ExpensesPage() {
           payment_method,
           related_event_id,
           notes,
-          created_at
+          created_at,
+          voided_at,
+          void_reason
         `
       )
       .eq("studio_id", context.studioId)
@@ -199,12 +203,14 @@ export default async function ExpensesPage() {
     typedEventOptions.map((event) => [event.id, formatEventOptionLabel(event)]),
   );
 
-  const totalExpenses = typedExpenses.reduce(
+  const activeExpenses = typedExpenses.filter((expense) => !expense.voided_at);
+
+  const totalExpenses = activeExpenses.reduce(
     (sum, expense) => sum + Number(expense.amount ?? 0),
     0
   );
 
-  const floorFeeTotal = typedExpenses
+  const floorFeeTotal = activeExpenses
     .filter((expense) => expense.category === "floor_fee")
     .reduce((sum, expense) => sum + Number(expense.amount ?? 0), 0);
 
@@ -271,8 +277,8 @@ export default async function ExpensesPage() {
         />
         <StatCard
           label="Expense Records"
-          value={String(typedExpenses.length)}
-          helper="Recently recorded expenses"
+          value={String(activeExpenses.length)}
+          helper="Active recent expense records"
           icon={ReceiptText}
         />
       </div>
@@ -473,7 +479,10 @@ export default async function ExpensesPage() {
 
               <tbody className="divide-y divide-slate-200 bg-white">
                 {typedExpenses.map((expense) => (
-                  <tr key={expense.id}>
+                  <tr
+                    key={expense.id}
+                    className={expense.voided_at ? "bg-slate-50 opacity-70" : ""}
+                  >
                     <td className="whitespace-nowrap px-6 py-4 text-slate-700">
                       {formatDate(expense.expense_date)}
                     </td>
@@ -507,21 +516,54 @@ export default async function ExpensesPage() {
                       {formatCurrency(expense.amount, expense.currency)}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-right">
-                      {allowManage ? (
-                        <form action={deleteExpenseAction}>
-                          <input
-                            type="hidden"
-                            name="expense_id"
-                            value={expense.id}
-                          />
-                          <button
-                            type="submit"
-                            className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100"
+                      {expense.voided_at ? (
+                        <div className="text-right">
+                          <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+                            Voided
+                          </span>
+                          {expense.void_reason ? (
+                            <p
+                              className="mt-1 max-w-48 whitespace-normal text-xs text-slate-500"
+                              title={expense.void_reason}
+                            >
+                              {expense.void_reason}
+                            </p>
+                          ) : null}
+                        </div>
+                      ) : allowManage ? (
+                        <details className="inline-block text-left">
+                          <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100">
+                            <Ban className="h-3.5 w-3.5" />
+                            Void
+                          </summary>
+                          <form
+                            action={voidExpenseAction}
+                            className="mt-2 w-64 rounded-xl border border-slate-200 bg-white p-3 shadow-lg"
                           >
-                            <Trash2 className="h-3.5 w-3.5" />
-                            Delete
-                          </button>
-                        </form>
+                            <input
+                              type="hidden"
+                              name="expense_id"
+                              value={expense.id}
+                            />
+                            <label className="block text-xs font-medium text-slate-700">
+                              Reason for voiding
+                              <textarea
+                                name="void_reason"
+                                required
+                                maxLength={500}
+                                rows={2}
+                                placeholder="Duplicate, entered incorrectly, refunded..."
+                                className="mt-1 w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                              />
+                            </label>
+                            <button
+                              type="submit"
+                              className="mt-2 w-full rounded-lg bg-amber-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-800"
+                            >
+                              Confirm void
+                            </button>
+                          </form>
+                        </details>
                       ) : (
                         <span className="text-xs text-slate-400">—</span>
                       )}

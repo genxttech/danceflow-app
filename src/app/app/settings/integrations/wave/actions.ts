@@ -7,6 +7,10 @@ import { requireSettingsManageAccess } from "@/lib/auth/serverRoleGuard";
 import { requireStudioFeature } from "@/lib/billing/access";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getStudioAccountingEntries } from "@/lib/accounting/entries";
+import {
+  accountingCategoryLabel,
+  isCategoryAccountTypeAllowed,
+} from "@/lib/accounting/categories";
 import { buildWavePostingLines, WAVE_ACCOUNTING_CATEGORIES, WAVE_PAYMENT_METHODS, type WavePaymentMethodKey } from "@/lib/integrations/wave/categories";
 import { createWaveMoneyTransaction, getWaveAccounts, WavePostingUncertainError } from "@/lib/integrations/wave/client";
 import { getValidWaveAccessToken } from "@/lib/integrations/wave/token";
@@ -93,12 +97,30 @@ export async function saveWaveMappingsAction(formData: FormData) {
   if (error) throw new Error(error.message);
   const byId = new Map((accounts ?? []).map((account) => [account.wave_account_id, account]));
 
-  const rows = WAVE_ACCOUNTING_CATEGORIES.flatMap((category) => {
+  const selectedMappings = WAVE_ACCOUNTING_CATEGORIES.flatMap((category) => {
     const account = byId.get(String(formData.get(`mapping:${category}`) ?? ""));
-    return account ? [{ studio_id: studioId, connection_id: connection.id, accounting_category: category,
-      wave_account_id: account.wave_account_id, wave_account_name: account.name, wave_account_type: account.account_type,
-      created_by: userId, updated_at: new Date().toISOString() }] : [];
+    return account ? [{ category, account }] : [];
   });
+
+  if (
+    selectedMappings.some(
+      ({ category, account }) =>
+        !isCategoryAccountTypeAllowed(category, account.account_type),
+    )
+  ) {
+    redirect("/app/settings/integrations/wave?status=invalid_category_account");
+  }
+
+  const rows = selectedMappings.map(({ category, account }) => ({
+    studio_id: studioId,
+    connection_id: connection.id,
+    accounting_category: category,
+    wave_account_id: account.wave_account_id,
+    wave_account_name: account.name,
+    wave_account_type: account.account_type,
+    created_by: userId,
+    updated_at: new Date().toISOString(),
+  }));
   await supabase.from("studio_wave_account_mappings").delete().eq("connection_id", connection.id);
   if (rows.length) {
     const { error: insertError } = await supabase.from("studio_wave_account_mappings").insert(rows);
@@ -340,8 +362,8 @@ export async function postNextWaveLineAction(formData: FormData) {
       businessId: connection.wave_business_id,
       externalId: line.wave_external_id,
       date: line.entry_date,
-      description: `DanceFlow ${line.category.replaceAll("_", " ")}`,
-      notes: `DanceFlow run ${runId}; ${line.source_count} source component(s).`,
+      description: `DanceFlow — ${accountingCategoryLabel(line.category)}`,
+      notes: `DanceFlow accounting run ${runId}; ${line.source_count} source component(s).`,
       anchor: { accountId: line.wave_anchor_account_id, amount, direction: anchorDirection },
       lineItems: [{ accountId: line.wave_category_account_id, amount, balance: direction.toUpperCase() as "DEBIT" | "CREDIT" }],
     });

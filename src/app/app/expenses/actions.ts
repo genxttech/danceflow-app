@@ -53,6 +53,27 @@ function canManageExpenses(role: string | null | undefined, isPlatformAdmin: boo
   );
 }
 
+function expenseAccountingCategory(category: (typeof allowedCategories)[number]) {
+  const categories: Record<(typeof allowedCategories)[number], string> = {
+    floor_fee: "floor_fee_expense",
+    rent: "rent_expense",
+    instructor_pay: "instructor_pay_expense",
+    marketing: "marketing_expense",
+    software: "software_expense",
+    supplies: "supplies_expense",
+    costumes_retail_inventory: "costumes_retail_inventory_expense",
+    event_expense: "event_expense",
+    travel: "travel_expense",
+    meals: "meals_expense",
+    utilities: "utilities_expense",
+    insurance: "insurance_expense",
+    professional_services: "professional_services_expense",
+    other: "other_expense",
+  };
+
+  return categories[category];
+}
+
 function parseAmount(value: string | null | undefined) {
   const raw = String(value ?? "").replace(/,/g, "").trim();
   if (!/^\d{1,9}(\.\d{1,2})?$/.test(raw)) return null;
@@ -128,12 +149,15 @@ export async function createExpenseAction(formData: FormData) {
     throw new Error("Amount must be a valid non-negative number with up to 2 decimals.");
   }
 
+  const category = getValidatedValue(categoryResult);
+
   const { error } = await supabase.from("expenses").insert({
     studio_id: context.studioId,
     recorded_by: user.id,
     expense_date: expenseDate,
     vendor_name: getValidatedValue(vendorNameResult),
-    category: getValidatedValue(categoryResult),
+    category,
+    accounting_category: expenseAccountingCategory(category),
     amount,
     currency: "USD",
     payment_method: getValidatedValue(paymentMethodResult),
@@ -149,7 +173,7 @@ export async function createExpenseAction(formData: FormData) {
   revalidatePath("/app/reports");
 }
 
-export async function deleteExpenseAction(formData: FormData) {
+export async function voidExpenseAction(formData: FormData) {
   const supabase = await createClient();
 
   const {
@@ -157,7 +181,7 @@ export async function deleteExpenseAction(formData: FormData) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    throw new Error("You must be signed in to delete an expense.");
+    throw new Error("You must be signed in to void an expense.");
   }
 
   const context = await getCurrentStudioContext();
@@ -167,23 +191,63 @@ export async function deleteExpenseAction(formData: FormData) {
   }
 
   if (!canManageExpenses(context.studioRole, context.isPlatformAdmin)) {
-    throw new Error("You do not have permission to delete expenses.");
+    throw new Error("You do not have permission to void expenses.");
   }
 
-  const expenseIdResult = normalizeOptionalUuid(rawFormString(formData, "expense_id"), "Expense");
+  const expenseIdResult = normalizeOptionalUuid(
+    rawFormString(formData, "expense_id"),
+    "Expense",
+  );
+  const reasonResult = cleanTextValue(rawFormString(formData, "void_reason"), {
+    fieldLabel: "Void reason",
+    maxLength: 500,
+    required: true,
+  });
+
+  const validationError = getValidationError([expenseIdResult, reasonResult]);
+
+  if (validationError) {
+    throw new Error(validationError);
+  }
 
   if (!expenseIdResult.ok || !expenseIdResult.value) {
     throw new Error("Expense ID is required.");
   }
 
+  const voidReason = getValidatedValue(reasonResult);
+
+  if (!voidReason) {
+    throw new Error("A reason is required to void an expense.");
+  }
+
+  const { data: expense, error: lookupError } = await supabase
+    .from("expenses")
+    .select("id, voided_at")
+    .eq("id", expenseIdResult.value)
+    .eq("studio_id", context.studioId)
+    .single();
+
+  if (lookupError || !expense) {
+    throw new Error("The expense could not be found.");
+  }
+
+  if (expense.voided_at) {
+    throw new Error("This expense has already been voided.");
+  }
+
   const { error } = await supabase
     .from("expenses")
-    .delete()
-    .eq("id", expenseIdResult.value)
-    .eq("studio_id", context.studioId);
+    .update({
+      voided_at: new Date().toISOString(),
+      voided_by: user.id,
+      void_reason: voidReason,
+    })
+    .eq("id", expense.id)
+    .eq("studio_id", context.studioId)
+    .is("voided_at", null);
 
   if (error) {
-    throw new Error(`Could not delete expense: ${error.message}`);
+    throw new Error(`Could not void expense: ${error.message}`);
   }
 
   revalidatePath("/app/expenses");

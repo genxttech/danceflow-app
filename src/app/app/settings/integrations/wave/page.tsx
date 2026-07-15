@@ -20,8 +20,18 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { requireStudioFeature } from "@/lib/billing/access";
 import { createClient } from "@/lib/supabase/server";
 import { getStudioAccountingEntries } from "@/lib/accounting/entries";
-import { buildWavePostingLines, WAVE_ACCOUNTING_CATEGORIES, WAVE_PAYMENT_METHODS, type WavePaymentMethodKey } from "@/lib/integrations/wave/categories";
-import { accountingCategoryLabel } from "@/lib/accounting/entries";
+import {
+  ACCOUNTING_CATEGORIES,
+  accountingCategoryLabel,
+  getAccountingCategory,
+  isCategoryAccountTypeAllowed,
+} from "@/lib/accounting/categories";
+import {
+  buildWavePostingLines,
+  WAVE_ACCOUNTING_CATEGORIES,
+  WAVE_PAYMENT_METHODS,
+  type WavePaymentMethodKey,
+} from "@/lib/integrations/wave/categories";
 import { approveWaveReviewRunAction, cancelWaveReviewRunAction, createWaveReviewRunAction, disconnectWaveAction, postNextWaveLineAction, reconcileWaveRunAction, refreshWaveAccountsAction, saveWaveMappingsAction, saveWavePaymentMethodsAction, selectWaveBusinessAction, setWavePostingEnabledAction, setWavePostingModeAction } from "./actions";
 
 type PageProps = { searchParams: Promise<{ status?: string; start?: string; end?: string; run?: string }> };
@@ -79,6 +89,7 @@ const statusText: Record<string, string> = {
   payment_methods_saved: "Payment-method anchors were saved.",
   stripe_anchor_required: "Stripe Clearing is required before saving payment-method anchors.",
   invalid_payment_anchor: "Payment routing can only use Wave asset, bank, cash, or clearing accounts. Accounts Payable and other liability/category accounts cannot be used as payment anchors.",
+  invalid_category_account: "One or more category mappings used an incompatible Wave account type. Review the account guidance beside each category and save again.",
   preview_not_ready: "Resolve every unmapped preview line before creating a review run.",
   multiple_currencies: "Create separate review runs for each currency.",
   no_entries: "No accounting entries were found in that period.",
@@ -160,6 +171,43 @@ export default async function WaveSettingsPage({ searchParams }: PageProps) {
     ? await supabase.from("studio_wave_audit_events").select("id, event_type, outcome, details, created_at").eq("run_id", selectedRun.id).order("created_at", { ascending: true })
     : { data: [] };
   const allowlisted = Boolean(entitlement && ["pilot", "active"].includes(entitlement.status));
+  const categoryDefinitions = ACCOUNTING_CATEGORIES.filter((category) =>
+    WAVE_ACCOUNTING_CATEGORIES.includes(category.key),
+  );
+  const categoryGroups = [
+    {
+      key: "revenue",
+      label: "Revenue",
+      description: "Income earned from lessons, classes, packages, memberships, events, rentals, and other studio activity.",
+      categories: categoryDefinitions.filter((category) => category.entryClass === "revenue"),
+    },
+    {
+      key: "refunds",
+      label: "Refunds and contra-income",
+      description: "Amounts returned to clients or deducted from previously recorded revenue.",
+      categories: categoryDefinitions.filter((category) => category.entryClass === "refund"),
+    },
+    {
+      key: "fees",
+      label: "Processing and platform fees",
+      description: "Stripe processing costs and DanceFlow or organizer platform fees.",
+      categories: categoryDefinitions.filter((category) => category.entryClass === "fee"),
+    },
+    {
+      key: "expenses",
+      label: "Operating expenses",
+      description: "Studio operating costs, professional services, travel, event costs, and payroll-prep expenses.",
+      categories: categoryDefinitions.filter((category) => category.entryClass === "expense"),
+    },
+    {
+      key: "balance-sheet",
+      label: "Liabilities, clearing, and adjustments",
+      description: "Payroll liabilities, account credits, clearing accounts, and controlled manual adjustments.",
+      categories: categoryDefinitions.filter((category) =>
+        ["asset", "liability", "adjustment"].includes(category.entryClass),
+      ),
+    },
+  ].filter((group) => group.categories.length > 0);
 
   return (
     <div className="space-y-5 pb-10">
@@ -263,9 +311,91 @@ export default async function WaveSettingsPage({ searchParams }: PageProps) {
           {connection.wave_business_id ? <section id="categories" className="scroll-mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <SectionTitle step="3" icon={SlidersHorizontal} title="Category mappings" description="Match DanceFlow revenue, refunds, fees, and expenses to your Wave chart of accounts." />
             <div className="p-5"><form action={saveWaveMappingsAction} className="space-y-5">
-              <div className="overflow-x-auto rounded-lg border border-slate-200"><table className="w-full min-w-[680px] text-left text-sm"><thead className="bg-slate-50"><tr className="border-b border-slate-200 text-slate-600"><th className="px-3 py-2.5">DanceFlow category</th><th className="px-3 py-2.5">Wave account</th></tr></thead><tbody>
-                {WAVE_ACCOUNTING_CATEGORIES.map((category) => <tr key={category} className="border-b border-slate-100 last:border-b-0 hover:bg-fuchsia-50/40"><td className="px-3 py-2.5 font-medium text-slate-800">{accountingCategoryLabel(category)}</td><td className="px-3 py-2"><select name={`mapping:${category}`} defaultValue={mappingByCategory.get(category)?.waveAccountId ?? ""} className="w-full rounded-md border border-slate-300 px-2 py-1.5"><option value="">Not mapped</option>{(accounts ?? []).map((account) => <option key={account.wave_account_id} value={account.wave_account_id}>{account.name}</option>)}</select></td></tr>)}
-              </tbody></table></div>
+              <div className="space-y-4">
+                {categoryGroups.map((group) => (
+                  <details
+                    key={group.key}
+                    open={group.key === "revenue" || group.key === "expenses"}
+                    className="overflow-hidden rounded-lg border border-slate-200 bg-white"
+                  >
+                    <summary className="cursor-pointer list-none border-b border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-semibold text-slate-950">{group.label}</p>
+                          <p className="mt-1 text-xs leading-5 text-slate-600">{group.description}</p>
+                        </div>
+                        <StatusBadge tone="slate">{group.categories.length} categories</StatusBadge>
+                      </div>
+                    </summary>
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[760px] text-left text-sm">
+                        <thead className="bg-white">
+                          <tr className="border-b border-slate-200 text-slate-600">
+                            <th className="px-3 py-2.5">DanceFlow category</th>
+                            <th className="px-3 py-2.5">Accepted Wave account types</th>
+                            <th className="px-3 py-2.5">Wave account</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {group.categories.map((category) => {
+                            const allowedAccounts = (accounts ?? []).filter((account) =>
+                              isCategoryAccountTypeAllowed(category.key, account.account_type),
+                            );
+                            const selectedAccountId =
+                              mappingByCategory.get(category.key)?.waveAccountId ?? "";
+                            const selectedAccountStillAllowed = allowedAccounts.some(
+                              (account) => account.wave_account_id === selectedAccountId,
+                            );
+
+                            return (
+                              <tr
+                                key={category.key}
+                                className="border-b border-slate-100 last:border-b-0 hover:bg-fuchsia-50/40"
+                              >
+                                <td className="px-3 py-3 align-top">
+                                  <p className="font-medium text-slate-800">
+                                    {accountingCategoryLabel(category.key)}
+                                  </p>
+                                  {category.key === "unclassified_revenue" ? (
+                                    <p className="mt-1 text-xs font-medium text-amber-700">
+                                      Must be reviewed before posting.
+                                    </p>
+                                  ) : null}
+                                </td>
+                                <td className="px-3 py-3 align-top text-xs text-slate-600">
+                                  {getAccountingCategory(category.key)?.allowedExternalAccountTypes.join(", ") ?? "—"}
+                                </td>
+                                <td className="px-3 py-2">
+                                  <select
+                                    name={`mapping:${category.key}`}
+                                    defaultValue={selectedAccountStillAllowed ? selectedAccountId : ""}
+                                    className="w-full rounded-md border border-slate-300 px-2 py-1.5"
+                                  >
+                                    <option value="">Not mapped</option>
+                                    {allowedAccounts.map((account) => (
+                                      <option
+                                        key={account.wave_account_id}
+                                        value={account.wave_account_id}
+                                      >
+                                        {account.name} · {account.account_subtype ?? account.account_type ?? "Account"}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {!allowedAccounts.length ? (
+                                    <p className="mt-1 text-xs text-amber-700">
+                                      No compatible Wave account is currently available.
+                                    </p>
+                                  ) : null}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                ))}
+              </div>
               <button className="rounded-md bg-[#5B197A] px-4 py-2 text-sm font-semibold text-white hover:bg-[#46115E]">Save category mappings</button>
             </form></div>
           </section> : null}

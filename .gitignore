@@ -148,3 +148,6 @@ node_modules
 desktop.ini
 Thumbs.db
 mobile/student/google-services.json
+
+# Local database backups
+/backups/

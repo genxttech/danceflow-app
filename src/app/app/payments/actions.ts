@@ -128,6 +128,22 @@ function getPaymentType(entryMode: string, serviceType: string) {
   return "general";
 }
 
+function getAccountingCategory(entryMode: string, serviceType: string) {
+  if (
+    entryMode === "sell_package_and_pay" ||
+    entryMode === "existing_package_payment"
+  ) {
+    return "package_revenue";
+  }
+
+  if (serviceType === "floor_rental") return "floor_rental_revenue";
+  if (serviceType === "event_registration") return "event_ticket_revenue";
+
+  // General payments must be reviewed or classified by the originating
+  // workflow before they are eligible for automatic accounting posting.
+  return "unclassified_revenue";
+}
+
 export async function createPaymentAction(
   prevState: { error: string },
   formData: FormData
@@ -384,6 +400,7 @@ export async function createPaymentAction(
     }
 
     const paymentType = getPaymentType(entryMode, serviceType);
+    const accountingCategory = getAccountingCategory(entryMode, serviceType);
     const requestNote =
       paymentAction === "charge_now"
         ? "Created for Charge Now Stripe Checkout."
@@ -415,6 +432,7 @@ export async function createPaymentAction(
         paid_at: isPaidLikeStatus(status) ? selectedPaymentDateIso : null,
         created_by: user.id,
         payment_type: paymentType,
+        accounting_category: accountingCategory,
         fulfillment_type:
           paymentAction === "terminal" && entryMode === "sell_package_and_pay"
             ? "activate_package"
