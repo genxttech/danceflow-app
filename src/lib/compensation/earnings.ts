@@ -36,6 +36,25 @@ type ExistingEarningRow = {
   status: string;
 };
 
+type PayrollProfileRow = {
+  worker_classification: "not_set" | "contractor" | "employee" | "owner";
+  payroll_active: boolean;
+};
+
+function accountingCategoryForWorkerClassification(
+  workerClassification: PayrollProfileRow["worker_classification"],
+) {
+  if (workerClassification === "employee") {
+    return "employee_wage_expense";
+  }
+
+  if (workerClassification === "owner") {
+    return "instructor_pay_expense";
+  }
+
+  return "contract_labor_expense";
+}
+
 type StageInstructorEarningInput = {
   supabase: SupabaseClient;
   studioId: string;
@@ -261,6 +280,27 @@ export async function stageInstructorEarningForAppointment({
     return { staged: false, reason: "rule_not_found" };
   }
 
+  const { data: payrollProfile, error: payrollProfileError } = await supabase
+    .from("instructor_payroll_profiles")
+    .select("worker_classification, payroll_active")
+    .eq("studio_id", studioId)
+    .eq("instructor_id", typedAppointment.instructor_id)
+    .maybeSingle();
+
+  const typedPayrollProfile = payrollProfile as PayrollProfileRow | null;
+
+  if (
+    payrollProfileError ||
+    !typedPayrollProfile ||
+    !typedPayrollProfile.payroll_active
+  ) {
+    return { staged: false, reason: "payroll_profile_inactive" };
+  }
+
+  if (typedPayrollProfile.worker_classification === "not_set") {
+    return { staged: false, reason: "worker_classification_required" };
+  }
+
   const { data: existing } = await supabase
     .from("instructor_earnings")
     .select("id, status")
@@ -307,6 +347,15 @@ export async function stageInstructorEarningForAppointment({
     attendance_count: calculation.attendanceCount,
     earning_amount: calculation.earningAmount,
     status: "pending",
+    worker_classification_snapshot:
+      typedPayrollProfile.worker_classification,
+    accounting_category_snapshot:
+      accountingCategoryForWorkerClassification(
+        typedPayrollProfile.worker_classification,
+      ),
+    taxable_compensation_amount: calculation.earningAmount,
+    reimbursement_amount: 0,
+    deduction_amount: 0,
     notes: sourceNote,
     created_by: createdBy,
     updated_at: new Date().toISOString(),

@@ -3,7 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
-import { requireInstructorManageAccess } from "@/lib/auth/serverRoleGuard";
+import {
+  requirePayrollDisbursementAccess,
+  requirePayrollPrepareAccess,
+} from "@/lib/auth/serverRoleGuard";
 import { generateInstructorEarningsForCompletedAppointments } from "@/lib/compensation/earnings";
 
 function getString(formData: FormData, key: string) {
@@ -27,9 +30,55 @@ function redirectWithStatus(status: string): never {
   redirect(`/app/instructor-pay?status=${encodeURIComponent(status)}`);
 }
 
+export async function saveInstructorPayrollProfileAction(formData: FormData) {
+  try {
+    const { supabase, studioId, user } = await requirePayrollPrepareAccess();
+    const instructorId = getString(formData, "instructorId");
+    const workerClassification =
+      getString(formData, "workerClassification") || "not_set";
+    const payrollActive = getString(formData, "payrollActive") === "on";
+    const externalPayrollId =
+      getString(formData, "externalPayrollId") || null;
+    const payrollNotes = getString(formData, "payrollNotes") || null;
+
+    if (!instructorId) redirectWithStatus("missing_instructor");
+    if (
+      !["not_set", "contractor", "employee", "owner"].includes(
+        workerClassification,
+      )
+    ) {
+      redirectWithStatus("invalid_worker_classification");
+    }
+
+    const { error } = await supabase
+      .from("instructor_payroll_profiles")
+      .upsert(
+        {
+          studio_id: studioId,
+          instructor_id: instructorId,
+          worker_classification: workerClassification,
+          payroll_active: payrollActive,
+          external_payroll_id: externalPayrollId,
+          payroll_notes: payrollNotes,
+          updated_by: user.id,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "studio_id,instructor_id" },
+      );
+
+    if (error) redirectWithStatus("payroll_profile_save_failed");
+
+    revalidatePath("/app/instructor-pay");
+    redirectWithStatus("payroll_profile_saved");
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    redirectWithStatus("payroll_profile_save_failed");
+  }
+}
+
 export async function saveInstructorCompensationRuleAction(formData: FormData) {
   try {
-    const { supabase, studioId, user } = await requireInstructorManageAccess();
+    const { supabase, studioId, user } = await requirePayrollPrepareAccess();
     const instructorId = getString(formData, "instructorId");
 
     if (!instructorId) redirectWithStatus("missing_instructor");
@@ -73,7 +122,7 @@ export async function saveInstructorCompensationRuleAction(formData: FormData) {
 
 export async function generateInstructorEarningsAction(formData: FormData) {
   try {
-    const { supabase, studioId, user } = await requireInstructorManageAccess();
+    const { supabase, studioId, user } = await requirePayrollPrepareAccess();
     const fromDate = getOptionalDate(formData, "fromDate");
     const toDate = getOptionalDate(formData, "toDate");
 
@@ -101,10 +150,14 @@ export async function generateInstructorEarningsAction(formData: FormData) {
 
 export async function updateInstructorEarningStatusAction(formData: FormData) {
   try {
-    const { supabase, studioId, user } = await requireInstructorManageAccess();
     const earningId = getString(formData, "earningId");
     const nextStatus = getString(formData, "nextStatus");
     const paymentMethod = getString(formData, "paymentMethod");
+    const access =
+      nextStatus === "paid"
+        ? await requirePayrollDisbursementAccess()
+        : await requirePayrollPrepareAccess();
+    const { supabase, studioId, user } = access;
 
     if (!earningId) redirectWithStatus("missing_earning");
 
@@ -173,7 +226,7 @@ export async function updateInstructorEarningStatusAction(formData: FormData) {
 
 export async function createInstructorAdjustmentAction(formData: FormData) {
   try {
-    const { supabase, studioId, user } = await requireInstructorManageAccess();
+    const { supabase, studioId, user } = await requirePayrollPrepareAccess();
     const instructorId = getString(formData, "instructorId");
     const adjustmentType = getString(formData, "adjustmentType") || "correction";
     const earningDate = getOptionalDate(formData, "earningDate") || new Date().toISOString().slice(0, 10);
@@ -184,8 +237,52 @@ export async function createInstructorAdjustmentAction(formData: FormData) {
     if (!notes) redirectWithStatus("adjustment_note_required");
     if (!["bonus", "deduction", "reimbursement", "correction"].includes(adjustmentType)) redirectWithStatus("invalid_adjustment");
 
-    const amount = adjustmentType === "deduction" ? -Math.abs(rawAmount) : Math.abs(rawAmount);
-    if (!Number.isFinite(amount) || amount === 0) redirectWithStatus("invalid_adjustment_amount");
+    const amount =
+      adjustmentType === "deduction"
+        ? -Math.abs(rawAmount)
+        : Math.abs(rawAmount);
+    if (!Number.isFinite(amount) || amount === 0) {
+      redirectWithStatus("invalid_adjustment_amount");
+    }
+
+    const { data: payrollProfile, error: payrollProfileError } = await supabase
+      .from("instructor_payroll_profiles")
+      .select("worker_classification, payroll_active")
+      .eq("studio_id", studioId)
+      .eq("instructor_id", instructorId)
+      .maybeSingle();
+
+    if (
+      payrollProfileError ||
+      !payrollProfile ||
+      payrollProfile.payroll_active !== true
+    ) {
+      redirectWithStatus("payroll_profile_inactive");
+    }
+
+    const workerClassification = String(
+      payrollProfile.worker_classification ?? "not_set",
+    );
+
+    if (workerClassification === "not_set") {
+      redirectWithStatus("worker_classification_required");
+    }
+
+    const accountingCategory =
+      workerClassification === "employee"
+        ? "employee_wage_expense"
+        : workerClassification === "owner"
+          ? "instructor_pay_expense"
+          : "contract_labor_expense";
+    const taxableCompensation =
+      adjustmentType === "reimbursement" ||
+      adjustmentType === "deduction"
+        ? 0
+        : Math.max(amount, 0);
+    const reimbursementAmount =
+      adjustmentType === "reimbursement" ? Math.max(amount, 0) : 0;
+    const deductionAmount =
+      adjustmentType === "deduction" ? Math.abs(amount) : 0;
 
     const { error } = await supabase.from("instructor_earnings").insert({
       studio_id: studioId,
@@ -201,6 +298,11 @@ export async function createInstructorAdjustmentAction(formData: FormData) {
       earning_amount: amount,
       status: "pending",
       adjustment_type: adjustmentType,
+      worker_classification_snapshot: workerClassification,
+      accounting_category_snapshot: accountingCategory,
+      taxable_compensation_amount: taxableCompensation,
+      reimbursement_amount: reimbursementAmount,
+      deduction_amount: deductionAmount,
       notes: `${adjustmentType.charAt(0).toUpperCase() + adjustmentType.slice(1)}: ${notes}`,
       created_by: user.id,
       updated_at: new Date().toISOString(),
@@ -219,7 +321,7 @@ export async function createInstructorAdjustmentAction(formData: FormData) {
 
 export async function overrideInstructorEarningAction(formData: FormData) {
   try {
-    const { supabase, studioId, user } = await requireInstructorManageAccess();
+    const { supabase, studioId, user } = await requirePayrollPrepareAccess();
     const earningId = getString(formData, "earningId");
     const overrideAmount = getNumber(formData, "overrideAmount");
     const overrideReason = getString(formData, "overrideReason");
@@ -244,6 +346,9 @@ export async function overrideInstructorEarningAction(formData: FormData) {
       .from("instructor_earnings")
       .update({
         earning_amount: overrideAmount,
+        taxable_compensation_amount: Math.max(overrideAmount, 0),
+        reimbursement_amount: 0,
+        deduction_amount: overrideAmount < 0 ? Math.abs(overrideAmount) : 0,
         pay_mode: "manual_override",
         pay_rate_amount: overrideAmount,
         pay_percentage: 0,

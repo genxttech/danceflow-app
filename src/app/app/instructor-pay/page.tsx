@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { canManageInstructors } from "@/lib/auth/permissions";
+import { canDisbursePayroll, canPreparePayroll } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
   createInstructorAdjustmentAction,
   generateInstructorEarningsAction,
   overrideInstructorEarningAction,
   saveInstructorCompensationRuleAction,
+  saveInstructorPayrollProfileAction,
   updateInstructorEarningStatusAction,
 } from "./actions";
 
@@ -35,6 +36,16 @@ type RuleRow = {
   group_class_percentage: number | string | null;
   group_class_per_attendee_amount: number | string | null;
   notes: string | null;
+};
+
+
+type PayrollProfileRow = {
+  id: string;
+  instructor_id: string;
+  worker_classification: "not_set" | "contractor" | "employee" | "owner";
+  payroll_active: boolean;
+  external_payroll_id: string | null;
+  payroll_notes: string | null;
 };
 
 type EarningRow = {
@@ -153,6 +164,9 @@ function stringParam(params: Record<string, string | string[] | undefined>, key:
 function statusMessage(status: string | undefined, params: Record<string, string | string[] | undefined>) {
   if (!status) return null;
   if (status === "rule_saved") return "Instructor compensation rule saved.";
+  if (status === "payroll_profile_saved") return "Instructor payroll profile saved.";
+  if (status === "worker_classification_required") return "Set the instructor worker classification before staging compensation.";
+  if (status === "payroll_profile_inactive") return "This instructor is not active for payroll.";
   if (status === "adjustment_created") return "Manual adjustment added for review.";
   if (status === "override_saved") return "Instructor earning override saved.";
   if (status === "earning_updated") return "Instructor earning updated.";
@@ -181,7 +195,8 @@ export default async function InstructorPayPage({
   const studioId = context.studioId;
   const role = context.studioRole ?? "";
 
-  if (!canManageInstructors(role) || !["studio_owner", "studio_admin"].includes(role)) redirect("/app");
+  if (!canPreparePayroll(role)) redirect("/app");
+  const canMarkPaid = canDisbursePayroll(role);
 
   const statusFilter = stringParam(params, "statusFilter") ?? "all";
   const instructorFilter = stringParam(params, "instructorId") ?? "all";
@@ -201,7 +216,8 @@ export default async function InstructorPayPage({
     earningsQuery = earningsQuery.eq("instructor_id", instructorFilter);
   }
 
-  const [instructorsResult, rulesResult, earningsResult] = await Promise.all([
+  const [instructorsResult, rulesResult, payrollProfilesResult, earningsResult] =
+    await Promise.all([
     supabase
       .from("instructors")
       .select("id, first_name, last_name, active")
@@ -210,6 +226,10 @@ export default async function InstructorPayPage({
     supabase
       .from("instructor_compensation_rules")
       .select("id, instructor_id, private_lesson_pay_mode, private_lesson_flat_amount, private_lesson_percentage, private_lesson_duration_rates_enabled, private_lesson_30_min_flat_amount, private_lesson_45_min_flat_amount, private_lesson_60_min_flat_amount, group_class_pay_mode, group_class_flat_amount, group_class_percentage, group_class_per_attendee_amount, notes")
+      .eq("studio_id", studioId),
+    supabase
+      .from("instructor_payroll_profiles")
+      .select("id, instructor_id, worker_classification, payroll_active, external_payroll_id, payroll_notes")
       .eq("studio_id", studioId),
     earningsQuery,
   ]);
@@ -222,17 +242,41 @@ export default async function InstructorPayPage({
     throw new Error(`Failed to load compensation rules: ${rulesResult.error.message}`);
   }
 
+  if (payrollProfilesResult.error) {
+    throw new Error(
+      `Failed to load payroll profiles: ${payrollProfilesResult.error.message}`,
+    );
+  }
+
   if (earningsResult.error) {
     throw new Error(`Failed to load instructor earnings: ${earningsResult.error.message}`);
   }
 
   const instructors = (instructorsResult.data ?? []) as InstructorRow[];
   const rules = (rulesResult.data ?? []) as RuleRow[];
+  const payrollProfiles = (payrollProfilesResult.data ?? []) as PayrollProfileRow[];
   const earnings = (earningsResult.data ?? []) as EarningRow[];
+  const payrollProfilesByInstructor = new Map(
+    payrollProfiles.map((profile) => [profile.instructor_id, profile]),
+  );
   const rulesByInstructor = new Map(rules.map((rule) => [rule.instructor_id, rule]));
   const activeInstructors = instructors.filter((instructor) => instructor.active);
   const configuredInstructorCount = activeInstructors.filter((instructor) => ruleIsConfigured(rulesByInstructor.get(instructor.id))).length;
-  const missingRuleCount = Math.max(activeInstructors.length - configuredInstructorCount, 0);
+  const missingRuleCount = Math.max(
+    activeInstructors.length - configuredInstructorCount,
+    0,
+  );
+  const payrollReadyInstructorCount = activeInstructors.filter((instructor) => {
+    const profile = payrollProfilesByInstructor.get(instructor.id);
+    return (
+      profile?.payroll_active === true &&
+      profile.worker_classification !== "not_set"
+    );
+  }).length;
+  const missingPayrollProfileCount = Math.max(
+    activeInstructors.length - payrollReadyInstructorCount,
+    0,
+  );
 
   const pendingTotal = earnings
     .filter((earning) => earning.status === "pending")
@@ -419,6 +463,19 @@ export default async function InstructorPayPage({
         </section>
       ) : null}
 
+      {missingPayrollProfileCount > 0 ? (
+        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900 shadow-sm">
+          <p className="font-semibold">
+            {missingPayrollProfileCount} active instructor
+            {missingPayrollProfileCount === 1 ? "" : "s"} need payroll setup.
+          </p>
+          <p className="mt-1 text-amber-800">
+            Set a worker classification and keep the instructor active for
+            payroll before DanceFlow can stage earnings or adjustments.
+          </p>
+        </section>
+      ) : null}
+
       <section className="rounded-3xl border border-violet-100 bg-violet-50 p-5 text-sm text-violet-950 shadow-sm">
         <p className="font-semibold">Rules and overrides</p>
         <p className="mt-1 text-violet-900">Use duration-based private lesson rates when instructors are paid differently for 30, 45, and 60 minute lessons. Use manual adjustments for bonuses, deductions, reimbursements, or corrections. Use earning overrides only for one-off lesson exceptions.</p>
@@ -459,8 +516,71 @@ export default async function InstructorPayPage({
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
           {instructors.map((instructor) => {
             const rule = rulesByInstructor.get(instructor.id);
+            const payrollProfile = payrollProfilesByInstructor.get(instructor.id);
             return (
-              <form key={instructor.id} action={saveInstructorCompensationRuleAction} className="rounded-3xl border border-slate-200 p-5">
+              <div key={instructor.id} className="space-y-4 rounded-3xl border border-slate-200 p-5">
+                <form
+                  action={saveInstructorPayrollProfileAction}
+                  className="rounded-2xl border border-violet-100 bg-violet-50 p-4"
+                >
+                  <input type="hidden" name="instructorId" value={instructor.id} />
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold text-slate-950">{instructorName(instructor)}</h3>
+                      <p className="text-sm text-slate-500">{instructor.active ? "Active instructor" : "Inactive instructor"}</p>
+                    </div>
+                    <Link href={`/app/instructors/${instructor.id}`} className="text-sm font-semibold text-violet-700 hover:text-violet-900">
+                      Profile
+                    </Link>
+                  </div>
+                  <div className="mt-4 grid gap-3 md:grid-cols-2">
+                    <label className="text-sm font-medium text-slate-700">
+                      Worker classification
+                      <select
+                        name="workerClassification"
+                        defaultValue={payrollProfile?.worker_classification ?? "not_set"}
+                        className="mt-1 w-full rounded-2xl border border-violet-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="not_set">Not set</option>
+                        <option value="contractor">Contractor</option>
+                        <option value="employee">Employee</option>
+                        <option value="owner">Owner</option>
+                      </select>
+                    </label>
+                    <label className="text-sm font-medium text-slate-700">
+                      External payroll ID
+                      <input
+                        name="externalPayrollId"
+                        defaultValue={payrollProfile?.external_payroll_id ?? ""}
+                        className="mt-1 w-full rounded-2xl border border-violet-200 bg-white px-3 py-2 text-sm"
+                        placeholder="Optional provider ID"
+                      />
+                    </label>
+                  </div>
+                  <label className="mt-3 flex items-start gap-2 rounded-2xl border border-violet-200 bg-white p-3 text-sm text-slate-700">
+                    <input
+                      name="payrollActive"
+                      type="checkbox"
+                      defaultChecked={payrollProfile?.payroll_active ?? true}
+                      className="mt-1"
+                    />
+                    <span>Active for payroll preparation</span>
+                  </label>
+                  <label className="mt-3 block text-sm font-medium text-slate-700">
+                    Payroll notes
+                    <input
+                      name="payrollNotes"
+                      defaultValue={payrollProfile?.payroll_notes ?? ""}
+                      className="mt-1 w-full rounded-2xl border border-violet-200 bg-white px-3 py-2 text-sm"
+                      placeholder="Internal payroll note"
+                    />
+                  </label>
+                  <button className="mt-3 rounded-2xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800">
+                    Save payroll profile
+                  </button>
+                </form>
+
+                <form action={saveInstructorCompensationRuleAction}>
                 <input type="hidden" name="instructorId" value={instructor.id} />
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -549,7 +669,8 @@ export default async function InstructorPayPage({
                 <button className="mt-4 rounded-2xl bg-violet-700 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-800">
                   Save rule
                 </button>
-              </form>
+                </form>
+              </div>
             );
           })}
         </div>
@@ -697,7 +818,7 @@ export default async function InstructorPayPage({
                         <button className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">Approve</button>
                       </form>
                     ) : null}
-                    {earning.status !== "paid" && earning.status !== "void" ? (
+                    {canMarkPaid && earning.status === "approved" ? (
                       <form action={updateInstructorEarningStatusAction} className="flex gap-2">
                         <input type="hidden" name="earningId" value={earning.id} />
                         <input type="hidden" name="nextStatus" value="paid" />

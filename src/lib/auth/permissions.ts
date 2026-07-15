@@ -108,6 +108,14 @@ export function canManageInstructors(role: string | null | undefined) {
   return ["platform_admin", "studio_owner", "studio_admin"].includes(role ?? "");
 }
 
+export function canPreparePayroll(role: string | null | undefined) {
+  return ["platform_admin", "studio_owner", "studio_admin"].includes(role ?? "");
+}
+
+export function canDisbursePayroll(role: string | null | undefined) {
+  return ["platform_admin", "studio_owner"].includes(role ?? "");
+}
+
 export function canManageRooms(role: string | null | undefined) {
   return ["platform_admin", "studio_owner", "studio_admin"].includes(role ?? "");
 }

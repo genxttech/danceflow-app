@@ -6,6 +6,8 @@ import {
   canEditAppointments,
   canEditClients,
   canManageInstructors,
+  canPreparePayroll,
+  canDisbursePayroll,
   canManagePackages,
   canManageRooms,
   canManageSettings,
@@ -86,6 +88,24 @@ export async function requireInstructorManageAccess() {
     ctx,
     allowed: canManageInstructors,
     message: "You do not have permission to manage instructors.",
+  });
+}
+
+export async function requirePayrollPrepareAccess() {
+  const ctx = await getCurrentUserStudioContext();
+  return requirePermission({
+    ctx,
+    allowed: canPreparePayroll,
+    message: "You do not have permission to prepare payroll.",
+  });
+}
+
+export async function requirePayrollDisbursementAccess() {
+  const ctx = await getCurrentUserStudioContext();
+  return requirePermission({
+    ctx,
+    allowed: canDisbursePayroll,
+    message: "Only the studio owner can mark payroll paid.",
   });
 }
 
