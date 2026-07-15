@@ -89,6 +89,11 @@ export default function SellPackageForm({
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedPackageTemplateId, setSelectedPackageTemplateId] = useState("");
   const [accountCreditToApply, setAccountCreditToApply] = useState("0.00");
+  const [saleMode, setSaleMode] = useState<"full" | "arrangement">("full");
+  const [installmentCount, setInstallmentCount] = useState("4");
+  const [frequency, setFrequency] = useState("monthly");
+  const [firstDueDate, setFirstDueDate] = useState(today);
+  const [accessPolicy, setAccessPolicy] = useState("immediate");
   const [tenders, setTenders] = useState<TenderRow[]>([
     { id: crypto.randomUUID(), method: "card", amount: "", reference: "" },
   ]);
@@ -139,12 +144,20 @@ export default function SellPackageForm({
   const remainingBalance = Math.max(0, packagePrice - collectedTotal);
   const paymentMatchesTotal =
     packagePrice > 0 && Math.abs(collectedTotal - packagePrice) < 0.005;
+  const arrangementIsValid =
+    saleMode === "arrangement" &&
+    packagePrice > 0 &&
+    collectedTotal >= 0 &&
+    collectedTotal < packagePrice &&
+    Number(installmentCount) >= 1 &&
+    Number(installmentCount) <= 60 &&
+    Boolean(firstDueDate);
   const readyToSubmit = Boolean(
     selectedClientId &&
       selectedPackageTemplateId &&
       tenders.length > 0 &&
       tenders.every((tender) => tender.amount !== "" && Number(tender.amount) > 0) &&
-      paymentMatchesTotal,
+      (saleMode === "full" ? paymentMatchesTotal : arrangementIsValid),
   );
 
   useEffect(() => {
@@ -172,6 +185,11 @@ export default function SellPackageForm({
       <input type="hidden" name="clientId" value={selectedClientId} />
       <input type="hidden" name="packageTemplateId" value={selectedPackageTemplateId} />
       <input type="hidden" name="tendersJson" value={JSON.stringify(tenders)} />
+      <input type="hidden" name="saleMode" value={saleMode} />
+      <input type="hidden" name="installmentCount" value={installmentCount} />
+      <input type="hidden" name="frequency" value={frequency} />
+      <input type="hidden" name="firstDueDate" value={firstDueDate} />
+      <input type="hidden" name="accessPolicy" value={accessPolicy} />
       <input
         type="hidden"
         name="paymentAmount"
@@ -540,6 +558,56 @@ export default function SellPackageForm({
           </div>
         </div>
 
+        <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm font-semibold text-slate-900">Payment structure</p>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => setSaleMode("full")}
+              className={`rounded-xl border p-4 text-left ${saleMode === "full" ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)]" : "border-slate-200 bg-white"}`}
+            >
+              <p className="font-semibold text-slate-950">Paid in full</p>
+              <p className="mt-1 text-sm text-slate-500">The collected total must equal the package price.</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setSaleMode("arrangement")}
+              className={`rounded-xl border p-4 text-left ${saleMode === "arrangement" ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)]" : "border-slate-200 bg-white"}`}
+            >
+              <p className="font-semibold text-slate-950">Create payment arrangement</p>
+              <p className="mt-1 text-sm text-slate-500">Record today’s payment and schedule the remaining balance.</p>
+            </button>
+          </div>
+
+          {saleMode === "arrangement" ? (
+            <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <label>
+                <span className="mb-1 block text-xs font-medium text-slate-600">Installments</span>
+                <input type="number" min="1" max="60" value={installmentCount} onChange={(e) => setInstallmentCount(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" />
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-medium text-slate-600">Frequency</span>
+                <select value={frequency} onChange={(e) => setFrequency(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+                  <option value="weekly">Weekly</option>
+                  <option value="biweekly">Every 2 weeks</option>
+                  <option value="monthly">Monthly</option>
+                </select>
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-medium text-slate-600">First due date</span>
+                <input type="date" value={firstDueDate} onChange={(e) => setFirstDueDate(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm" />
+              </label>
+              <label>
+                <span className="mb-1 block text-xs font-medium text-slate-600">Package access</span>
+                <select value={accessPolicy} onChange={(e) => setAccessPolicy(e.target.value)} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm">
+                  <option value="immediate">Activate immediately</option>
+                  <option value="paid_in_full">Activate when paid in full</option>
+                </select>
+              </label>
+            </div>
+          ) : null}
+        </div>
+
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sale total</p>
@@ -555,12 +623,17 @@ export default function SellPackageForm({
           </div>
         </div>
 
-        {!paymentMatchesTotal && selectedPackageTemplate ? (
+        {saleMode === "full" && !paymentMatchesTotal && selectedPackageTemplate ? (
           <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             <p className="font-semibold">The collected amount must equal the package price.</p>
-            <p className="mt-1 leading-6">
-              Partial package sales are blocked until a payment arrangement is created and the remaining balance is recorded.
-            </p>
+            <p className="mt-1 leading-6">Choose a payment arrangement to schedule a remaining balance.</p>
+          </div>
+        ) : null}
+
+        {saleMode === "arrangement" && selectedPackageTemplate ? (
+          <div className="mt-4 rounded-2xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-900">
+            <p className="font-semibold">Scheduled balance: {formatCurrency(remainingBalance)}</p>
+            <p className="mt-1 leading-6">The remaining balance will be divided across {installmentCount || "0"} {frequency === "biweekly" ? "biweekly" : frequency} installments.</p>
           </div>
         ) : null}
 
@@ -589,7 +662,7 @@ export default function SellPackageForm({
             disabled={pending || !readyToSubmit}
             className="rounded-xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {pending ? "Saving..." : "Complete Sale"}
+            {pending ? "Saving..." : saleMode === "arrangement" ? "Create Sale & Arrangement" : "Complete Sale"}
           </button>
           <button
             type="submit"
@@ -598,6 +671,7 @@ export default function SellPackageForm({
             disabled={
               pending ||
               !readyToSubmit ||
+              saleMode === "arrangement" ||
               safeAppliedCredit > 0 ||
               tenders.length !== 1 ||
               tenders[0]?.method !== "card"

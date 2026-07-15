@@ -14,16 +14,34 @@ export default async function TakePaymentPage() {
     redirect("/app");
   }
 
-  const { data: clients, error } = await supabase
+  const [{ data: clients, error }, { data: arrangements, error: arrangementsError }] = await Promise.all([
+    supabase
     .from("clients")
     .select("id, first_name, last_name, email, status")
     .eq("studio_id", context.studioId)
     .neq("status", "inactive")
     .order("last_name", { ascending: true })
-    .order("first_name", { ascending: true });
+    .order("first_name", { ascending: true }),
+    supabase
+      .from("payment_arrangements")
+      .select(`
+        id,
+        client_id,
+        remaining_balance,
+        first_due_date,
+        client_packages (name_snapshot)
+      `)
+      .eq("studio_id", context.studioId)
+      .eq("status", "active")
+      .order("first_due_date", { ascending: true }),
+  ]);
 
   if (error) {
     throw new Error(`Failed to load clients: ${error.message}`);
+  }
+
+  if (arrangementsError) {
+    throw new Error(`Failed to load payment arrangements: ${arrangementsError.message}`);
   }
 
   return (
@@ -89,12 +107,26 @@ export default async function TakePaymentPage() {
         </Link>
       </section>
 
-      <TakePaymentForm clients={(clients ?? []).map((client) => ({
-        id: client.id,
-        first_name: client.first_name,
-        last_name: client.last_name,
-        email: client.email,
-      }))} />
+      <TakePaymentForm
+        clients={(clients ?? []).map((client) => ({
+          id: client.id,
+          first_name: client.first_name,
+          last_name: client.last_name,
+          email: client.email,
+        }))}
+        arrangements={(arrangements ?? []).map((arrangement) => {
+          const pkg = Array.isArray(arrangement.client_packages)
+            ? arrangement.client_packages[0]
+            : arrangement.client_packages;
+          return {
+            id: arrangement.id,
+            client_id: arrangement.client_id,
+            remaining_balance: Number(arrangement.remaining_balance ?? 0),
+            first_due_date: arrangement.first_due_date,
+            package_name: pkg?.name_snapshot ?? "Package",
+          };
+        })}
+      />
     </div>
   );
 }

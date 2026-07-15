@@ -7,8 +7,8 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const PAYMENT_METHODS = new Set(["card", "cash", "check", "ach", "venmo", "zelle", "other"]);
 const PAYMENT_STATUSES = new Set(["pending", "paid", "processed", "complete", "completed", "failed", "refunded"]);
 const PAYMENT_ACTIONS = new Set(["manual", "charge_now", "send_to_portal", "terminal"]);
-const ENTRY_MODES = new Set(["standard", "sell_package_and_pay", "existing_package_payment"]);
-const SERVICE_TYPES = new Set(["general", "floor_rental", "event_registration", "other"]);
+const ENTRY_MODES = new Set(["standard", "sell_package_and_pay", "existing_package_payment", "arrangement_payment"]);
+const SERVICE_TYPES = new Set(["general", "floor_rental", "event_registration", "payment_arrangement", "other"]);
 
 function cleanText(value: string, maxLength = 1000) {
   return value
@@ -161,6 +161,7 @@ export async function createPaymentAction(
     const clientId = getString(formData, "clientId");
     const clientPackageId = getString(formData, "clientPackageId");
     const packageTemplateId = getString(formData, "packageTemplateId");
+    const arrangementId = getString(formData, "arrangementId");
     const salePriceRaw = getString(formData, "salePrice");
     const amountRaw = getString(formData, "amount");
     const paymentMethod =
@@ -194,8 +195,47 @@ export async function createPaymentAction(
       return { error: "Invalid client selection." };
     }
 
-    if ((clientPackageId && !isUuid(clientPackageId)) || (packageTemplateId && !isUuid(packageTemplateId))) {
-      return { error: "Invalid package selection." };
+    if (
+      (clientPackageId && !isUuid(clientPackageId)) ||
+      (packageTemplateId && !isUuid(packageTemplateId)) ||
+      (arrangementId && !isUuid(arrangementId))
+    ) {
+      return { error: "Invalid package or payment arrangement selection." };
+    }
+
+    if (entryMode === "arrangement_payment") {
+      if (!arrangementId) {
+        return { error: "Payment arrangement is required." };
+      }
+      if (paymentAction !== "manual") {
+        return { error: "Payment arrangement installments currently support manual collection only." };
+      }
+      const arrangementAmount = getNumber(amountRaw);
+      if (arrangementAmount == null || arrangementAmount <= 0) {
+        return { error: "Payment amount must be greater than zero." };
+      }
+
+      const { data: paymentId, error: arrangementError } = await supabase.rpc(
+        "apply_manual_payment_to_arrangement",
+        {
+          p_arrangement_id: arrangementId,
+          p_amount: arrangementAmount,
+          p_payment_method: paymentMethod,
+          p_payment_date: getDateValueFromIso(selectedPaymentDateIso),
+          p_reference: null,
+          p_notes: notes || null,
+        },
+      );
+
+      if (arrangementError || !paymentId) {
+        return {
+          error: `Payment arrangement payment failed: ${
+            arrangementError?.message ?? "The payment was not recorded."
+          }`,
+        };
+      }
+
+      redirect(getReturnTo(formData, "/app/payments", "arrangement_payment_recorded"));
     }
 
     if (paymentAction === "manual" && !PAYMENT_METHODS.has(paymentMethod)) {

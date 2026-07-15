@@ -31,9 +31,9 @@ function isDateOnly(value: string) {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
-function getString(formData: FormData, key: string) {
+function getString(formData: FormData, key: string, maxLength = 500) {
   const value = formData.get(key);
-  return typeof value === "string" ? cleanText(value) : "";
+  return typeof value === "string" ? cleanText(value, maxLength) : "";
 }
 
 function addDaysToDate(startDate: Date, days: number) {
@@ -155,7 +155,12 @@ export async function sellPackageToClientAction(
       getString(formData, "paymentAmount") || getString(formData, "amountPaid");
     const accountCreditRaw = getString(formData, "accountCreditToApply");
     const notes = cleanText(getString(formData, "notes"), 1000);
-    const tendersJson = getString(formData, "tendersJson");
+    const tendersJson = getString(formData, "tendersJson", 5000);
+    const saleMode = getString(formData, "saleMode", 40) || "full";
+    const installmentCount = Number.parseInt(getString(formData, "installmentCount", 10), 10);
+    const frequency = getString(formData, "frequency", 20);
+    const firstDueDate = getString(formData, "firstDueDate", 20);
+    const accessPolicy = getString(formData, "accessPolicy", 30);
     const parsedTenders = paymentAction === "manual" ? parseTenders(tendersJson) : null;
 
     if ((clientId && !isUuid(clientId)) || (packageTemplateId && !isUuid(packageTemplateId))) {
@@ -241,11 +246,34 @@ export async function sellPackageToClientAction(
       };
     }
 
-    if (collectedTotal < packagePrice) {
+    const isArrangement = saleMode === "arrangement";
+
+    if (!isArrangement && collectedTotal < packagePrice) {
       return {
         error:
-          "The collected amount plus account credit must equal the package price. Create a payment arrangement before completing a partially paid sale.",
+          "The collected amount plus account credit must equal the package price. Choose a payment arrangement for a partially paid sale.",
       };
+    }
+
+    if (isArrangement) {
+      if (useTerminal) {
+        return { error: "Payment arrangements currently require manual payment methods for the down payment." };
+      }
+      if (collectedTotal >= packagePrice) {
+        return { error: "A payment arrangement requires a remaining balance greater than zero." };
+      }
+      if (!Number.isInteger(installmentCount) || installmentCount < 1 || installmentCount > 60) {
+        return { error: "Installment count must be between 1 and 60." };
+      }
+      if (!["weekly", "biweekly", "monthly"].includes(frequency)) {
+        return { error: "Payment frequency is invalid." };
+      }
+      if (!firstDueDate || !isDateOnly(firstDueDate)) {
+        return { error: "First due date is invalid." };
+      }
+      if (!["immediate", "paid_in_full"].includes(accessPolicy)) {
+        return { error: "Package access policy is invalid." };
+      }
     }
 
     if (creditAmount > 0) {
@@ -274,6 +302,34 @@ export async function sellPackageToClientAction(
           )}.`,
         };
       }
+    }
+
+    if (!useTerminal && parsedTenders && isArrangement) {
+      const { data: saleId, error: saleError } = await supabase.rpc(
+        "create_package_sale_with_payment_arrangement",
+        {
+          p_client_id: clientId,
+          p_package_template_id: packageTemplateId,
+          p_purchase_date: purchaseDateRaw,
+          p_account_credit: creditAmount,
+          p_tenders: parsedTenders,
+          p_installment_count: installmentCount,
+          p_frequency: frequency,
+          p_first_due_date: firstDueDate,
+          p_access_policy: accessPolicy,
+          p_notes: notes || null,
+        },
+      );
+
+      if (saleError || !saleId) {
+        return {
+          error: `Payment arrangement failed: ${
+            saleError?.message ?? "The payment arrangement was not created."
+          }`,
+        };
+      }
+
+      redirect("/app/packages/client-balances?success=payment_arrangement_created");
     }
 
     if (!useTerminal && parsedTenders) {

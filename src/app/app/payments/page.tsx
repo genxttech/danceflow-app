@@ -24,6 +24,7 @@ type SearchParams = Promise<{
 type PaymentRow = {
   id: string;
   package_sale_id: string | null;
+  payment_arrangement_id: string | null;
   amount: number;
   payment_method: string;
   status: string;
@@ -96,6 +97,9 @@ function statusClass(status: string) {
 }
 
 function typeLabel(payment: PaymentRow) {
+  if (payment.payment_arrangement_id) {
+    return `${relationName(payment.client_packages) || "Package"} installment`;
+  }
   if (payment.payment_type === "package_sale") {
     return relationName(payment.client_packages) || "Package sale";
   }
@@ -177,6 +181,7 @@ export default async function PaymentsPage({
     .select(`
       id,
       package_sale_id,
+      payment_arrangement_id,
       amount,
       payment_method,
       status,
@@ -373,7 +378,11 @@ export default async function PaymentsPage({
                       {typeLabel(payment)}
                     </p>
                     <div className="mt-1 flex flex-wrap gap-2">
-                      {payment.package_sale_id ? (
+                      {payment.payment_arrangement_id ? (
+                        <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[11px] font-semibold text-violet-700">
+                          Payment arrangement
+                        </span>
+                      ) : payment.package_sale_id ? (
                         <span className="rounded-full bg-cyan-50 px-2 py-0.5 text-[11px] font-semibold text-cyan-700">
                           Split sale
                         </span>

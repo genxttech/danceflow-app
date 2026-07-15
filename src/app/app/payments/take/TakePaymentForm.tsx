@@ -12,6 +12,14 @@ import {
 } from "lucide-react";
 import { createPaymentAction } from "../actions";
 
+type PaymentArrangementOption = {
+  id: string;
+  client_id: string;
+  remaining_balance: number;
+  first_due_date: string;
+  package_name: string;
+};
+
 type ClientOption = {
   id: string;
   first_name: string;
@@ -27,14 +35,18 @@ function clientName(client: ClientOption) {
 
 export default function TakePaymentForm({
   clients,
+  arrangements,
 }: {
   clients: ClientOption[];
+  arrangements: PaymentArrangementOption[];
 }) {
   const [state, formAction, pending] = useActionState(createPaymentAction, initialState);
   const [search, setSearch] = useState("");
   const [clientId, setClientId] = useState("");
   const [paymentAction, setPaymentAction] = useState("manual");
   const [method, setMethod] = useState("card");
+  const [serviceType, setServiceType] = useState("general");
+  const [arrangementId, setArrangementId] = useState("");
   const today = new Date().toISOString().slice(0, 10);
 
   const filteredClients = useMemo(() => {
@@ -50,10 +62,20 @@ export default function TakePaymentForm({
 
   const selectedClient =
     clients.find((client) => client.id === clientId) ?? null;
+  const clientArrangements = arrangements.filter(
+    (arrangement) => arrangement.client_id === clientId,
+  );
+  const selectedArrangement =
+    clientArrangements.find((arrangement) => arrangement.id === arrangementId) ?? null;
 
   return (
     <form action={formAction} className="space-y-6">
-      <input type="hidden" name="entryMode" value="standard" />
+      <input
+        type="hidden"
+        name="entryMode"
+        value={serviceType === "payment_arrangement" ? "arrangement_payment" : "standard"}
+      />
+      <input type="hidden" name="arrangementId" value={arrangementId} />
       <input type="hidden" name="clientId" value={clientId} />
       <input type="hidden" name="status" value={paymentAction === "manual" ? "paid" : "pending"} />
       <input type="hidden" name="returnTo" value="/app/payments" />
@@ -131,10 +153,18 @@ export default function TakePaymentForm({
             <span className="mb-2 block text-sm font-medium text-slate-700">Payment for</span>
             <select
               name="serviceType"
-              defaultValue="general"
+              value={serviceType}
+              onChange={(event) => {
+                setServiceType(event.target.value);
+                setArrangementId("");
+                if (event.target.value === "payment_arrangement") {
+                  setPaymentAction("manual");
+                }
+              }}
               className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
             >
               <option value="general">General client payment</option>
+              <option value="payment_arrangement">Payment arrangement installment</option>
               <option value="floor_rental">Floor rental</option>
               <option value="event_registration">Event registration</option>
               <option value="other">Other service</option>
@@ -175,6 +205,30 @@ export default function TakePaymentForm({
             </select>
           </label>
         </div>
+
+        {serviceType === "payment_arrangement" ? (
+          <label className="mt-5 block">
+            <span className="mb-2 block text-sm font-medium text-slate-700">Open payment arrangement</span>
+            <select
+              value={arrangementId}
+              onChange={(event) => setArrangementId(event.target.value)}
+              required
+              className="w-full rounded-xl border border-slate-300 px-3 py-2.5 text-sm"
+            >
+              <option value="">Select an arrangement</option>
+              {clientArrangements.map((arrangement) => (
+                <option key={arrangement.id} value={arrangement.id}>
+                  {arrangement.package_name} — ${arrangement.remaining_balance.toFixed(2)} remaining
+                </option>
+              ))}
+            </select>
+            {selectedArrangement ? (
+              <p className="mt-2 text-xs text-slate-500">
+                Next scheduled date: {selectedArrangement.first_due_date}
+              </p>
+            ) : null}
+          </label>
+        ) : null}
 
         <label className="mt-5 block">
           <span className="mb-2 block text-sm font-medium text-slate-700">Notes</span>
@@ -227,11 +281,21 @@ export default function TakePaymentForm({
               <button
                 key={option.value}
                 type="button"
-                onClick={() => setPaymentAction(option.value)}
+                onClick={() => {
+                  if (serviceType === "payment_arrangement" && option.value !== "manual") return;
+                  setPaymentAction(option.value);
+                }}
+                disabled={
+                  serviceType === "payment_arrangement" &&
+                  option.value !== "manual"
+                }
                 className={`rounded-2xl border p-4 text-left transition ${
                   active
                     ? "border-[var(--brand-primary)] bg-[var(--brand-primary-soft)]"
-                    : "border-slate-200 bg-slate-50 hover:border-slate-300"
+                    : serviceType === "payment_arrangement" &&
+                        option.value !== "manual"
+                      ? "cursor-not-allowed border-slate-200 bg-slate-100 opacity-50"
+                      : "border-slate-200 bg-slate-50 hover:border-slate-300"
                 }`}
               >
                 <Icon className="h-5 w-5 text-[var(--brand-primary)]" />
@@ -246,7 +310,11 @@ export default function TakePaymentForm({
           type="submit"
           name="paymentAction"
           value={paymentAction}
-          disabled={pending || !selectedClient}
+          disabled={
+            pending ||
+            !selectedClient ||
+            (serviceType === "payment_arrangement" && !selectedArrangement)
+          }
           className="mt-6 w-full rounded-xl bg-[var(--brand-primary)] px-5 py-3 text-sm font-semibold text-white hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 md:w-auto"
         >
           {pending
