@@ -7,6 +7,12 @@ const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3
 const PAYMENT_METHODS = new Set(["card", "cash", "check", "ach", "venmo", "zelle", "other"]);
 const PAYMENT_ACTIONS = new Set(["manual", "terminal"]);
 
+type TenderInput = {
+  method: string;
+  amount: number;
+  reference: string | null;
+};
+
 function cleanText(value: string, maxLength = 500) {
   return value
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, "")
@@ -67,6 +73,51 @@ function roundCurrency(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
 
+function parseTenders(raw: string): TenderInput[] | null {
+  if (!raw) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+
+  if (!Array.isArray(parsed) || parsed.length < 1 || parsed.length > 10) {
+    return null;
+  }
+
+  const tenders: TenderInput[] = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") return null;
+    const row = item as Record<string, unknown>;
+    const method = cleanText(String(row.method ?? ""), 40);
+    const amount = parseCurrencyToDollars(String(row.amount ?? ""));
+    const reference = cleanText(String(row.reference ?? ""), 160) || null;
+
+    if (!PAYMENT_METHODS.has(method) || amount === null || amount <= 0) {
+      return null;
+    }
+
+    tenders.push({
+      method,
+      amount: roundCurrency(amount),
+      reference,
+    });
+  }
+
+  return tenders;
+}
+
+function isNextRedirectError(error: unknown) {
+  if (!error || typeof error !== "object" || !("digest" in error)) {
+    return false;
+  }
+
+  const digest = (error as { digest?: unknown }).digest;
+  return typeof digest === "string" && digest.startsWith("NEXT_REDIRECT");
+}
+
 function calculateLedgerBalance(
   entries: { direction: string | null; amount: number | string | null }[] | null
 ) {
@@ -104,6 +155,8 @@ export async function sellPackageToClientAction(
       getString(formData, "paymentAmount") || getString(formData, "amountPaid");
     const accountCreditRaw = getString(formData, "accountCreditToApply");
     const notes = cleanText(getString(formData, "notes"), 1000);
+    const tendersJson = getString(formData, "tendersJson");
+    const parsedTenders = paymentAction === "manual" ? parseTenders(tendersJson) : null;
 
     if ((clientId && !isUuid(clientId)) || (packageTemplateId && !isUuid(packageTemplateId))) {
       return { error: "Invalid client or package selection." };
@@ -130,6 +183,10 @@ export async function sellPackageToClientAction(
     const accountCreditToApply = accountCreditRaw
       ? parseCurrencyToDollars(accountCreditRaw)
       : 0;
+
+    if (paymentAction === "manual" && !parsedTenders) {
+      return { error: "Add at least one valid payment method and amount." };
+    }
 
     if (amountPaid === null || amountPaid < 0) {
       return { error: "Amount paid must be a valid amount of $0 or greater." };
@@ -164,7 +221,12 @@ export async function sellPackageToClientAction(
 
     const packagePrice = roundCurrency(Number(pkgTemplate.price ?? 0));
     const creditAmount = roundCurrency(accountCreditToApply ?? 0);
-    const cashAmount = roundCurrency(amountPaid);
+    const cashAmount =
+      paymentAction === "manual" && parsedTenders
+        ? roundCurrency(
+            parsedTenders.reduce((sum, tender) => sum + tender.amount, 0),
+          )
+        : roundCurrency(amountPaid);
 
     if (creditAmount > packagePrice) {
       return { error: "Account credit cannot be greater than the package price." };
@@ -212,6 +274,30 @@ export async function sellPackageToClientAction(
           )}.`,
         };
       }
+    }
+
+    if (!useTerminal && parsedTenders) {
+      const { data: saleId, error: saleError } = await supabase.rpc(
+        "create_package_sale_with_split_payments",
+        {
+          p_client_id: clientId,
+          p_package_template_id: packageTemplateId,
+          p_purchase_date: purchaseDateRaw,
+          p_account_credit: creditAmount,
+          p_tenders: parsedTenders,
+          p_notes: notes || null,
+        },
+      );
+
+      if (saleError || !saleId) {
+        return {
+          error: `Package sale failed: ${
+            saleError?.message ?? "The split payment sale was not created."
+          }`,
+        };
+      }
+
+      redirect("/app/packages/client-balances?success=package_sale_completed");
     }
 
     const { data: templateItems, error: templateItemsError } = await supabase
@@ -392,6 +478,10 @@ export async function sellPackageToClientAction(
       };
     }
   } catch (error) {
+    if (isNextRedirectError(error)) {
+      throw error;
+    }
+
     return {
       error: error instanceof Error ? error.message : "Something went wrong.",
     };

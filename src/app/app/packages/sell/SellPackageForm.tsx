@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, CreditCard, Package2, Search, UserRound } from "lucide-react";
+import { CheckCircle2, CreditCard, Package2, Plus, Search, Trash2, UserRound } from "lucide-react";
 import { sellPackageToClientAction } from "./actions";
 
 const initialState = { error: "" };
@@ -13,6 +13,13 @@ type ClientOption = {
   email?: string | null;
   status: string;
   account_balance?: number | string | null;
+};
+
+type TenderRow = {
+  id: string;
+  method: string;
+  amount: string;
+  reference: string;
 };
 
 type PackageTemplateOption = {
@@ -82,8 +89,9 @@ export default function SellPackageForm({
   const [selectedClientId, setSelectedClientId] = useState("");
   const [selectedPackageTemplateId, setSelectedPackageTemplateId] = useState("");
   const [accountCreditToApply, setAccountCreditToApply] = useState("0.00");
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("card");
+  const [tenders, setTenders] = useState<TenderRow[]>([
+    { id: crypto.randomUUID(), method: "card", amount: "", reference: "" },
+  ]);
 
   const selectedPackageTemplate = useMemo(
     () => packageTemplates.find((pkg) => pkg.id === selectedPackageTemplateId) ?? null,
@@ -123,35 +131,57 @@ export default function SellPackageForm({
   const appliedCreditAmount = Number(accountCreditToApply || 0);
   const safeAppliedCredit = Number.isFinite(appliedCreditAmount) ? appliedCreditAmount : 0;
   const estimatedDueToday = Math.max(0, packagePrice - safeAppliedCredit);
-  const paymentAmountNumber = Number(paymentAmount || 0);
-  const safePaymentAmount = Number.isFinite(paymentAmountNumber) ? paymentAmountNumber : 0;
-  const collectedTotal = safeAppliedCredit + safePaymentAmount;
+  const tenderTotal = tenders.reduce((sum, tender) => {
+    const amount = Number(tender.amount || 0);
+    return sum + (Number.isFinite(amount) ? amount : 0);
+  }, 0);
+  const collectedTotal = safeAppliedCredit + tenderTotal;
   const remainingBalance = Math.max(0, packagePrice - collectedTotal);
   const paymentMatchesTotal =
     packagePrice > 0 && Math.abs(collectedTotal - packagePrice) < 0.005;
   const readyToSubmit = Boolean(
     selectedClientId &&
       selectedPackageTemplateId &&
-      paymentAmount !== "" &&
+      tenders.length > 0 &&
+      tenders.every((tender) => tender.amount !== "" && Number(tender.amount) > 0) &&
       paymentMatchesTotal,
   );
 
   useEffect(() => {
     if (!selectedPackageTemplate) {
       setAccountCreditToApply("0.00");
-      setPaymentAmount("");
+      setTenders([
+        { id: crypto.randomUUID(), method: "card", amount: "", reference: "" },
+      ]);
       return;
     }
 
     setAccountCreditToApply("0.00");
-    setPaymentAmount(formatMoneyInput(selectedPackageTemplate.price));
+    setTenders([
+      {
+        id: crypto.randomUUID(),
+        method: "card",
+        amount: formatMoneyInput(selectedPackageTemplate.price),
+        reference: "",
+      },
+    ]);
   }, [selectedPackageTemplateId, selectedPackageTemplate]);
 
   return (
     <form action={formAction} className="space-y-6">
       <input type="hidden" name="clientId" value={selectedClientId} />
       <input type="hidden" name="packageTemplateId" value={selectedPackageTemplateId} />
-      <input type="hidden" name="amountPaid" value={paymentAmount} />
+      <input type="hidden" name="tendersJson" value={JSON.stringify(tenders)} />
+      <input
+        type="hidden"
+        name="paymentAmount"
+        value={tenders.length === 1 ? tenders[0]?.amount ?? "" : tenderTotal.toFixed(2)}
+      />
+      <input
+        type="hidden"
+        name="paymentMethod"
+        value={tenders.length === 1 ? tenders[0]?.method ?? "card" : "other"}
+      />
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
         <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
@@ -192,7 +222,14 @@ export default function SellPackageForm({
                     setSelectedClientId(client.id);
                     setAccountCreditToApply("0.00");
                     if (selectedPackageTemplate) {
-                      setPaymentAmount(formatMoneyInput(selectedPackageTemplate.price));
+                      setTenders([
+                        {
+                          id: crypto.randomUUID(),
+                          method: "card",
+                          amount: formatMoneyInput(selectedPackageTemplate.price),
+                          reference: "",
+                        },
+                      ]);
                     }
                   }}
                   className={`w-full rounded-2xl border p-4 text-left transition ${
@@ -312,7 +349,7 @@ export default function SellPackageForm({
           </div>
         </div>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-4">
+        <div className="mt-5 grid gap-4 md:grid-cols-2">
           <label className="block">
             <span className="mb-2 block text-sm font-medium text-slate-700">Purchase date</span>
             <input
@@ -339,60 +376,168 @@ export default function SellPackageForm({
                 setAccountCreditToApply(nextValue);
                 const credit = Number(nextValue || 0);
                 const safeCredit = Number.isFinite(credit) ? credit : 0;
-                setPaymentAmount(formatMoneyInput(Math.max(0, packagePrice - safeCredit)));
+                const dueAfterCredit = formatMoneyInput(Math.max(0, packagePrice - safeCredit));
+                setTenders((current) =>
+                  current.length === 1
+                    ? [{ ...current[0], amount: dueAfterCredit }]
+                    : current,
+                );
               }}
               onBlur={() => {
                 const credit = Number(accountCreditToApply || 0);
                 const maxCredit = Math.min(availableAccountCredit, packagePrice);
                 const safeCredit = Number.isFinite(credit) ? Math.min(Math.max(credit, 0), maxCredit) : 0;
                 setAccountCreditToApply(safeCredit.toFixed(2));
-                setPaymentAmount(formatMoneyInput(Math.max(0, packagePrice - safeCredit)));
+                const dueAfterCredit = formatMoneyInput(Math.max(0, packagePrice - safeCredit));
+                setTenders((current) =>
+                  current.length === 1
+                    ? [{ ...current[0], amount: dueAfterCredit }]
+                    : current,
+                );
               }}
               className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[var(--brand-primary)]"
             />
             <p className="mt-1 text-xs text-slate-500">Available: {formatCurrency(availableAccountCredit)}</p>
           </label>
 
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-slate-700">Payment amount</span>
-            <input
-              name="paymentAmount"
-              type="number"
-              inputMode="decimal"
-              min="0"
-              max="100000"
-              step="0.01"
-              required
-              value={paymentAmount}
-              onChange={(event) => setPaymentAmount(event.target.value)}
-              onBlur={() => {
-                if (!paymentAmount) return;
-                const amount = Number(paymentAmount);
-                if (Number.isFinite(amount)) setPaymentAmount(amount.toFixed(2));
-              }}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[var(--brand-primary)]"
-            />
-            <p className="mt-1 text-xs text-slate-500">Due after credit: {formatCurrency(estimatedDueToday)}</p>
-          </label>
+          <div className="md:col-span-2">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <span className="block text-sm font-medium text-slate-700">Payments collected today</span>
+                <p className="mt-1 text-xs text-slate-500">
+                  Add one row for each payment method used for this sale.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setTenders((current) => [
+                    ...current,
+                    {
+                      id: crypto.randomUUID(),
+                      method: "cash",
+                      amount: "",
+                      reference: "",
+                    },
+                  ])
+                }
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <Plus className="h-4 w-4" />
+                Add payment
+              </button>
+            </div>
 
-          <label className="block">
-            <span className="mb-2 block text-sm font-medium text-slate-700">Payment method</span>
-            <select
-              name="paymentMethod"
-              required
-              value={paymentMethod}
-              onChange={(event) => setPaymentMethod(event.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition focus:border-[var(--brand-primary)]"
-            >
-              <option value="card">Card already collected</option>
-              <option value="cash">Cash</option>
-              <option value="check">Check</option>
-              <option value="ach">ACH</option>
-              <option value="venmo">Venmo</option>
-              <option value="zelle">Zelle</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
+            <div className="mt-3 space-y-3">
+              {tenders.map((tender, index) => (
+                <div
+                  key={tender.id}
+                  className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-[1fr_1fr_1fr_auto]"
+                >
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-600">
+                      Method
+                    </span>
+                    <select
+                      value={tender.method}
+                      onChange={(event) =>
+                        setTenders((current) =>
+                          current.map((row) =>
+                            row.id === tender.id
+                              ? { ...row, method: event.target.value }
+                              : row,
+                          ),
+                        )
+                      }
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                    >
+                      <option value="card">Card already collected</option>
+                      <option value="cash">Cash</option>
+                      <option value="check">Check</option>
+                      <option value="ach">ACH</option>
+                      <option value="venmo">Venmo</option>
+                      <option value="zelle">Zelle</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-600">
+                      Amount
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0.01"
+                      max="100000"
+                      step="0.01"
+                      required
+                      value={tender.amount}
+                      onChange={(event) =>
+                        setTenders((current) =>
+                          current.map((row) =>
+                            row.id === tender.id
+                              ? { ...row, amount: event.target.value }
+                              : row,
+                          ),
+                        )
+                      }
+                      onBlur={() => {
+                        const amount = Number(tender.amount);
+                        if (!Number.isFinite(amount)) return;
+                        setTenders((current) =>
+                          current.map((row) =>
+                            row.id === tender.id
+                              ? { ...row, amount: amount.toFixed(2) }
+                              : row,
+                          ),
+                        );
+                      }}
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-slate-600">
+                      Reference
+                    </span>
+                    <input
+                      type="text"
+                      maxLength={160}
+                      value={tender.reference}
+                      onChange={(event) =>
+                        setTenders((current) =>
+                          current.map((row) =>
+                            row.id === tender.id
+                              ? { ...row, reference: event.target.value }
+                              : row,
+                          ),
+                        )
+                      }
+                      placeholder="Check number or transaction note"
+                      className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm"
+                    />
+                  </label>
+
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      disabled={tenders.length === 1}
+                      onClick={() =>
+                        setTenders((current) =>
+                          current.filter((row) => row.id !== tender.id),
+                        )
+                      }
+                      aria-label={`Remove payment ${index + 1}`}
+                      className="rounded-xl border border-rose-200 bg-white p-2.5 text-rose-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
 
         <div className="mt-5 grid gap-3 sm:grid-cols-3">
@@ -450,7 +595,13 @@ export default function SellPackageForm({
             type="submit"
             name="paymentAction"
             value="terminal"
-            disabled={pending || !readyToSubmit || safeAppliedCredit > 0}
+            disabled={
+              pending ||
+              !readyToSubmit ||
+              safeAppliedCredit > 0 ||
+              tenders.length !== 1 ||
+              tenders[0]?.method !== "card"
+            }
             className="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Continue to Card Reader
@@ -463,9 +614,9 @@ export default function SellPackageForm({
           </a>
         </div>
 
-        {safeAppliedCredit > 0 ? (
+        {safeAppliedCredit > 0 || tenders.length > 1 || tenders[0]?.method !== "card" ? (
           <p className="mt-3 text-xs text-amber-700">
-            Card reader collection is disabled when account credit is applied. Complete this as a manual sale or remove the credit.
+            Card reader collection currently supports one card payment with no account credit. Split payments are recorded as completed manual tenders in this first release.
           </p>
         ) : null}
       </section>

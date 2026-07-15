@@ -49,6 +49,8 @@ export function isActivePath(pathname: string, href: string) {
     "/app/events/new",
     "/app/events/sell-tickets",
     "/app/analytics",
+    "/app/payments",
+    "/app/payments/take",
   ]);
 
   if (exactOnlyRoutes.has(href)) {
@@ -91,6 +93,14 @@ function normalizeNavLabel(item: NavItem) {
 
   if (item.href === "/app/reports" || lower === "reports") {
     return "Reports & Accounting";
+  }
+
+  if (item.href === "/app/payments") {
+    return "Payment Ledger";
+  }
+
+  if (item.href === "/app/payments/take") {
+    return "Take Payment";
   }
 
   if (item.href === "/app/packages") {
@@ -992,6 +1002,42 @@ function injectAutomationsLink(sections: NavSectionType[]): NavSectionType[] {
 }
 
 
+
+function injectPaymentWorkflowLinks(sections: NavSectionType[]): NavSectionType[] {
+  const flatItems = sections.flatMap((section) => section.items);
+  const hasPayments = flatItems.some((item) => item.href === "/app/payments");
+  const hasTakePayment = flatItems.some((item) => item.href === "/app/payments/take");
+
+  if (!hasPayments || hasTakePayment) {
+    return sections;
+  }
+
+  const takePaymentItem: NavItem = {
+    label: "Take Payment",
+    href: "/app/payments/take",
+    icon: "payments",
+  };
+
+  return sections.map((section) => {
+    const paymentsIndex = section.items.findIndex(
+      (item) => item.href === "/app/payments",
+    );
+
+    if (paymentsIndex < 0) {
+      return section;
+    }
+
+    return {
+      ...section,
+      items: [
+        ...section.items.slice(0, paymentsIndex),
+        takePaymentItem,
+        ...section.items.slice(paymentsIndex),
+      ],
+    };
+  });
+}
+
 function injectInstructorPayLink(sections: NavSectionType[]): NavSectionType[] {
   const flatItems = sections.flatMap((section) => section.items);
   const hasInstructorPay = flatItems.some((item) => item.href === "/app/instructor-pay");
@@ -1383,6 +1429,7 @@ function optimizeNavigationForTasks(sections: NavSectionType[], options: Normali
         : []),
     ]),
     makeSection("Revenue", available, used, [
+      "/app/payments/take",
       "/app/payments",
       "/app/packages",
       "/app/memberships",
@@ -1514,7 +1561,8 @@ export function normalizeSections(input: unknown, options: NormalizeSectionsOpti
   const withSyllabusLink = injectSyllabusLink(withOrganizerCampaignsLink);
   const withDocumentsLink = injectDocumentsLink(withSyllabusLink);
   const withAutomationsLink = injectAutomationsLink(withDocumentsLink);
-  const withInstructorPayLink = injectInstructorPayLink(withAutomationsLink);
+  const withPaymentWorkflowLinks = injectPaymentWorkflowLinks(withAutomationsLink);
+  const withInstructorPayLink = injectInstructorPayLink(withPaymentWorkflowLinks);
   const withDanceGoalAnalyticsLink = injectDanceGoalAnalyticsLink(withInstructorPayLink);
   const withBookingRequestsLink = injectBookingRequestsLink(withDanceGoalAnalyticsLink);
   const withMyAvailabilityLink = injectMyAvailabilityLink(withBookingRequestsLink);
