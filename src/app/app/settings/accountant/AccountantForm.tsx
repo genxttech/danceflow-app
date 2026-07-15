@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import { saveAccountantProfileAction } from "./actions";
 
 type Profile = {
@@ -16,30 +16,57 @@ type Profile = {
   active: boolean | null;
 };
 
+type Schedule = {
+  enabled: boolean | null;
+  first_send_approved: boolean | null;
+  next_run_at: string | null;
+} | null;
+
 const exportOptions = [
   ["profit_loss", "Profit & loss"],
-  ["accounting_ledger", "Accounting ledger"],
+  ["accounting_ledger", "Accounting activity"],
   ["payments_refunds", "Payments and refunds"],
   ["expenses", "Expenses"],
   ["event_profitability", "Event profitability"],
-  ["payroll_packet", "Payroll packet"],
-  ["instructor_compensation", "Instructor compensation detail"],
-  ["wave_reconciliation", "Wave reconciliation summary"],
-  ["tax_season_package", "Tax-season package"],
 ];
 
 const fieldClass = "mt-2 w-full rounded-xl border border-slate-300 px-3 py-2 text-sm";
 
-export default function AccountantForm({ profile }: { profile: Profile | null }) {
+function formatDate(value: string | null | undefined) {
+  if (!value) return "Not scheduled";
+  return new Date(value).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+export default function AccountantForm({ profile, schedule }: { profile: Profile | null; schedule: Schedule }) {
   const [state, action, pending] = useActionState(saveAccountantProfileAction, { error: "" });
-  const selected = profile?.preferred_export_types ?? [];
+  const [cadence, setCadence] = useState(profile?.preferred_cadence ?? "manual");
+  const [selectedReports, setSelectedReports] = useState<string[]>(profile?.preferred_export_types ?? []);
+  const [authorized, setAuthorized] = useState(profile?.authorized_to_receive_exports === true);
+  const [active, setActive] = useState(profile?.active !== false);
+  const recurring = cadence !== "manual";
+
+  const summary = useMemo(() => {
+    const accountant = profile?.accountant_name || "Your accountant";
+    const reportNames = exportOptions.filter(([value]) => selectedReports.includes(value)).map(([, label]) => label);
+    return { accountant, reportNames };
+  }, [profile?.accountant_name, selectedReports]);
+
+  function toggleReport(value: string, checked: boolean) {
+    setSelectedReports((current) => checked ? [...new Set([...current, value])] : current.filter((item) => item !== value));
+  }
 
   return (
     <form action={action} className="space-y-6">
       <section className="rounded-xl border border-l-4 border-l-violet-600 bg-white p-6 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-wider text-violet-700">Accountant contact</p>
-        <h2 className="mt-1 text-xl font-semibold text-slate-900">Who receives accounting information</h2>
-        <p className="mt-2 text-sm leading-6 text-slate-600">Saving this profile does not send an email or grant access to DanceFlow.</p>
+        <p className="text-xs font-semibold uppercase tracking-wider text-violet-700">1. Accountant</p>
+        <h2 className="mt-1 text-xl font-semibold text-slate-900">Who should receive the reports?</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600">Add the person or firm that handles your accounting. Saving this section does not send anything.</p>
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <label className="text-sm font-medium text-slate-900">Accountant name<input name="accountantName" required defaultValue={profile?.accountant_name ?? ""} className={fieldClass} /></label>
           <label className="text-sm font-medium text-slate-900">Firm name<input name="firmName" defaultValue={profile?.firm_name ?? ""} className={fieldClass} /></label>
@@ -49,30 +76,73 @@ export default function AccountantForm({ profile }: { profile: Profile | null })
       </section>
 
       <section className="rounded-xl border border-l-4 border-l-emerald-500 bg-white p-6 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">Export preferences</p>
-        <h2 className="mt-1 text-xl font-semibold text-slate-900">What the studio expects to prepare</h2>
-        <label className="mt-5 block text-sm font-medium text-slate-900">Preferred cadence
-          <select name="preferredCadence" defaultValue={profile?.preferred_cadence ?? "manual"} className={fieldClass}>
-            <option value="manual">Manual / as needed</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="annually">Annually</option>
+        <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">2. Reports and delivery</p>
+        <h2 className="mt-1 text-xl font-semibold text-slate-900">What should DanceFlow prepare, and when?</h2>
+        <fieldset className="mt-5">
+          <legend className="text-sm font-medium text-slate-900">Reports</legend>
+          <div className="mt-3 grid gap-3 md:grid-cols-2">
+            {exportOptions.map(([value, label]) => (
+              <label key={value} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-sm">
+                <input
+                  type="checkbox"
+                  name="preferredExportTypes"
+                  value={value}
+                  checked={selectedReports.includes(value)}
+                  onChange={(event) => toggleReport(value, event.target.checked)}
+                  className="h-4 w-4 rounded"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <label className="mt-5 block text-sm font-medium text-slate-900">Delivery schedule
+          <select name="preferredCadence" value={cadence} onChange={(event) => setCadence(event.target.value)} className={fieldClass}>
+            <option value="manual">Manual only</option>
+            <option value="monthly">Monthly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="annually">Annually</option>
           </select>
         </label>
-        <fieldset className="mt-5"><legend className="text-sm font-medium text-slate-900">Preferred reports and exports</legend>
-          <div className="mt-3 grid gap-3 md:grid-cols-2">{exportOptions.map(([value, label]) => <label key={value} className="flex items-center gap-3 rounded-xl border border-slate-200 p-3 text-sm"><input type="checkbox" name="preferredExportTypes" value={value} defaultChecked={selected.includes(value)} className="h-4 w-4 rounded" />{label}</label>)}</div>
-        </fieldset>
+
+        {recurring ? (
+          <label className="mt-4 flex items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
+            <input type="checkbox" name="approveRecurringDelivery" defaultChecked={schedule?.first_send_approved === true} className="mt-1 h-4 w-4 rounded" />
+            <span><strong>Activate recurring delivery.</strong><br />DanceFlow will create secure report deliveries on this schedule. You can pause it later.</span>
+          </label>
+        ) : null}
+
+        <label className="mt-4 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+          <input type="checkbox" name="authorizedToReceiveExports" checked={authorized} onChange={(event) => setAuthorized(event.target.checked)} className="mt-1 h-4 w-4 rounded" />
+          <span><strong>I authorize this accountant to receive the selected studio reports.</strong><br />Reports are delivered through a time-limited secure link, not as ordinary email attachments.</span>
+        </label>
+
+        <label className="mt-4 flex items-center gap-3 rounded-xl border border-slate-200 p-4 text-sm">
+          <input type="checkbox" name="active" checked={active} onChange={(event) => setActive(event.target.checked)} className="h-4 w-4 rounded" />
+          Accountant setup is active
+        </label>
+
+        <details className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-800">Add internal notes</summary>
+          <label className="mt-4 block text-sm font-medium text-slate-900">Notes for your studio team<textarea name="internalNotes" rows={4} defaultValue={profile?.internal_notes ?? ""} className={fieldClass} placeholder="These notes are never sent to the accountant." /></label>
+        </details>
       </section>
 
-      <section className="rounded-xl border border-l-4 border-l-amber-500 bg-white p-6 shadow-sm">
-        <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">Authorization</p>
-        <h2 className="mt-1 text-xl font-semibold text-slate-900">Sensitive export permission</h2>
-        <label className="mt-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950"><input type="checkbox" name="authorizedToReceiveExports" defaultChecked={profile?.authorized_to_receive_exports === true} className="mt-1 h-4 w-4 rounded" /><span><strong>I authorize this accountant to receive the selected studio accounting exports.</strong><br />This records permission only. Automatic delivery is not enabled in this version.</span></label>
-        {profile?.authorization_granted_at ? <p className="mt-2 text-xs text-slate-500">Current authorization recorded {new Date(profile.authorization_granted_at).toLocaleString()}.</p> : null}
-        <label className="mt-5 flex items-center gap-3 rounded-xl border border-slate-200 p-4 text-sm"><input type="checkbox" name="active" defaultChecked={profile?.active !== false} className="h-4 w-4 rounded" />Accountant profile is active</label>
-        <label className="mt-5 block text-sm font-medium text-slate-900">Internal notes<textarea name="internalNotes" rows={5} defaultValue={profile?.internal_notes ?? ""} className={fieldClass} placeholder="Internal context for the studio team. These notes are not sent to the accountant." /></label>
+      <section className="rounded-xl border border-sky-200 bg-sky-50 p-5">
+        <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">3. Review</p>
+        <h2 className="mt-1 text-lg font-semibold text-slate-900">Accountant setup summary</h2>
+        <div className="mt-3 space-y-2 text-sm text-slate-700">
+          <p><span className="font-semibold text-slate-900">Recipient:</span> {summary.accountant}</p>
+          <p><span className="font-semibold text-slate-900">Reports:</span> {summary.reportNames.length ? summary.reportNames.join(", ") : "None selected"}</p>
+          <p><span className="font-semibold text-slate-900">Delivery:</span> {cadence === "manual" ? "Manual only" : cadence.charAt(0).toUpperCase() + cadence.slice(1)}</p>
+          {schedule?.enabled && recurring ? <p><span className="font-semibold text-slate-900">Next delivery:</span> {formatDate(schedule.next_run_at)}</p> : null}
+          <p><span className="font-semibold text-slate-900">Authorization:</span> {authorized && active ? "Ready" : "Not enabled"}</p>
+        </div>
       </section>
 
-      <div className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-900">Future scheduled delivery will use DanceFlow's existing queued outbound-delivery dispatcher. This screen does not create a second email system or send attachments.</div>
       {state.error ? <p className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{state.error}</p> : null}
-      <button disabled={pending} className="rounded-xl bg-[#2D0B45] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">{pending ? "Saving..." : "Save accountant details"}</button>
+      <button disabled={pending || selectedReports.length === 0} className="rounded-xl bg-[#2D0B45] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">{pending ? "Saving..." : "Save accountant setup"}</button>
     </form>
   );
 }
