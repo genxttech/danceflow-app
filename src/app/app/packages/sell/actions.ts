@@ -170,10 +170,19 @@ export async function sellPackageToClientAction(
       return { error: "Account credit cannot be greater than the package price." };
     }
 
-    if (roundCurrency(creditAmount + cashAmount) > packagePrice) {
+    const collectedTotal = roundCurrency(creditAmount + cashAmount);
+
+    if (collectedTotal > packagePrice) {
       return {
         error:
           "Payment amount plus account credit cannot be greater than the package price.",
+      };
+    }
+
+    if (collectedTotal < packagePrice) {
+      return {
+        error:
+          "The collected amount plus account credit must equal the package price. Create a payment arrangement before completing a partially paid sale.",
       };
     }
 

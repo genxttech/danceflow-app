@@ -123,7 +123,18 @@ export default function SellPackageForm({
   const appliedCreditAmount = Number(accountCreditToApply || 0);
   const safeAppliedCredit = Number.isFinite(appliedCreditAmount) ? appliedCreditAmount : 0;
   const estimatedDueToday = Math.max(0, packagePrice - safeAppliedCredit);
-  const readyToSubmit = Boolean(selectedClientId && selectedPackageTemplateId && paymentAmount !== "");
+  const paymentAmountNumber = Number(paymentAmount || 0);
+  const safePaymentAmount = Number.isFinite(paymentAmountNumber) ? paymentAmountNumber : 0;
+  const collectedTotal = safeAppliedCredit + safePaymentAmount;
+  const remainingBalance = Math.max(0, packagePrice - collectedTotal);
+  const paymentMatchesTotal =
+    packagePrice > 0 && Math.abs(collectedTotal - packagePrice) < 0.005;
+  const readyToSubmit = Boolean(
+    selectedClientId &&
+      selectedPackageTemplateId &&
+      paymentAmount !== "" &&
+      paymentMatchesTotal,
+  );
 
   useEffect(() => {
     if (!selectedPackageTemplate) {
@@ -383,6 +394,30 @@ export default function SellPackageForm({
             </select>
           </label>
         </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sale total</p>
+            <p className="mt-1 text-xl font-semibold text-slate-950">{formatCurrency(packagePrice)}</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Collected today</p>
+            <p className="mt-1 text-xl font-semibold text-slate-950">{formatCurrency(collectedTotal)}</p>
+          </div>
+          <div className={`rounded-2xl border p-4 ${remainingBalance > 0 ? "border-rose-200 bg-rose-50" : "border-emerald-200 bg-emerald-50"}`}>
+            <p className={`text-xs font-semibold uppercase tracking-wide ${remainingBalance > 0 ? "text-rose-700" : "text-emerald-700"}`}>Remaining balance</p>
+            <p className={`mt-1 text-xl font-semibold ${remainingBalance > 0 ? "text-rose-950" : "text-emerald-950"}`}>{formatCurrency(remainingBalance)}</p>
+          </div>
+        </div>
+
+        {!paymentMatchesTotal && selectedPackageTemplate ? (
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <p className="font-semibold">The collected amount must equal the package price.</p>
+            <p className="mt-1 leading-6">
+              Partial package sales are blocked until a payment arrangement is created and the remaining balance is recorded.
+            </p>
+          </div>
+        ) : null}
 
         <label className="mt-5 block">
           <span className="mb-2 block text-sm font-medium text-slate-700">Notes</span>
