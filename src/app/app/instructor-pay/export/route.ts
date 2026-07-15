@@ -66,6 +66,7 @@ export async function GET(request: Request) {
   const status = url.searchParams.get("status") ?? "all";
   const instructorId = url.searchParams.get("instructorId") ?? "all";
   const batchId = url.searchParams.get("batchId");
+  const payPeriodId = url.searchParams.get("payPeriodId");
 
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
@@ -90,6 +91,7 @@ export async function GET(request: Request) {
 
   if (instructorId !== "all") { query = query.eq("instructor_id", instructorId); }
   if (batchId) { query = query.eq("payroll_batch_id", batchId); }
+  if (payPeriodId) { query = query.eq("pay_period_id", payPeriodId); }
 
   const { data, error } = await query;
 
@@ -161,7 +163,7 @@ export async function GET(request: Request) {
     status: 200,
     headers: {
       "Content-Type": "text/csv; charset=utf-8",
-      "Content-Disposition": `attachment; filename="danceflow-instructor-pay-${safeFilenamePart(status)}.csv"`,
+      "Content-Disposition": `attachment; filename="danceflow-instructor-pay-${safeFilenamePart(batchId ? `batch-${batchId}` : payPeriodId ? `period-${payPeriodId}` : status)}.csv"`,
       "Cache-Control": "no-store",
     },
   });

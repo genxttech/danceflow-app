@@ -30,6 +30,54 @@ function redirectWithStatus(status: string): never {
   redirect(`/app/instructor-pay?status=${encodeURIComponent(status)}`);
 }
 
+type PayrollOperation =
+  | "create_period"
+  | "assign_period"
+  | "create_batch"
+  | "approve_batch"
+  | "pay_batch";
+
+function payrollErrorStatus(operation: PayrollOperation, error: unknown) {
+  const message =
+    typeof error === "object" && error && "message" in error
+      ? String(error.message).toLowerCase()
+      : "";
+
+  if (message.includes("overlaps another active pay period")) return "pay_period_overlap";
+  if (message.includes("end date must be on or after start date")) return "pay_period_invalid_dates";
+  if (message.includes("pay period not found")) return "pay_period_not_found";
+  if (message.includes("only open or in-review periods can receive earnings")) return "pay_period_closed";
+  if (message.includes("no approved, unbatched earnings are available")) return "no_approved_earnings";
+  if (message.includes("pay period must be in review or approved")) return "pay_period_not_ready";
+  if (message.includes("only draft or in-review batches can be approved")) return "batch_not_approvable";
+  if (message.includes("payroll batch not found")) return "payroll_batch_not_found";
+  if (message.includes("only the studio owner can mark payroll paid")) return "owner_required_to_pay";
+  if (message.includes("payroll batch must be approved before payment")) return "batch_not_approved";
+  if (message.includes("payroll access denied")) return "payroll_access_denied";
+
+  return {
+    create_period: "pay_period_create_failed",
+    assign_period: "pay_period_assign_failed",
+    create_batch: "payroll_batch_create_failed",
+    approve_batch: "payroll_batch_approve_failed",
+    pay_batch: "payroll_batch_pay_failed",
+  }[operation];
+}
+
+function logPayrollOperationError(operation: PayrollOperation, error: unknown) {
+  const safeError =
+    typeof error === "object" && error
+      ? {
+          message: "message" in error ? String(error.message) : "Unknown error",
+          code: "code" in error ? String(error.code) : undefined,
+          details: "details" in error ? String(error.details) : undefined,
+          hint: "hint" in error ? String(error.hint) : undefined,
+        }
+      : { message: String(error) };
+
+  console.error(`[Instructor Pay] ${operation} failed`, safeError);
+}
+
 export async function saveInstructorPayrollProfileAction(formData: FormData) {
   try {
     const { supabase, studioId, user } = await requirePayrollPrepareAccess();
@@ -379,12 +427,29 @@ export async function createPayrollPayPeriodAction(formData: FormData) {
     const periodStart = getOptionalDate(formData, "periodStart");
     const periodEnd = getOptionalDate(formData, "periodEnd");
     const payDate = getOptionalDate(formData, "payDate");
+
     if (!periodStart || !periodEnd) redirectWithStatus("pay_period_dates_required");
-    const { error } = await supabase.rpc("create_payroll_pay_period", { p_studio_id: studioId, p_period_start: periodStart, p_period_end: periodEnd, p_pay_date: payDate });
-    if (error) redirectWithStatus("pay_period_create_failed");
+    if (periodEnd < periodStart) redirectWithStatus("pay_period_invalid_dates");
+
+    const { error } = await supabase.rpc("create_payroll_pay_period", {
+      p_studio_id: studioId,
+      p_period_start: periodStart,
+      p_period_end: periodEnd,
+      p_pay_date: payDate,
+    });
+
+    if (error) {
+      logPayrollOperationError("create_period", error);
+      redirectWithStatus(payrollErrorStatus("create_period", error));
+    }
+
     revalidatePath("/app/instructor-pay");
     redirectWithStatus("pay_period_created");
-  } catch (error) { if (isRedirectError(error)) throw error; redirectWithStatus("pay_period_create_failed"); }
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    logPayrollOperationError("create_period", error);
+    redirectWithStatus(payrollErrorStatus("create_period", error));
+  }
 }
 
 export async function assignEarningsToPayPeriodAction(formData: FormData) {
@@ -392,11 +457,27 @@ export async function assignEarningsToPayPeriodAction(formData: FormData) {
     const { supabase, studioId } = await requirePayrollPrepareAccess();
     const payPeriodId = getString(formData, "payPeriodId");
     if (!payPeriodId) redirectWithStatus("missing_pay_period");
-    const { data, error } = await supabase.rpc("assign_earnings_to_pay_period", { p_studio_id: studioId, p_pay_period_id: payPeriodId });
-    if (error) redirectWithStatus("pay_period_assign_failed");
+
+    const { data, error } = await supabase.rpc("assign_earnings_to_pay_period", {
+      p_studio_id: studioId,
+      p_pay_period_id: payPeriodId,
+    });
+
+    if (error) {
+      logPayrollOperationError("assign_period", error);
+      redirectWithStatus(payrollErrorStatus("assign_period", error));
+    }
+
     revalidatePath("/app/instructor-pay");
-    redirect(`/app/instructor-pay?status=earnings_assigned&assigned=${Number(data ?? 0)}`);
-  } catch (error) { if (isRedirectError(error)) throw error; redirectWithStatus("pay_period_assign_failed"); }
+    revalidatePath(`/app/instructor-pay/periods/${payPeriodId}`);
+    redirect(
+      `/app/instructor-pay?status=earnings_assigned&assigned=${Number(data ?? 0)}`,
+    );
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    logPayrollOperationError("assign_period", error);
+    redirectWithStatus(payrollErrorStatus("assign_period", error));
+  }
 }
 
 export async function createPayrollBatchAction(formData: FormData) {
@@ -405,11 +486,26 @@ export async function createPayrollBatchAction(formData: FormData) {
     const payPeriodId = getString(formData, "payPeriodId");
     const provider = getString(formData, "provider") || "manual";
     if (!payPeriodId) redirectWithStatus("missing_pay_period");
-    const { error } = await supabase.rpc("create_payroll_batch_from_period", { p_studio_id: studioId, p_pay_period_id: payPeriodId, p_provider: provider });
-    if (error) redirectWithStatus("payroll_batch_create_failed");
+
+    const { error } = await supabase.rpc("create_payroll_batch_from_period", {
+      p_studio_id: studioId,
+      p_pay_period_id: payPeriodId,
+      p_provider: provider,
+    });
+
+    if (error) {
+      logPayrollOperationError("create_batch", error);
+      redirectWithStatus(payrollErrorStatus("create_batch", error));
+    }
+
     revalidatePath("/app/instructor-pay");
+    revalidatePath(`/app/instructor-pay/periods/${payPeriodId}`);
     redirectWithStatus("payroll_batch_created");
-  } catch (error) { if (isRedirectError(error)) throw error; redirectWithStatus("payroll_batch_create_failed"); }
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    logPayrollOperationError("create_batch", error);
+    redirectWithStatus(payrollErrorStatus("create_batch", error));
+  }
 }
 
 export async function approvePayrollBatchAction(formData: FormData) {
@@ -417,23 +513,54 @@ export async function approvePayrollBatchAction(formData: FormData) {
     const { supabase, studioId } = await requirePayrollPrepareAccess();
     const payrollBatchId = getString(formData, "payrollBatchId");
     if (!payrollBatchId) redirectWithStatus("missing_payroll_batch");
-    const { error } = await supabase.rpc("approve_payroll_batch", { p_studio_id: studioId, p_batch_id: payrollBatchId });
-    if (error) redirectWithStatus("payroll_batch_approve_failed");
+
+    const { error } = await supabase.rpc("approve_payroll_batch", {
+      p_studio_id: studioId,
+      p_batch_id: payrollBatchId,
+    });
+
+    if (error) {
+      logPayrollOperationError("approve_batch", error);
+      redirectWithStatus(payrollErrorStatus("approve_batch", error));
+    }
+
     revalidatePath("/app/instructor-pay");
     redirectWithStatus("payroll_batch_approved");
-  } catch (error) { if (isRedirectError(error)) throw error; redirectWithStatus("payroll_batch_approve_failed"); }
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    logPayrollOperationError("approve_batch", error);
+    redirectWithStatus(payrollErrorStatus("approve_batch", error));
+  }
 }
 
 export async function markPayrollBatchPaidAction(formData: FormData) {
   try {
     const { supabase, studioId } = await requirePayrollDisbursementAccess();
     const payrollBatchId = getString(formData, "payrollBatchId");
-    const paymentMethod = getString(formData, "paymentMethod") || "external_payroll";
-    const providerBatchReference = getString(formData, "providerBatchReference") || null;
+    const paymentMethod =
+      getString(formData, "paymentMethod") || "external_payroll";
+    const providerBatchReference =
+      getString(formData, "providerBatchReference") || null;
     if (!payrollBatchId) redirectWithStatus("missing_payroll_batch");
-    const { error } = await supabase.rpc("mark_payroll_batch_paid", { p_studio_id: studioId, p_batch_id: payrollBatchId, p_payment_method: paymentMethod, p_provider_batch_reference: providerBatchReference });
-    if (error) redirectWithStatus("payroll_batch_pay_failed");
-    revalidatePath("/app/instructor-pay"); revalidatePath("/app/reports");
+
+    const { error } = await supabase.rpc("mark_payroll_batch_paid", {
+      p_studio_id: studioId,
+      p_batch_id: payrollBatchId,
+      p_payment_method: paymentMethod,
+      p_provider_batch_reference: providerBatchReference,
+    });
+
+    if (error) {
+      logPayrollOperationError("pay_batch", error);
+      redirectWithStatus(payrollErrorStatus("pay_batch", error));
+    }
+
+    revalidatePath("/app/instructor-pay");
+    revalidatePath("/app/reports");
     redirectWithStatus("payroll_batch_paid");
-  } catch (error) { if (isRedirectError(error)) throw error; redirectWithStatus("payroll_batch_pay_failed"); }
+  } catch (error) {
+    if (isRedirectError(error)) throw error;
+    logPayrollOperationError("pay_batch", error);
+    redirectWithStatus(payrollErrorStatus("pay_batch", error));
+  }
 }

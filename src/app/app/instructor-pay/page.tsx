@@ -184,10 +184,30 @@ function statusMessage(status: string | undefined, params: Record<string, string
   if (status === "earning_locked") return "This earning is already paid or voided, so it cannot be changed from this page.";
   if (status === "earning_unchanged") return "This earning already has that status.";
   if (status === "pay_period_created") return "Pay period created.";
+  if (status === "pay_period_voided") return "Pay period voided.";
   if (status === "earnings_assigned") { const assigned = stringParam(params, "assigned") ?? "0"; return `${assigned} earning${assigned === "1" ? "" : "s"} assigned to the pay period.`; }
   if (status === "payroll_batch_created") return "Payroll batch created from approved earnings.";
   if (status === "payroll_batch_approved") return "Payroll batch approved.";
   if (status === "payroll_batch_paid") return "Payroll batch marked paid.";
+  if (status === "pay_period_dates_required") return "Enter both a start date and an end date for the pay period.";
+  if (status === "pay_period_invalid_dates") return "The pay-period end date must be on or after the start date.";
+  if (status === "pay_period_overlap") return "This pay period overlaps another open or in-review pay period. Adjust the dates or close the existing period first.";
+  if (status === "pay_period_not_found") return "That pay period could not be found. Refresh the page and try again.";
+  if (status === "pay_period_closed") return "This pay period is closed and can no longer receive earnings.";
+  if (status === "no_approved_earnings") return "There are no approved, unbatched earnings ready for this payroll batch. Approve earnings first.";
+  if (status === "pay_period_not_ready") return "Move the pay period into review before creating a payroll batch.";
+  if (status === "batch_not_approvable") return "This payroll batch has already moved beyond the review stage and cannot be approved again.";
+  if (status === "payroll_batch_not_found") return "That payroll batch could not be found. Refresh the page and try again.";
+  if (status === "owner_required_to_pay") return "Only the studio owner can mark a payroll batch paid.";
+  if (status === "batch_not_approved") return "Approve the payroll batch before marking it paid.";
+  if (status === "payroll_access_denied") return "You do not have permission to complete that payroll action.";
+  if (status === "pay_period_create_failed") return "The pay period could not be created. No changes were saved. Please try again.";
+  if (status === "pay_period_assign_failed") return "Earnings could not be assigned to the pay period. No earnings were moved.";
+  if (status === "payroll_batch_create_failed") return "The payroll batch could not be created. Review the period and try again.";
+  if (status === "payroll_batch_approve_failed") return "The payroll batch could not be approved. No status was changed.";
+  if (status === "payroll_batch_pay_failed") return "The payroll batch could not be marked paid. No payment status was changed.";
+  if (status === "missing_pay_period") return "Choose a valid pay period and try again.";
+  if (status === "missing_payroll_batch") return "Choose a valid payroll batch and try again.";
   if (status === "earnings_generated") {
     const scanned = stringParam(params, "scanned") ?? "0";
     const staged = stringParam(params, "staged") ?? "0";
@@ -195,7 +215,7 @@ function statusMessage(status: string | undefined, params: Record<string, string
     return `Earnings review complete. Scanned ${scanned}, staged ${staged}, skipped ${skipped}.`;
   }
   if (status.includes("failed") || status.includes("missing") || status.includes("invalid")) {
-    return "Something needs attention. Review the form and try again.";
+    return "That update could not be completed. No changes were saved. Review the information and try again.";
   }
   return null;
 }
@@ -517,8 +537,10 @@ export default async function InstructorPayPage({
           {payPeriods.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-200 p-5 text-sm text-slate-500">No pay periods have been created yet.</div> : payPeriods.map((period) => {
             const periodBatches = payrollBatches.filter((batch) => batch.pay_period_id === period.id);
             return <div key={period.id} className="rounded-2xl border border-slate-200 p-4">
-              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-950">{formatDate(period.period_start)} – {formatDate(period.period_end)}</p><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusClass(period.status)}`}>{period.status.replaceAll("_", " ")}</span></div><p className="mt-1 text-sm text-slate-600">Pay date: {period.pay_date ? formatDate(period.pay_date) : "Not set"}</p></div>
-              {["open", "in_review"].includes(period.status) ? <div className="flex flex-wrap gap-2"><form action={assignEarningsToPayPeriodAction}><input type="hidden" name="payPeriodId" value={period.id} /><button className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800">Assign eligible earnings</button></form><form action={createPayrollBatchAction} className="flex gap-2"><input type="hidden" name="payPeriodId" value={period.id} /><select name="provider" defaultValue="manual" className="rounded-xl border border-slate-200 px-2 py-2 text-xs"><option value="manual">Manual / bookkeeper</option><option value="gusto">Gusto</option><option value="quickbooks_payroll">QuickBooks Payroll</option><option value="adp">ADP</option></select><button className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">Create batch</button></form></div> : null}</div>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-950">{formatDate(period.period_start)} – {formatDate(period.period_end)}</p><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusClass(period.status)}`}>{period.status.replaceAll("_", " ")}</span></div><p className="mt-1 text-sm text-slate-600">Pay date: {period.pay_date ? formatDate(period.pay_date) : "Not set"}</p>
+              <p className="mt-2 text-sm font-semibold text-slate-950">Net payment: {formatCurrency(period.net_payment_total)}</p>
+              <p className="mt-1 text-xs text-slate-500">Compensation {formatCurrency(period.compensation_total)} · Reimbursements {formatCurrency(period.reimbursement_total)} · Deductions {formatCurrency(period.deduction_total)}</p></div>
+              <div className="flex flex-wrap gap-2"><Link href={`/app/instructor-pay/periods/${period.id}`} className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800">Open payroll workspace</Link>{["open", "in_review"].includes(period.status) ? <><form action={assignEarningsToPayPeriodAction}><input type="hidden" name="payPeriodId" value={period.id} /><button className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800">Assign eligible earnings</button></form><form action={createPayrollBatchAction} className="flex gap-2"><input type="hidden" name="payPeriodId" value={period.id} /><select name="provider" defaultValue="manual" className="rounded-xl border border-slate-200 px-2 py-2 text-xs"><option value="manual">Provider-neutral CSV</option><option value="gusto">Gusto-formatted label</option><option value="quickbooks_payroll">QuickBooks Payroll label</option><option value="adp">ADP label</option></select><button className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">Create batch</button></form></> : null}</div></div>
               <div className="mt-4 space-y-3">{periodBatches.length === 0 ? <p className="text-sm text-slate-500">No payroll batches have been created for this period.</p> : periodBatches.map((batch) => <div key={batch.id} className="rounded-2xl bg-slate-50 p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><p className="font-semibold text-slate-950">Batch #{batch.batch_number} · {batch.provider.replaceAll("_", " ")}</p><p className="mt-1 text-xs text-slate-500">{batch.earning_count} earnings · Compensation {formatCurrency(batch.compensation_total)} · Reimbursements {formatCurrency(batch.reimbursement_total)} · Deductions {formatCurrency(batch.deduction_total)}</p><p className="mt-1 text-sm font-semibold text-slate-950">Net payment: {formatCurrency(batch.net_payment_total)}</p></div><div className="flex flex-wrap gap-2"><Link href={`/app/instructor-pay/export?batchId=${batch.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">Export batch CSV</Link>{["draft", "in_review"].includes(batch.status) ? <form action={approvePayrollBatchAction}><input type="hidden" name="payrollBatchId" value={batch.id} /><button className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white">Approve batch</button></form> : null}{canMarkPaid && batch.status === "approved" ? <form action={markPayrollBatchPaidAction} className="flex flex-wrap gap-2"><input type="hidden" name="payrollBatchId" value={batch.id} /><select name="paymentMethod" defaultValue="external_payroll" className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs"><option value="external_payroll">External payroll</option><option value="check">Check</option><option value="ach">ACH</option><option value="cash">Cash</option></select><input name="providerBatchReference" className="w-40 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" placeholder="Provider reference" /><button className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white">Mark batch paid</button></form> : null}<span className={`rounded-full px-2.5 py-2 text-xs font-semibold ring-1 ${statusClass(batch.status)}`}>{batch.status.replaceAll("_", " ")}</span></div></div></div>)}</div>
             </div>;
           })}
