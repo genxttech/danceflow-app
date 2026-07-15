@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   description: "How DanceFlow handles personal information, studio data, student data, payments, Google Calendar integration data, and data requests.",
 };
 
-const updated = "July 9, 2026";
+const updated = "July 15, 2026";
 
 export default function Page() {
   return (
@@ -56,7 +56,7 @@ export default function Page() {
               <p className="mt-3 text-sm leading-7 text-slate-600">DanceFlow does not sell Google user data, does not use Google Calendar data for advertising, and does not transfer Google Calendar data except as necessary to provide the calendar sync feature, comply with law, protect the security of the service, or operate the service with trusted infrastructure providers.</p>
               <p className="mt-3 text-sm leading-7 text-slate-600">DanceFlow stores Google OAuth tokens encrypted and uses them only to maintain the calendar sync requested by the connected studio.</p>
               <p className="mt-3 text-sm leading-7 text-slate-600">Users can disconnect Google Calendar at any time from DanceFlow Settings → Integrations → Google Calendar.</p>
-              <p className="mt-3 text-sm leading-7 text-slate-600">DanceFlow’s use and transfer of information received from Google APIs will adhere to the Google API Services User Data Policy, including the Limited Use requirements.</p>
+              <p className="mt-3 text-sm leading-7 text-slate-600">DanceFlow’s use and transfer of information received from Google APIs adheres to the Google API Services User Data Policy, including the Limited Use requirements. DanceFlow uses Google Calendar API access only to allow authorized users to select a calendar and synchronize DanceFlow-created appointments and events to that calendar. DanceFlow does not import Google Calendar event content into its artificial-intelligence features, transfer Google Calendar API data to OpenAI, or use Google API data to train, fine-tune, or improve generalized artificial-intelligence or machine-learning models.</p>
             </section>
 
             <section>

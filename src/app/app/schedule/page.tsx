@@ -3,7 +3,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   bulkMarkDailyAppointmentsAttendedAction,
-  cancelAppointmentAction,
   markAppointmentAttendedAction,
   markAppointmentNoShowAction,
   recordPayAsYouGoLessonPaymentAction,
@@ -25,6 +24,7 @@ import {
   canMarkAttendance,
 } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
+import AppointmentCancellationForm from "@/components/schedule/AppointmentCancellationForm";
 
 type SearchParams = Promise<{
   q?: string;
@@ -2130,24 +2130,14 @@ export default async function SchedulePage({
                       </button>
                     </form>
 
-                    <form action={cancelAppointmentAction}>
-                      <input
-                        type="hidden"
-                        name="appointmentId"
-                        value={appointment.id}
+                    <div className="w-full sm:w-auto sm:min-w-[320px]">
+                      <AppointmentCancellationForm
+                        appointmentId={appointment.id}
+                        returnTo={currentScheduleHref}
+                        isRecurring={appointment.is_recurring}
+                        compact
                       />
-                      <input
-                        type="hidden"
-                        name="cancelScope"
-                        value="this_lesson_only"
-                      />
-                      <button
-                        type="submit"
-                        className="rounded-xl border border-red-200 px-4 py-2 text-red-700 hover:bg-red-50"
-                      >
-                        Cancel Appointment
-                      </button>
-                    </form>
+                    </div>
                   </div>
                 ) : null}
 
