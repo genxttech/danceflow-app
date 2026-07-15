@@ -4,8 +4,13 @@ import { createClient } from "@/lib/supabase/server";
 import { canDisbursePayroll, canPreparePayroll } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import {
+  approvePayrollBatchAction,
+  assignEarningsToPayPeriodAction,
   createInstructorAdjustmentAction,
+  createPayrollBatchAction,
+  createPayrollPayPeriodAction,
   generateInstructorEarningsAction,
+  markPayrollBatchPaidAction,
   overrideInstructorEarningAction,
   saveInstructorCompensationRuleAction,
   saveInstructorPayrollProfileAction,
@@ -48,6 +53,9 @@ type PayrollProfileRow = {
   payroll_notes: string | null;
 };
 
+type PayPeriodRow = { id: string; period_start: string; period_end: string; pay_date: string | null; status: string; compensation_total: number | string | null; reimbursement_total: number | string | null; deduction_total: number | string | null; net_payment_total: number | string | null; };
+type PayrollBatchRow = { id: string; pay_period_id: string; batch_number: number | string; provider: string; provider_batch_reference: string | null; status: string; compensation_total: number | string | null; reimbursement_total: number | string | null; deduction_total: number | string | null; net_payment_total: number | string | null; earning_count: number; paid_at: string | null; payment_method: string | null; };
+
 type EarningRow = {
   id: string;
   instructor_id: string;
@@ -68,6 +76,9 @@ type EarningRow = {
   payment_method: string | null;
   adjustment_type?: string | null;
   override_reason?: string | null;
+  pay_period_id?: string | null;
+  payroll_batch_id?: string | null;
+  locked_at?: string | null;
   instructors?: { first_name: string | null; last_name: string | null } | { first_name: string | null; last_name: string | null }[] | null;
   clients?: { first_name: string | null; last_name: string | null } | { first_name: string | null; last_name: string | null }[] | null;
 };
@@ -172,6 +183,11 @@ function statusMessage(status: string | undefined, params: Record<string, string
   if (status === "earning_updated") return "Instructor earning updated.";
   if (status === "earning_locked") return "This earning is already paid or voided, so it cannot be changed from this page.";
   if (status === "earning_unchanged") return "This earning already has that status.";
+  if (status === "pay_period_created") return "Pay period created.";
+  if (status === "earnings_assigned") { const assigned = stringParam(params, "assigned") ?? "0"; return `${assigned} earning${assigned === "1" ? "" : "s"} assigned to the pay period.`; }
+  if (status === "payroll_batch_created") return "Payroll batch created from approved earnings.";
+  if (status === "payroll_batch_approved") return "Payroll batch approved.";
+  if (status === "payroll_batch_paid") return "Payroll batch marked paid.";
   if (status === "earnings_generated") {
     const scanned = stringParam(params, "scanned") ?? "0";
     const staged = stringParam(params, "staged") ?? "0";
@@ -203,7 +219,7 @@ export default async function InstructorPayPage({
 
   let earningsQuery = supabase
     .from("instructor_earnings")
-    .select("id, instructor_id, appointment_id, client_id, earning_date, source_type, appointment_type, gross_revenue_basis, pay_mode, pay_rate_amount, pay_percentage, attendance_count, earning_amount, status, notes, paid_at, payment_method, adjustment_type, override_reason, instructors(first_name, last_name), clients(first_name, last_name)")
+    .select("id, instructor_id, appointment_id, client_id, earning_date, source_type, appointment_type, gross_revenue_basis, pay_mode, pay_rate_amount, pay_percentage, attendance_count, earning_amount, status, notes, paid_at, payment_method, adjustment_type, override_reason, pay_period_id, payroll_batch_id, locked_at, instructors(first_name, last_name), clients(first_name, last_name)")
     .eq("studio_id", studioId)
     .order("earning_date", { ascending: false })
     .limit(500);
@@ -216,7 +232,7 @@ export default async function InstructorPayPage({
     earningsQuery = earningsQuery.eq("instructor_id", instructorFilter);
   }
 
-  const [instructorsResult, rulesResult, payrollProfilesResult, earningsResult] =
+  const [instructorsResult, rulesResult, payrollProfilesResult, payPeriodsResult, payrollBatchesResult, earningsResult] =
     await Promise.all([
     supabase
       .from("instructors")
@@ -231,6 +247,8 @@ export default async function InstructorPayPage({
       .from("instructor_payroll_profiles")
       .select("id, instructor_id, worker_classification, payroll_active, external_payroll_id, payroll_notes")
       .eq("studio_id", studioId),
+    supabase.from("payroll_pay_periods").select("id, period_start, period_end, pay_date, status, compensation_total, reimbursement_total, deduction_total, net_payment_total").eq("studio_id", studioId).order("period_start", { ascending: false }).limit(24),
+    supabase.from("payroll_batches").select("id, pay_period_id, batch_number, provider, provider_batch_reference, status, compensation_total, reimbursement_total, deduction_total, net_payment_total, earning_count, paid_at, payment_method").eq("studio_id", studioId).order("created_at", { ascending: false }).limit(24),
     earningsQuery,
   ]);
 
@@ -248,6 +266,9 @@ export default async function InstructorPayPage({
     );
   }
 
+  if (payPeriodsResult.error) throw new Error(`Failed to load pay periods: ${payPeriodsResult.error.message}`);
+  if (payrollBatchesResult.error) throw new Error(`Failed to load payroll batches: ${payrollBatchesResult.error.message}`);
+
   if (earningsResult.error) {
     throw new Error(`Failed to load instructor earnings: ${earningsResult.error.message}`);
   }
@@ -255,6 +276,8 @@ export default async function InstructorPayPage({
   const instructors = (instructorsResult.data ?? []) as InstructorRow[];
   const rules = (rulesResult.data ?? []) as RuleRow[];
   const payrollProfiles = (payrollProfilesResult.data ?? []) as PayrollProfileRow[];
+  const payPeriods = (payPeriodsResult.data ?? []) as PayPeriodRow[];
+  const payrollBatches = (payrollBatchesResult.data ?? []) as PayrollBatchRow[];
   const earnings = (earningsResult.data ?? []) as EarningRow[];
   const payrollProfilesByInstructor = new Map(
     payrollProfiles.map((profile) => [profile.instructor_id, profile]),
@@ -481,6 +504,26 @@ export default async function InstructorPayPage({
         <p className="mt-1 text-violet-900">Use duration-based private lesson rates when instructors are paid differently for 30, 45, and 60 minute lessons. Use manual adjustments for bonuses, deductions, reimbursements, or corrections. Use earning overrides only for one-off lesson exceptions.</p>
       </section>
 
+
+      <section className="rounded-3xl border border-indigo-200 bg-white p-6 shadow-sm">
+        <div><p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-700">Payroll workflow</p><h2 className="mt-2 text-xl font-semibold text-slate-950">Pay periods and batches</h2><p className="mt-1 text-sm leading-6 text-slate-600">Group approved earnings into a pay period and locked payroll batch. Only the studio owner can mark an approved batch paid.</p></div>
+        <form action={createPayrollPayPeriodAction} className="mt-5 grid gap-3 rounded-2xl border border-indigo-100 bg-indigo-50 p-4 md:grid-cols-[160px_160px_160px_auto] md:items-end">
+          <label className="text-sm font-medium text-slate-700">Period start<input name="periodStart" type="date" required className="mt-1 w-full rounded-2xl border border-indigo-200 bg-white px-3 py-2 text-sm" /></label>
+          <label className="text-sm font-medium text-slate-700">Period end<input name="periodEnd" type="date" required className="mt-1 w-full rounded-2xl border border-indigo-200 bg-white px-3 py-2 text-sm" /></label>
+          <label className="text-sm font-medium text-slate-700">Pay date<input name="payDate" type="date" className="mt-1 w-full rounded-2xl border border-indigo-200 bg-white px-3 py-2 text-sm" /></label>
+          <button className="rounded-2xl bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800">Create pay period</button>
+        </form>
+        <div className="mt-5 space-y-4">
+          {payPeriods.length === 0 ? <div className="rounded-2xl border border-dashed border-slate-200 p-5 text-sm text-slate-500">No pay periods have been created yet.</div> : payPeriods.map((period) => {
+            const periodBatches = payrollBatches.filter((batch) => batch.pay_period_id === period.id);
+            return <div key={period.id} className="rounded-2xl border border-slate-200 p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div><div className="flex flex-wrap items-center gap-2"><p className="font-semibold text-slate-950">{formatDate(period.period_start)} – {formatDate(period.period_end)}</p><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${statusClass(period.status)}`}>{period.status.replaceAll("_", " ")}</span></div><p className="mt-1 text-sm text-slate-600">Pay date: {period.pay_date ? formatDate(period.pay_date) : "Not set"}</p></div>
+              {["open", "in_review"].includes(period.status) ? <div className="flex flex-wrap gap-2"><form action={assignEarningsToPayPeriodAction}><input type="hidden" name="payPeriodId" value={period.id} /><button className="rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800">Assign eligible earnings</button></form><form action={createPayrollBatchAction} className="flex gap-2"><input type="hidden" name="payPeriodId" value={period.id} /><select name="provider" defaultValue="manual" className="rounded-xl border border-slate-200 px-2 py-2 text-xs"><option value="manual">Manual / bookkeeper</option><option value="gusto">Gusto</option><option value="quickbooks_payroll">QuickBooks Payroll</option><option value="adp">ADP</option></select><button className="rounded-xl bg-slate-950 px-3 py-2 text-xs font-semibold text-white">Create batch</button></form></div> : null}</div>
+              <div className="mt-4 space-y-3">{periodBatches.length === 0 ? <p className="text-sm text-slate-500">No payroll batches have been created for this period.</p> : periodBatches.map((batch) => <div key={batch.id} className="rounded-2xl bg-slate-50 p-4"><div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between"><div><p className="font-semibold text-slate-950">Batch #{batch.batch_number} · {batch.provider.replaceAll("_", " ")}</p><p className="mt-1 text-xs text-slate-500">{batch.earning_count} earnings · Compensation {formatCurrency(batch.compensation_total)} · Reimbursements {formatCurrency(batch.reimbursement_total)} · Deductions {formatCurrency(batch.deduction_total)}</p><p className="mt-1 text-sm font-semibold text-slate-950">Net payment: {formatCurrency(batch.net_payment_total)}</p></div><div className="flex flex-wrap gap-2"><Link href={`/app/instructor-pay/export?batchId=${batch.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700">Export batch CSV</Link>{["draft", "in_review"].includes(batch.status) ? <form action={approvePayrollBatchAction}><input type="hidden" name="payrollBatchId" value={batch.id} /><button className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white">Approve batch</button></form> : null}{canMarkPaid && batch.status === "approved" ? <form action={markPayrollBatchPaidAction} className="flex flex-wrap gap-2"><input type="hidden" name="payrollBatchId" value={batch.id} /><select name="paymentMethod" defaultValue="external_payroll" className="rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs"><option value="external_payroll">External payroll</option><option value="check">Check</option><option value="ach">ACH</option><option value="cash">Cash</option></select><input name="providerBatchReference" className="w-40 rounded-xl border border-slate-200 bg-white px-2 py-2 text-xs" placeholder="Provider reference" /><button className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white">Mark batch paid</button></form> : null}<span className={`rounded-full px-2.5 py-2 text-xs font-semibold ring-1 ${statusClass(batch.status)}`}>{batch.status.replaceAll("_", " ")}</span></div></div></div>)}</div>
+            </div>;
+          })}
+        </div>
+      </section>
       <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
@@ -803,7 +846,7 @@ export default async function InstructorPayPage({
                         Open lesson
                       </Link>
                     ) : null}
-                    {earning.status !== "paid" && earning.status !== "void" ? (
+                    {!earning.payroll_batch_id && earning.status !== "paid" && earning.status !== "void" ? (
                       <form action={overrideInstructorEarningAction} className="flex flex-wrap gap-2">
                         <input type="hidden" name="earningId" value={earning.id} />
                         <input name="overrideAmount" type="number" step="0.01" defaultValue={Number(earning.earning_amount ?? 0)} className="w-24 rounded-xl border border-slate-200 px-2 py-2 text-xs" aria-label="Override amount" />
@@ -811,14 +854,14 @@ export default async function InstructorPayPage({
                         <button className="rounded-xl border border-violet-200 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-800 hover:bg-violet-100">Save override</button>
                       </form>
                     ) : null}
-                    {earning.status === "pending" ? (
+                    {!earning.payroll_batch_id && earning.status === "pending" ? (
                       <form action={updateInstructorEarningStatusAction}>
                         <input type="hidden" name="earningId" value={earning.id} />
                         <input type="hidden" name="nextStatus" value="approved" />
                         <button className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700">Approve</button>
                       </form>
                     ) : null}
-                    {canMarkPaid && earning.status === "approved" ? (
+                    {canMarkPaid && !earning.payroll_batch_id && earning.status === "approved" ? (
                       <form action={updateInstructorEarningStatusAction} className="flex gap-2">
                         <input type="hidden" name="earningId" value={earning.id} />
                         <input type="hidden" name="nextStatus" value="paid" />
@@ -832,7 +875,7 @@ export default async function InstructorPayPage({
                         <button className="rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700">Mark paid</button>
                       </form>
                     ) : null}
-                    {earning.status !== "paid" && earning.status !== "void" ? (
+                    {!earning.payroll_batch_id && earning.status !== "paid" && earning.status !== "void" ? (
                       <form action={updateInstructorEarningStatusAction}>
                         <input type="hidden" name="earningId" value={earning.id} />
                         <input type="hidden" name="nextStatus" value="void" />

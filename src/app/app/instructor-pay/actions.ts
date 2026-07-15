@@ -371,3 +371,69 @@ export async function overrideInstructorEarningAction(formData: FormData) {
     redirectWithStatus("override_failed");
   }
 }
+
+
+export async function createPayrollPayPeriodAction(formData: FormData) {
+  try {
+    const { supabase, studioId } = await requirePayrollPrepareAccess();
+    const periodStart = getOptionalDate(formData, "periodStart");
+    const periodEnd = getOptionalDate(formData, "periodEnd");
+    const payDate = getOptionalDate(formData, "payDate");
+    if (!periodStart || !periodEnd) redirectWithStatus("pay_period_dates_required");
+    const { error } = await supabase.rpc("create_payroll_pay_period", { p_studio_id: studioId, p_period_start: periodStart, p_period_end: periodEnd, p_pay_date: payDate });
+    if (error) redirectWithStatus("pay_period_create_failed");
+    revalidatePath("/app/instructor-pay");
+    redirectWithStatus("pay_period_created");
+  } catch (error) { if (isRedirectError(error)) throw error; redirectWithStatus("pay_period_create_failed"); }
+}
+
+export async function assignEarningsToPayPeriodAction(formData: FormData) {
+  try {
+    const { supabase, studioId } = await requirePayrollPrepareAccess();
+    const payPeriodId = getString(formData, "payPeriodId");
+    if (!payPeriodId) redirectWithStatus("missing_pay_period");
+    const { data, error } = await supabase.rpc("assign_earnings_to_pay_period", { p_studio_id: studioId, p_pay_period_id: payPeriodId });
+    if (error) redirectWithStatus("pay_period_assign_failed");
+    revalidatePath("/app/instructor-pay");
+    redirect(`/app/instructor-pay?status=earnings_assigned&assigned=${Number(data ?? 0)}`);
+  } catch (error) { if (isRedirectError(error)) throw error; redirectWithStatus("pay_period_assign_failed"); }
+}
+
+export async function createPayrollBatchAction(formData: FormData) {
+  try {
+    const { supabase, studioId } = await requirePayrollPrepareAccess();
+    const payPeriodId = getString(formData, "payPeriodId");
+    const provider = getString(formData, "provider") || "manual";
+    if (!payPeriodId) redirectWithStatus("missing_pay_period");
+    const { error } = await supabase.rpc("create_payroll_batch_from_period", { p_studio_id: studioId, p_pay_period_id: payPeriodId, p_provider: provider });
+    if (error) redirectWithStatus("payroll_batch_create_failed");
+    revalidatePath("/app/instructor-pay");
+    redirectWithStatus("payroll_batch_created");
+  } catch (error) { if (isRedirectError(error)) throw error; redirectWithStatus("payroll_batch_create_failed"); }
+}
+
+export async function approvePayrollBatchAction(formData: FormData) {
+  try {
+    const { supabase, studioId } = await requirePayrollPrepareAccess();
+    const payrollBatchId = getString(formData, "payrollBatchId");
+    if (!payrollBatchId) redirectWithStatus("missing_payroll_batch");
+    const { error } = await supabase.rpc("approve_payroll_batch", { p_studio_id: studioId, p_batch_id: payrollBatchId });
+    if (error) redirectWithStatus("payroll_batch_approve_failed");
+    revalidatePath("/app/instructor-pay");
+    redirectWithStatus("payroll_batch_approved");
+  } catch (error) { if (isRedirectError(error)) throw error; redirectWithStatus("payroll_batch_approve_failed"); }
+}
+
+export async function markPayrollBatchPaidAction(formData: FormData) {
+  try {
+    const { supabase, studioId } = await requirePayrollDisbursementAccess();
+    const payrollBatchId = getString(formData, "payrollBatchId");
+    const paymentMethod = getString(formData, "paymentMethod") || "external_payroll";
+    const providerBatchReference = getString(formData, "providerBatchReference") || null;
+    if (!payrollBatchId) redirectWithStatus("missing_payroll_batch");
+    const { error } = await supabase.rpc("mark_payroll_batch_paid", { p_studio_id: studioId, p_batch_id: payrollBatchId, p_payment_method: paymentMethod, p_provider_batch_reference: providerBatchReference });
+    if (error) redirectWithStatus("payroll_batch_pay_failed");
+    revalidatePath("/app/instructor-pay"); revalidatePath("/app/reports");
+    redirectWithStatus("payroll_batch_paid");
+  } catch (error) { if (isRedirectError(error)) throw error; redirectWithStatus("payroll_batch_pay_failed"); }
+}

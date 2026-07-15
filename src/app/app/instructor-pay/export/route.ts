@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { canManageInstructors } from "@/lib/auth/permissions";
+import { canPreparePayroll } from "@/lib/auth/permissions";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { toCsv } from "@/lib/utils/csv";
 
@@ -21,6 +21,13 @@ type EarningExportRow = {
   notes: string | null;
   appointment_id: string | null;
   instructor_id: string | null;
+  pay_period_id: string | null;
+  payroll_batch_id: string | null;
+  worker_classification_snapshot: string | null;
+  accounting_category_snapshot: string | null;
+  taxable_compensation_amount: number | string | null;
+  reimbursement_amount: number | string | null;
+  deduction_amount: number | string | null;
   instructors:
     | { first_name: string | null; last_name: string | null }
     | { first_name: string | null; last_name: string | null }[]
@@ -58,19 +65,20 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const status = url.searchParams.get("status") ?? "all";
   const instructorId = url.searchParams.get("instructorId") ?? "all";
+  const batchId = url.searchParams.get("batchId");
 
   const supabase = await createClient();
   const context = await getCurrentStudioContext();
   const role = context.studioRole ?? "";
 
-  if (!context.studioId || !canManageInstructors(role) || !["studio_owner", "studio_admin"].includes(role)) {
+  if (!context.studioId || !canPreparePayroll(role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   let query = supabase
     .from("instructor_earnings")
     .select(
-      "id, earning_date, source_type, appointment_type, gross_revenue_basis, pay_mode, pay_rate_amount, pay_percentage, attendance_count, earning_amount, status, paid_at, payment_method, notes, appointment_id, instructor_id, instructors(first_name, last_name), clients(first_name, last_name)",
+      "id, earning_date, source_type, appointment_type, gross_revenue_basis, pay_mode, pay_rate_amount, pay_percentage, attendance_count, earning_amount, status, paid_at, payment_method, notes, appointment_id, instructor_id, pay_period_id, payroll_batch_id, worker_classification_snapshot, accounting_category_snapshot, taxable_compensation_amount, reimbursement_amount, deduction_amount, instructors(first_name, last_name), clients(first_name, last_name)",
     )
     .eq("studio_id", context.studioId)
     .order("earning_date", { ascending: false })
@@ -80,9 +88,8 @@ export async function GET(request: Request) {
     query = query.eq("status", status);
   }
 
-  if (instructorId !== "all") {
-    query = query.eq("instructor_id", instructorId);
-  }
+  if (instructorId !== "all") { query = query.eq("instructor_id", instructorId); }
+  if (batchId) { query = query.eq("payroll_batch_id", batchId); }
 
   const { data, error } = await query;
 
@@ -108,6 +115,13 @@ export async function GET(request: Request) {
     labelize(earning.status),
     earning.paid_at,
     labelize(earning.payment_method),
+    labelize(earning.worker_classification_snapshot),
+    earning.accounting_category_snapshot ?? "",
+    Number(earning.taxable_compensation_amount ?? 0),
+    Number(earning.reimbursement_amount ?? 0),
+    Number(earning.deduction_amount ?? 0),
+    earning.pay_period_id ?? "",
+    earning.payroll_batch_id ?? "",
     earning.notes ?? "",
     earning.appointment_id ?? "",
     earning.id,
@@ -129,6 +143,13 @@ export async function GET(request: Request) {
       "Status",
       "Paid At",
       "Payment Method",
+      "Worker Classification",
+      "Accounting Category",
+      "Taxable Compensation",
+      "Reimbursement",
+      "Deduction",
+      "Pay Period ID",
+      "Payroll Batch ID",
       "Notes",
       "Appointment ID",
       "Earning ID",
