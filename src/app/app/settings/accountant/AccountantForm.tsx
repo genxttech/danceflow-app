@@ -118,9 +118,24 @@ export default function AccountantForm({ profile, schedule }: { profile: Profile
           <span><strong>I authorize this accountant to receive the selected studio reports.</strong><br />Reports are delivered through a time-limited secure link, not as ordinary email attachments.</span>
         </label>
 
-        <label className="mt-4 flex items-center gap-3 rounded-xl border border-slate-200 p-4 text-sm">
-          <input type="checkbox" name="active" checked={active} onChange={(event) => setActive(event.target.checked)} className="h-4 w-4 rounded" />
-          Accountant setup is active
+        <label className="mt-4 flex items-start gap-3 rounded-xl border border-slate-200 p-4 text-sm">
+          <input
+            type="checkbox"
+            name="active"
+            checked={active}
+            onChange={(event) => setActive(event.target.checked)}
+            className="mt-1 h-4 w-4 rounded"
+          />
+          <span>
+            <strong className="text-slate-900">
+              Allow report delivery to this accountant
+            </strong>
+            <br />
+            <span className="text-slate-600">
+              Turn this off to stop manual and scheduled report delivery without
+              deleting the accountant&apos;s information or delivery history.
+            </span>
+          </span>
         </label>
 
         <details className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
