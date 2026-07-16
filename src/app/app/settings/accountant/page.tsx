@@ -56,34 +56,88 @@ export default async function AccountantSettingsPage({ searchParams }: { searchP
 
     <AccountantForm profile={profile} schedule={schedule} />
 
-    {profile ? <section className="rounded-xl border bg-white p-5 shadow-sm">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">Send now</p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-900">Need to send the current reports?</h2>
-          <p className="mt-1 text-sm text-slate-600">Use the saved report selection and send a secure seven-day link.</p>
-        </div>
-        <form action={createAccountantDeliveryAction} className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <label className="text-sm font-medium text-slate-700">Report range
-            <select name="reportRange" className="mt-1 rounded-xl border px-3 py-2 text-sm"><option value="month">This month</option><option value="quarter">This quarter</option><option value="year">This year</option></select>
-          </label>
-          {preferred.map((value: string) => <input key={value} type="hidden" name="deliveryReportTypes" value={value} />)}
-          <button disabled={!readyToSend} className="rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Send reports now</button>
-        </form>
-      </div>
-      {!readyToSend ? <p className="mt-3 text-xs text-amber-700">Complete the setup and enable authorization before sending.</p> : null}
-    </section> : null}
+    {profile ? (
+      <section className="rounded-2xl border bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+              Current setup
+            </p>
+            <h2 className="mt-1 text-lg font-semibold text-slate-900">
+              {schedule?.enabled
+                ? `Reports are scheduled ${schedule.cadence}`
+                : "Reports are sent only when you choose"}
+            </h2>
+            <p className="mt-1 text-sm text-slate-600">
+              {schedule?.enabled
+                ? `Next delivery: ${formatDate(schedule.next_run_at)}`
+                : "Use Send now whenever your accountant needs the latest reports."}
+            </p>
+            {schedule?.last_error ? (
+              <p className="mt-2 text-sm font-medium text-red-700">
+                Needs attention: the last scheduled delivery did not complete.
+              </p>
+            ) : null}
+          </div>
 
-    {schedule ? <section className="rounded-xl border bg-white p-5 shadow-sm">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-sm font-semibold text-slate-900">Recurring delivery is {schedule.enabled ? "active" : "paused"}</p>
-          <p className="mt-1 text-sm text-slate-600">Next delivery: {formatDate(schedule.next_run_at)}</p>
-          {schedule.last_error ? <p className="mt-2 text-sm text-red-700">Needs attention: {schedule.last_error}</p> : null}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <form
+              action={createAccountantDeliveryAction}
+              className="flex flex-col gap-2 sm:flex-row sm:items-end"
+            >
+              <label className="text-sm font-medium text-slate-700">
+                Report range
+                <select
+                  name="reportRange"
+                  className="mt-1 w-full rounded-xl border px-3 py-2 text-sm sm:w-auto"
+                >
+                  <option value="month">This month</option>
+                  <option value="quarter">This quarter</option>
+                  <option value="year">This year</option>
+                </select>
+              </label>
+              {preferred.map((value: string) => (
+                <input
+                  key={value}
+                  type="hidden"
+                  name="deliveryReportTypes"
+                  value={value}
+                />
+              ))}
+              <button
+                disabled={!readyToSend}
+                className="rounded-xl bg-sky-700 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Send now
+              </button>
+            </form>
+
+            {schedule ? (
+              schedule.enabled ? (
+                <form action={pauseAccountantScheduleAction}>
+                  <button className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">
+                    Pause
+                  </button>
+                </form>
+              ) : (
+                <form action={resumeAccountantScheduleAction}>
+                  <button className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700">
+                    Resume
+                  </button>
+                </form>
+              )
+            ) : null}
+          </div>
         </div>
-        {schedule.enabled ? <form action={pauseAccountantScheduleAction}><button className="rounded-xl border border-amber-200 px-4 py-2 text-sm font-semibold text-amber-700">Pause schedule</button></form> : <form action={resumeAccountantScheduleAction}><button className="rounded-xl border border-emerald-200 px-4 py-2 text-sm font-semibold text-emerald-700">Resume schedule</button></form>}
-      </div>
-    </section> : null}
+
+        {!readyToSend ? (
+          <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs text-amber-800">
+            Add an active accountant, choose reports, and enable authorization
+            before sending.
+          </p>
+        ) : null}
+      </section>
+    ) : null}
 
     <details className="rounded-xl border bg-white p-5 shadow-sm">
       <summary className="cursor-pointer list-none">

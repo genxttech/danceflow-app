@@ -62,8 +62,8 @@ export default function AccountantForm({ profile, schedule }: { profile: Profile
   }
 
   return (
-    <form action={action} className="space-y-6">
-      <section className="rounded-xl border border-l-4 border-l-violet-600 bg-white p-6 shadow-sm">
+    <form action={action} className="overflow-hidden rounded-2xl border bg-white shadow-sm">
+      <section className="p-5 md:p-6">
         <p className="text-xs font-semibold uppercase tracking-wider text-violet-700">1. Accountant</p>
         <h2 className="mt-1 text-xl font-semibold text-slate-900">Who should receive the reports?</h2>
         <p className="mt-2 text-sm leading-6 text-slate-600">Add the person or firm that handles your accounting. Saving this section does not send anything.</p>
@@ -75,7 +75,7 @@ export default function AccountantForm({ profile, schedule }: { profile: Profile
         </div>
       </section>
 
-      <section className="rounded-xl border border-l-4 border-l-emerald-500 bg-white p-6 shadow-sm">
+      <section className="border-t border-slate-200 p-5 md:p-6">
         <p className="text-xs font-semibold uppercase tracking-wider text-emerald-700">2. Reports and delivery</p>
         <h2 className="mt-1 text-xl font-semibold text-slate-900">What should DanceFlow prepare, and when?</h2>
         <fieldset className="mt-5">
@@ -129,7 +129,7 @@ export default function AccountantForm({ profile, schedule }: { profile: Profile
         </details>
       </section>
 
-      <section className="rounded-xl border border-sky-200 bg-sky-50 p-5">
+      <section className="border-t border-slate-200 bg-slate-50 p-5 md:p-6">
         <p className="text-xs font-semibold uppercase tracking-wider text-sky-700">3. Review</p>
         <h2 className="mt-1 text-lg font-semibold text-slate-900">Accountant setup summary</h2>
         <div className="mt-3 space-y-2 text-sm text-slate-700">
@@ -141,8 +141,19 @@ export default function AccountantForm({ profile, schedule }: { profile: Profile
         </div>
       </section>
 
-      {state.error ? <p className="rounded-xl bg-red-50 p-4 text-sm text-red-700">{state.error}</p> : null}
-      <button disabled={pending || selectedReports.length === 0} className="rounded-xl bg-[#2D0B45] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60">{pending ? "Saving..." : "Save accountant setup"}</button>
+      <div className="border-t border-slate-200 p-5 md:p-6">
+        {state.error ? (
+          <p className="mb-4 rounded-xl bg-red-50 p-4 text-sm text-red-700">
+            {state.error}
+          </p>
+        ) : null}
+        <button
+          disabled={pending || selectedReports.length === 0}
+          className="w-full rounded-xl bg-[#2D0B45] px-5 py-3 text-sm font-semibold text-white disabled:opacity-60 sm:w-auto"
+        >
+          {pending ? "Saving..." : "Save accountant setup"}
+        </button>
+      </div>
     </form>
   );
 }

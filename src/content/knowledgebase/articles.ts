@@ -61,8 +61,10 @@ Studios can use DanceFlow to manage:
 - Documents and e-signatures
 - Event waivers and signed-document receipts
 - Wave Accounting connection
-- Google Calendar integration
-- ARIA revenue insights and automation review tools
+- Google Calendar integration for studio and instructor schedules
+- ARIA revenue insights, operations review, and automation tools
+- Accountant report delivery with secure links and recurring schedules
+- Payroll preparation and instructor compensation review
 - In-person card reader payment workflows
 
 ## What dancers can do
@@ -4296,7 +4298,9 @@ Public discovery is controlled by visibility settings so studios and organizers 
 
 ## Student app and wallet
 
-The DanceFlow student app supports public discovery, event registration, native in-app event payments, wallet tickets, QR codes, schedule visibility, learning content, and student-facing portal-style workflows.
+The DanceFlow student app supports public discovery, event registration, native in-app event payments, wallet tickets, QR codes, schedule visibility, learning content, self-service booking, lesson check-in actions, and student-facing document workflows.
+
+Students can review pending client-assigned documents from the app when those documents are available to their account.
 
 The app is designed to help dancers keep important dance information in one place.
 
@@ -4306,9 +4310,19 @@ Partner Search lets dancers create opt-in profiles for finding practice, social,
 
 Now Hiring lets studios publish dance job opportunities such as instructor, coaching, front desk, event staff, admin, or other studio roles.
 
-## Accounting and integrations
+## Accounting, accountant delivery, and integrations
 
-DanceFlow includes Wave Accounting integration for connected studios, along with Stripe payment foundations and Google Calendar integration.
+DanceFlow includes Wave Accounting integration, Stripe payment foundations, and Google Calendar integration for connected studios and instructors.
+
+Studios can also save accountant details, choose which reports an accountant should receive, send secure report links on demand, and create monthly, quarterly, or annual recurring delivery schedules.
+
+Accountant links are time-limited, can be canceled, and only provide access to the reports selected for that delivery.
+
+## Payroll preparation
+
+DanceFlow includes payroll preparation tools that help studios review instructor compensation and prepare payroll-related information before using an external payroll provider.
+
+These tools are designed to organize compensation data and reduce manual preparation. They do not replace the studio's payroll provider, accountant, or tax professional.
 
 The long-term direction is an Integration Hub that makes external connections easier to manage and audit.
 
@@ -4484,6 +4498,21 @@ DanceFlow public Partner Search and Now Hiring areas use published/active listin
 
 **What this helps protect against:** Hidden, disabled, or inappropriate listings appearing publicly.
 
+
+## Secure accountant report delivery
+
+DanceFlow can send accountant reports through time-limited secure links instead of placing sensitive financial reports directly in an email attachment.
+
+Access tokens are stored in protected form, links expire, canceled deliveries stop working, and only the reports selected for that delivery are available.
+
+**What this helps protect against:** Sensitive accounting reports being exposed through forwarded attachments, guessed URLs, expired links, or access to reports that were not approved for delivery.
+
+## Safer spreadsheet exports
+
+DanceFlow neutralizes potentially dangerous spreadsheet formulas in accountant-facing CSV exports.
+
+**What this helps protect against:** Studio-entered text being interpreted as a formula or command when a report is opened in spreadsheet software.
+
 ## AI and automation safeguards
 
 DanceFlow uses role checks, rate limits, and review-oriented workflows around AI-assisted business tools.
@@ -4510,6 +4539,451 @@ The goal is simple: keep the right information available to the right people, re
   },
 
 
+  {
+    slug: "setting-up-accountant-report-delivery",
+    title: "Setting Up Accountant Report Delivery",
+    category: "Reports & Expenses",
+    audience: "app",
+    description:
+      "Save accountant details, choose reports, and decide whether reports should be sent manually or on a recurring schedule.",
+    content: `
+## Overview
+
+Accountant report delivery helps your studio prepare and share selected business reports with an accountant or bookkeeper.
+
+The setup is designed around three simple questions:
+
+1. Who is your accountant?
+2. Which reports should they receive?
+3. When should DanceFlow send them?
+
+## Add your accountant
+
+Go to **Settings > Accountant and Report Delivery**.
+
+Enter:
+
+- Accountant name
+- Firm name, if applicable
+- Email address
+- Phone number, if useful
+- Internal notes, if needed
+
+Confirm that the accountant is active before sending reports.
+
+## Choose reports
+
+Select the reports your accountant normally needs.
+
+Available reports may include:
+
+- Profit and loss
+- Accounting ledger
+- Payments and refunds
+- Expenses
+- Event profitability
+- Payroll preparation or instructor compensation reports, when available
+
+Choose only the reports that are appropriate for the accountant relationship.
+
+## Choose a delivery schedule
+
+Select one delivery option:
+
+- Manual only
+- Monthly
+- Quarterly
+- Annually
+
+Use **Manual only** when you want staff to decide when reports are sent.
+
+Use a recurring schedule when the accountant should receive the same selected reports automatically.
+
+## Authorization
+
+Enable authorization only after confirming that the accountant is allowed to receive the selected studio reports.
+
+DanceFlow will not send reports when authorization is disabled.
+
+## Save the setup
+
+Use **Save accountant setup** once the accountant, report selection, cadence, and authorization are correct.
+
+You do not need to complete separate setup steps for each part of the delivery process.
+
+## Best practice
+
+Review the accountant email address and report selection before activating recurring delivery.
+
+Pause recurring delivery when the accountant relationship changes or when reports should temporarily stop.
+`,
+  },
+  {
+    slug: "sending-secure-reports-to-your-accountant",
+    title: "Sending Secure Reports to Your Accountant",
+    category: "Reports & Expenses",
+    audience: "app",
+    description:
+      "Send selected accounting reports through a private, time-limited DanceFlow link and review recent delivery activity.",
+    content: `
+## Overview
+
+DanceFlow sends accountant reports through a secure link rather than attaching sensitive reports directly to the email.
+
+The accountant opens the link and downloads only the reports selected for that delivery.
+
+## Send reports now
+
+Go to **Settings > Accountant and Report Delivery**.
+
+In the current setup section:
+
+1. Choose the report range.
+2. Confirm the selected reports.
+3. Select **Send now**.
+
+The delivery is added to the email queue and sent to the saved accountant address.
+
+## Report ranges
+
+Manual deliveries may use a range such as:
+
+- This month
+- This quarter
+- This year
+
+The selected range controls the period included in the generated reports.
+
+## Secure-link behavior
+
+The accountant link:
+
+- Is private and difficult to guess
+- Expires after a limited period
+- Only includes the reports selected for that delivery
+- Stops working if the delivery is canceled
+- Does not require the studio to email report attachments
+
+## Delivery history
+
+Open **Recent deliveries** to review recent activity.
+
+Depending on the delivery state, you may see:
+
+- Queued
+- Sent
+- Downloaded
+- Failed
+- Expired
+- Canceled
+
+History is kept compact so the main setup remains easy to use.
+
+## If a delivery needs attention
+
+Confirm:
+
+- The accountant email address is correct
+- The accountant is active
+- Export authorization is enabled
+- At least one supported report is selected
+- The delivery has not expired or been canceled
+
+## Best practice
+
+Do not forward secure accountant links to other people. Create a new authorized delivery when another recipient needs reports.
+`,
+  },
+  {
+    slug: "preparing-instructor-payroll",
+    title: "Preparing Instructor Payroll",
+    category: "Payroll & Instructor Pay",
+    audience: "app",
+    description:
+      "Review instructor compensation and prepare payroll information before sending it to your payroll or accounting provider.",
+    content: `
+## Overview
+
+Payroll preparation helps studios organize instructor compensation before payroll is processed outside DanceFlow.
+
+DanceFlow prepares and summarizes the information. Your payroll provider, accountant, or tax professional remains responsible for official payroll processing and tax treatment.
+
+## What payroll preparation can include
+
+Depending on your studio setup, payroll preparation may include:
+
+- Instructor lesson compensation
+- Group class compensation
+- Event or coaching compensation
+- Pay rates or compensation rules
+- Date-range totals
+- Instructor-level summaries
+- Exportable payroll preparation reports
+
+## Review before exporting
+
+Before preparing a payroll report, confirm:
+
+- Appointments and classes are complete
+- Attendance and closeout are accurate
+- Instructor assignments are correct
+- Compensation rules are current
+- Canceled or no-show appointments are handled correctly
+- Manual adjustments have a clear reason
+
+## Exporting payroll preparation
+
+Choose the correct date range and generate the instructor compensation export.
+
+Review the export before providing it to your payroll provider or accountant.
+
+## Important limitation
+
+DanceFlow payroll preparation is not a payroll processor.
+
+It does not replace:
+
+- Payroll tax filing
+- Employee or contractor classification advice
+- Tax withholding
+- Direct deposit
+- Wage-law compliance
+- Professional accounting or legal advice
+
+## Best practice
+
+Use a consistent payroll period and complete schedule closeout before generating payroll preparation reports.
+`,
+  },
+  {
+    slug: "connecting-google-calendar",
+    title: "Connecting Google Calendar",
+    category: "Scheduling",
+    audience: "app",
+    description:
+      "Connect a shared studio calendar or personal instructor calendar so DanceFlow schedule activity can stay visible in Google Calendar.",
+    content: `
+## Overview
+
+Google Calendar integration helps studios and instructors keep DanceFlow schedule activity visible in an external calendar.
+
+DanceFlow supports two different calendar relationships:
+
+- A shared studio calendar
+- A personal instructor calendar
+
+## Shared studio calendar
+
+The owner or manager can connect a shared calendar used for studio-wide schedule visibility.
+
+This is useful when the studio maintains one central calendar for lessons, classes, rooms, or operating activity.
+
+## Personal instructor calendar
+
+An instructor can connect a personal calendar for appointments assigned to that instructor.
+
+Owners or managers who also teach may use a personal instructor connection in addition to the shared studio connection.
+
+## Why the connections are separate
+
+A shared studio calendar belongs to the studio operation.
+
+A personal instructor calendar belongs to the individual instructor.
+
+Keeping these connections separate helps prevent one person's calendar settings from controlling another person's schedule.
+
+## Automatic synchronization
+
+After a supported calendar connection is active, DanceFlow can synchronize eligible schedule changes automatically.
+
+Calendar applications may take time to display updates depending on refresh behavior and connection status.
+
+## If events are not appearing
+
+Check:
+
+- The correct calendar is connected
+- The appointment is assigned to the correct instructor
+- The connection is active
+- The event falls within the synchronization window
+- The calendar was not disconnected or reauthorized under another account
+
+## Best practice
+
+Use the shared studio calendar for studio-wide visibility and personal instructor calendars for each instructor's own assigned schedule.
+`,
+  },
+
+  {
+    slug: "aria-operations-quick-start",
+    title: "ARIA Operations Quick Start",
+    category: "AI & Automations",
+    audience: "app",
+    description:
+      "Set up ARIA Operations with a simple first-week workflow that keeps owners in control.",
+    content: `
+## Overview
+
+ARIA Operations turns the studio data already in DanceFlow into a focused work list.
+
+It helps answer:
+
+**What needs attention, who owns it, and what should happen next?**
+
+Start small. You do not need to configure every policy, digest, and automation on the first day.
+
+## Recommended first-week setup
+
+Use this starter configuration:
+
+- Keep action policies on **Manual review**
+- Choose one default owner
+- Leave **Require assignment** off initially
+- Turn on one morning email digest
+- Leave the end-of-day digest off
+- Keep auto-approval off
+- Review only urgent and high-priority items first
+
+## Set up ARIA in six steps
+
+1. Open **ARIA > Operations Center**.
+2. Choose the person who normally handles follow-up.
+3. Keep policies on **Manual review**.
+4. Turn on one morning email digest.
+5. Generate the first ARIA actions.
+6. Review only the most important few items.
+
+## A simple daily routine
+
+### Morning
+
+- Read the morning digest
+- Open ARIA Operations
+- Review urgent and high-priority items
+- Assign important actions
+- Approve only actions you understand
+
+### During the day
+
+- Mark completed work done
+- Snooze valid work that should return later
+- Skip work you intentionally do not want to complete
+- Dismiss recommendations that are no longer useful
+
+## ARIA Operations and Automations
+
+ARIA Operations and Automations are related, but they are not the same workflow.
+
+Use **ARIA Operations** for the studio's current operational work list.
+
+Use **Automations** for repeatable rules, message templates, drafts, and optional automatic delivery.
+
+During the first week, keep recurring automations off or use Suggestion or Draft mode.
+
+## Healthy first-week goal
+
+Complete one to three important ARIA actions per day.
+
+Consistency matters more than clearing the entire screen.
+
+## Full printable guide
+
+[Download the ARIA Operations Quick Start PDF](/guides/DanceFlow_ARIA_Operations_Quick_Start_Revised.pdf)
+`,
+  },
+  {
+    slug: "aria-operations-expanded-setup",
+    title: "ARIA Operations Expanded Setup",
+    category: "AI & Automations",
+    audience: "app",
+    description:
+      "Expand ARIA ownership, digests, policies, and automation after the first-week workflow feels dependable.",
+    content: `
+## Overview
+
+Use the expanded setup after the first-week ARIA workflow feels predictable.
+
+A simple workflow that staff uses consistently is better than an advanced workflow the team avoids.
+
+## Before expanding
+
+Continue with the starter setup until:
+
+- The primary owner checks ARIA most days
+- Staff understands approval versus completion
+- Actions are not regularly left unassigned
+- The morning digest is being received and read
+- ARIA recommendations generally match real studio needs
+- Staff understands which actions require human judgment
+
+## Expand in four layers
+
+### 1. Ownership
+
+Give each action category a clear owner.
+
+For a small studio, two ownership groups are often enough:
+
+- Customer follow-up
+- Business and financial review
+
+### 2. Digest rhythm
+
+Keep the morning digest focused on the day's top priorities.
+
+Add an end-of-day digest only when the team benefits from a carryover summary.
+
+### 3. Policy tuning
+
+Group policies by risk.
+
+Good early candidates for careful expansion include:
+
+- Low package balances
+- Stale active students
+- Intro without purchase
+
+Keep payment, membership billing, event payment, and financial issues in manual review longer.
+
+### 4. Automation
+
+Enable auto-approval for only one supported low-risk policy at a time.
+
+Start with normal priority or lower, then observe the results for at least one week before expanding further.
+
+## Avoid duplicate follow-up
+
+Before enabling an Automations rule, confirm that ARIA is not already producing similar client follow-up.
+
+Use one primary workflow for each business need.
+
+## Weekly review
+
+Once per week, review:
+
+- Open and overdue actions
+- Unassigned work
+- Snoozed actions returning soon
+- Policies producing too many or too few recommendations
+- Auto-approved actions later skipped or dismissed
+- Digest and outbound delivery results
+
+## Simplify when needed
+
+Reduce the setup when:
+
+- Staff ignores one or both digests
+- Too many actions remain unassigned
+- The same recommendations are repeatedly dismissed
+- The Operations Center feels overwhelming again
+
+Turn off one digest, return a policy to manual review, or lower the auto-approval priority.
+
+## Full printable guide
+
+[Download the ARIA Operations Expanded Setup PDF](/guides/DanceFlow_ARIA_Operations_Expanded_Setup_Guide_Revised.pdf)
+`,
+  },
 
 ];
 

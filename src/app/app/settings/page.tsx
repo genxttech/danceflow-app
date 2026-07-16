@@ -305,275 +305,326 @@ export default async function SettingsPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="overflow-hidden rounded-lg border bg-white shadow-sm">
-        <div className="bg-[#2D0B45] p-6 text-white">
-          <p className="text-sm font-semibold uppercase tracking-[0.25em] text-white/80">
-            DanceFlow Studio Admin
+    <div className="space-y-8">
+      <section className="overflow-hidden rounded-3xl border border-white/15 bg-[linear-gradient(135deg,#2D0B45_0%,#4C1D95_55%,#7C2D92_100%)] p-6 text-white shadow-sm md:p-8">
+        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-white/70">
+          DanceFlow Settings
+        </p>
+        <div className="mt-3 max-w-3xl">
+          <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+            Set up how your studio runs
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-white/80 md:text-base">
+            Start with everyday studio operations. Business connections, public
+            presence, and occasional setup tools are grouped below when you need them.
           </p>
-          <div className="mt-3 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div className="max-w-3xl">
-              <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
-                Studio setup and controls
-              </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-white/90 md:text-base">
-                Manage internal policies, student portal controls, notifications, billing, integrations, and data import.
-              </p>
-            </div>
+        </div>
+      </section>
 
-            <div className="flex flex-wrap gap-3">
-              <Link
-                href="/app/settings/import"
-                className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-violet-700 shadow-sm hover:bg-violet-50"
-              >
-                Import Data
-              </Link>
-
-              <Link
-                href="/app/settings/billing"
-                className="rounded-xl border border-white/40 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20"
-              >
-                Billing Settings
-              </Link>
-            </div>
-          </div>
+      <section aria-labelledby="studio-operations-heading">
+        <div className="mb-4">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-violet-700">
+            Start here
+          </p>
+          <h2
+            id="studio-operations-heading"
+            className="mt-1 text-2xl font-semibold tracking-tight text-slate-950"
+          >
+            Studio operations
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+            Manage the settings that affect daily scheduling, student access,
+            policies, reminders, and studio defaults.
+          </p>
         </div>
 
-        <div className="grid gap-4 p-5 md:grid-cols-3">
-          <Link href="/app/settings/public-profile" className="rounded-lg border border-fuchsia-200 bg-fuchsia-50 p-4 hover:border-fuchsia-300">
-            <p className="text-sm font-semibold text-fuchsia-900">Public Presence &amp; Booking</p>
-            <p className="mt-1 text-sm text-fuchsia-800">Manage discovery, branding, inquiries, and public intro booking in one place.</p>
-          </Link>
-          <div className="rounded-lg border border-t-4 border-t-orange-500 bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-900">Policies and reminders</p>
-            <p className="mt-1 text-sm text-slate-600">Control cancellation windows, booking lead time, low-balance warnings, and notifications.</p>
-          </div>
-          <div className="rounded-lg border border-t-4 border-t-sky-500 bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-900">Launch tools</p>
-            <p className="mt-1 text-sm text-slate-600">Use import and billing setup to prepare the studio before inviting clients.</p>
-          </div>
-        </div>
-      </div>
+        <SettingsForm
+          studio={studio as StudioRow}
+          settings={settings as StudioSettingsRow}
+          notificationSettings={typedNotificationSettings}
+          instructors={(instructors ?? []) as InstructorOption[]}
+          role={context.studioRole ?? ""}
+          billingSummary={billingSummary}
+          lumiAvailable={lumiAvailable}
+        />
+      </section>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Link
-          href="/app/settings/public-profile"
-          className="rounded-lg border border-fuchsia-200 bg-white p-5 shadow-sm transition hover:border-fuchsia-400"
-        >
-          <p className="text-sm font-semibold uppercase tracking-wide text-fuchsia-700">Public Presence &amp; Booking</p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-900">Publish and accept new dancers</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">Control the directory profile, public branding, inquiry page, and intro lesson requests.</p>
-        </Link>
-        <Link
-          href="/app/settings/import"
-          className="rounded-lg border border-t-4 border-t-violet-500 bg-white p-5 shadow-sm transition hover:border-violet-300"
-        >
-          <p className="text-sm font-semibold uppercase tracking-wide text-violet-600">Data Import</p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-900">
-            Bring existing clients into DanceFlow
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Upload a CSV, review row-level errors, then execute the import when the file is ready. Uploading alone does not add clients.
-          </p>
-        </Link>
-
-        <Link
-          href="/app/settings/billing"
-          className="rounded-lg border border-t-4 border-t-emerald-500 bg-white p-5 shadow-sm transition hover:border-emerald-300"
-        >
-          <p className="text-sm font-medium text-slate-500">Billing</p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-900">
-            Studio subscription and plan
-          </h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Review billing status, subscription details, and payment setup.
-          </p>
-        </Link>
-
-        <Link
-          href="/app/settings/integrations"
-          className="rounded-lg border border-t-4 border-t-sky-500 bg-white p-5 shadow-sm transition hover:border-sky-300"
-        >
-          <p className="text-sm font-medium text-slate-500">Integrations</p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-900">
-            Integration hub
-          </h2>
-          <p className="mt-2 text-sm text-slate-600">
-            {waveAvailable
-              ? "Manage Wave, Stripe, and upcoming calendar, accounting, and automation connections."
-              : "Manage Stripe now and review upcoming integrations. Wave is available on the Pro plan."}
-          </p>
-        </Link>
-
-        <Link
-          href="/app/settings/accountant"
-          className="rounded-lg border border-t-4 border-t-amber-500 bg-white p-5 shadow-sm transition hover:border-amber-300"
-        >
-          <p className="text-sm font-medium text-slate-500">Accounting</p>
-          <h2 className="mt-2 text-xl font-semibold text-slate-900">
-            Accountant and export preferences
-          </h2>
-          <p className="mt-2 text-sm text-slate-600">
-            Store your accountant contact, report preferences, delivery cadence, and explicit export authorization.
-          </p>
-        </Link>
-      </div>
-
-      <form
-        action={updateStudioMarketingFooterAction}
-        className="rounded-lg border border-t-4 border-t-fuchsia-500 bg-white p-5 shadow-sm"
+      <section
+        aria-labelledby="business-setup-heading"
+        className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm md:p-6"
       >
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+            When you need it
+          </p>
+          <h2
+            id="business-setup-heading"
+            className="mt-1 text-2xl font-semibold tracking-tight text-slate-950"
+          >
+            Business setup
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+            Connect outside services, manage the DanceFlow plan, prepare accountant
+            delivery, or bring existing data into the studio.
+          </p>
+        </div>
+
+        <div className="mt-5 divide-y divide-slate-200 rounded-2xl border border-slate-200">
+          <Link
+            href="/app/settings/accountant"
+            className="flex items-center justify-between gap-4 px-4 py-4 transition hover:bg-slate-50"
+          >
+            <span>
+              <span className="block font-semibold text-slate-950">
+                Accountant and report delivery
+              </span>
+              <span className="mt-1 block text-sm text-slate-600">
+                Choose who receives reports, what they receive, and when.
+              </span>
+            </span>
+            <span aria-hidden="true" className="text-xl text-slate-400">
+              →
+            </span>
+          </Link>
+
+          <Link
+            href="/app/settings/integrations"
+            className="flex items-center justify-between gap-4 px-4 py-4 transition hover:bg-slate-50"
+          >
+            <span>
+              <span className="block font-semibold text-slate-950">
+                Integrations
+              </span>
+              <span className="mt-1 block text-sm text-slate-600">
+                {waveAvailable
+                  ? "Manage Wave, Stripe, calendar, and other connected services."
+                  : "Manage Stripe and other connected services. Wave is available on Pro."}
+              </span>
+            </span>
+            <span aria-hidden="true" className="text-xl text-slate-400">
+              →
+            </span>
+          </Link>
+
+          <Link
+            href="/app/settings/billing"
+            className="flex items-center justify-between gap-4 px-4 py-4 transition hover:bg-slate-50"
+          >
+            <span>
+              <span className="block font-semibold text-slate-950">
+                DanceFlow plan and billing
+              </span>
+              <span className="mt-1 block text-sm text-slate-600">
+                Review the current plan, subscription status, and payment setup.
+              </span>
+            </span>
+            <span aria-hidden="true" className="text-xl text-slate-400">
+              →
+            </span>
+          </Link>
+
+          <Link
+            href="/app/settings/import"
+            className="flex items-center justify-between gap-4 px-4 py-4 transition hover:bg-slate-50"
+          >
+            <span>
+              <span className="block font-semibold text-slate-950">
+                Import existing data
+              </span>
+              <span className="mt-1 block text-sm text-slate-600">
+                Bring clients into DanceFlow from a reviewed CSV file.
+              </span>
+            </span>
+            <span aria-hidden="true" className="text-xl text-slate-400">
+              →
+            </span>
+          </Link>
+        </div>
+      </section>
+
+      <section
+        aria-labelledby="public-presence-heading"
+        className="rounded-3xl border border-fuchsia-200 bg-white p-5 shadow-sm md:p-6"
+      >
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-wide text-violet-600">
-              Marketing Email Footer
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-fuchsia-700">
+              Public presence
             </p>
-            <h2 className="mt-2 text-xl font-semibold text-slate-900">
-              Studio mailing address for campaigns
+            <h2
+              id="public-presence-heading"
+              className="mt-1 text-2xl font-semibold tracking-tight text-slate-950"
+            >
+              Help dancers find and contact the studio
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              DanceFlow will use this business mailing address and reply-to email in studio marketing emails.
-              Keep this current before sending campaigns to clients, leads, and event attendees.
+              Manage the public profile, branding, discovery, inquiries, and intro
+              lesson requests in one place.
             </p>
           </div>
 
           <Link
-            href="/app/marketing/campaigns"
-            className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            href="/app/settings/public-profile"
+            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-fuchsia-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-fuchsia-800"
           >
-            View Campaigns
+            Open public presence
           </Link>
         </div>
+      </section>
 
-        <div className="mt-5 grid gap-4 md:grid-cols-2">
-          <div className="md:col-span-2">
-            <label
-              htmlFor="marketingReplyToEmail"
-              className="text-sm font-medium text-slate-900"
-            >
-              Reply-to email
-            </label>
-            <input
-              id="marketingReplyToEmail"
-              name="marketingReplyToEmail"
-              type="email"
-              defaultValue={(studio as StudioRow).email ?? ""}
-              placeholder="studio@example.com"
-              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            />
-            <p className="mt-1 text-xs text-slate-500">
-              Replies from campaign emails should go to the studio, not to DanceFlow support.
-            </p>
-          </div>
-
-          <div className="md:col-span-2">
-            <label
-              htmlFor="marketingAddressLine1"
-              className="text-sm font-medium text-slate-900"
-            >
-              Mailing address line 1
-            </label>
-            <input
-              id="marketingAddressLine1"
-              name="marketingAddressLine1"
-              defaultValue={(studio as StudioRow).address_line_1 ?? ""}
-              placeholder="Street address or PO Box"
-              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label
-              htmlFor="marketingAddressLine2"
-              className="text-sm font-medium text-slate-900"
-            >
-              Mailing address line 2
-            </label>
-            <input
-              id="marketingAddressLine2"
-              name="marketingAddressLine2"
-              defaultValue={(studio as StudioRow).address_line_2 ?? ""}
-              placeholder="Suite, unit, floor, or additional address detail"
-              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="marketingCity" className="text-sm font-medium text-slate-900">
-              City
-            </label>
-            <input
-              id="marketingCity"
-              name="marketingCity"
-              defaultValue={(studio as StudioRow).city ?? ""}
-              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="marketingState" className="text-sm font-medium text-slate-900">
-              State / region
-            </label>
-            <input
-              id="marketingState"
-              name="marketingState"
-              defaultValue={(studio as StudioRow).state ?? ""}
-              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="marketingPostalCode"
-              className="text-sm font-medium text-slate-900"
-            >
-              Postal code
-            </label>
-            <input
-              id="marketingPostalCode"
-              name="marketingPostalCode"
-              defaultValue={(studio as StudioRow).postal_code ?? ""}
-              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="marketingCountry" className="text-sm font-medium text-slate-900">
-              Country
-            </label>
-            <input
-              id="marketingCountry"
-              name="marketingCountry"
-              defaultValue={(studio as StudioRow).country ?? "United States"}
-              className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
-            />
-          </div>
-        </div>
-
-        <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900">
-          This address appears in marketing email footers. DanceFlow still suppresses unsubscribed contacts,
-          and the studio remains responsible for sending campaigns only to contacts it is allowed to email.
-        </div>
-
-        <div className="mt-5">
-          <button
-            type="submit"
-            className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+      <details className="group rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-4 p-5 md:p-6">
+          <span>
+            <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              Occasional setup
+            </span>
+            <span className="mt-1 block text-xl font-semibold text-slate-950">
+              Marketing email footer
+            </span>
+            <span className="mt-1 block text-sm text-slate-600">
+              Update the studio reply-to email and mailing address used in campaigns.
+            </span>
+          </span>
+          <span
+            aria-hidden="true"
+            className="text-2xl text-slate-400 transition group-open:rotate-45"
           >
-            Save Marketing Footer
-          </button>
-        </div>
-      </form>
+            +
+          </span>
+        </summary>
 
-      <SettingsForm
-        studio={studio as StudioRow}
-        settings={settings as StudioSettingsRow}
-        notificationSettings={typedNotificationSettings}
-        instructors={(instructors ?? []) as InstructorOption[]}
-        role={context.studioRole ?? ""}
-        billingSummary={billingSummary}
-        lumiAvailable={lumiAvailable}
-      />
+        <form
+          action={updateStudioMarketingFooterAction}
+          className="border-t border-slate-200 p-5 md:p-6"
+        >
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <label
+                htmlFor="marketingReplyToEmail"
+                className="text-sm font-medium text-slate-900"
+              >
+                Reply-to email
+              </label>
+              <input
+                id="marketingReplyToEmail"
+                name="marketingReplyToEmail"
+                type="email"
+                defaultValue={(studio as StudioRow).email ?? ""}
+                placeholder="studio@example.com"
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
+              <p className="mt-1 text-xs text-slate-500">
+                Campaign replies go to this studio email.
+              </p>
+            </div>
+
+            <div className="md:col-span-2">
+              <label
+                htmlFor="marketingAddressLine1"
+                className="text-sm font-medium text-slate-900"
+              >
+                Mailing address line 1
+              </label>
+              <input
+                id="marketingAddressLine1"
+                name="marketingAddressLine1"
+                defaultValue={(studio as StudioRow).address_line_1 ?? ""}
+                placeholder="Street address or PO Box"
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div className="md:col-span-2">
+              <label
+                htmlFor="marketingAddressLine2"
+                className="text-sm font-medium text-slate-900"
+              >
+                Mailing address line 2
+              </label>
+              <input
+                id="marketingAddressLine2"
+                name="marketingAddressLine2"
+                defaultValue={(studio as StudioRow).address_line_2 ?? ""}
+                placeholder="Suite, unit, floor, or additional address detail"
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="marketingCity"
+                className="text-sm font-medium text-slate-900"
+              >
+                City
+              </label>
+              <input
+                id="marketingCity"
+                name="marketingCity"
+                defaultValue={(studio as StudioRow).city ?? ""}
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="marketingState"
+                className="text-sm font-medium text-slate-900"
+              >
+                State / region
+              </label>
+              <input
+                id="marketingState"
+                name="marketingState"
+                defaultValue={(studio as StudioRow).state ?? ""}
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="marketingPostalCode"
+                className="text-sm font-medium text-slate-900"
+              >
+                Postal code
+              </label>
+              <input
+                id="marketingPostalCode"
+                name="marketingPostalCode"
+                defaultValue={(studio as StudioRow).postal_code ?? ""}
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+
+            <div>
+              <label
+                htmlFor="marketingCountry"
+                className="text-sm font-medium text-slate-900"
+              >
+                Country
+              </label>
+              <input
+                id="marketingCountry"
+                name="marketingCountry"
+                defaultValue={(studio as StudioRow).country ?? "United States"}
+                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <p className="max-w-3xl text-xs leading-5 text-slate-500">
+              This address appears in marketing email footers. DanceFlow continues
+              to suppress unsubscribed contacts.
+            </p>
+            <button
+              type="submit"
+              className="inline-flex shrink-0 items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+            >
+              Save footer
+            </button>
+          </div>
+        </form>
+      </details>
     </div>
   );
 }
