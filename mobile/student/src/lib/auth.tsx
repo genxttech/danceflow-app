@@ -8,6 +8,7 @@ import {
   useState
 } from "react";
 import { router } from "expo-router";
+import * as Linking from "expo-linking";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type { Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
@@ -105,8 +106,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
+    const linkingSubscription = Linking.addEventListener("url", ({ url }) => {
+      void handleAuthUrl(url).catch((error: unknown) => {
+        console.warn(
+          "DanceFlow could not process the incoming authentication link:",
+          error instanceof Error ? error.message : error,
+        );
+      });
+    });
+
     async function bootstrap() {
       try {
+        const initialUrl = await Linking.getInitialURL();
+
+        if (initialUrl) {
+          await handleAuthUrl(initialUrl).catch((error: unknown) => {
+            console.warn(
+              "DanceFlow could not process the initial authentication link:",
+              error instanceof Error ? error.message : error,
+            );
+          });
+        }
+
         const { data } = await supabase.auth.getSession();
         if (!mounted) return;
 
@@ -132,7 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    bootstrap();
+    void bootstrap();
 
     const authSubscription = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
@@ -141,9 +162,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
+      linkingSubscription.remove();
       authSubscription.unsubscribe();
     };
-  }, []);
+  }, [handleAuthUrl]);
 
   const continueWithEmail = useCallback(async (email: string) => {
     const { error } = await supabase.auth.signInWithOtp({
