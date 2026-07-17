@@ -22,6 +22,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/cron/outbound-deliveries",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/aria-operations",
       "schedule": "*/30 * * * *"
     },
