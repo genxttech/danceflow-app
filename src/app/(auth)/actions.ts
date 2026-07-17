@@ -2,6 +2,7 @@
 
 import { checkRateLimit, getServerActionRateLimitKey, rateLimitErrorMessage } from "@/lib/security/rate-limit";
 import { headers } from "next/headers";
+import { recordBusinessLegalAcceptance } from "@/lib/legal/agreements";
 import { redirect } from "next/navigation";
 import {
   getTrustedRequestOrigin,
@@ -24,6 +25,24 @@ async function getBaseUrl() {
   const headerStore = await headers();
   return getTrustedRequestOrigin(headerStore);
 }
+
+async function getRequestAuditContext() {
+  const headerStore = await headers();
+  const forwardedFor =
+    headerStore.get("x-forwarded-for") ??
+    headerStore.get("x-real-ip") ??
+    headerStore.get("cf-connecting-ip") ??
+    headerStore.get("x-vercel-forwarded-for");
+
+  const ipAddress = forwardedFor
+    ? forwardedFor.split(",")[0]?.trim().slice(0, 128) || null
+    : null;
+
+  const userAgent = headerStore.get("user-agent")?.slice(0, 1000) ?? null;
+
+  return { ipAddress, userAgent };
+}
+
 
 function getPostLoginPath(hasWorkspaceRole: boolean) {
   return hasWorkspaceRole ? "/app" : "/account";
@@ -224,6 +243,7 @@ export async function signupAction(formData: FormData) {
   const signupIntent = getString(formData, "signupIntent") || "public";
   const selectedPlan = getString(formData, "selectedPlan");
   const nextPath = getString(formData, "nextPath");
+  const legalAccepted = formData.get("legalAccepted") === "on";
 
   if (!fullName || !email) {
     return { error: "Full name and email are required." };
@@ -275,6 +295,13 @@ export async function signupAction(formData: FormData) {
         mode: "check-email",
       })
     );
+  }
+
+  if (!legalAccepted) {
+    return {
+      error:
+        "You must agree to the DanceFlow SaaS Terms and acknowledge the Privacy Policy before creating a business account.",
+    };
   }
 
   if (!password) {
@@ -364,6 +391,17 @@ export async function signupAction(formData: FormData) {
       email,
       fullName,
       nextPath: redirectPath,
+    });
+
+    const auditContext = await getRequestAuditContext();
+
+    await recordBusinessLegalAcceptance({
+      supabase,
+      userId: authenticatedUser.id,
+      source: "business_signup",
+      intent: signupIntent === "organizer" ? "organizer" : "studio",
+      ipAddress: auditContext.ipAddress,
+      userAgent: auditContext.userAgent,
     });
   } catch (error) {
     return {

@@ -170,6 +170,45 @@ export default async function SignupPage({
                   />
                 </div>
 
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <label className="flex items-start gap-3 text-sm leading-6 text-slate-700">
+                    <input
+                      type="checkbox"
+                      name="legalAccepted"
+                      required
+                      className="mt-1 h-4 w-4 rounded border-slate-300"
+                    />
+                    <span>
+                      I agree to the{" "}
+                      <Link
+                        href="/terms"
+                        target="_blank"
+                        className="font-semibold text-slate-950 underline"
+                      >
+                        DanceFlow SaaS Terms
+                      </Link>
+                      , acknowledge the{" "}
+                      <Link
+                        href="/privacy"
+                        target="_blank"
+                        className="font-semibold text-slate-950 underline"
+                      >
+                        Privacy Policy
+                      </Link>
+                      , and agree that the{" "}
+                      <Link
+                        href="/dpa"
+                        target="_blank"
+                        className="font-semibold text-slate-950 underline"
+                      >
+                        Data Processing Addendum
+                      </Link>{" "}
+                      applies when DanceFlow processes customer data for this
+                      business account.
+                    </span>
+                  </label>
+                </div>
+
                 <button
                   type="submit"
                   className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-medium text-white hover:bg-violet-700"

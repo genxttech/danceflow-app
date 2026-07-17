@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getBillingPlan, type PlanAudience } from "@/lib/billing/plans";
 import { sendWelcomeToDanceFlowEmail } from "@/lib/notifications/dispatch";
+import { hasCurrentBusinessLegalAcceptance } from "@/lib/legal/agreements";
 
 const APP_SELECTED_STUDIO_COOKIE = "app_selected_studio_id";
 
@@ -501,6 +502,21 @@ export async function startPaidPathAction(formData: FormData) {
         planCode: plan.code,
       })
     );
+  }
+
+  const hasCurrentLegalAcceptance =
+    await hasCurrentBusinessLegalAcceptance({
+      supabase,
+      userId: user.id,
+    });
+
+  if (!hasCurrentLegalAcceptance) {
+    const legalSearch = new URLSearchParams({
+      intent,
+      plan: plan.code,
+    });
+
+    redirect(`/legal/accept?${legalSearch.toString()}`);
   }
 
   const ownerRows = await getActiveOwnerWorkspacesForUser({
