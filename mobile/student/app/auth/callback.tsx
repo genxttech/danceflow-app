@@ -15,7 +15,7 @@ function cleanParam(value: string | string[] | null | undefined) {
 }
 
 function buildCallbackUrl(
-  baseUrl: string | null,
+  urls: Array<string | null | undefined>,
   routeParams: {
     access_token?: string | string[];
     code?: string | string[];
@@ -26,41 +26,48 @@ function buildCallbackUrl(
     type?: string | string[];
   },
 ) {
-  const fallbackUrl = "danceflow://auth/callback";
-  let parsed: URL;
+  const merged = new URL("danceflow://auth/callback");
 
-  try {
-    parsed = new URL(baseUrl || fallbackUrl);
-  } catch {
-    parsed = new URL(fallbackUrl);
-  }
+  for (const candidate of urls) {
+    if (!candidate) continue;
 
-  const fragmentParams = new URLSearchParams(
-    parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash,
-  );
+    try {
+      const parsed = new URL(candidate);
 
-  for (const [key, value] of fragmentParams.entries()) {
-    if (!parsed.searchParams.has(key)) {
-      parsed.searchParams.set(key, value);
+      for (const [key, value] of parsed.searchParams.entries()) {
+        if (!merged.searchParams.has(key)) {
+          merged.searchParams.set(key, value);
+        }
+      }
+
+      const fragmentParams = new URLSearchParams(
+        parsed.hash.startsWith("#") ? parsed.hash.slice(1) : parsed.hash,
+      );
+
+      for (const [key, value] of fragmentParams.entries()) {
+        if (!merged.searchParams.has(key)) {
+          merged.searchParams.set(key, value);
+        }
+      }
+    } catch {
+      // Ignore malformed candidates and continue with the remaining sources.
     }
   }
 
   for (const [key, value] of Object.entries(routeParams)) {
     const cleaned = cleanParam(value);
-    if (cleaned && !parsed.searchParams.has(key)) {
-      parsed.searchParams.set(key, cleaned);
+    if (cleaned && !merged.searchParams.has(key)) {
+      merged.searchParams.set(key, cleaned);
     }
   }
 
-  parsed.hash = "";
-
   const hasAuthData =
-    parsed.searchParams.has("code") ||
-    parsed.searchParams.has("token_hash") ||
-    (parsed.searchParams.has("access_token") &&
-      parsed.searchParams.has("refresh_token"));
+    merged.searchParams.has("code") ||
+    merged.searchParams.has("token_hash") ||
+    (merged.searchParams.has("access_token") &&
+      merged.searchParams.has("refresh_token"));
 
-  return hasAuthData ? parsed.toString() : null;
+  return hasAuthData ? merged.toString() : null;
 }
 
 async function waitForSession() {
@@ -109,7 +116,7 @@ export default function AuthCallbackScreen() {
       if (attemptedRef.current) return;
 
       const resolvedUrl = buildCallbackUrl(
-        callbackUrl || initialUrl,
+        [callbackUrl, initialUrl],
         routeParams,
       );
 
