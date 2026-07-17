@@ -214,6 +214,39 @@ function windowMatches(
   return true;
 }
 
+function resolveMatchingWindows(
+  windows: SelfServiceAvailabilityWindow[],
+  params: {
+    dateKey: string;
+    weekday: number;
+    lessonType?: string | null;
+    instructorId?: string | null;
+    roomId?: string | null;
+  }
+) {
+  const matchingWindows = windows.filter((window) =>
+    windowMatches(window, params)
+  );
+
+  if (!params.instructorId) {
+    return matchingWindows;
+  }
+
+  const instructorWindows = matchingWindows.filter(
+    (window) => window.instructor_id === params.instructorId
+  );
+
+  // Instructor-specific availability is authoritative for that instructor.
+  // Studio-wide "Any instructor" windows are inherited only when the
+  // instructor has no matching availability of their own for this date.
+  if (instructorWindows.length > 0) {
+    return instructorWindows;
+  }
+
+  return matchingWindows.filter((window) => !window.instructor_id);
+}
+
+
 function holdMatches(
   hold: SelfServiceAppointmentHold | SelfServiceBlackout,
   params: { instructorId: string | null; roomId: string | null }
@@ -291,15 +324,15 @@ export function buildSelfServiceSlots(params: BuildSelfServiceSlotsParams) {
   for (let dayOffset = 0; dayOffset <= windowDays; dayOffset += 1) {
     const dateKey = addDaysToDateKey(firstDateKey, dayOffset);
     const weekday = getWeekdayIndex(dateKey, timeZone);
-    const matchingWindows = params.windows.filter((window) =>
-      windowMatches(window, {
-        dateKey,
-        weekday,
-        lessonType: params.lessonType,
-        instructorId: params.instructorId,
-        roomId: params.roomId,
-      })
-    );
+    const matchingWindows = resolveMatchingWindows(params.windows, {
+      dateKey,
+      weekday,
+      lessonType: params.lessonType,
+      instructorId: params.instructorId,
+      roomId: params.roomId,
+    });
+
+    const generatedSlotKeys = new Set<string>();
 
     for (const window of matchingWindows) {
       const windowStart = zonedDateTimeToUtcDate(dateKey, window.start_time, timeZone);
@@ -327,6 +360,16 @@ export function buildSelfServiceSlots(params: BuildSelfServiceSlotsParams) {
         ) {
           continue;
         }
+
+        const slotKey = [
+          startsAt.toISOString(),
+          endsAt.toISOString(),
+          instructorId ?? "",
+          roomId ?? "",
+        ].join("|");
+
+        if (generatedSlotKeys.has(slotKey)) continue;
+        generatedSlotKeys.add(slotKey);
 
         slots.push({
           date: dateKey,
