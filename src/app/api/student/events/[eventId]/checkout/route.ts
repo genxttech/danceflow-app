@@ -529,9 +529,12 @@ export async function POST(request: NextRequest, { params }: Params) {
     return jsonError("Online ticket checkout is not ready for this event.");
   }
 
-  const organizerPlatformFeePercent = await getOrganizerPlatformFeePercent(supabase, event.studio_id);
-  if (organizerPlatformFeePercent <= 0) {
-    return jsonError("DanceFlow event checkout is not enabled for this listing.");
+  const organizerPlatformFeePercent = event.organizer_id
+    ? await getOrganizerPlatformFeePercent(supabase, event.studio_id)
+    : 0;
+
+  if (event.organizer_id && organizerPlatformFeePercent <= 0) {
+    return jsonError("DanceFlow organizer checkout is not enabled for this listing.");
   }
 
   const { data: requiredDocuments, error: documentError } = await supabase
@@ -859,31 +862,36 @@ export async function POST(request: NextRequest, { params }: Params) {
     const releaseUrl = `${baseUrl}/api/events/cart/release?orderId=${encodeURIComponent(order.id)}&eventSlug=${encodeURIComponent(event.slug)}&holdToken=${encodeURIComponent(orderHoldToken)}`;
 
     if (body.paymentMode === "payment_sheet") {
-      const paymentIntent = await stripe.paymentIntents.create({
-        amount: Math.round(totalAmount * 100),
-        currency: currency.toLowerCase(),
-        receipt_email: buyerEmail,
-        automatic_payment_methods: {
-          enabled: true,
+      const paymentIntent = await stripe.paymentIntents.create(
+        {
+          amount: Math.round(totalAmount * 100),
+          currency: currency.toLowerCase(),
+          receipt_email: buyerEmail,
+          automatic_payment_methods: {
+            enabled: true,
+          },
+          ...(applicationFeeAmount > 0
+            ? { application_fee_amount: applicationFeeAmount }
+            : {}),
+          metadata: {
+            source: "event_cart_order",
+            studio_id: event.studio_id,
+            event_id: event.id,
+            event_slug: event.slug,
+            order_id: order.id,
+            registration_id: registrationIds[0] ?? "",
+            registration_ids: registrationIds.join(","),
+            buyer_email: buyerEmail,
+            connected_account_id: connectedAccountId,
+            charge_model: "direct",
+            client_surface: "student_app",
+            mobile_return_url: checkoutSuccessUrl,
+          },
         },
-        ...(applicationFeeAmount > 0 ? { application_fee_amount: applicationFeeAmount } : {}),
-        transfer_data: {
-          destination: connectedAccountId,
+        {
+          stripeAccount: connectedAccountId,
         },
-        metadata: {
-          source: "event_cart_order",
-          studio_id: event.studio_id,
-          event_id: event.id,
-          event_slug: event.slug,
-          order_id: order.id,
-          registration_id: registrationIds[0] ?? "",
-          registration_ids: registrationIds.join(","),
-          buyer_email: buyerEmail,
-          connected_account_id: connectedAccountId,
-          client_surface: "student_app",
-          mobile_return_url: checkoutSuccessUrl,
-        },
-      });
+      );
 
       if (!paymentIntent.client_secret) {
         throw new Error("Stripe did not return a native payment secret.");
@@ -912,25 +920,39 @@ export async function POST(request: NextRequest, { params }: Params) {
       });
     }
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      customer_email: buyerEmail,
-      success_url: checkoutSuccessUrl,
-      cancel_url: releaseUrl,
-      line_items: orderItems.map((item) => ({
-        quantity: Number(item.quantity ?? 1),
-        price_data: {
-          currency: currency.toLowerCase(),
-          unit_amount: Math.round(Number(item.unit_price ?? 0) * 100),
-          product_data: {
-            name: String(item.description ?? "Event ticket"),
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: "payment",
+        customer_email: buyerEmail,
+        success_url: checkoutSuccessUrl,
+        cancel_url: releaseUrl,
+        line_items: orderItems.map((item) => ({
+          quantity: Number(item.quantity ?? 1),
+          price_data: {
+            currency: currency.toLowerCase(),
+            unit_amount: Math.round(Number(item.unit_price ?? 0) * 100),
+            product_data: {
+              name: String(item.description ?? "Event ticket"),
+            },
           },
-        },
-      })),
-      payment_intent_data: {
-        ...(applicationFeeAmount > 0 ? { application_fee_amount: applicationFeeAmount } : {}),
-        transfer_data: {
-          destination: connectedAccountId,
+        })),
+        payment_intent_data: {
+          ...(applicationFeeAmount > 0
+            ? { application_fee_amount: applicationFeeAmount }
+            : {}),
+          metadata: {
+            source: "event_cart_order",
+            studio_id: event.studio_id,
+            event_id: event.id,
+            event_slug: event.slug,
+            order_id: order.id,
+            registration_id: registrationIds[0] ?? "",
+            registration_ids: registrationIds.join(","),
+            buyer_email: buyerEmail,
+            connected_account_id: connectedAccountId,
+            charge_model: "direct",
+            mobile_return_url: checkoutSuccessUrl,
+          },
         },
         metadata: {
           source: "event_cart_order",
@@ -942,23 +964,15 @@ export async function POST(request: NextRequest, { params }: Params) {
           registration_ids: registrationIds.join(","),
           buyer_email: buyerEmail,
           connected_account_id: connectedAccountId,
+          charge_model: "direct",
+          client_surface: "student_app",
           mobile_return_url: checkoutSuccessUrl,
         },
       },
-      metadata: {
-        source: "event_cart_order",
-        studio_id: event.studio_id,
-        event_id: event.id,
-        event_slug: event.slug,
-        order_id: order.id,
-        registration_id: registrationIds[0] ?? "",
-        registration_ids: registrationIds.join(","),
-        buyer_email: buyerEmail,
-        connected_account_id: connectedAccountId,
-        client_surface: "student_app",
-        mobile_return_url: checkoutSuccessUrl,
+      {
+        stripeAccount: connectedAccountId,
       },
-    });
+    );
 
     const { error: sessionLinkError } = await supabase
       .from("event_orders")
