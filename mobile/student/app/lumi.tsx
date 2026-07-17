@@ -1,10 +1,10 @@
 import { useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
-import { Image, StyleSheet, TextInput, View } from "react-native";
+import { Image, StyleSheet, TextInput, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import { loadStudentLearnOverview, type StudentLearnOverview } from "@/lib/studentLearn";
@@ -44,6 +44,8 @@ function includesAny(value: string, words: string[]) {
 }
 
 export default function LumiScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const params = useLocalSearchParams<{ prompt?: string }>();
   const { session } = useAuth();
   const [loadingAccess, setLoadingAccess] = useState(true);
@@ -394,7 +396,8 @@ export default function LumiScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   avatar: {
     borderRadius: 42,
     height: 84,
@@ -402,8 +405,10 @@ const styles = StyleSheet.create({
   },
   card: {
     alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 18,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
     flexDirection: "row",
     gap: 14,
     padding: 18
@@ -415,7 +420,7 @@ const styles = StyleSheet.create({
   contextCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
     gap: 8,
     padding: 16
@@ -423,7 +428,7 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1,
     color: colors.text,
     fontSize: 16,
@@ -433,7 +438,9 @@ const styles = StyleSheet.create({
   },
   answerCard: {
     backgroundColor: colors.surfaceAlt,
-    borderRadius: 18,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
     gap: 8,
     padding: 16
   },
@@ -441,7 +448,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 18,
+    borderRadius: 20,
     borderWidth: 1,
     flexDirection: "row",
     gap: 14,
@@ -450,4 +457,5 @@ const styles = StyleSheet.create({
   promptSection: {
     gap: 10
   }
-});
+  });
+}

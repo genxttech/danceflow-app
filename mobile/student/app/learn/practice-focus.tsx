@@ -1,11 +1,11 @@
 import { Link, type Href } from "expo-router";
 import { useEffect, useState } from "react";
-import { Image, StyleSheet, View } from "react-native";
+import { Image, StyleSheet, useColorScheme, View } from "react-native";
 import { AppButton } from "@/components/AppButton";
 import { AppText } from "@/components/AppText";
 import { FeatureCard } from "@/components/FeatureCard";
 import { Screen } from "@/components/Screen";
-import { colors } from "@/constants/theme";
+import { colorsForScheme } from "@/constants/theme";
 import { useAuth } from "@/lib/auth";
 import { getStudentAccess, type LinkedStudioAccess } from "@/lib/studentAccess";
 import {
@@ -35,7 +35,13 @@ function lumiPromptHref(prompt: string): Href {
   } as Href;
 }
 
-function FocusCard({ focus }: { focus: StudentPracticeFocus }) {
+function FocusCard({
+  focus,
+  styles,
+}: {
+  focus: StudentPracticeFocus;
+  styles: ReturnType<typeof createStyles>;
+}) {
   return (
     <View style={styles.itemCard}>
       <AppText variant="subtitle">{focus.title}</AppText>
@@ -45,6 +51,8 @@ function FocusCard({ focus }: { focus: StudentPracticeFocus }) {
 }
 
 export default function PracticeFocusScreen() {
+  const colors = colorsForScheme(useColorScheme());
+  const styles = createStyles(colors);
   const { session } = useAuth();
   const [loading, setLoading] = useState(true);
   const [linkedStudios, setLinkedStudios] = useState<LinkedStudioAccess[]>([]);
@@ -111,7 +119,7 @@ export default function PracticeFocusScreen() {
       {!loading && hasPortalAccess ? (
         <View style={styles.section}>
           {overview.practiceFocus.map((focus) => (
-            <FocusCard key={focus.id} focus={focus} />
+            <FocusCard key={focus.id} focus={focus} styles={styles} />
           ))}
 
           <View style={styles.lumiCard}>
@@ -145,14 +153,15 @@ export default function PracticeFocusScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+function createStyles(colors: ReturnType<typeof colorsForScheme>) {
+  return StyleSheet.create({
   itemCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
     gap: 6,
-    padding: 14
+    padding: 16
   },
   lumiAvatar: {
     borderRadius: 34,
@@ -161,8 +170,10 @@ const styles = StyleSheet.create({
   },
   lumiCard: {
     alignItems: "center",
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: 18,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 20,
+    borderWidth: 1,
     flexDirection: "row",
     gap: 14,
     padding: 16
@@ -177,4 +188,5 @@ const styles = StyleSheet.create({
   section: {
     gap: 10
   }
-});
+  });
+}
