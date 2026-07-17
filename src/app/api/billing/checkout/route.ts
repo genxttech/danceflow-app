@@ -5,6 +5,7 @@ import { getCurrentStudioContext } from "@/lib/auth/studio";
 import { getStripe } from "@/lib/payments/stripe";
 import { getBillingPlan, type PlanAudience } from "@/lib/billing/plans";
 import { checkRateLimit, getIpFromRequest, rateLimitKey, rateLimitedJson } from "@/lib/security/rate-limit";
+import { hasCurrentBusinessLegalAcceptance } from "@/lib/legal/agreements";
 
 type StudioRow = {
   id: string;
@@ -298,6 +299,24 @@ async function handleCheckout(request: NextRequest) {
 
     if (!user) {
       return billingRedirect(request, "/login");
+    }
+
+    const hasCurrentLegalAcceptance =
+      await hasCurrentBusinessLegalAcceptance({
+        supabase,
+        userId: user.id,
+      });
+
+    if (!hasCurrentLegalAcceptance) {
+      const legalSearch = new URLSearchParams({
+        intent: requestedPath ?? sharedPlan.audience,
+        plan: sharedPlan.code,
+      });
+
+      return billingRedirect(
+        request,
+        `/legal/accept?${legalSearch.toString()}`,
+      );
     }
 
     const context = await getCurrentStudioContext();

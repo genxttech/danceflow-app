@@ -143,6 +143,18 @@ type AccountBalanceItem = {
   recentEntries: ClientAccountLedgerRow[];
 };
 
+type LegalAcceptanceRow = {
+  id: string;
+  acceptance_version: string;
+  terms_version: string;
+  privacy_version: string;
+  dpa_version: string | null;
+  electronic_signature_version: string | null;
+  source: string;
+  account_intent: string | null;
+  accepted_at: string;
+};
+
 function formatDate(value: string | null) {
   if (!value) return "Date coming soon";
 
@@ -688,6 +700,25 @@ export default async function AccountPage({
   if (!user) {
     redirect("/login");
   }
+
+  const { data: legalAcceptances, error: legalAcceptancesError } =
+    await supabase
+      .from("legal_agreement_acceptances")
+      .select(
+        "id, acceptance_version, terms_version, privacy_version, dpa_version, electronic_signature_version, source, account_intent, accepted_at",
+      )
+      .eq("user_id", user.id)
+      .order("accepted_at", { ascending: false });
+
+  if (legalAcceptancesError) {
+    console.error(
+      "Failed to load legal agreement history:",
+      legalAcceptancesError.message,
+    );
+  }
+
+  const typedLegalAcceptances =
+    (legalAcceptances ?? []) as LegalAcceptanceRow[];
 
   const [
     { data: favorites, error: favoritesError },
@@ -1246,6 +1277,88 @@ export default async function AccountPage({
                 </button>
               </form>
             </details>
+          </section>
+
+          <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-violet-600">
+              Legal &amp; Trust
+            </p>
+            <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+              Agreement history
+            </h2>
+            <p className="mt-2 text-sm leading-7 text-slate-600">
+              Business agreement acceptances associated with this DanceFlow
+              account appear below.
+            </p>
+
+            {typedLegalAcceptances.length > 0 ? (
+              <div className="mt-5 space-y-3">
+                {typedLegalAcceptances.map((acceptance) => (
+                  <details
+                    key={acceptance.id}
+                    className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                  >
+                    <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+                      Accepted{" "}
+                      {new Intl.DateTimeFormat("en-US", {
+                        month: "short",
+                        day: "numeric",
+                        year: "numeric",
+                      }).format(new Date(acceptance.accepted_at))}
+                      {acceptance.account_intent
+                        ? ` · ${formatStatus(acceptance.account_intent)}`
+                        : ""}
+                    </summary>
+                    <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+                      <div>
+                        <dt className="text-slate-500">SaaS Terms</dt>
+                        <dd className="font-medium text-slate-900">
+                          {acceptance.terms_version}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Privacy Policy</dt>
+                        <dd className="font-medium text-slate-900">
+                          {acceptance.privacy_version}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Data Processing Addendum</dt>
+                        <dd className="font-medium text-slate-900">
+                          {acceptance.dpa_version ?? "Not recorded"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-slate-500">Acceptance source</dt>
+                        <dd className="font-medium text-slate-900">
+                          {formatStatus(acceptance.source)}
+                        </dd>
+                      </div>
+                    </dl>
+                  </details>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                No business agreement acceptance has been recorded for this
+                account.
+              </p>
+            )}
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Link href="/terms" className="text-sm font-semibold text-violet-700 hover:underline">
+                SaaS Terms
+              </Link>
+              <Link href="/privacy" className="text-sm font-semibold text-violet-700 hover:underline">
+                Privacy Policy
+              </Link>
+              <Link href="/dpa" className="text-sm font-semibold text-violet-700 hover:underline">
+                Data Processing Addendum
+              </Link>
+              <Link href="/security" className="text-sm font-semibold text-violet-700 hover:underline">
+                Security
+              </Link>
+            </div>
           </section>
 
           <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm sm:p-7">

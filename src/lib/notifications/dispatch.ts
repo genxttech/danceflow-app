@@ -239,6 +239,9 @@ function getWelcomeEmailContent(params: {
   const portalLinkingUrl = `${siteUrl}/knowledgebase/client-portal-linking-invites-vs-existing-accounts`;
   const payoutsUrl = `${siteUrl}/knowledgebase/billing-payments-and-payouts`;
   const supportUrl = `${siteUrl}/app/support`;
+  const termsUrl = `${siteUrl}/terms`;
+  const privacyUrl = `${siteUrl}/privacy`;
+  const securityUrl = `${siteUrl}/security`;
 
   const introLine = isOrganizer
     ? "DanceFlow helps organizers promote events, manage registrations, and connect dancers with places to dance."
@@ -305,6 +308,10 @@ function getWelcomeEmailContent(params: {
     "",
     `Support: ${supportUrl}`,
     "",
+    `SaaS Terms: ${termsUrl}`,
+    `Privacy Policy: ${privacyUrl}`,
+    `Security: ${securityUrl}`,
+    "",
     "Thanks for being part of DanceFlow.",
     "",
     "The DanceFlow Team",
@@ -345,6 +352,14 @@ function getWelcomeEmailContent(params: {
 
       <p style="margin-top: 24px;">
         Need help? Visit <a href="${supportUrl}" style="color: #4c1d95;">Support</a> or reply to this email.
+      </p>
+
+      <p style="margin-top: 20px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #64748b;">
+        <a href="${termsUrl}" style="color: #4c1d95;">SaaS Terms</a>
+        &nbsp;·&nbsp;
+        <a href="${privacyUrl}" style="color: #4c1d95;">Privacy Policy</a>
+        &nbsp;·&nbsp;
+        <a href="${securityUrl}" style="color: #4c1d95;">Security</a>
       </p>
 
       <p style="margin-top: 28px;">

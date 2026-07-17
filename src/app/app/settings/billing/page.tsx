@@ -2052,6 +2052,32 @@ export default async function BillingSettingsPage({
           </div>
         </div>
       </section>
+      <section className="mx-auto mt-8 max-w-7xl px-6 pb-10">
+        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
+          <p className="text-sm font-semibold text-slate-950">
+            Billing, legal, and data terms
+          </p>
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Subscription and connected-payment services are governed by
+            DanceFlow&apos;s current agreements and the applicable Stripe terms.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-sm">
+            <Link href="/terms" className="font-semibold text-violet-700 hover:underline">
+              SaaS Terms
+            </Link>
+            <Link href="/privacy" className="font-semibold text-violet-700 hover:underline">
+              Privacy Policy
+            </Link>
+            <Link href="/dpa" className="font-semibold text-violet-700 hover:underline">
+              Data Processing Addendum
+            </Link>
+            <Link href="/refund-policy" className="font-semibold text-violet-700 hover:underline">
+              Refund Policy
+            </Link>
+          </div>
+        </div>
+      </section>
+
     </main>
   );
 }

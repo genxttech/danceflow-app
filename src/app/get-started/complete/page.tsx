@@ -246,6 +246,23 @@ export default async function GetStartedCompletePage({
                       </ul>
                     </div>
 
+                    <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 text-xs leading-6 text-slate-500">
+                      By continuing, you confirm this business account is subject
+                      to the{" "}
+                      <Link href="/terms" target="_blank" className="font-semibold text-slate-700 underline">
+                        SaaS Terms
+                      </Link>
+                      ,{" "}
+                      <Link href="/privacy" target="_blank" className="font-semibold text-slate-700 underline">
+                        Privacy Policy
+                      </Link>
+                      , and{" "}
+                      <Link href="/dpa" target="_blank" className="font-semibold text-slate-700 underline">
+                        Data Processing Addendum
+                      </Link>
+                      .
+                    </div>
+
                     <button
                       type="submit"
                       className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-medium text-white hover:bg-violet-700"

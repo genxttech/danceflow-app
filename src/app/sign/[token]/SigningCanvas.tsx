@@ -362,7 +362,7 @@ export default function SigningCanvas({ token, signerName, fields, pageSizes }: 
         </div>
 
         <div className="rounded-2xl border border-slate-200 bg-white p-4">
-          <label className="flex gap-3 text-sm leading-6"><input type="checkbox" name="consent" required className="mt-1" /><span>I have reviewed this document, agree to use electronic records and signatures, and confirm that the signature I apply is my own.</span></label>
+          <label className="flex gap-3 text-sm leading-6"><input type="checkbox" name="consent" required className="mt-1" /><span>I have reviewed this document, agree to use electronic records and signatures, and confirm that the signature I apply is my own. Review the <a href="/electronic-signature-consent" target="_blank" rel="noreferrer" className="font-semibold text-violet-700 underline">Electronic Records and Signature Consent</a>.</span></label>
           <button className="mt-4 w-full rounded-xl bg-[var(--brand-primary)] px-4 py-3 text-sm font-semibold text-white">Finish and sign</button>
         </div>
       </form>
