@@ -8,10 +8,21 @@ import {
   Plus,
   ReceiptText,
   Ban,
+  CheckCircle2,
+  Pause,
+  Play,
+  Repeat2,
+  SkipForward,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { getCurrentStudioContext } from "@/lib/auth/studio";
-import { createExpenseAction, voidExpenseAction } from "./actions";
+import {
+  createExpenseAction,
+  recordRecurringExpenseAction,
+  setRecurringExpenseStatusAction,
+  skipRecurringExpenseAction,
+  voidExpenseAction,
+} from "./actions";
 
 type ExpenseRow = {
   id: string;
@@ -26,6 +37,21 @@ type ExpenseRow = {
   created_at: string;
   voided_at: string | null;
   void_reason: string | null;
+};
+
+type RecurringExpenseRow = {
+  id: string;
+  vendor_name: string;
+  category: string;
+  amount: number;
+  currency: string;
+  payment_method: string;
+  related_event_id: string | null;
+  notes: string | null;
+  frequency: "weekly" | "monthly" | "quarterly" | "annually";
+  next_due_date: string;
+  end_date: string | null;
+  status: "active" | "paused" | "completed";
 };
 
 type EventOptionRow = {
@@ -68,6 +94,15 @@ function categoryLabel(value: string) {
 
 function paymentMethodLabel(value: string) {
   return paymentMethods.find((method) => method.value === value)?.label ?? "Other";
+}
+
+function frequencyLabel(value: RecurringExpenseRow["frequency"]) {
+  return {
+    weekly: "Weekly",
+    monthly: "Monthly",
+    quarterly: "Quarterly",
+    annually: "Annually",
+  }[value];
 }
 
 function formatDate(value: string) {
@@ -157,6 +192,7 @@ export default async function ExpensesPage() {
   const [
     { data: expenses, error: expensesError },
     { data: eventOptions, error: eventOptionsError },
+    { data: recurringExpenses, error: recurringExpensesError },
   ] = await Promise.all([
     supabase
       .from("expenses")
@@ -187,6 +223,27 @@ export default async function ExpensesPage() {
       .eq("studio_id", context.studioId)
       .order("start_date", { ascending: false })
       .limit(300),
+
+    supabase
+      .from("recurring_expense_schedules")
+      .select(`
+        id,
+        vendor_name,
+        category,
+        amount,
+        currency,
+        payment_method,
+        related_event_id,
+        notes,
+        frequency,
+        next_due_date,
+        end_date,
+        status
+      `)
+      .eq("studio_id", context.studioId)
+      .neq("status", "completed")
+      .order("next_due_date", { ascending: true })
+      .limit(100),
   ]);
 
   if (expensesError) {
@@ -197,7 +254,12 @@ export default async function ExpensesPage() {
     throw new Error(`Could not load events for expenses: ${eventOptionsError.message}`);
   }
 
+  if (recurringExpensesError) {
+    throw new Error(`Could not load recurring expenses: ${recurringExpensesError.message}`);
+  }
+
   const typedExpenses = (expenses ?? []) as ExpenseRow[];
+  const typedRecurringExpenses = (recurringExpenses ?? []) as RecurringExpenseRow[];
   const typedEventOptions = (eventOptions ?? []) as EventOptionRow[];
   const eventOptionById = new Map(
     typedEventOptions.map((event) => [event.id, formatEventOptionLabel(event)]),
@@ -215,6 +277,17 @@ export default async function ExpensesPage() {
     .reduce((sum, expense) => sum + Number(expense.amount ?? 0), 0);
 
   const today = new Date().toISOString().slice(0, 10);
+  const thirtyDaysFromToday = new Date();
+  thirtyDaysFromToday.setDate(thirtyDaysFromToday.getDate() + 30);
+  const thirtyDayKey = thirtyDaysFromToday.toISOString().slice(0, 10);
+  const expectedNextThirtyDays = typedRecurringExpenses
+    .filter(
+      (expense) =>
+        expense.status === "active" &&
+        expense.next_due_date >= today &&
+        expense.next_due_date <= thirtyDayKey
+    )
+    .reduce((sum, expense) => sum + Number(expense.amount ?? 0), 0);
 
   return (
     <div className="space-y-8 bg-[linear-gradient(180deg,rgba(255,247,237,0.45)_0%,rgba(255,255,255,0)_22%)] p-1">
@@ -262,7 +335,7 @@ export default async function ExpensesPage() {
         </div>
       </section>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="Total Expenses"
           value={formatCurrency(totalExpenses)}
@@ -280,6 +353,12 @@ export default async function ExpensesPage() {
           value={String(activeExpenses.length)}
           helper="Active recent expense records"
           icon={ReceiptText}
+        />
+        <StatCard
+          label="Expected Next 30 Days"
+          value={formatCurrency(expectedNextThirtyDays)}
+          helper="Active predictable expenses"
+          icon={Repeat2}
         />
       </div>
 
@@ -403,6 +482,63 @@ export default async function ExpensesPage() {
               </p>
             </div>
 
+            <details className="lg:col-span-2 rounded-2xl border border-[var(--brand-border)] bg-[var(--brand-primary-soft)]/25 p-4">
+              <summary className="cursor-pointer list-none">
+                <span className="block text-sm font-semibold text-slate-900">
+                  Repeat this expense
+                </span>
+                <span className="mt-1 block text-xs leading-5 text-slate-500">
+                  Open to schedule predictable costs like rent, insurance, and software.
+                </span>
+              </summary>
+
+              <label className="mt-4 flex items-center gap-2 text-sm font-semibold text-slate-800">
+                <input
+                  type="checkbox"
+                  name="repeat_expense"
+                  className="h-4 w-4 rounded border-slate-300"
+                />
+                Create a recurring schedule
+              </label>
+
+              <div className="mt-4 grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 lg:grid-cols-3">
+                <label className="text-sm font-medium text-slate-700">
+                  Frequency
+                  <select
+                    name="recurring_frequency"
+                    defaultValue="monthly"
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                    <option value="annually">Annually</option>
+                  </select>
+                </label>
+
+                <label className="text-sm font-medium text-slate-700">
+                  Next expected date
+                  <input
+                    type="date"
+                    name="recurring_next_date"
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                  />
+                  <span className="mt-1 block text-xs font-normal text-slate-500">
+                    Leave blank to use the next interval automatically.
+                  </span>
+                </label>
+
+                <label className="text-sm font-medium text-slate-700">
+                  Optional end date
+                  <input
+                    type="date"
+                    name="recurring_end_date"
+                    className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+            </details>
+
             <div className="lg:col-span-2">
               <label className="text-sm font-medium text-slate-700">
                 Notes
@@ -427,6 +563,122 @@ export default async function ExpensesPage() {
           </form>
         </section>
       ) : null}
+
+      <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-200 px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="rounded-2xl bg-[var(--brand-primary-soft)] p-3 text-[var(--brand-primary)]">
+              <Repeat2 className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900">
+                Expected Expenses
+              </h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Predictable expenses stay here until they are recorded as paid.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {typedRecurringExpenses.length === 0 ? (
+          <div className="px-6 py-10 text-center">
+            <p className="text-sm font-medium text-slate-900">
+              No predictable expenses are scheduled
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Use “Repeat this expense” when adding rent, insurance, software,
+              or another recurring cost.
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-slate-200">
+            {typedRecurringExpenses.map((expense) => (
+              <div
+                key={expense.id}
+                className="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center lg:justify-between"
+              >
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="font-semibold text-slate-950">
+                      {expense.vendor_name}
+                    </p>
+                    <span className="rounded-full bg-[var(--brand-primary-soft)] px-2.5 py-1 text-xs font-semibold text-[var(--brand-primary)]">
+                      {frequencyLabel(expense.frequency)}
+                    </span>
+                    {expense.status === "paused" ? (
+                      <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">
+                        Paused
+                      </span>
+                    ) : (
+                      <span className="rounded-full bg-sky-100 px-2.5 py-1 text-xs font-semibold text-sky-800">
+                        Expected
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-sm text-slate-600">
+                    {categoryLabel(expense.category)} · Next {formatDate(expense.next_due_date)}
+                    {expense.end_date ? ` · Ends ${formatDate(expense.end_date)}` : ""}
+                  </p>
+                  {expense.notes ? (
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      {expense.notes}
+                    </p>
+                  ) : null}
+                </div>
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                  <p className="text-lg font-semibold text-slate-950">
+                    {formatCurrency(expense.amount, expense.currency)}
+                  </p>
+
+                  {allowManage ? (
+                    <div className="flex flex-wrap gap-2">
+                      {expense.status === "active" ? (
+                        <>
+                          <form action={recordRecurringExpenseAction}>
+                            <input type="hidden" name="schedule_id" value={expense.id} />
+                            <button className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--brand-primary)] px-3 py-2 text-xs font-semibold text-white">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Record as paid
+                            </button>
+                          </form>
+
+                          <form action={skipRecurringExpenseAction}>
+                            <input type="hidden" name="schedule_id" value={expense.id} />
+                            <button className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                              <SkipForward className="h-3.5 w-3.5" />
+                              Skip next
+                            </button>
+                          </form>
+
+                          <form action={setRecurringExpenseStatusAction}>
+                            <input type="hidden" name="schedule_id" value={expense.id} />
+                            <input type="hidden" name="status" value="paused" />
+                            <button className="inline-flex items-center gap-1.5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                              <Pause className="h-3.5 w-3.5" />
+                              Pause
+                            </button>
+                          </form>
+                        </>
+                      ) : (
+                        <form action={setRecurringExpenseStatusAction}>
+                          <input type="hidden" name="schedule_id" value={expense.id} />
+                          <input type="hidden" name="status" value="active" />
+                          <button className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-700 px-3 py-2 text-xs font-semibold text-white">
+                            <Play className="h-3.5 w-3.5" />
+                            Resume
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 px-6 py-4">
